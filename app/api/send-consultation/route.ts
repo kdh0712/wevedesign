@@ -1,0 +1,67 @@
+import { NextResponse } from 'next/server';
+import { Resend } from 'resend';
+
+type ConsultationPayload = {
+  name?: string;
+  phone?: string;
+  address?: string;
+  message?: string;
+};
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
+export async function POST(request: Request) {
+  try {
+    const apiKey = process.env.RESEND_API_KEY;
+    const toEmail = process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
+
+    if (!apiKey) {
+      return NextResponse.json({ error: 'RESEND_API_KEY is not configured.' }, { status: 500 });
+    }
+
+    const { name, phone, address, message } = (await request.json()) as ConsultationPayload;
+
+    if (!name || !phone || !address || !message) {
+      return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
+    }
+
+    const resend = new Resend(apiKey);
+    const safeName = escapeHtml(name);
+    const safePhone = escapeHtml(phone);
+    const safeAddress = escapeHtml(address);
+    const safeMessage = escapeHtml(message).replace(/\n/g, '<br>');
+
+    const { data, error } = await resend.emails.send({
+      from: 'WEVE DESIGN <onboarding@resend.dev>',
+      to: [toEmail],
+      subject: `[WEVE DESIGN 상담 신청] ${name}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; line-height: 1.7; color: #171512;">
+          <h2 style="margin: 0 0 20px; color: #171512;">새 상담 신청이 접수되었습니다.</h2>
+          <p><strong>이름:</strong> ${safeName}</p>
+          <p><strong>연락처:</strong> ${safePhone}</p>
+          <p><strong>현장 위치:</strong> ${safeAddress}</p>
+          <p><strong>문의 내용:</strong></p>
+          <div style="background: #f6f4ef; padding: 16px; border-radius: 8px;">
+            ${safeMessage}
+          </div>
+        </div>
+      `,
+    });
+
+    if (error) {
+      return NextResponse.json({ error }, { status: 500 });
+    }
+
+    return NextResponse.json({ data });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
+  }
+}
