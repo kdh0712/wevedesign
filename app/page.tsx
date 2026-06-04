@@ -553,6 +553,13 @@ export default function WeveDesignLanding() {
     return null;
   };
 
+  const getNaverDirectionsUrl = (lat: number, lng: number) => {
+    const destination = [roadAddress, lotAddress, 'WEVE DESIGN'].filter(Boolean).join(' ');
+    const query = encodeURIComponent(destination);
+
+    return `https://map.naver.com/p/search/${query}?lat=${lat}&lng=${lng}`;
+  };
+
   const initMap = () => {
     if (typeof window === 'undefined' || !window.naver || viewMode !== 'main') return;
     const mapElement = document.getElementById('map');
@@ -570,36 +577,35 @@ export default function WeveDesignLanding() {
           }
         : null;
     const verifiedLocation = knownAddressLocation(searchAddress) || knownAddressLocation(roadAddress);
-    const fallbackLocation = new window.naver.maps.LatLng(
-      settings.mapLat || defaultSettings.mapLat,
-      settings.mapLng || defaultSettings.mapLng,
-    );
+    const fallbackLat = settings.mapLat || defaultSettings.mapLat;
+    const fallbackLng = settings.mapLng || defaultSettings.mapLng;
 
-    const drawMap = (location: unknown) => {
+    const drawMap = (lat: number, lng: number) => {
+      const location = new window.naver!.maps.LatLng(lat, lng);
+      const directionsUrl = getNaverDirectionsUrl(lat, lng);
       const map = new window.naver!.maps.Map(mapElement, {
         center: location,
         zoom: 17,
         zoomControl: true,
       });
-      const marker = new window.naver!.maps.Marker({ position: location, map, title: 'WEVE DESIGN' });
+      const marker = new window.naver!.maps.Marker({ position: location, map, title: 'WEVE DESIGN', cursor: 'pointer' });
       const infoWindow = new window.naver!.maps.InfoWindow({
-        content: `<div style="padding:14px 16px; min-width:220px; line-height:1.5; color:#222; background:#fff;"><strong style="display:block; margin-bottom:4px;">WEVE DESIGN</strong><span style="font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span></div>`,
+        content: `<div style="padding:14px 16px; min-width:230px; line-height:1.5; color:#222; background:#fff;"><strong style="display:block; margin-bottom:4px;">WEVE DESIGN</strong><span style="font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; margin-top:10px; padding:7px 10px; border-radius:6px; background:#171512; color:#fff; font-size:12px; font-weight:700; text-decoration:none;">네이버 지도 길찾기</a></div>`,
       });
 
       window.naver!.maps.Event.addListener(marker, 'click', () => {
-        if (infoWindow.getMap()) infoWindow.close();
-        else infoWindow.open(map, marker);
+        window.open(directionsUrl, '_blank', 'noopener,noreferrer');
       });
       infoWindow.open(map, marker);
     };
 
     if (pickedLocation) {
-      drawMap(new window.naver.maps.LatLng(pickedLocation.lat, pickedLocation.lng));
+      drawMap(pickedLocation.lat, pickedLocation.lng);
       return;
     }
 
     if (verifiedLocation) {
-      drawMap(new window.naver.maps.LatLng(verifiedLocation.lat, verifiedLocation.lng));
+      drawMap(verifiedLocation.lat, verifiedLocation.lng);
       return;
     }
 
@@ -607,13 +613,13 @@ export default function WeveDesignLanding() {
       const knownLocation = knownAddressLocation(searchAddress);
 
       if (knownLocation) {
-        drawMap(new window.naver!.maps.LatLng(knownLocation.lat, knownLocation.lng));
+        drawMap(knownLocation.lat, knownLocation.lng);
         setMapStatus('');
         return;
       }
 
       setMapStatus('주소를 찾지 못해 기본 위치를 표시하고 있습니다. 주소를 도로명까지 자세히 입력해 주세요.');
-      drawMap(fallbackLocation);
+      drawMap(fallbackLat, fallbackLng);
     };
 
     const geocodeByNaver = (queryIndex = 0) => {
@@ -625,7 +631,7 @@ export default function WeveDesignLanding() {
         const result = response?.v2?.addresses?.[0];
 
         if (status === window.naver!.maps.Service?.Status.OK && result) {
-          drawMap(new window.naver!.maps.LatLng(Number(result.y), Number(result.x)));
+          drawMap(Number(result.y), Number(result.x));
           return;
         }
 
@@ -636,7 +642,7 @@ export default function WeveDesignLanding() {
 
         const searchedLocation = await findAddressByOpenSearch(addressQueries[addressQueries.length - 1] || searchAddress);
         if (searchedLocation) {
-          drawMap(new window.naver!.maps.LatLng(searchedLocation.lat, searchedLocation.lng));
+          drawMap(searchedLocation.lat, searchedLocation.lng);
           return;
         }
 
@@ -650,7 +656,7 @@ export default function WeveDesignLanding() {
 
     findAddressByOpenSearch(addressQueries[addressQueries.length - 1] || searchAddress).then((searchedLocation) => {
       if (searchedLocation) {
-        drawMap(new window.naver!.maps.LatLng(searchedLocation.lat, searchedLocation.lng));
+        drawMap(searchedLocation.lat, searchedLocation.lng);
         return;
       }
 
@@ -827,7 +833,7 @@ export default function WeveDesignLanding() {
               <p className="mb-4 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 className="hero-title max-w-[650px] text-4xl font-semibold leading-[1.1] tracking-normal text-[#f4dfb8] sm:text-5xl md:text-6xl lg:text-[4.35rem]">
+              <h1 className="hero-title max-w-[660px] text-[2.65rem] font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] lg:text-[4.55rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
               <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3 sm:max-w-[470px]" aria-hidden="true">
@@ -1330,7 +1336,7 @@ function Header({
             className={`h-11 w-auto transition md:h-12 ${onDarkHeader ? 'brand-mark-on-dark' : ''}`}
           />
         </button>
-        <nav className={`hidden items-center gap-5 text-sm font-semibold md:flex lg:gap-7 xl:gap-8 ${mutedTone}`}>
+        <nav className={`hidden items-center gap-5 text-[15px] font-semibold md:flex lg:gap-7 xl:gap-8 ${mutedTone}`}>
           <button onClick={() => onSectionClick('home')} className={navClass('home')}>
             홈
           </button>
