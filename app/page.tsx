@@ -822,15 +822,15 @@ export default function WeveDesignLanding() {
             <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#17120d]/42 to-transparent" />
           </div>
 
-          <div className="relative z-10 mx-auto flex min-h-screen max-w-[1040px] items-center px-6 pb-16 pt-28 md:px-12 lg:px-10">
-            <div className="fade-up max-w-[680px]">
-              <p className="mb-4 font-serif text-sm uppercase tracking-normal text-[#eed7a8] md:text-base">
+          <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-[1600px] items-center px-5 pb-16 pt-28 sm:px-8 md:px-10 lg:px-12 xl:px-16">
+            <div className="fade-up w-full max-w-[680px]">
+              <p className="mb-4 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 className="hero-title max-w-[650px] text-5xl font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] md:text-6xl lg:text-[4.35rem]">
+              <h1 className="hero-title max-w-[650px] text-4xl font-semibold leading-[1.1] tracking-normal text-[#f4dfb8] sm:text-5xl md:text-6xl lg:text-[4.35rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
-              <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3" aria-hidden="true">
+              <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3 sm:max-w-[470px]" aria-hidden="true">
                 <span className="hero-ornament-line" />
                 <svg className="hero-ornament-mark" viewBox="0 0 92 20" fill="none">
                   <path d="M8 10h24c5.2 0 7.6-6 14-6s8.8 6 14 6h24" />
@@ -881,7 +881,7 @@ export default function WeveDesignLanding() {
               </div>
             </div>
 
-            <div className="absolute bottom-8 left-1/2 hidden w-full max-w-[1040px] -translate-x-1/2 items-center gap-4 px-10 text-[10px] font-bold uppercase tracking-[0.24em] text-white/78 md:flex">
+            <div className="absolute bottom-8 left-1/2 hidden w-full max-w-[1600px] -translate-x-1/2 items-center gap-4 px-10 text-[10px] font-bold uppercase tracking-[0.24em] text-white/78 md:flex lg:px-12 xl:px-16">
               <span className="h-px w-14 bg-white/55" />
               Scroll
             </div>
@@ -1321,16 +1321,16 @@ function Header({
   const activeContact = activeSection === 'contact';
 
   return (
-    <header className={`fixed top-0 z-50 w-full border-b px-5 transition-colors duration-300 md:px-8 ${headerTone}`}>
-      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between">
+    <header className={`fixed top-0 z-50 w-full border-b px-5 transition-colors duration-300 sm:px-8 md:px-10 lg:px-12 xl:px-16 ${headerTone}`}>
+      <div className="mx-auto flex h-[72px] max-w-[1600px] items-center justify-between md:h-20">
         <button onClick={onLogoClick} className="inline-flex items-center" aria-label="WEVE DESIGN 홈으로 이동">
           <img
             src="/weve-mark.png"
             alt="WEVE DESIGN"
-            className={`h-12 w-auto transition ${onDarkHeader ? 'brand-mark-on-dark' : ''}`}
+            className={`h-11 w-auto transition md:h-12 ${onDarkHeader ? 'brand-mark-on-dark' : ''}`}
           />
         </button>
-        <nav className={`hidden items-center gap-8 text-sm font-semibold md:flex ${mutedTone}`}>
+        <nav className={`hidden items-center gap-5 text-sm font-semibold md:flex lg:gap-7 xl:gap-8 ${mutedTone}`}>
           <button onClick={() => onSectionClick('home')} className={navClass('home')}>
             홈
           </button>
@@ -1345,7 +1345,7 @@ function Header({
           </button>
           <button
             onClick={() => onSectionClick('contact')}
-            className={`hover-shine rounded-md px-5 py-3 shadow-[0_10px_24px_rgba(191,143,51,0.16)] transition ${
+            className={`hover-shine rounded-md px-4 py-2.5 shadow-[0_10px_24px_rgba(191,143,51,0.16)] transition lg:px-5 lg:py-3 ${
               activeContact
                 ? 'bg-[#ffd879] text-[#171512]'
                 : onDarkHeader
@@ -1372,7 +1372,7 @@ function Header({
       </div>
       {mobileNavOpen && (
         <nav
-          className={`mx-auto grid max-w-7xl gap-2 border-t py-4 text-base font-semibold md:hidden ${
+          className={`mx-auto grid max-w-[1600px] gap-2 border-t py-4 text-base font-semibold md:hidden ${
             onDarkHeader ? 'border-white/20 bg-[#15120d]/72 text-white backdrop-blur' : 'border-[#eadfcd] text-[#171512]'
           }`}
         >
