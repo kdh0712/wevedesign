@@ -32,10 +32,14 @@ export async function POST(request: Request) {
     const toEmail = settings?.consultationEmail || process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
 
     if (!apiKey) {
-      return NextResponse.json({ error: 'RESEND_API_KEY is not configured.' }, { status: 500 });
+      return NextResponse.json({ error: '메일 전송 키가 설정되지 않았습니다. Vercel의 RESEND_API_KEY를 확인해 주세요.' }, { status: 500 });
     }
 
-    const { name, phone, address, message } = (await request.json()) as ConsultationPayload;
+    const payload = (await request.json()) as ConsultationPayload;
+    const name = payload.name?.trim();
+    const phone = payload.phone?.trim();
+    const address = payload.address?.trim();
+    const message = payload.message?.trim();
 
     if (!name || !phone || !address || !message) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
@@ -66,7 +70,12 @@ export async function POST(request: Request) {
     });
 
     if (error) {
-      return NextResponse.json({ error }, { status: 500 });
+      const errorMessage =
+        typeof error === 'string'
+          ? error
+          : '메일 전송에 실패했습니다. Resend 발신자/수신자 설정을 확인해 주세요.';
+
+      return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 
     return NextResponse.json({ data });

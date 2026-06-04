@@ -288,6 +288,7 @@ export default function WeveDesignLanding() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
+  const [submitErrorMessage, setSubmitErrorMessage] = useState('');
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
@@ -671,11 +672,19 @@ export default function WeveDesignLanding() {
   const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setFormData({ ...formData, [event.target.name]: event.target.value });
     setSubmitStatus('');
+    setSubmitErrorMessage('');
   };
 
   const handleSubmit = async () => {
-    if (!formData.name || !formData.phone || !formData.address || !formData.message) {
-      setSubmitStatus('error');
+    const payload = {
+      name: formData.name.trim(),
+      phone: formData.phone.trim(),
+      address: formData.address.trim(),
+      message: formData.message.trim(),
+    };
+
+    if (!payload.name || !payload.phone || !payload.address || !payload.message) {
+      setSubmitStatus('missing');
       return;
     }
 
@@ -684,17 +693,22 @@ export default function WeveDesignLanding() {
       const response = await fetch('/api/send-consultation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify(payload),
       });
 
       if (response.ok) {
         setIsSubmitted(true);
         setFormData({ name: '', phone: '', address: '', message: '' });
+        setSubmitStatus('');
+        setSubmitErrorMessage('');
       } else {
-        setSubmitStatus('error');
+        const data = (await response.json().catch(() => null)) as { error?: string } | null;
+        setSubmitErrorMessage(data?.error || '상담 신청 전송 설정을 확인해야 합니다.');
+        setSubmitStatus('server');
       }
     } catch {
-      setSubmitStatus('error');
+      setSubmitErrorMessage('네트워크 문제로 전송하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setSubmitStatus('server');
     } finally {
       setIsSubmitting(false);
     }
@@ -1263,7 +1277,12 @@ export default function WeveDesignLanding() {
                   >
                     {isSubmitting ? '전송 중...' : '상담 신청하기'}
                   </button>
-                  {submitStatus === 'error' && <p className="text-sm font-semibold text-red-600">필수 정보를 모두 입력해 주세요.</p>}
+                  {submitStatus === 'missing' && <p className="text-sm font-semibold text-red-600">필수 정보를 모두 입력해 주세요.</p>}
+                  {submitStatus === 'server' && (
+                    <p className="text-sm font-semibold text-red-600">
+                      {submitErrorMessage || '상담 신청 전송 설정을 확인해야 합니다.'}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
