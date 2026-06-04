@@ -17,6 +17,11 @@ type PreviewProject = {
   rooms: string[];
 };
 
+type ManagerApiResponse = {
+  error?: string;
+  results?: UploadResult[];
+};
+
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
   const [category, setCategory] = useState('주택');
@@ -34,6 +39,20 @@ export default function ManagerPage() {
   const authHeaders = () => ({
     'x-manager-password': password,
   });
+
+  const readManagerResponse = async (response: Response): Promise<ManagerApiResponse> => {
+    const text = await response.text();
+
+    if (!text) return {};
+
+    try {
+      return JSON.parse(text) as ManagerApiResponse;
+    } catch {
+      return {
+        error: text.slice(0, 300) || `Server returned HTTP ${response.status}`,
+      };
+    }
+  };
 
   const handleFolderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setError('');
@@ -62,7 +81,7 @@ export default function ManagerPage() {
         },
         body: JSON.stringify({ consultationEmail }),
       });
-      const data = await response.json();
+      const data = await readManagerResponse(response);
 
       if (!response.ok) throw new Error(data.error || '이메일 저장에 실패했습니다.');
       setStatus('상담문의 수신 이메일을 저장했습니다.');
@@ -107,7 +126,7 @@ export default function ManagerPage() {
         headers: authHeaders(),
         body: formData,
       });
-      const data = await response.json();
+      const data = await readManagerResponse(response);
 
       if (!response.ok) throw new Error(data.error || '업로드에 실패했습니다.');
       setResults(data.results || []);
