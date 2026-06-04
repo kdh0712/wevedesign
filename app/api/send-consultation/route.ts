@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
+import { createClient } from 'next-sanity';
 
 type ConsultationPayload = {
   name?: string;
@@ -16,10 +17,19 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
+const client = createClient({
+  projectId: 'q2qjj1se',
+  dataset: 'production',
+  useCdn: true,
+  apiVersion: '2026-01-01',
+  token: process.env.SANITY_READ_TOKEN,
+});
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.RESEND_API_KEY;
-    const toEmail = process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
+    const settings = await client.fetch('*[_type == "siteSettings"][0]{consultationEmail}', {}, { next: { revalidate: 60 } });
+    const toEmail = settings?.consultationEmail || process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
 
     if (!apiKey) {
       return NextResponse.json({ error: 'RESEND_API_KEY is not configured.' }, { status: 500 });

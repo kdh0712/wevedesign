@@ -87,6 +87,7 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
   contactLabel,
   contactTitle,
   contactBody,
+  consultationEmail,
   kakaoUrl
 }`;
 

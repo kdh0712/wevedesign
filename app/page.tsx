@@ -95,6 +95,7 @@ type SiteSettings = {
   contactLabel?: string;
   contactTitle?: string;
   contactBody?: string;
+  consultationEmail?: string;
   kakaoUrl?: string;
 };
 
@@ -136,6 +137,7 @@ const defaultSettings: Required<SiteSettings> = {
   contactLabel: 'Consultation',
   contactTitle: '공간 이야기를 남겨주세요.',
   contactBody: '이름, 연락처, 현장 주소, 원하는 시공 범위를 보내주시면 확인 후 연락드립니다.',
+  consultationEmail: 'ehogh1@gmail.com',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
 };
 

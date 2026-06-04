@@ -317,6 +317,13 @@ const siteSettings = defineType({
       group: 'location',
     }),
     defineField({
+      name: 'consultationEmail',
+      title: '상담문의 받을 이메일',
+      type: 'string',
+      group: 'location',
+      description: '홈페이지 상담문의가 도착할 이메일 주소입니다. 예: hello@wevedesign.co.kr',
+    }),
+    defineField({
       name: 'kakaoUrl',
       title: '카카오톡 상담 링크',
       type: 'url',
