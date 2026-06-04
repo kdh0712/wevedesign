@@ -822,23 +822,27 @@ export default function WeveDesignLanding() {
             <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#17120d]/42 to-transparent" />
           </div>
 
-          <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl items-center px-5 pb-20 pt-32 md:px-8">
-            <div className="fade-up max-w-3xl">
+          <div className="relative z-10 mx-auto flex min-h-screen max-w-[1040px] items-center px-6 pb-16 pt-28 md:px-12 lg:px-10">
+            <div className="fade-up max-w-[680px]">
               <p className="mb-4 font-serif text-sm uppercase tracking-normal text-[#eed7a8] md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 className="hero-title max-w-3xl text-5xl font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] md:text-7xl lg:text-[5.35rem]">
+              <h1 className="hero-title max-w-[650px] text-5xl font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] md:text-6xl lg:text-[4.35rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
-              <div className="my-5 flex max-w-md items-center gap-3 text-[#d7b877]">
-                <span className="h-px flex-1 bg-[#d7b877]/70" />
-                <span className="text-lg leading-none">◇</span>
-                <span className="h-px flex-1 bg-[#d7b877]/70" />
+              <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3" aria-hidden="true">
+                <span className="hero-ornament-line" />
+                <svg className="hero-ornament-mark" viewBox="0 0 92 20" fill="none">
+                  <path d="M8 10h24c5.2 0 7.6-6 14-6s8.8 6 14 6h24" />
+                  <path d="M33 10c5.4 0 7.4 5.8 13 5.8S53.6 10 59 10" />
+                  <path d="M46 3.2 52.8 10 46 16.8 39.2 10 46 3.2Z" />
+                </svg>
+                <span className="hero-ornament-line" />
               </div>
-              <p className="max-w-2xl text-base leading-8 text-white/88 md:text-lg">
+              <p className="max-w-[610px] text-sm leading-7 text-white/90 md:text-base">
                 {settings.heroDescription || defaultSettings.heroDescription}
               </p>
-              <div className="mt-5 flex max-w-4xl flex-wrap gap-x-3 gap-y-2 text-xs font-semibold text-white/88 md:text-sm">
+              <div className="mt-5 flex max-w-[700px] flex-wrap gap-x-3 gap-y-2 text-xs font-semibold text-white/90">
                 {serviceLines.map((service, index) => (
                   <span key={service} className="inline-flex items-center gap-3">
                     <span>{service}</span>
@@ -846,23 +850,23 @@ export default function WeveDesignLanding() {
                   </span>
                 ))}
               </div>
-              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <a
                   href="#contact"
-                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-[#e7ba63] px-6 py-3.5 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(191,143,51,0.25)] transition hover:bg-[#f4cf85]"
+                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-[#e7ba63] px-5 py-3 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(191,143,51,0.25)] transition hover:bg-[#f4cf85]"
                 >
                   {settings.primaryButtonLabel || defaultSettings.primaryButtonLabel}
                   <ChevronRight size={18} />
                 </a>
                 <button
                   onClick={showPortfolio}
-                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-white px-6 py-3.5 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(0,0,0,0.14)] transition hover:bg-[#fff7df]"
+                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(0,0,0,0.14)] transition hover:bg-[#fff7df]"
                 >
                   {settings.secondaryButtonLabel || defaultSettings.secondaryButtonLabel}
                   <ArrowUpRight size={18} />
                 </button>
               </div>
-              <div className="mt-9 flex items-center gap-3">
+              <div className="mt-7 flex items-center gap-3">
                 <span className="h-px w-14 bg-[#d7b877]/72" />
                 {heroSlides.map((slide, index) => (
                   <button
@@ -877,7 +881,7 @@ export default function WeveDesignLanding() {
               </div>
             </div>
 
-            <div className="absolute bottom-8 left-5 hidden items-center gap-4 text-xs font-bold uppercase tracking-[0.24em] text-white/78 md:flex">
+            <div className="absolute bottom-8 left-1/2 hidden w-full max-w-[1040px] -translate-x-1/2 items-center gap-4 px-10 text-[10px] font-bold uppercase tracking-[0.24em] text-white/78 md:flex">
               <span className="h-px w-14 bg-white/55" />
               Scroll
             </div>

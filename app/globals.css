@@ -110,9 +110,38 @@ img {
 }
 
 .hero-title {
-  text-shadow:
-    0 2px 0 rgb(45 34 22 / 0.34),
-    0 18px 42px rgb(0 0 0 / 0.38);
+  color: transparent;
+  background: linear-gradient(180deg, #fff5d7 0%, #f0d28f 45%, #d4a75c 72%, #a87535 100%);
+  background-clip: text;
+  filter:
+    drop-shadow(0 2px 0 rgb(50 36 20 / 0.42))
+    drop-shadow(0 14px 22px rgb(0 0 0 / 0.34));
+  -webkit-text-fill-color: transparent;
+  -webkit-background-clip: text;
+}
+
+.hero-ornament {
+  color: #d7b877;
+}
+
+.hero-ornament-line {
+  height: 1px;
+  flex: 1 1 0;
+  background: linear-gradient(90deg, rgb(215 184 119 / 0.12), rgb(215 184 119 / 0.86));
+}
+
+.hero-ornament-line:last-child {
+  background: linear-gradient(90deg, rgb(215 184 119 / 0.86), rgb(215 184 119 / 0.12));
+}
+
+.hero-ornament-mark {
+  width: 92px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.95;
 }
 
 .hero-slide-active {
