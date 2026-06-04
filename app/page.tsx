@@ -99,9 +99,9 @@ type SiteSettings = {
 };
 
 const defaultSettings: Required<SiteSettings> = {
-  heroImage: '/hero-living-bright.png',
-  heroImage2: '/hero-kitchen-bright.png',
-  heroImage3: '/main-bg.png',
+  heroImage: '/hero-living-bright.webp',
+  heroImage2: '/hero-kitchen-bright.webp',
+  heroImage3: '/main-bg.webp',
   heroImageAlt: 'WEVE DESIGN 거실 인테리어',
   heroImage2Alt: 'WEVE DESIGN 주방 인테리어',
   heroImage3Alt: 'WEVE DESIGN 공간 인테리어',
@@ -141,17 +141,17 @@ const defaultSettings: Required<SiteSettings> = {
 
 const fallbackHeroSlides = [
   {
-    image: '/hero-living-bright.png',
+    image: '/hero-living-bright.webp',
     label: 'RESIDENTIAL REMODELING',
     title: '오래 보아도 편안한 공간을 만듭니다.',
   },
   {
-    image: '/hero-kitchen-bright.png',
+    image: '/hero-kitchen-bright.webp',
     label: 'KITCHEN & DINING',
     title: '생활의 중심을 더 밝고 실용적으로 설계합니다.',
   },
   {
-    image: '/main-bg.png',
+    image: '/main-bg.webp',
     label: 'WEVE DESIGN STUDIO',
     title: '현장의 조건에 맞는 균형을 제안합니다.',
   },
@@ -258,6 +258,14 @@ const constructionModels = [
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 
+const optimizedImage = (src: string | undefined, width: number, quality = 78) => {
+  if (!src) return '';
+  if (!src.includes('cdn.sanity.io')) return src;
+
+  const separator = src.includes('?') ? '&' : '?';
+  return `${src}${separator}auto=format&w=${width}&q=${quality}&fit=max`;
+};
+
 const mixRgb = (from: [number, number, number], to: [number, number, number], progress: number) => {
   const ratio = clamp(progress);
   const [r, g, b] = from.map((channel, index) => Math.round(channel + (to[index] - channel) * ratio));
@@ -317,6 +325,7 @@ export default function WeveDesignLanding() {
     ],
   );
   const activeHero = heroSlides[activeHeroIndex] || heroSlides[0];
+  const naverMapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -400,6 +409,12 @@ export default function WeveDesignLanding() {
 
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (!naverMapClientId && viewMode === 'main') {
+      setMapStatus('네이버 지도 API 키가 설정되지 않았습니다. Vercel 환경변수와 네이버 클라우드 도메인 등록을 확인해주세요.');
+    }
+  }, [naverMapClientId, viewMode]);
 
   useEffect(() => {
     if (viewMode === 'portfolio') {
@@ -695,7 +710,7 @@ export default function WeveDesignLanding() {
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
             <img
-              src={settings.heroImage || defaultSettings.heroImage}
+              src={optimizedImage(settings.heroImage || defaultSettings.heroImage, 2200, 82)}
               alt={settings.heroImageAlt || defaultSettings.heroImageAlt}
               className="absolute inset-0 h-full w-full object-cover"
             />
@@ -753,11 +768,14 @@ export default function WeveDesignLanding() {
 
   return (
     <div className="min-h-screen bg-[#fffdf8] text-[#171512]">
-      <Script
-        strategy="afterInteractive"
-        src="https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=nbfvy94d90&submodules=geocoder"
-        onReady={initMap}
-      />
+      {naverMapClientId && (
+        <Script
+          strategy="afterInteractive"
+          src={`https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverMapClientId)}&submodules=geocoder`}
+          onReady={initMap}
+          onError={() => setMapStatus('네이버 지도 API를 불러오지 못했습니다. API 키와 허용 도메인을 확인해주세요.')}
+        />
+      )}
 
       <a
         href={settings.kakaoUrl || defaultSettings.kakaoUrl}
@@ -787,11 +805,13 @@ export default function WeveDesignLanding() {
             {heroSlides.map((slide, index) => (
               <img
                 key={slide.image}
-                src={slide.image}
+                src={optimizedImage(slide.image, 2200, 82)}
                 alt={slide.alt}
                 className={`absolute inset-0 h-full w-full object-cover transition-all duration-1000 ease-out ${
                   index === activeHeroIndex ? 'hero-slide-active opacity-100' : 'scale-105 opacity-0'
                 }`}
+                loading={index === activeHeroIndex ? 'eager' : 'lazy'}
+                fetchPriority={index === activeHeroIndex ? 'high' : 'auto'}
               />
             ))}
             <div className="absolute inset-0 bg-gradient-to-r from-[#15120d]/82 via-[#15120d]/34 to-[#15120d]/8" />
@@ -857,7 +877,7 @@ export default function WeveDesignLanding() {
         <section className="scroll-reveal bg-white px-5 py-24 md:px-8">
           <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
             <div className="image-reveal aspect-[16/11] overflow-hidden rounded-lg bg-[#eadfcd]">
-              <img src="/hero-kitchen-bright.png" alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" />
+              <img src="/hero-kitchen-bright.webp" alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p className="mb-4 text-sm font-bold uppercase tracking-[0.26em] text-[#8f6f43]">
@@ -911,7 +931,7 @@ export default function WeveDesignLanding() {
         <section id="about" className="scroll-reveal bg-white px-5 py-24 md:px-8">
           <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
             <div className="image-reveal aspect-[4/5] overflow-hidden bg-[#d8d1c5]">
-              <img src="/main-bg.png" alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" />
+              <img src="/main-bg.webp" alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p className="mb-4 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
@@ -1389,7 +1409,7 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={project.mainImage}
+            src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
           />
@@ -1435,7 +1455,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       <div className="relative aspect-[4/5] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={project.mainImage}
+            src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
           />
@@ -1526,7 +1546,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
                 <img
-                  src={project.mainImage}
+                  src={optimizedImage(project.mainImage, 1500)}
                   alt={project.mainImageAlt || project.title}
                   className="h-full max-h-[720px] w-full object-cover"
                 />
@@ -1553,7 +1573,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <section>
               <h3 className="mb-4 text-xl font-semibold">시공 전 사진</h3>
               <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
-                <img src={project.beforeImage} alt={`${project.title} 시공 전`} className="w-full object-cover" />
+                <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-cover" loading="lazy" />
               </div>
             </section>
           )}
@@ -1578,7 +1598,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                         <figure key={`${image.url}-${index}`} className="w-[280px] shrink-0 overflow-hidden rounded-lg bg-white shadow-sm sm:w-[360px] lg:w-[520px]">
                           <div className="relative">
                             <img
-                              src={image.url}
+                              src={optimizedImage(image.url, 1100)}
                               alt={image.alt || image.caption || project.title}
                               className="aspect-[4/3] w-full object-cover"
                             />

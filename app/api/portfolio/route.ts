@@ -4,10 +4,12 @@ import { createClient } from 'next-sanity';
 const client = createClient({
   projectId: 'q2qjj1se',
   dataset: 'production',
-  useCdn: false,
+  useCdn: true,
   apiVersion: '2026-01-01',
   token: process.env.SANITY_READ_TOKEN,
 });
+
+export const revalidate = 60;
 
 const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coalesce(isVisible, true) != false] | order(featured desc, displayOrder asc, _createdAt desc) {
   "id": _id,
@@ -91,9 +93,9 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
 export async function GET() {
   try {
     const [projects, categories, settings] = await Promise.all([
-      client.fetch(projectQuery, {}, { cache: 'no-store' }),
-      client.fetch(categoryQuery, {}, { cache: 'no-store' }),
-      client.fetch(settingsQuery, {}, { cache: 'no-store' }),
+      client.fetch(projectQuery, {}, { next: { revalidate: 60 } }),
+      client.fetch(categoryQuery, {}, { next: { revalidate: 60 } }),
+      client.fetch(settingsQuery, {}, { next: { revalidate: 60 } }),
     ]);
 
     return NextResponse.json(
@@ -104,7 +106,7 @@ export async function GET() {
       },
       {
         headers: {
-          'Cache-Control': 'no-store',
+          'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300',
         },
       },
     );

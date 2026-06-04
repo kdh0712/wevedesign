@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -8,7 +9,14 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'WEVE DESIGN',
     description: '오래 보아도 편안한 공간을 만드는 인테리어 리모델링 스튜디오',
-    images: ['/main-bg.png'],
+    images: ['/main-bg.webp'],
+  },
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.png', type: 'image/png', sizes: '512x512' },
+    ],
+    apple: [{ url: '/apple-icon.png', type: 'image/png', sizes: '180x180' }],
   },
 };
 
@@ -19,7 +27,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
