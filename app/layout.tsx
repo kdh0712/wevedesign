@@ -13,10 +13,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/favicon.ico?v=weve-3', sizes: 'any' },
-      { url: '/icon.png?v=weve-3', type: 'image/png', sizes: '512x512' },
+      { url: '/favicon.ico?v=weve-5', sizes: 'any' },
+      { url: '/icon.png?v=weve-5', type: 'image/png', sizes: '512x512' },
     ],
-    apple: [{ url: '/apple-icon.png?v=weve-3', type: 'image/png', sizes: '180x180' }],
+    apple: [{ url: '/apple-icon.png?v=weve-5', type: 'image/png', sizes: '180x180' }],
   },
 };
 
