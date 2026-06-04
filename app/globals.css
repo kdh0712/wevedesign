@@ -109,6 +109,12 @@ img {
   filter: brightness(0) invert(1);
 }
 
+.hero-title {
+  text-shadow:
+    0 2px 0 rgb(45 34 22 / 0.34),
+    0 18px 42px rgb(0 0 0 / 0.38);
+}
+
 .hero-slide-active {
   animation: hero-drift 7.5s ease-in-out infinite alternate;
 }
@@ -137,6 +143,16 @@ img {
   transition:
     color 0.2s ease,
     transform 0.2s ease;
+}
+
+.nav-link:focus {
+  outline: none;
+}
+
+.nav-link:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid rgb(231 186 99 / 0.82);
+  outline-offset: 6px;
 }
 
 .nav-link::after {

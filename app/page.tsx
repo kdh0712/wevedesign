@@ -493,7 +493,7 @@ export default function WeveDesignLanding() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const scrollToSection = (sectionId: 'about' | 'location' | 'contact') => {
+  const scrollToSection = (sectionId: 'home' | 'about' | 'location' | 'contact') => {
     setViewMode('main');
     setSelectedProjectId(null);
     setMobileNavOpen(false);
@@ -816,53 +816,61 @@ export default function WeveDesignLanding() {
                 fetchPriority={index === activeHeroIndex ? 'high' : 'auto'}
               />
             ))}
-            <div className="absolute inset-0 bg-gradient-to-r from-[#15120d]/82 via-[#15120d]/34 to-[#15120d]/8" />
-            <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#15120d]/70 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#18130d]/86 via-[#2a2118]/38 to-[#17120c]/10" />
+            <div className="absolute inset-y-0 left-0 w-[64%] bg-gradient-to-r from-[#1d1710]/74 via-[#2b2117]/34 to-transparent" />
+            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#17120d]/74 to-transparent" />
+            <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#17120d]/42 to-transparent" />
           </div>
 
-          <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl items-center px-5 pb-16 pt-28 md:px-8">
-            <div className="fade-up max-w-5xl">
-              <p className="mb-5 text-sm font-bold uppercase tracking-[0.28em] text-[#f1c76a]">
+          <div className="relative z-10 mx-auto flex min-h-screen max-w-7xl items-center px-5 pb-20 pt-32 md:px-8">
+            <div className="fade-up max-w-3xl">
+              <p className="mb-4 font-serif text-sm uppercase tracking-normal text-[#eed7a8] md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 className="max-w-4xl text-5xl font-semibold leading-tight tracking-normal text-white md:text-7xl lg:text-8xl">
+              <h1 className="hero-title max-w-3xl text-5xl font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] md:text-7xl lg:text-[5.35rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
-              <p className="mt-8 max-w-2xl text-lg leading-8 text-white/86 md:text-xl">
+              <div className="my-5 flex max-w-md items-center gap-3 text-[#d7b877]">
+                <span className="h-px flex-1 bg-[#d7b877]/70" />
+                <span className="text-lg leading-none">◇</span>
+                <span className="h-px flex-1 bg-[#d7b877]/70" />
+              </div>
+              <p className="max-w-2xl text-base leading-8 text-white/88 md:text-lg">
                 {settings.heroDescription || defaultSettings.heroDescription}
               </p>
-              <div className="mt-6 flex max-w-4xl flex-wrap gap-x-3 gap-y-2 text-sm font-semibold text-white/88 md:text-base">
+              <div className="mt-5 flex max-w-4xl flex-wrap gap-x-3 gap-y-2 text-xs font-semibold text-white/88 md:text-sm">
                 {serviceLines.map((service, index) => (
                   <span key={service} className="inline-flex items-center gap-3">
                     <span>{service}</span>
-                    {index < serviceLines.length - 1 && <span className="text-[#f1c76a]">|</span>}
+                    {index < serviceLines.length - 1 && <span className="text-[#d7b877]">|</span>}
                   </span>
                 ))}
               </div>
-              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+              <div className="mt-9 flex flex-col gap-3 sm:flex-row">
                 <a
                   href="#contact"
-                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-[#f1c76a] px-7 py-4 font-semibold text-[#171512] shadow-[0_12px_30px_rgba(191,143,51,0.22)] transition hover:bg-[#ffd879]"
+                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-[#e7ba63] px-6 py-3.5 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(191,143,51,0.25)] transition hover:bg-[#f4cf85]"
                 >
                   {settings.primaryButtonLabel || defaultSettings.primaryButtonLabel}
                   <ChevronRight size={18} />
                 </a>
                 <button
                   onClick={showPortfolio}
-                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md border border-[#171512] bg-white/80 px-7 py-4 font-semibold text-[#171512] backdrop-blur transition hover:bg-white"
+                  className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-white px-6 py-3.5 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(0,0,0,0.14)] transition hover:bg-[#fff7df]"
                 >
                   {settings.secondaryButtonLabel || defaultSettings.secondaryButtonLabel}
                   <ArrowUpRight size={18} />
                 </button>
               </div>
-              <div className="mt-9 flex gap-2">
+              <div className="mt-9 flex items-center gap-3">
+                <span className="h-px w-14 bg-[#d7b877]/72" />
                 {heroSlides.map((slide, index) => (
                   <button
                     key={slide.image}
                     onClick={() => setActiveHeroIndex(index)}
                     aria-label={`${slide.label} 배너 보기`}
-                    className={`h-1.5 rounded-full transition-all ${
-                      index === activeHeroIndex ? 'w-12 bg-[#f1c76a]' : 'w-5 bg-white/50'
+                    className={`h-2 rounded-full transition-all ${
+                      index === activeHeroIndex ? 'w-2 bg-[#e7ba63]' : 'w-2 bg-white/58'
                     }`}
                   />
                 ))}
@@ -1293,12 +1301,12 @@ function Header({
   scrolled: boolean;
   onLogoClick: () => void;
   onPortfolioClick: () => void;
-  onSectionClick: (sectionId: 'about' | 'location' | 'contact') => void;
+  onSectionClick: (sectionId: 'home' | 'about' | 'location' | 'contact') => void;
   onMenuClick: () => void;
 }) {
   const onDarkHeader = overlay;
   const solidOverlay = overlay && scrolled;
-  const navClass = (section: 'about' | 'portfolio' | 'location') =>
+  const navClass = (section: 'home' | 'about' | 'portfolio' | 'location') =>
     `nav-link ${onDarkHeader ? 'nav-link-on-dark' : ''} ${activeSection === section ? 'nav-link-active' : ''}`;
   const headerTone = overlay
     ? solidOverlay
@@ -1319,6 +1327,9 @@ function Header({
           />
         </button>
         <nav className={`hidden items-center gap-8 text-sm font-semibold md:flex ${mutedTone}`}>
+          <button onClick={() => onSectionClick('home')} className={navClass('home')}>
+            홈
+          </button>
           <button onClick={() => onSectionClick('about')} className={navClass('about')}>
             소개
           </button>
@@ -1361,6 +1372,9 @@ function Header({
             onDarkHeader ? 'border-white/20 bg-[#15120d]/72 text-white backdrop-blur' : 'border-[#eadfcd] text-[#171512]'
           }`}
         >
+          <button onClick={() => onSectionClick('home')} className="py-2 text-left">
+            홈
+          </button>
           <button onClick={() => onSectionClick('about')} className="py-2 text-left">
             소개
           </button>
