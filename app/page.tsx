@@ -554,12 +554,8 @@ export default function WeveDesignLanding() {
     return null;
   };
 
-  const getNaverDirectionsUrl = (lat: number, lng: number) => {
-    const destination = [roadAddress, lotAddress, 'WEVE DESIGN'].filter(Boolean).join(' ');
-    const query = encodeURIComponent(destination);
-
-    return `https://map.naver.com/p/search/${query}?lat=${lat}&lng=${lng}`;
-  };
+  const getNaverDirectionsUrl = () =>
+    'https://map.naver.com/p/search/%EC%9C%84%EB%B8%8C%EB%94%94%EC%9E%90%EC%9D%B8/place/11883947?placePath=/home?bk_query=%EC%9C%84%EB%B8%8C%EB%94%94%EC%9E%90%EC%9D%B8&entry=pll&from=map&fromNxList=true&fromPanelNum=2&timestamp=202606051356&locale=ko&svcName=map_pcv5&searchText=%EC%9C%84%EB%B8%8C%EB%94%94%EC%9E%90%EC%9D%B8&searchType=place';
 
   const initMap = () => {
     if (typeof window === 'undefined' || !window.naver || viewMode !== 'main') return;
@@ -583,7 +579,7 @@ export default function WeveDesignLanding() {
 
     const drawMap = (lat: number, lng: number) => {
       const location = new window.naver!.maps.LatLng(lat, lng);
-      const directionsUrl = getNaverDirectionsUrl(lat, lng);
+      const directionsUrl = getNaverDirectionsUrl();
       const map = new window.naver!.maps.Map(mapElement, {
         center: location,
         zoom: 17,
@@ -591,7 +587,7 @@ export default function WeveDesignLanding() {
       });
       const marker = new window.naver!.maps.Marker({ position: location, map, title: 'WEVE DESIGN', cursor: 'pointer' });
       const infoWindow = new window.naver!.maps.InfoWindow({
-        content: `<div style="padding:14px 16px; min-width:230px; line-height:1.5; color:#222; background:#fff;"><strong style="display:block; margin-bottom:4px;">WEVE DESIGN</strong><span style="font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; margin-top:10px; padding:7px 10px; border-radius:6px; background:#171512; color:#fff; font-size:12px; font-weight:700; text-decoration:none;">네이버 지도 길찾기</a></div>`,
+        content: `<div style="padding:14px 16px; min-width:230px; line-height:1.5; color:#222; background:#fff;"><strong style="display:block; margin-bottom:4px;">WEVE DESIGN</strong><span style="font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; margin-top:8px; padding:5px 8px; border-radius:6px; background:#171512; color:#fff; font-size:11px; line-height:1.2; font-weight:700; text-decoration:none; white-space:nowrap;">네이버 지도 길찾기</a></div>`,
       });
 
       window.naver!.maps.Event.addListener(marker, 'click', () => {
