@@ -22,6 +22,14 @@ type ManagerApiResponse = {
   results?: UploadResult[];
 };
 
+const UPLOAD_PRESETS = [
+  { maxWidth: 1920, quality: 0.82 },
+  { maxWidth: 1680, quality: 0.78 },
+  { maxWidth: 1440, quality: 0.74 },
+  { maxWidth: 1280, quality: 0.7 },
+];
+const MAX_UPLOAD_BYTES = 3.8 * 1024 * 1024;
+
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
   const [category, setCategory] = useState('주택');
@@ -107,20 +115,28 @@ export default function ManagerPage() {
       return;
     }
 
-    const formData = new FormData();
-    const paths: string[] = [];
-
-    files.forEach((file) => {
-      formData.append('files', file);
-      paths.push(file.webkitRelativePath || file.name);
-    });
-
-    formData.append('paths', JSON.stringify(paths));
-    formData.append('category', category);
-    formData.append('featured', String(featured));
     setUploading(true);
 
     try {
+      setStatus('사진을 웹용으로 압축하고 있습니다...');
+      const preparedFiles = await prepareUploadFiles(files);
+      const totalBytes = preparedFiles.reduce((total, item) => total + item.file.size, 0);
+
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        throw new Error('사진 용량이 아직 큽니다. 한 번에 올릴 사진 수를 줄이거나 원본 사진을 조금 더 작게 저장한 뒤 다시 시도해 주세요.');
+      }
+
+      const formData = new FormData();
+
+      preparedFiles.forEach((item) => {
+        formData.append('files', item.file);
+      });
+
+      formData.append('paths', JSON.stringify(preparedFiles.map((item) => item.path)));
+      formData.append('category', category);
+      formData.append('featured', String(featured));
+      setStatus('Sanity로 업로드하고 있습니다...');
+
       const response = await fetch('/api/manager/bulk-upload', {
         method: 'POST',
         headers: authHeaders(),
@@ -219,6 +235,7 @@ export default function ManagerPage() {
               <input
                 type="file"
                 multiple
+                accept="image/*"
                 className="hidden"
                 onChange={handleFolderChange}
                 {...{ webkitdirectory: '', directory: '' }}
@@ -303,4 +320,62 @@ function roomNameFromFile(fileName: string) {
 
   const match = baseName.match(/^(.*?)[\s_-]*(\d+)$/);
   return (match ? match[1] : baseName).trim();
+}
+
+async function prepareUploadFiles(files: File[]) {
+  let prepared = await compressFiles(files, UPLOAD_PRESETS[0]);
+
+  for (const preset of UPLOAD_PRESETS.slice(1)) {
+    const totalBytes = prepared.reduce((total, item) => total + item.file.size, 0);
+    if (totalBytes <= MAX_UPLOAD_BYTES) break;
+    prepared = await compressFiles(files, preset);
+  }
+
+  return prepared;
+}
+
+async function compressFiles(files: File[], preset: { maxWidth: number; quality: number }) {
+  return Promise.all(
+    files.map(async (file) => ({
+      file: await compressImage(file, preset),
+      path: file.webkitRelativePath || file.name,
+    })),
+  );
+}
+
+async function compressImage(file: File, preset: { maxWidth: number; quality: number }) {
+  if (!file.type.startsWith('image/')) return file;
+
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, preset.maxWidth / bitmap.width);
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (result) => {
+        if (result) resolve(result);
+        else reject(new Error('이미지 압축에 실패했습니다.'));
+      },
+      'image/jpeg',
+      preset.quality,
+    );
+  });
+
+  if (blob.size >= file.size) return file;
+
+  return new File([blob], toJpegFileName(file.name), {
+    type: 'image/jpeg',
+    lastModified: file.lastModified,
+  });
+}
+
+function toJpegFileName(fileName: string) {
+  return fileName.replace(/\.[^.]+$/, '') + '.jpg';
 }
