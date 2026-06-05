@@ -20,6 +20,15 @@ export async function POST(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
 
+  try {
+    return await handleBulkUpload(request);
+  } catch (error) {
+    console.error('Manager bulk upload failed:', error);
+    return NextResponse.json({ error: getUploadErrorMessage(error) }, { status: 500 });
+  }
+}
+
+async function handleBulkUpload(request: Request) {
   const formData = await request.formData();
   const files = formData.getAll('files').filter((value): value is File => value instanceof File);
   const paths = safeJsonArray(formData.get('paths'));
@@ -54,26 +63,28 @@ export async function POST(request: Request) {
 
     const existing = await managerClient.fetch('*[_type == "project" && title == $title][0]{_id}', { title: projectTitle });
     const projectId = existing?._id || `project-${hashId(projectTitle)}`;
-    const mainAsset = await uploadImage(cover.file, `${projectTitle} 대표`);
-    const beforeAsset = before ? await uploadImage(before.file, `${projectTitle} 시공 전`) : null;
+    const [mainAsset, beforeAsset] = await Promise.all([
+      uploadImage(cover.file, `${projectTitle} 대표`),
+      before ? uploadImage(before.file, `${projectTitle} 시공 전`) : Promise.resolve(null),
+    ]);
     const galleryGroups = [];
     const roomGroups = groupBy(details, (image) => image.roomType);
 
     for (const [groupIndex, [roomType, groupImages]] of Array.from(roomGroups.entries()).entries()) {
       const sortedImages = [...groupImages].sort((a, b) => a.order - b.order || collator.compare(a.path, b.path));
-      const uploadedImages = [];
-
-      for (const [imageIndex, image] of sortedImages.entries()) {
+      const uploadedImages = await Promise.all(
+        sortedImages.map(async (image, imageIndex) => {
         const asset = await uploadImage(image.file, `${projectTitle} ${roomType} ${imageIndex + 1}`);
-        uploadedImages.push({
+        return {
           _type: 'image',
           _key: `image-${hashId(`${image.path}-${imageIndex}`)}`,
           asset: { _type: 'reference', _ref: asset._id },
           caption: stripExtension(lastPathSegment(image.path)),
           displayOrder: image.order || imageIndex + 1,
           alt: `${projectTitle} ${roomType}`,
-        });
-      }
+        };
+        }),
+      );
 
       galleryGroups.push({
         _type: 'object',
@@ -121,6 +132,14 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ results });
+}
+
+function getUploadErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return `Sanity 업로드 실패: ${error.message}`;
+  }
+
+  return 'Sanity 업로드 중 알 수 없는 오류가 발생했습니다.';
 }
 
 function parseFile(file: File, originalPath: string): ParsedImage | null {
