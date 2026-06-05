@@ -108,9 +108,13 @@ type CategoryOption = {
 type ManagedProject = {
   _id: string;
   title?: string;
+  description?: string;
   location?: string;
   siteType?: string;
   area?: number;
+  year?: string;
+  materials?: string;
+  displayOrder?: number;
   featured?: boolean;
   isVisible?: boolean;
   categoryId?: string;
@@ -176,6 +180,7 @@ export default function ManagerPage() {
     phone: '',
     address: '',
     lotAddress: '',
+    locationTitle: '',
     heroTitle: '',
     heroDescription: '',
     primaryButtonLabel: '',
@@ -185,11 +190,18 @@ export default function ManagerPage() {
     kakaoUrl: '',
   });
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectTitle, setProjectTitle] = useState('');
+  const [projectDescription, setProjectDescription] = useState('');
   const [projectCategoryId, setProjectCategoryId] = useState('');
   const [projectNewCategory, setProjectNewCategory] = useState('');
   const [projectSiteType, setProjectSiteType] = useState('아파트');
   const [projectLocation, setProjectLocation] = useState('');
   const [projectArea, setProjectArea] = useState('');
+  const [projectYear, setProjectYear] = useState('');
+  const [projectMaterials, setProjectMaterials] = useState('');
+  const [projectDisplayOrder, setProjectDisplayOrder] = useState('');
+  const [projectFeatured, setProjectFeatured] = useState(false);
+  const [projectVisible, setProjectVisible] = useState(true);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -266,6 +278,7 @@ export default function ManagerPage() {
         phone: settings.phone || '',
         address: settings.address || '',
         lotAddress: settings.lotAddress || '',
+        locationTitle: settings.locationTitle || '',
         heroTitle: settings.heroTitle || '',
         heroDescription: settings.heroDescription || '',
         primaryButtonLabel: settings.primaryButtonLabel || '',
@@ -443,11 +456,18 @@ export default function ManagerPage() {
   const selectProjectForEdit = (projectId: string) => {
     const project = officeData.projects.find((item) => item._id === projectId);
     setSelectedProjectId(projectId);
+    setProjectTitle(project?.title || '');
+    setProjectDescription(project?.description || '');
     setProjectCategoryId(project?.categoryId || '');
     setProjectNewCategory('');
     setProjectSiteType(project?.siteType || '아파트');
     setProjectLocation(project?.location || '');
     setProjectArea(project?.area ? String(project.area) : '');
+    setProjectYear(project?.year || '');
+    setProjectMaterials(project?.materials || '');
+    setProjectDisplayOrder(project?.displayOrder ? String(project.displayOrder) : '');
+    setProjectFeatured(Boolean(project?.featured));
+    setProjectVisible(project?.isVisible !== false);
   };
 
   const saveProjectClassification = async () => {
@@ -493,9 +513,16 @@ export default function ManagerPage() {
         'project',
         {
           category: { _type: 'reference', _ref: categoryRef },
+          title: projectTitle,
+          description: projectDescription,
           siteType: projectSiteType,
           location: projectLocation,
           area: Number(projectArea || 0),
+          year: projectYear,
+          materials: projectMaterials,
+          displayOrder: Number(projectDisplayOrder || 0),
+          featured: projectFeatured,
+          isVisible: projectVisible,
         },
         project._id,
       );
@@ -815,6 +842,7 @@ export default function ManagerPage() {
                 <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
                 <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
                 <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
+                <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} placeholder="예: 전문 인테리어 상담을 시작합니다." />
                 <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
                 <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
                 <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
@@ -872,7 +900,7 @@ export default function ManagerPage() {
                       ))}
                     </select>
                   </label>
-                  <SettingInput label="지역" value={uploadLocation} onChange={setUploadLocation} placeholder="예: 안양, 의왕" />
+                  <SettingInput label="지역" value={uploadLocation} onChange={setUploadLocation} placeholder="예: 수도권, 분당, 강남" />
                   <SettingInput label="평수" value={uploadArea} onChange={(value) => setUploadArea(onlyNumber(value))} placeholder="예: 32" />
                   <label className="flex items-center gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm font-semibold text-[#4d5d66]">
                     <input type="checkbox" checked={featured} onChange={(event) => setFeatured(event.target.checked)} />
@@ -930,6 +958,7 @@ export default function ManagerPage() {
                       ))}
                     </select>
                   </label>
+                  <SettingInput label="Project 이름" value={projectTitle} onChange={setProjectTitle} />
                   <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                     카테고리 선택
                     <select
@@ -949,6 +978,7 @@ export default function ManagerPage() {
                     </select>
                   </label>
                   <SettingInput label="새 카테고리 추가" value={projectNewCategory} onChange={setProjectNewCategory} placeholder="카테고리에 없으면 입력" />
+                  <SettingInput label="Project 설명" value={projectDescription} onChange={setProjectDescription} textarea />
                   <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                     주거 형태
                     <select
@@ -965,6 +995,19 @@ export default function ManagerPage() {
                   </label>
                   <SettingInput label="지역" value={projectLocation} onChange={setProjectLocation} />
                   <SettingInput label="평수" value={projectArea} onChange={(value) => setProjectArea(onlyNumber(value))} />
+                  <SettingInput label="시공 연도" value={projectYear} onChange={setProjectYear} placeholder="예: 2026" />
+                  <SettingInput label="사용 자재" value={projectMaterials} onChange={setProjectMaterials} placeholder="예: 포세린 타일, 무몰딩, 제작가구" />
+                  <SettingInput label="노출 순서" value={projectDisplayOrder} onChange={(value) => setProjectDisplayOrder(onlyNumber(value))} placeholder="숫자가 작을수록 먼저 표시" />
+                  <div className="grid gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3 text-sm font-semibold text-[#4d5d66]">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={projectFeatured} onChange={(event) => setProjectFeatured(event.target.checked)} />
+                      메인 Project에도 표시
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={projectVisible} onChange={(event) => setProjectVisible(event.target.checked)} />
+                      홈페이지 Project 목록에 표시
+                    </label>
+                  </div>
                   <button
                     onClick={saveProjectClassification}
                     disabled={savingOffice}

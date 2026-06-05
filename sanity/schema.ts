@@ -246,7 +246,7 @@ const siteSettings = defineType({
       title: '지도 영역 큰 문구',
       type: 'string',
       group: 'location',
-      description: '홈페이지 오시는 길 영역의 큰 문구입니다. 예: 안양에서 상담합니다.',
+      description: '홈페이지 오시는 길 영역의 큰 문구입니다. 예: 전문 인테리어 상담을 시작합니다.',
     }),
     defineField({
       name: 'address',

@@ -35,7 +35,7 @@ const query = `{
     _id, title, "slug": slug.current
   },
   "projects": *[_type == "project"] | order(_createdAt desc)[0...200] {
-    _id, title, location, siteType, area, featured, isVisible,
+    _id, title, description, location, siteType, area, year, materials, displayOrder, featured, isVisible,
     "categoryId": category->_id,
     "categoryTitle": category->title
   }

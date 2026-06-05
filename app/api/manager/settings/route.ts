@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      '*[_type == "siteSettings"][0]{consultationEmail, phone, address, lotAddress, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, contactTitle, contactBody, kakaoUrl}',
+      '*[_type == "siteSettings"][0]{consultationEmail, phone, address, lotAddress, locationTitle, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, contactTitle, contactBody, kakaoUrl}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -30,6 +30,7 @@ export async function PATCH(request: Request) {
       'phone',
       'address',
       'lotAddress',
+      'locationTitle',
       'heroTitle',
       'heroDescription',
       'primaryButtonLabel',

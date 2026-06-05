@@ -125,7 +125,7 @@ const defaultSettings: Required<SiteSettings> = {
   processLabel: 'Process',
   processTitle: '상담부터 마감까지 흐름이 보이게 진행합니다.',
   locationLabel: 'Location',
-  locationTitle: '안양에서 상담합니다.',
+  locationTitle: '전문 인테리어 상담을 시작합니다.',
   address: '경기도 의왕시 오리나무1길 12, 1층',
   lotAddress: '경기도 의왕시 내손동 810-3',
   mapLocation: {
@@ -284,6 +284,11 @@ const formatPhoneNumber = (value: string) => {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
+const locationTitleText = (value?: string) => {
+  if (!value || value.includes('안양')) return '전문 인테리어 상담을 시작합니다.';
+  return value;
+};
+
 export default function WeveDesignLanding() {
   const [viewMode, setViewMode] = useState<'main' | 'portfolio'>('main');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -300,6 +305,7 @@ export default function WeveDesignLanding() {
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
+  const [showTopButton, setShowTopButton] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
   const [methodProgress, setMethodProgress] = useState(0);
@@ -369,7 +375,10 @@ export default function WeveDesignLanding() {
   }, [activeHeroIndex, heroSlides.length]);
 
   useEffect(() => {
-    const updateHeaderTone = () => setIsHeaderScrolled(window.scrollY > 32);
+    const updateHeaderTone = () => {
+      setIsHeaderScrolled(window.scrollY > 32);
+      setShowTopButton(window.scrollY > Math.max(360, window.innerHeight * 0.55));
+    };
 
     updateHeaderTone();
     window.addEventListener('scroll', updateHeaderTone, { passive: true });
@@ -600,7 +609,7 @@ export default function WeveDesignLanding() {
       });
       const marker = new window.naver!.maps.Marker({ position: location, map, title: 'WEVE DESIGN', cursor: 'pointer' });
       const infoWindow = new window.naver!.maps.InfoWindow({
-        content: `<div style="padding:14px 16px 16px; min-width:230px; line-height:1.5; color:#222; background:#fff;"><strong style="display:block; margin-bottom:4px;">WEVE DESIGN</strong><span style="display:block; font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><div style="margin-top:12px;"><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; padding:5px 8px; border-radius:6px; background:#171512; color:#fff; font-size:11px; line-height:1.2; font-weight:700; text-decoration:none; white-space:nowrap;">네이버 지도 길찾기</a></div></div>`,
+        content: `<div style="padding:14px 16px 16px; min-width:250px; line-height:1.5; color:#222; background:#fff;"><div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;"><img src="/weve-mark.png" alt="" style="width:22px; height:22px; object-fit:contain; border-radius:50%;"/><strong style="display:block;">WEVE DESIGN</strong></div><span style="display:block; font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><div style="margin-top:12px;"><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; padding:5px 8px; border-radius:6px; background:#171512; color:#fff; font-size:11px; line-height:1.2; font-weight:700; text-decoration:none; white-space:nowrap;">네이버 지도 길찾기</a></div></div>`,
       });
 
       window.naver!.maps.Event.addListener(marker, 'click', () => {
@@ -810,23 +819,27 @@ export default function WeveDesignLanding() {
         />
       )}
 
-      <a
-        href={settings.kakaoUrl || defaultSettings.kakaoUrl}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="카카오톡 상담"
-        className="fixed bottom-5 right-5 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#FEE500] text-[#3c1e1e] shadow-xl transition hover:scale-105"
-      >
-        <MessageCircle size={28} />
-      </a>
-      <button
-        type="button"
-        onClick={scrollToTop}
-        aria-label="맨 위로 가기"
-        className="fixed bottom-24 right-5 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#d8d1c5] bg-white text-[#171512] shadow-lg transition hover:-translate-y-0.5 hover:bg-[#fff7df]"
-      >
-        <ArrowUp size={22} />
-      </button>
+      <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
+        {showTopButton && (
+          <button
+            type="button"
+            onClick={scrollToTop}
+            aria-label="맨 위로 가기"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-[#d8d1c5] bg-white text-[#171512] shadow-lg transition hover:-translate-y-0.5 hover:bg-[#fff7df]"
+          >
+            <ArrowUp size={20} />
+          </button>
+        )}
+        <a
+          href={settings.kakaoUrl || defaultSettings.kakaoUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label="카카오톡 상담"
+          className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#FEE500] text-[#3c1e1e] shadow-xl transition hover:scale-105"
+        >
+          <MessageCircle size={24} />
+        </a>
+      </div>
 
         <Header
           mobileNavOpen={mobileNavOpen}
@@ -1197,7 +1210,7 @@ export default function WeveDesignLanding() {
                 {settings.locationLabel || defaultSettings.locationLabel}
               </p>
               <h2 className="text-4xl font-semibold tracking-normal md:text-5xl">
-                {settings.locationTitle || defaultSettings.locationTitle}
+                {locationTitleText(settings.locationTitle || defaultSettings.locationTitle)}
               </h2>
               <div className="mt-8 space-y-5 text-[#625d54]">
                 <p className="flex gap-3">
@@ -1211,6 +1224,18 @@ export default function WeveDesignLanding() {
                   <Phone className="mt-1 shrink-0 text-[#8f6f43]" size={20} />
                   {settings.phone || defaultSettings.phone}
                 </p>
+              </div>
+              <div className="mt-10 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                {[
+                  ['상담 방식', '방문 상담과 현장 확인을 기반으로 범위와 예산을 정리합니다.'],
+                  ['진행 범위', '주거, 상가, 오피스 등 공간 성격에 맞춰 설계와 시공을 관리합니다.'],
+                  ['견적 안내', '사진과 현장 정보를 남겨주시면 확인 후 순서대로 연락드립니다.'],
+                ].map(([title, body]) => (
+                  <div key={title} className="rounded-md border border-[#eadfcd] bg-[#fffaf0] p-4">
+                    <p className="text-sm font-bold text-[#8f6f43]">{title}</p>
+                    <p className="mt-2 text-sm leading-6 text-[#625d54]">{body}</p>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="relative">
