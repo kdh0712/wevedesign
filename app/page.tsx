@@ -101,7 +101,9 @@ type SiteSettings = {
   contactTitle?: string;
   contactBody?: string;
   consultationEmail?: string;
+  representativeName?: string;
   businessNumber?: string;
+  companyStartYear?: string;
   kakaoUrl?: string;
 };
 
@@ -144,7 +146,9 @@ const defaultSettings: Required<SiteSettings> = {
   contactTitle: '공간 이야기를 남겨주세요.',
   contactBody: '이름, 연락처, 현장 주소, 원하는 시공 범위를 보내주시면 확인 후 연락드립니다.',
   consultationEmail: 'ehogh1@gmail.com',
+  representativeName: '김동호',
   businessNumber: '',
+  companyStartYear: '2026',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
 };
 
@@ -782,7 +786,7 @@ export default function WeveDesignLanding() {
             <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#171512]/65 to-transparent" />
             <div className="relative z-10 fade-up">
               <p className="mb-4 text-sm font-bold uppercase tracking-[0.35em] text-[#f1c76a]">WEVE PROJECT</p>
-              <h1 className="text-5xl font-semibold leading-tight tracking-normal md:text-7xl">
+              <h1 data-preview-target="portfolioTitle" className="text-5xl font-semibold leading-tight tracking-normal md:text-7xl">
                 {settings.portfolioTitle || defaultSettings.portfolioTitle}
               </h1>
               <button
@@ -898,10 +902,10 @@ export default function WeveDesignLanding() {
 
           <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-[1600px] items-center px-5 pb-16 pt-28 sm:px-8 md:px-10 lg:px-12 xl:px-16">
             <div className="fade-up w-full max-w-[680px]">
-              <p className="mb-4 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:text-base">
+              <p data-preview-target="heroLabel" className="mb-4 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 className="hero-title max-w-[660px] text-[2.65rem] font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] lg:text-[4.55rem]">
+              <h1 data-preview-target="heroTitle" className="hero-title max-w-[660px] text-[2.65rem] font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] lg:text-[4.55rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
               <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3 sm:max-w-[470px]" aria-hidden="true">
@@ -913,7 +917,7 @@ export default function WeveDesignLanding() {
                 </svg>
                 <span className="hero-ornament-line" />
               </div>
-              <p className="max-w-[610px] text-sm leading-7 text-white/90 md:text-base">
+              <p data-preview-target="heroDescription" className="max-w-[610px] text-sm leading-7 text-white/90 md:text-base">
                 {settings.heroDescription || defaultSettings.heroDescription}
               </p>
               <div className="mt-5 flex max-w-[700px] flex-wrap gap-x-3 gap-y-2 text-xs font-semibold text-white/90">
@@ -927,6 +931,7 @@ export default function WeveDesignLanding() {
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <a
                   href="#contact"
+                  data-preview-target="primaryButtonLabel"
                   className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-[#e7ba63] px-5 py-3 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(191,143,51,0.25)] transition hover:bg-[#f4cf85]"
                 >
                   {settings.primaryButtonLabel || defaultSettings.primaryButtonLabel}
@@ -934,6 +939,7 @@ export default function WeveDesignLanding() {
                 </a>
                 <button
                   onClick={showPortfolio}
+                  data-preview-target="secondaryButtonLabel"
                   className="hover-shine inline-flex items-center justify-center gap-2 rounded-md bg-white px-5 py-3 text-sm font-semibold text-[#171512] shadow-[0_14px_34px_rgba(0,0,0,0.14)] transition hover:bg-[#fff7df]"
                 >
                   {settings.secondaryButtonLabel || defaultSettings.secondaryButtonLabel}
@@ -962,19 +968,19 @@ export default function WeveDesignLanding() {
           </div>
         </section>
 
-        <section className="scroll-reveal bg-white px-5 py-24 md:px-8">
+        <section id="statement" className="scroll-reveal bg-white px-5 py-24 md:px-8">
           <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
             <div className="image-reveal aspect-[16/11] overflow-hidden rounded-lg bg-[#eadfcd]">
               <img src="/hero-kitchen-bright.webp" alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
-              <p className="mb-4 text-sm font-bold uppercase tracking-[0.26em] text-[#8f6f43]">
+              <p data-preview-target="statementLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.26em] text-[#8f6f43]">
                 {settings.statementLabel || defaultSettings.statementLabel}
               </p>
-              <h2 className="max-w-5xl text-4xl font-semibold leading-tight text-[#171512] md:text-6xl">
+              <h2 data-preview-target="statementTitle" className="max-w-5xl text-4xl font-semibold leading-tight text-[#171512] md:text-6xl">
                 {settings.statementTitle || defaultSettings.statementTitle}
               </h2>
-              <p className="mt-7 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="statementBody" className="mt-7 text-lg leading-8 text-[#625d54]">
                 {settings.statementBody || defaultSettings.statementBody}
               </p>
             </div>
@@ -984,11 +990,12 @@ export default function WeveDesignLanding() {
         <section id="portfolio-preview" className="scroll-reveal bg-[#fffaf0] px-5 py-24 md:px-8">
           <div className="mx-auto max-w-7xl">
             <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end">
-              <h2 className="text-4xl font-semibold tracking-normal md:text-6xl">
+              <h2 data-preview-target="projectSectionTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
                 {settings.projectSectionTitle || defaultSettings.projectSectionTitle}
               </h2>
               <button
                 onClick={showPortfolio}
+                data-preview-target="projectButtonLabel"
                 className="hover-shine inline-flex items-center gap-2 self-start rounded-md border border-[#e3bf68] bg-[#fff7df] px-5 py-3 font-semibold text-[#171512] transition hover:bg-[#f1c76a] md:self-auto"
               >
                 {settings.projectButtonLabel || defaultSettings.projectButtonLabel}
@@ -1022,13 +1029,13 @@ export default function WeveDesignLanding() {
               <img src="/main-bg.webp" alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
-              <p className="mb-4 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
+              <p data-preview-target="aboutLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.aboutLabel || defaultSettings.aboutLabel}
               </p>
-              <h2 className="text-4xl font-semibold leading-tight tracking-normal md:text-6xl">
+              <h2 data-preview-target="aboutTitle" className="text-4xl font-semibold leading-tight tracking-normal md:text-6xl">
                 {settings.aboutTitle || defaultSettings.aboutTitle}
               </h2>
-              <p className="mt-7 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="aboutBody" className="mt-7 text-lg leading-8 text-[#625d54]">
                 {settings.aboutBody || defaultSettings.aboutBody}
               </p>
               <div className="mt-10 grid gap-4">
@@ -1054,6 +1061,7 @@ export default function WeveDesignLanding() {
 
         <section
           ref={methodSectionRef}
+          id="work-method"
           className="method-section scroll-reveal px-5 py-32 md:px-8"
           style={{ backgroundColor: methodBackground, color: methodTextColor }}
         >
@@ -1203,13 +1211,13 @@ export default function WeveDesignLanding() {
           </div>
         </section>
 
-        <section className="scroll-reveal bg-[#fffaf0] px-5 py-24 md:px-8">
+        <section id="process" className="scroll-reveal bg-[#fffaf0] px-5 py-24 md:px-8">
           <div className="mx-auto max-w-7xl">
             <div className="mb-12 grid gap-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-end">
-              <p className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
+              <p data-preview-target="processLabel" className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.processLabel || defaultSettings.processLabel}
               </p>
-              <h2 className="text-4xl font-semibold tracking-normal md:text-6xl">
+              <h2 data-preview-target="processTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
                 {settings.processTitle || defaultSettings.processTitle}
               </h2>
             </div>
@@ -1228,23 +1236,23 @@ export default function WeveDesignLanding() {
         <section id="location" className="scroll-reveal bg-white px-5 py-24 md:px-8">
           <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr]">
             <div>
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
+              <p data-preview-target="locationLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.locationLabel || defaultSettings.locationLabel}
               </p>
-              <h2 className="text-4xl font-semibold tracking-normal md:text-5xl">
+              <h2 data-preview-target="locationTitle" className="text-4xl font-semibold tracking-normal md:text-5xl">
                 {locationTitleText(settings.locationTitle || defaultSettings.locationTitle)}
               </h2>
               <div className="mt-8 space-y-5 text-[#625d54]">
                 <p className="flex gap-3">
                   <MapPin className="mt-1 shrink-0 text-[#8f6f43]" size={20} />
                   <span>
-                    <span className="block">도로명: {roadAddress}</span>
-                    <span className="mt-1 block text-sm text-[#8b8276]">지번: {lotAddress}</span>
+                    <span data-preview-target="address" className="block">도로명: {roadAddress}</span>
+                    <span data-preview-target="lotAddress" className="mt-1 block text-sm text-[#8b8276]">지번: {lotAddress}</span>
                   </span>
                 </p>
                 <p className="flex gap-3">
                   <Phone className="mt-1 shrink-0 text-[#8f6f43]" size={20} />
-                  {settings.phone || defaultSettings.phone}
+                  <span data-preview-target="phone">{settings.phone || defaultSettings.phone}</span>
                 </p>
               </div>
               <p className="mt-10 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
@@ -1265,13 +1273,13 @@ export default function WeveDesignLanding() {
         <section id="contact" className="scroll-reveal px-5 py-24 md:px-8">
           <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
             <div>
-              <p className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
+              <p data-preview-target="contactLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.contactLabel || defaultSettings.contactLabel}
               </p>
-              <h2 className="text-4xl font-semibold tracking-normal md:text-6xl">
+              <h2 data-preview-target="contactTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
                 {settings.contactTitle || defaultSettings.contactTitle}
               </h2>
-              <p className="mt-6 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="contactBody" className="mt-6 text-lg leading-8 text-[#625d54]">
                 {settings.contactBody || defaultSettings.contactBody}
               </p>
             </div>
@@ -1361,22 +1369,28 @@ export default function WeveDesignLanding() {
         </section>
       </main>
 
-      <footer className="bg-[#171512] px-5 py-16 text-[#b8b0a3] md:px-8">
+      <footer id="footer" className="bg-[#171512] px-5 py-16 text-[#b8b0a3] md:px-8">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
           <div>
             <button onClick={handleLogoClick} className="inline-flex" aria-label="WEVE DESIGN 홈으로 이동">
               <img src="/weve-mark.png" alt="WEVE DESIGN" className="brand-mark-on-dark h-16 w-auto" />
             </button>
-            <p className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
+            <p data-preview-target="heroDescription" className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
           </div>
           <div className="space-y-2 text-sm">
-            <p>대표 김동호 | 연락처 {settings.phone || defaultSettings.phone}</p>
+            <p>
+              <span data-preview-target="representativeName">대표 {settings.representativeName || defaultSettings.representativeName}</span>
+              {' | '}
+              <span data-preview-target="phone">연락처 {settings.phone || defaultSettings.phone}</span>
+            </p>
             {(settings.businessNumber || defaultSettings.businessNumber) && (
-              <p>사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
+              <p data-preview-target="businessNumber">사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
             )}
-            <p>도로명 {roadAddress}</p>
-            <p>지번 {lotAddress}</p>
-            <p className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">© 2026 WEVE DESIGN. All rights reserved.</p>
+            <p data-preview-target="address">도로명 {roadAddress}</p>
+            <p data-preview-target="lotAddress">지번 {lotAddress}</p>
+            <p data-preview-target="companyStartYear" className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">
+              © {settings.companyStartYear || defaultSettings.companyStartYear} WEVE DESIGN. All rights reserved.
+            </p>
           </div>
         </div>
       </footer>

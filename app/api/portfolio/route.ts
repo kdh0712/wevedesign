@@ -91,7 +91,9 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
   contactTitle,
   contactBody,
   consultationEmail,
+  representativeName,
   businessNumber,
+  companyStartYear,
   kakaoUrl
 }`;
 

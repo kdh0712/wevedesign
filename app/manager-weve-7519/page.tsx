@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   Boxes,
@@ -137,6 +137,12 @@ type OfficeData = {
   projects: ManagedProject[];
 };
 
+type PreviewTarget = {
+  key: string;
+  label: string;
+  src: string;
+};
+
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
   record?: Consultation | Customer | Sale | InventoryItem | Vendor | ManagedProject;
@@ -151,6 +157,38 @@ const emptyOfficeData: OfficeData = {
   categories: [],
   projects: [],
 };
+
+const homepagePreviewTargets = {
+  heroLabel: { key: 'heroLabel', label: '배너 작은 문구', src: '/#home' },
+  heroTitle: { key: 'heroTitle', label: '첫 화면 큰 문구', src: '/#home' },
+  heroDescription: { key: 'heroDescription', label: '첫 화면 설명', src: '/#home' },
+  primaryButtonLabel: { key: 'primaryButtonLabel', label: '메인 버튼 문구', src: '/#home' },
+  secondaryButtonLabel: { key: 'secondaryButtonLabel', label: '보조 버튼 문구', src: '/#home' },
+  statementLabel: { key: 'statementLabel', label: '브랜드 작은 문구', src: '/#statement' },
+  statementTitle: { key: 'statementTitle', label: '브랜드 큰 문구', src: '/#statement' },
+  statementBody: { key: 'statementBody', label: '브랜드 설명', src: '/#statement' },
+  projectSectionTitle: { key: 'projectSectionTitle', label: 'Project 섹션 제목', src: '/#portfolio-preview' },
+  projectButtonLabel: { key: 'projectButtonLabel', label: 'Project 버튼 문구', src: '/#portfolio-preview' },
+  portfolioTitle: { key: 'portfolioTitle', label: 'Project 목록 페이지 제목', src: '/#portfolio-preview' },
+  aboutLabel: { key: 'aboutLabel', label: '소개 작은 문구', src: '/#about' },
+  aboutTitle: { key: 'aboutTitle', label: '소개 큰 문구', src: '/#about' },
+  aboutBody: { key: 'aboutBody', label: '소개 설명', src: '/#about' },
+  processLabel: { key: 'processLabel', label: '진행 과정 작은 문구', src: '/#process' },
+  processTitle: { key: 'processTitle', label: '진행 과정 큰 문구', src: '/#process' },
+  locationLabel: { key: 'locationLabel', label: '위치 작은 문구', src: '/#location' },
+  locationTitle: { key: 'locationTitle', label: '오시는 길 큰 문구', src: '/#location' },
+  address: { key: 'address', label: '도로명 주소', src: '/#location' },
+  lotAddress: { key: 'lotAddress', label: '지번 주소', src: '/#location' },
+  phone: { key: 'phone', label: '대표 연락처', src: '/#location' },
+  contactLabel: { key: 'contactLabel', label: '상담 작은 문구', src: '/#contact' },
+  contactTitle: { key: 'contactTitle', label: '상담 큰 문구', src: '/#contact' },
+  contactBody: { key: 'contactBody', label: '상담 설명', src: '/#contact' },
+  consultationEmail: { key: 'consultationEmail', label: '상담문의 이메일', src: '/#footer' },
+  kakaoUrl: { key: 'kakaoUrl', label: '카카오톡 상담 링크', src: '/#contact' },
+  representativeName: { key: 'representativeName', label: '대표자명', src: '/#footer' },
+  businessNumber: { key: 'businessNumber', label: '사업자등록번호', src: '/#footer' },
+  companyStartYear: { key: 'companyStartYear', label: '회사 시작 연도', src: '/#footer' },
+} satisfies Record<string, PreviewTarget>;
 
 const UPLOAD_PRESETS = [
   { maxWidth: 1920, quality: 0.82 },
@@ -186,7 +224,9 @@ export default function ManagerPage() {
   const [consultationEmail, setConsultationEmail] = useState('');
   const [homepageSettings, setHomepageSettings] = useState({
     consultationEmail: '',
+    representativeName: '',
     businessNumber: '',
+    companyStartYear: '',
     phone: '',
     address: '',
     lotAddress: '',
@@ -243,6 +283,7 @@ export default function ManagerPage() {
   const [results, setResults] = useState<UploadResult[]>([]);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
+  const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
@@ -324,7 +365,9 @@ export default function ManagerPage() {
       const settings = settingsData.settings || {};
       setHomepageSettings({
         consultationEmail: settings.consultationEmail || '',
+        representativeName: settings.representativeName || '',
         businessNumber: settings.businessNumber || '',
+        companyStartYear: settings.companyStartYear || '',
         phone: settings.phone || '',
         address: settings.address || '',
         lotAddress: settings.lotAddress || '',
@@ -821,6 +864,10 @@ export default function ManagerPage() {
     }
   };
 
+  const previewFocus = (key: keyof typeof homepagePreviewTargets) => ({
+    onFocus: () => setActivePreviewTarget(homepagePreviewTargets[key]),
+  });
+
   return (
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
       {!isUnlocked && (
@@ -1250,19 +1297,21 @@ export default function ManagerPage() {
             {homepageMode === 'quick' && (
             <Panel title="간편 홈페이지 관리">
               <div className="grid gap-3 md:grid-cols-2">
-                <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} />
-                <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" />
-                <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
-                <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
-                <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
-                <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} placeholder="예: 전문 인테리어 상담을 시작합니다." />
-                <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
-                <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
-                <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
-                <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} />
-                <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea />
-                <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea />
-                <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea />
+                <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
+                <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
+                <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
+                <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
+                <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
+                <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
+                <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
+                <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} placeholder="예: 전문 인테리어 상담을 시작합니다." {...previewFocus('locationTitle')} />
+                <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
+                <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
+                <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
+                <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
+                <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
+                <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
+                <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
               </div>
               <button
                 onClick={saveHomepageSettings}
@@ -1308,49 +1357,51 @@ export default function ManagerPage() {
                       ))}
                     </div>
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <SettingInput label="배너 작은 문구" value={homepageSettings.heroLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroLabel: value })} />
-                      <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea />
-                      <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea />
-                      <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
-                      <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
+                      <SettingInput label="배너 작은 문구" value={homepageSettings.heroLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroLabel: value })} {...previewFocus('heroLabel')} />
+                      <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
+                      <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
+                      <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
+                      <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
                     </div>
                     </section>
 
                     <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                     <h3 className="mb-3 font-semibold">중간 문구와 Project 영역</h3>
                     <div className="grid gap-3 md:grid-cols-2">
-                      <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} />
-                      <SettingInput label="브랜드 큰 문구" value={homepageSettings.statementTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementTitle: value })} textarea />
-                      <SettingInput label="브랜드 설명" value={homepageSettings.statementBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementBody: value })} textarea />
-                      <SettingInput label="Project 섹션 제목" value={homepageSettings.projectSectionTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectSectionTitle: value })} />
-                      <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} />
-                      <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} />
+                      <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} {...previewFocus('statementLabel')} />
+                      <SettingInput label="브랜드 큰 문구" value={homepageSettings.statementTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementTitle: value })} textarea {...previewFocus('statementTitle')} />
+                      <SettingInput label="브랜드 설명" value={homepageSettings.statementBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementBody: value })} textarea {...previewFocus('statementBody')} />
+                      <SettingInput label="Project 섹션 제목" value={homepageSettings.projectSectionTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectSectionTitle: value })} {...previewFocus('projectSectionTitle')} />
+                      <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} {...previewFocus('projectButtonLabel')} />
+                      <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} {...previewFocus('portfolioTitle')} />
                     </div>
                     </section>
 
                     <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                     <h3 className="mb-3 font-semibold">소개, 위치, 상담, 회사 정보</h3>
                     <div className="grid gap-3 md:grid-cols-2">
-                      <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} />
-                      <SettingInput label="소개 큰 문구" value={homepageSettings.aboutTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutTitle: value })} textarea />
-                      <SettingInput label="소개 설명" value={homepageSettings.aboutBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutBody: value })} textarea />
-                      <SettingInput label="진행 과정 작은 문구" value={homepageSettings.processLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, processLabel: value })} />
-                      <SettingInput label="진행 과정 큰 문구" value={homepageSettings.processTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, processTitle: value })} textarea />
-                      <SettingInput label="위치 작은 문구" value={homepageSettings.locationLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationLabel: value })} />
-                      <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} />
-                      <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
-                      <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
-                      <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
-                      <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} />
-                      <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} />
-                      <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea />
-                      <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} />
-                      <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
-                      <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" />
+                      <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} {...previewFocus('aboutLabel')} />
+                      <SettingInput label="소개 큰 문구" value={homepageSettings.aboutTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutTitle: value })} textarea {...previewFocus('aboutTitle')} />
+                      <SettingInput label="소개 설명" value={homepageSettings.aboutBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutBody: value })} textarea {...previewFocus('aboutBody')} />
+                      <SettingInput label="진행 과정 작은 문구" value={homepageSettings.processLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, processLabel: value })} {...previewFocus('processLabel')} />
+                      <SettingInput label="진행 과정 큰 문구" value={homepageSettings.processTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, processTitle: value })} textarea {...previewFocus('processTitle')} />
+                      <SettingInput label="위치 작은 문구" value={homepageSettings.locationLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationLabel: value })} {...previewFocus('locationLabel')} />
+                      <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} {...previewFocus('locationTitle')} />
+                      <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
+                      <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
+                      <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
+                      <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} {...previewFocus('contactLabel')} />
+                      <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
+                      <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
+                      <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
+                      <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
+                      <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
+                      <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
+                      <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
                     </div>
                     </section>
                   </div>
-                  <HomepageLivePreview />
+                  <HomepageLivePreview activeTarget={activePreviewTarget} />
                 </div>
                 <button
                   onClick={saveHomepageSettings}
@@ -1759,8 +1810,9 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function HomepageLivePreview() {
+function HomepageLivePreview({ activeTarget }: { activeTarget: PreviewTarget | null }) {
   const [previewSrc, setPreviewSrc] = useState('/');
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const sections = [
     { label: '첫 화면', src: '/' },
     { label: 'Project', src: '/#portfolio-preview' },
@@ -1769,11 +1821,61 @@ function HomepageLivePreview() {
     { label: '상담', src: '/#contact' },
   ];
 
+  const highlightActiveTarget = () => {
+    const frameDocument = iframeRef.current?.contentDocument;
+    if (!frameDocument) return;
+
+    frameDocument.querySelectorAll('[data-manager-preview-active="true"]').forEach((element) => {
+      element.removeAttribute('data-manager-preview-active');
+    });
+
+    if (!activeTarget) return;
+
+    let style = frameDocument.getElementById('manager-preview-highlight-style');
+    if (!style) {
+      style = frameDocument.createElement('style');
+      style.id = 'manager-preview-highlight-style';
+      style.textContent = `
+        [data-manager-preview-active="true"] {
+          outline: 3px solid #38bcd4 !important;
+          outline-offset: 6px !important;
+          border-radius: 10px !important;
+          box-shadow: 0 0 0 10px rgba(56, 188, 212, 0.18), 0 14px 36px rgba(23, 21, 18, 0.18) !important;
+          position: relative !important;
+          z-index: 25 !important;
+          transition: outline 160ms ease, box-shadow 160ms ease !important;
+        }
+      `;
+      frameDocument.head.appendChild(style);
+    }
+
+    const target = frameDocument.querySelector(`[data-preview-target="${activeTarget.key}"]`) || frameDocument.getElementById(activeTarget.src.replace('/#', ''));
+    if (target instanceof HTMLElement) {
+      target.setAttribute('data-manager-preview-active', 'true');
+      target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    }
+  };
+
+  useEffect(() => {
+    if (!activeTarget) return;
+    setPreviewSrc(activeTarget.src);
+  }, [activeTarget]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(highlightActiveTarget, 180);
+    return () => window.clearTimeout(timer);
+  }, [activeTarget, previewSrc]);
+
   return (
     <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm 2xl:sticky 2xl:top-5 2xl:self-start">
       <div className="mb-3">
         <h3 className="font-semibold">홈페이지 미리보기</h3>
         <p className="mt-1 text-xs leading-5 text-[#60717d]">저장 후 실제 홈페이지에 반영된 화면을 보면서 위치를 확인하세요.</p>
+        {activeTarget && (
+          <p className="mt-2 rounded-md bg-[#edf8fb] px-3 py-2 text-xs font-semibold text-[#19798c]">
+            선택 위치: {activeTarget.label}
+          </p>
+        )}
       </div>
       <div className="mb-3 flex flex-wrap gap-2">
         {sections.map((section) => (
@@ -1787,7 +1889,7 @@ function HomepageLivePreview() {
           </button>
         ))}
       </div>
-      <iframe title="WEVE DESIGN 홈페이지 미리보기" src={previewSrc} className="h-[640px] w-full rounded-md border border-[#d5dde2] bg-white" />
+      <iframe ref={iframeRef} title="WEVE DESIGN 홈페이지 미리보기" src={previewSrc} onLoad={highlightActiveTarget} className="h-[640px] w-full rounded-md border border-[#d5dde2] bg-white" />
     </aside>
   );
 }
@@ -1798,12 +1900,14 @@ function SettingInput({
   placeholder,
   textarea,
   onChange,
+  onFocus,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   textarea?: boolean;
   onChange: (value: string) => void;
+  onFocus?: () => void;
 }) {
   return (
     <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
@@ -1812,6 +1916,7 @@ function SettingInput({
         <textarea
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onFocus={onFocus}
           placeholder={placeholder}
           rows={3}
           className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
@@ -1820,6 +1925,7 @@ function SettingInput({
         <input
           value={value}
           onChange={(event) => onChange(event.target.value)}
+          onFocus={onFocus}
           placeholder={placeholder}
           className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
         />
