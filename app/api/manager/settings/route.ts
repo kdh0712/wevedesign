@@ -8,7 +8,9 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
-    const settings = await managerClient.fetch('*[_type == "siteSettings"][0]{consultationEmail, phone, address, lotAddress}');
+    const settings = await managerClient.fetch(
+      '*[_type == "siteSettings"][0]{consultationEmail, phone, address, lotAddress, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, contactTitle, contactBody, kakaoUrl}',
+    );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to load settings.' }, { status: 500 });
@@ -20,11 +22,34 @@ export async function PATCH(request: Request) {
   if (authError) return authError;
 
   try {
-    const body = (await request.json()) as { consultationEmail?: string };
-    const consultationEmail = body.consultationEmail?.trim();
+    const body = (await request.json()) as Record<string, string | undefined>;
+    const updates: Record<string, string> = {};
 
-    if (!consultationEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(consultationEmail)) {
+    const allowedFields = [
+      'consultationEmail',
+      'phone',
+      'address',
+      'lotAddress',
+      'heroTitle',
+      'heroDescription',
+      'primaryButtonLabel',
+      'secondaryButtonLabel',
+      'contactTitle',
+      'contactBody',
+      'kakaoUrl',
+    ];
+
+    for (const field of allowedFields) {
+      const value = body[field]?.trim();
+      if (value) updates[field] = value;
+    }
+
+    if (updates.consultationEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.consultationEmail)) {
       return NextResponse.json({ error: '올바른 이메일 주소를 입력해주세요.' }, { status: 400 });
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: '저장할 홈페이지 설정을 입력해주세요.' }, { status: 400 });
     }
 
     await managerClient.createIfNotExists({
@@ -33,7 +58,7 @@ export async function PATCH(request: Request) {
       title: 'WEVE DESIGN 홈페이지 설정',
     });
 
-    const settings = await managerClient.patch('siteSettings').set({ consultationEmail }).commit();
+    const settings = await managerClient.patch('siteSettings').set(updates).commit();
     return NextResponse.json({ settings });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Failed to save settings.' }, { status: 500 });

@@ -32,7 +32,11 @@ async function handleBulkUpload(request: Request) {
   const formData = await request.formData();
   const files = formData.getAll('files').filter((value): value is File => value instanceof File);
   const paths = safeJsonArray(formData.get('paths'));
+  const categoryId = String(formData.get('categoryId') || '').trim();
   const categoryTitle = String(formData.get('category') || '주택').trim() || '주택';
+  const siteType = String(formData.get('siteType') || '').trim();
+  const location = String(formData.get('location') || '').trim();
+  const area = Number(String(formData.get('area') || '').replace(/[^\d.]/g, ''));
   const featured = formData.get('featured') === 'true';
 
   if (files.length === 0) {
@@ -47,7 +51,7 @@ async function handleBulkUpload(request: Request) {
     return NextResponse.json({ error: '지원되는 이미지 파일을 찾지 못했습니다.' }, { status: 400 });
   }
 
-  const category = await getOrCreateCategory(categoryTitle);
+  const category = categoryId ? { _id: categoryId } : await getOrCreateCategory(categoryTitle);
   const projects = groupBy(parsedImages, (image) => image.projectTitle);
   const results = [];
 
@@ -101,6 +105,9 @@ async function handleBulkUpload(request: Request) {
       featured,
       title: projectTitle,
       category: { _type: 'reference', _ref: category._id },
+      ...(siteType ? { siteType } : {}),
+      ...(location ? { location } : {}),
+      ...(Number.isFinite(area) && area > 0 ? { area } : {}),
       mainImage: {
         _type: 'image',
         asset: { _type: 'reference', _ref: mainAsset._id },

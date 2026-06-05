@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { assertManager, managerClient } from '../_utils';
+import { assertManager, getOrCreateCategory, managerClient } from '../_utils';
 
 export const runtime = 'nodejs';
 
-type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor';
+type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor' | 'project' | 'category';
 
 const typeMap: Record<OfficeType, string> = {
   consultation: 'officeConsultation',
@@ -11,6 +11,8 @@ const typeMap: Record<OfficeType, string> = {
   sale: 'officeSale',
   inventory: 'officeInventoryItem',
   vendor: 'officeVendor',
+  project: 'project',
+  category: 'category',
 };
 
 const query = `{
@@ -28,6 +30,14 @@ const query = `{
   },
   "vendors": *[_type == "officeVendor"] | order(name asc)[0...100] {
     _id, name, manager, phone, service, status, memo, createdAt
+  },
+  "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
+    _id, title, "slug": slug.current
+  },
+  "projects": *[_type == "project"] | order(_createdAt desc)[0...200] {
+    _id, title, location, siteType, area, featured, isVisible,
+    "categoryId": category->_id,
+    "categoryTitle": category->title
   }
 }`;
 
@@ -59,6 +69,26 @@ export async function POST(request: Request) {
 
     const cleanData = sanitizeRecord(body?.data || {});
     const now = new Date().toISOString();
+
+    if (type === 'project') {
+      if (!body?.id) {
+        return NextResponse.json({ error: '수정할 Project를 선택해 주세요.' }, { status: 400 });
+      }
+
+      const record = await managerClient.patch(String(body.id)).set({ ...cleanData, updatedAt: now }).commit();
+      return NextResponse.json({ record });
+    }
+
+    if (type === 'category') {
+      const title = String(cleanData.title || '').trim();
+      if (!title) {
+        return NextResponse.json({ error: '추가할 카테고리 이름을 입력해 주세요.' }, { status: 400 });
+      }
+
+      const record = await getOrCreateCategory(title);
+      return NextResponse.json({ record });
+    }
+
     const record = body?.id
       ? await managerClient.patch(String(body.id)).set({ ...cleanData, updatedAt: now }).commit()
       : await managerClient.create({ _type: sanityType, ...cleanData, createdAt: now, updatedAt: now });

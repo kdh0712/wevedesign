@@ -37,7 +37,7 @@ type ManagerApiResponse = {
   results?: UploadResult[];
 };
 
-type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor';
+type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor' | 'project';
 type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sales' | 'inventory' | 'vendors' | 'portfolio';
 
 type Consultation = {
@@ -99,17 +99,37 @@ type Vendor = {
   createdAt?: string;
 };
 
+type CategoryOption = {
+  _id: string;
+  title: string;
+  slug?: string;
+};
+
+type ManagedProject = {
+  _id: string;
+  title?: string;
+  location?: string;
+  siteType?: string;
+  area?: number;
+  featured?: boolean;
+  isVisible?: boolean;
+  categoryId?: string;
+  categoryTitle?: string;
+};
+
 type OfficeData = {
   consultations: Consultation[];
   customers: Customer[];
   sales: Sale[];
   inventory: InventoryItem[];
   vendors: Vendor[];
+  categories: CategoryOption[];
+  projects: ManagedProject[];
 };
 
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
-  record?: Consultation | Customer | Sale | InventoryItem | Vendor;
+  record?: Consultation | Customer | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
 const emptyOfficeData: OfficeData = {
@@ -118,6 +138,8 @@ const emptyOfficeData: OfficeData = {
   sales: [],
   inventory: [],
   vendors: [],
+  categories: [],
+  projects: [],
 };
 
 const UPLOAD_PRESETS = [
@@ -141,10 +163,33 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
-  const [category, setCategory] = useState('주택');
+  const [category, setCategory] = useState('');
+  const [newCategory, setNewCategory] = useState('');
+  const [uploadSiteType, setUploadSiteType] = useState('아파트');
+  const [uploadLocation, setUploadLocation] = useState('');
+  const [uploadArea, setUploadArea] = useState('');
   const [featured, setFeatured] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [consultationEmail, setConsultationEmail] = useState('');
+  const [homepageSettings, setHomepageSettings] = useState({
+    consultationEmail: '',
+    phone: '',
+    address: '',
+    lotAddress: '',
+    heroTitle: '',
+    heroDescription: '',
+    primaryButtonLabel: '',
+    secondaryButtonLabel: '',
+    contactTitle: '',
+    contactBody: '',
+    kakaoUrl: '',
+  });
+  const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectCategoryId, setProjectCategoryId] = useState('');
+  const [projectNewCategory, setProjectNewCategory] = useState('');
+  const [projectSiteType, setProjectSiteType] = useState('아파트');
+  const [projectLocation, setProjectLocation] = useState('');
+  const [projectArea, setProjectArea] = useState('');
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -197,9 +242,14 @@ export default function ManagerPage() {
 
     setLoadingOffice(true);
     try {
-      const response = await fetch('/api/manager/office', { headers: authHeaders() });
+      const [response, settingsResponse] = await Promise.all([
+        fetch('/api/manager/office', { headers: authHeaders() }),
+        fetch('/api/manager/settings', { headers: authHeaders() }),
+      ]);
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 불러오지 못했습니다.');
+      const settingsData = await readJsonResponse<{ settings?: Partial<typeof homepageSettings>; error?: string }>(settingsResponse);
+      if (!settingsResponse.ok) throw new Error(settingsData.error || '홈페이지 설정을 불러오지 못했습니다.');
 
       setOfficeData({
         consultations: data.consultations || [],
@@ -207,7 +257,25 @@ export default function ManagerPage() {
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
+        categories: data.categories || [],
+        projects: data.projects || [],
       });
+      const settings = settingsData.settings || {};
+      setHomepageSettings({
+        consultationEmail: settings.consultationEmail || '',
+        phone: settings.phone || '',
+        address: settings.address || '',
+        lotAddress: settings.lotAddress || '',
+        heroTitle: settings.heroTitle || '',
+        heroDescription: settings.heroDescription || '',
+        primaryButtonLabel: settings.primaryButtonLabel || '',
+        secondaryButtonLabel: settings.secondaryButtonLabel || '',
+        contactTitle: settings.contactTitle || '',
+        contactBody: settings.contactBody || '',
+        kakaoUrl: settings.kakaoUrl || '',
+      });
+      setConsultationEmail(settings.consultationEmail || '');
+      if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
       setStatus('업무 데이터를 불러왔습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
@@ -279,6 +347,34 @@ export default function ManagerPage() {
     }
   };
 
+  const saveHomepageSettings = async () => {
+    setError('');
+    setStatus('');
+
+    if (!requirePassword()) return;
+    setSavingEmail(true);
+
+    try {
+      const response = await fetch('/api/manager/settings', {
+        method: 'PATCH',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(homepageSettings),
+      });
+      const data = await readJsonResponse<ManagerApiResponse>(response);
+
+      if (!response.ok) throw new Error(data.error || '홈페이지 설정 저장에 실패했습니다.');
+      setConsultationEmail(homepageSettings.consultationEmail);
+      setStatus('홈페이지 설정을 저장했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '홈페이지 설정 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
   const uploadProjects = async () => {
     setError('');
     setStatus('');
@@ -288,6 +384,14 @@ export default function ManagerPage() {
 
     if (files.length === 0) {
       setError('업로드할 현장 폴더를 선택해 주세요.');
+      return;
+    }
+
+    const selectedCategory = officeData.categories.find((item) => item._id === category);
+    const categoryTitle = newCategory.trim() || selectedCategory?.title || '';
+
+    if (!categoryTitle) {
+      setError('Project 분류를 선택하거나 새 카테고리를 입력해 주세요.');
       return;
     }
 
@@ -309,7 +413,13 @@ export default function ManagerPage() {
       });
 
       formData.append('paths', JSON.stringify(preparedFiles.map((item) => item.path)));
-      formData.append('category', category);
+      if (!newCategory.trim() && selectedCategory?._id) {
+        formData.append('categoryId', selectedCategory._id);
+      }
+      formData.append('category', categoryTitle);
+      formData.append('siteType', uploadSiteType);
+      formData.append('location', uploadLocation);
+      formData.append('area', uploadArea);
       formData.append('featured', String(featured));
       setStatus('Sanity로 업로드하고 있습니다...');
 
@@ -330,43 +440,147 @@ export default function ManagerPage() {
     }
   };
 
-  return (
-    <main className="min-h-screen bg-[#f7f3ea] px-4 py-6 text-[#171512] md:px-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-6 flex flex-col justify-between gap-4 border-b border-[#d9cdbb] pb-5 lg:flex-row lg:items-end">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">WEVE OFFICE</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-normal md:text-4xl">통합 사무 관리</h1>
-            <p className="mt-2 text-sm text-[#625d54]">상담, 고객, 매출, 재고, 협력업체, 포트폴리오 업로드를 한 곳에서 관리합니다.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={loadOfficeData}
-              disabled={loadingOffice}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {loadingOffice ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
-              업무 데이터 불러오기
-            </button>
-            <a href="/studio-weve-3891" className="rounded-md border border-[#cbb992] bg-white px-4 py-2.5 text-sm font-semibold">
-              Sanity Studio
-            </a>
-          </div>
-        </header>
+  const selectProjectForEdit = (projectId: string) => {
+    const project = officeData.projects.find((item) => item._id === projectId);
+    setSelectedProjectId(projectId);
+    setProjectCategoryId(project?.categoryId || '');
+    setProjectNewCategory('');
+    setProjectSiteType(project?.siteType || '아파트');
+    setProjectLocation(project?.location || '');
+    setProjectArea(project?.area ? String(project.area) : '');
+  };
 
-        <section className="mb-4 rounded-lg border border-[#d9cdbb] bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <ShieldCheck className="text-[#8f6f43]" size={20} />
-            <h2 className="text-lg font-semibold">관리 비밀번호</h2>
+  const saveProjectClassification = async () => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    const project = officeData.projects.find((item) => item._id === selectedProjectId);
+    if (!project) {
+      setError('분류를 변경할 Project를 선택해 주세요.');
+      return;
+    }
+
+    const selectedCategory = officeData.categories.find((item) => item._id === projectCategoryId);
+    const categoryTitle = projectNewCategory.trim() || selectedCategory?.title || '';
+    if (!categoryTitle) {
+      setError('카테고리를 선택하거나 새 카테고리를 입력해 주세요.');
+      return;
+    }
+
+    setSavingOffice(true);
+    try {
+      let categoryRef = projectCategoryId;
+
+      if (projectNewCategory.trim()) {
+        const response = await fetch('/api/manager/office', {
+          method: 'POST',
+          headers: {
+            ...authHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: 'category',
+            data: { title: projectNewCategory.trim() },
+          }),
+        });
+        const data = await readJsonResponse<{ record?: { _id?: string }; error?: string }>(response);
+        if (!response.ok || !data.record?._id) throw new Error(data.error || '새 카테고리를 만들지 못했습니다.');
+        categoryRef = data.record._id;
+      }
+
+      await saveOfficeRecord(
+        'project',
+        {
+          category: { _type: 'reference', _ref: categoryRef },
+          siteType: projectSiteType,
+          location: projectLocation,
+          area: Number(projectArea || 0),
+        },
+        project._id,
+      );
+      setProjectNewCategory('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Project 분류 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
+      <div className="flex min-h-screen">
+        <aside className="hidden w-64 shrink-0 bg-[#273541] text-[#dfe8ed] lg:block">
+          <div className="border-b border-white/10 px-6 py-6">
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
+            <h1 className="mt-2 text-xl font-semibold text-white">통합 관리</h1>
+            <p className="mt-1 text-xs text-[#9fb1bd]">상담부터 홈페이지까지</p>
           </div>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Vercel 환경변수 MANAGER_PASSWORD에 설정한 비밀번호"
-            className="mt-3 w-full rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-4 py-3 outline-none focus:border-[#8f6f43]"
-          />
-        </section>
+          <nav className="grid gap-1 px-3 py-4">
+            {tabs.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`flex items-center gap-3 rounded-md px-4 py-3 text-left text-sm font-semibold transition ${
+                  activeTab === tab.key ? 'bg-[#38bcd4] text-white' : 'text-[#dfe8ed] hover:bg-white/8 hover:text-white'
+                }`}
+              >
+                {tab.icon}
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <section className="min-w-0 flex-1 px-4 py-5 md:px-6">
+          <header className="mb-5 rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+            <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE MANAGER</p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-normal md:text-4xl">사무업무 통합 콘솔</h1>
+                <p className="mt-2 text-sm text-[#60717d]">상담, 고객, 매출, 재고, 협력업체, 홈페이지 관리를 한 곳에서 처리합니다.</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  onClick={loadOfficeData}
+                  disabled={loadingOffice}
+                  className="inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {loadingOffice ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
+                  데이터 불러오기
+                </button>
+                <a href="/studio-weve-3891" className="rounded-md border border-[#c8d4da] bg-white px-4 py-2.5 text-center text-sm font-semibold">
+                  Sanity Studio
+                </a>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+              <label className="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
+                <ShieldCheck className="shrink-0 text-[#38a9bd]" size={20} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="관리 비밀번호"
+                  className="min-w-0 flex-1 bg-transparent outline-none"
+                />
+              </label>
+              <div className="flex gap-2 overflow-x-auto lg:hidden">
+                {tabs.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
+                      activeTab === tab.key ? 'bg-[#171512] text-white' : 'bg-white text-[#4d5d66]'
+                    }`}
+                  >
+                    {tab.icon}
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </header>
 
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
@@ -375,21 +589,6 @@ export default function ManagerPage() {
           <MetricCard title="재고" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
           <MetricCard title="협력업체" value={`${officeData.vendors.length}곳`} sub="거래처" />
         </div>
-
-        <nav className="mb-5 flex gap-2 overflow-x-auto border-b border-[#d9cdbb] pb-2">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold ${
-                activeTab === tab.key ? 'bg-[#171512] text-white' : 'bg-white text-[#4d473f] hover:bg-[#fff7df]'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
 
         {activeTab === 'dashboard' && (
           <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
@@ -609,75 +808,174 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'portfolio' && (
-          <div className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-            <Panel title="상담문의 이메일">
-              <p className="mb-4 leading-7 text-[#625d54]">홈페이지 상담문의가 도착할 이메일을 직접 바꿀 수 있습니다.</p>
-              <input
-                type="email"
-                value={consultationEmail}
-                onChange={(event) => setConsultationEmail(event.target.value)}
-                placeholder="예: hello@wevedesign.co.kr"
-                className="w-full rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-4 py-3 outline-none focus:border-[#8f6f43]"
-              />
+          <div className="grid gap-5">
+            <Panel title="간편 홈페이지 관리">
+              <div className="grid gap-3 md:grid-cols-2">
+                <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} />
+                <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
+                <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
+                <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
+                <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
+                <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
+                <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
+                <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} />
+                <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea />
+                <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea />
+                <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea />
+              </div>
               <button
-                onClick={saveEmail}
+                onClick={saveHomepageSettings}
                 disabled={savingEmail}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#f1c76a] px-5 py-3 font-semibold disabled:opacity-60"
+                className="mt-4 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
               >
                 {savingEmail ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
-                이메일 저장
+                홈페이지 설정 저장
               </button>
             </Panel>
 
-            <Panel title="현장 폴더 한번에 업로드">
-              <p className="mb-4 leading-7 text-[#625d54]">
-                현장명 폴더 안에 `대표.jpg`, `거실1.jpg`, `거실2.jpg`, `주방1.jpg`처럼 정리한 뒤 폴더를 선택하면 Project와 공간별 사진 묶음으로 자동 등록됩니다.
-              </p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <input
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                  placeholder="카테고리 예: 주택, 아파트"
-                  className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-4 py-3 outline-none focus:border-[#8f6f43]"
-                />
-                <label className="flex items-center gap-2 rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-4 py-3">
-                  <input type="checkbox" checked={featured} onChange={(event) => setFeatured(event.target.checked)} />
-                  메인 Project에도 표시
-                </label>
-              </div>
-
-              <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#cbb992] bg-[#fffdf8] px-5 py-10 text-center transition hover:bg-[#fff7df]">
-                <UploadCloud className="mb-3 text-[#8f6f43]" size={34} />
-                <span className="font-semibold">현장 폴더 선택</span>
-                <span className="mt-2 text-sm text-[#625d54]">여러 현장 폴더가 들어있는 상위 폴더도 선택할 수 있습니다.</span>
-                <input type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
-              </label>
-
-              {previews.length > 0 && (
-                <div className="mt-5 rounded-lg bg-[#f7f3ea] p-4">
-                  <p className="font-semibold">업로드 미리보기</p>
-                  <div className="mt-3 grid gap-3">
-                    {previews.map((project) => (
-                      <div key={project.title} className="rounded-md bg-white p-3 text-sm">
-                        <p className="font-semibold">
-                          {project.title} · 사진 {project.count}장
-                        </p>
-                        <p className="mt-1 text-[#625d54]">{project.rooms.join(', ') || '상세 사진 없음'}</p>
-                      </div>
-                    ))}
-                  </div>
+            <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+              <Panel title="현장 폴더 한번에 업로드">
+                <p className="mb-4 leading-7 text-[#60717d]">
+                  현장명 폴더 안에 `대표.jpg`, `거실1.jpg`, `거실2.jpg`, `주방1.jpg`처럼 정리한 뒤 폴더를 선택하면 Project와 공간별 사진 묶음으로 자동 등록됩니다.
+                </p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    Project 분류
+                    <select
+                      value={category}
+                      onChange={(event) => {
+                        setCategory(event.target.value);
+                        setNewCategory('');
+                      }}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">카테고리 선택</option>
+                      {officeData.categories.map((item) => (
+                        <option key={item._id} value={item._id}>
+                          {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SettingInput label="새 카테고리 추가" value={newCategory} onChange={setNewCategory} placeholder="카테고리에 없으면 입력" />
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    주거 형태
+                    <select
+                      value={uploadSiteType}
+                      onChange={(event) => setUploadSiteType(event.target.value)}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      {['아파트', '주택', '상가', '오피스', '기타'].map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SettingInput label="지역" value={uploadLocation} onChange={setUploadLocation} placeholder="예: 안양, 의왕" />
+                  <SettingInput label="평수" value={uploadArea} onChange={(value) => setUploadArea(onlyNumber(value))} placeholder="예: 32" />
+                  <label className="flex items-center gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm font-semibold text-[#4d5d66]">
+                    <input type="checkbox" checked={featured} onChange={(event) => setFeatured(event.target.checked)} />
+                    메인 Project에도 표시
+                  </label>
                 </div>
-              )}
 
-              <button
-                onClick={uploadProjects}
-                disabled={uploading}
-                className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-4 font-semibold text-white disabled:opacity-60"
-              >
-                {uploading ? <Loader2 className="animate-spin" size={18} /> : <UploadCloud size={18} />}
-                Sanity에 업로드
-              </button>
-            </Panel>
+                <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#9db6c1] bg-[#f7fafb] px-5 py-10 text-center transition hover:bg-[#eef9fb]">
+                  <UploadCloud className="mb-3 text-[#38a9bd]" size={34} />
+                  <span className="font-semibold">현장 폴더 선택</span>
+                  <span className="mt-2 text-sm text-[#60717d]">여러 현장 폴더가 들어있는 상위 폴더도 선택할 수 있습니다.</span>
+                  <input type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
+                </label>
+
+                {previews.length > 0 && (
+                  <div className="mt-5 rounded-lg bg-[#edf2f5] p-4">
+                    <p className="font-semibold">업로드 미리보기</p>
+                    <div className="mt-3 grid gap-3">
+                      {previews.map((project) => (
+                        <div key={project.title} className="rounded-md bg-white p-3 text-sm">
+                          <p className="font-semibold">
+                            {project.title} · 사진 {project.count}장
+                          </p>
+                          <p className="mt-1 text-[#60717d]">{project.rooms.join(', ') || '상세 사진 없음'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={uploadProjects}
+                  disabled={uploading}
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-4 font-semibold text-white disabled:opacity-60"
+                >
+                  {uploading ? <Loader2 className="animate-spin" size={18} /> : <UploadCloud size={18} />}
+                  Sanity에 업로드
+                </button>
+              </Panel>
+
+              <Panel title="Project 분류 관리">
+                <div className="grid gap-3">
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    Project 선택
+                    <select
+                      value={selectedProjectId}
+                      onChange={(event) => selectProjectForEdit(event.target.value)}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">Project 선택</option>
+                      {officeData.projects.map((project) => (
+                        <option key={project._id} value={project._id}>
+                          {project.title || '이름 없는 Project'} · {project.categoryTitle || '분류 없음'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    카테고리 선택
+                    <select
+                      value={projectCategoryId}
+                      onChange={(event) => {
+                        setProjectCategoryId(event.target.value);
+                        setProjectNewCategory('');
+                      }}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">카테고리 선택</option>
+                      {officeData.categories.map((item) => (
+                        <option key={item._id} value={item._id}>
+                          {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SettingInput label="새 카테고리 추가" value={projectNewCategory} onChange={setProjectNewCategory} placeholder="카테고리에 없으면 입력" />
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    주거 형태
+                    <select
+                      value={projectSiteType}
+                      onChange={(event) => setProjectSiteType(event.target.value)}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      {['아파트', '주택', '상가', '오피스', '기타'].map((item) => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SettingInput label="지역" value={projectLocation} onChange={setProjectLocation} />
+                  <SettingInput label="평수" value={projectArea} onChange={(value) => setProjectArea(onlyNumber(value))} />
+                  <button
+                    onClick={saveProjectClassification}
+                    disabled={savingOffice}
+                    className="mt-2 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
+                  >
+                    {savingOffice ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                    Project 정보 저장
+                  </button>
+                </div>
+              </Panel>
+            </div>
           </div>
         )}
 
@@ -698,6 +996,7 @@ export default function ManagerPage() {
             )}
           </section>
         )}
+        </section>
       </div>
     </main>
   );
@@ -715,10 +1014,46 @@ function MetricCard({ title, value, sub }: { title: string; value: string; sub: 
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-[#d9cdbb] bg-white p-5 shadow-sm">
+    <section className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function SettingInput({
+  label,
+  value,
+  placeholder,
+  textarea,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  textarea?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+      {label}
+      {textarea ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          rows={3}
+          className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+        />
+      )}
+    </label>
   );
 }
 

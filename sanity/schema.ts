@@ -439,6 +439,13 @@ const project = defineType({
       validation: (Rule) => Rule.required(),
     }),
     defineField({ name: 'location', title: '지역', type: 'string', group: 'content' }),
+    defineField({
+      name: 'siteType',
+      title: '주거 형태',
+      type: 'string',
+      group: 'content',
+      options: { list: ['아파트', '주택', '상가', '오피스', '기타'] },
+    }),
     defineField({ name: 'area', title: '평수', type: 'number', group: 'content' }),
     defineField({ name: 'year', title: '시공 연도', type: 'string', group: 'content' }),
     defineField({ name: 'materials', title: '사용 자재', type: 'string', group: 'content' }),
