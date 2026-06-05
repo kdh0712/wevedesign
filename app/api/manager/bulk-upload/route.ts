@@ -36,6 +36,7 @@ async function handleBulkUpload(request: Request) {
   const categoryTitle = String(formData.get('category') || '주택').trim() || '주택';
   const siteType = String(formData.get('siteType') || '').trim();
   const location = String(formData.get('location') || '').trim();
+  const description = String(formData.get('description') || '').trim();
   const area = Number(String(formData.get('area') || '').replace(/[^\d.]/g, ''));
   const featured = formData.get('featured') === 'true';
 
@@ -107,6 +108,7 @@ async function handleBulkUpload(request: Request) {
       category: { _type: 'reference', _ref: category._id },
       ...(siteType ? { siteType } : {}),
       ...(location ? { location } : {}),
+      ...(description ? { description } : {}),
       ...(Number.isFinite(area) && area > 0 ? { area } : {}),
       mainImage: {
         _type: 'image',

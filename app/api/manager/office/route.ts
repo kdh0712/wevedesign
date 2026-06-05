@@ -35,7 +35,7 @@ const query = `{
     _id, title, "slug": slug.current
   },
   "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
-    _id, title, description, location, siteType, area, year, materials, displayOrder, featured, isVisible, mainImagePosition,
+    _id, title, description, location, siteType, area, year, materials, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
     "mainImage": mainImage.asset->url,
     "mainImageAlt": mainImage.alt,
     "categoryId": category->_id,

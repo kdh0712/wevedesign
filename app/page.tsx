@@ -54,6 +54,8 @@ type Project = {
   materials?: string;
   featured?: boolean;
   mainImagePosition?: string;
+  mainImagePositionX?: number;
+  mainImagePositionY?: number;
   mainImage?: string;
   mainImageAlt?: string;
   beforeImage?: string;
@@ -293,7 +295,11 @@ const locationTitleText = (value?: string) => {
   return value;
 };
 
-const imageObjectPosition = (value?: string) => {
+const imageObjectPosition = (value?: string, x?: number, y?: number) => {
+  if (typeof x === 'number' || typeof y === 'number') {
+    return `${Math.round(x ?? 50)}% ${Math.round(y ?? 50)}%`;
+  }
+
   const positions: Record<string, string> = {
     top: 'center top',
     bottom: 'center bottom',
@@ -1525,7 +1531,7 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
-            style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
+            style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1572,7 +1578,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
-            style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
+            style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1671,7 +1677,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                       src={optimizedImage(project.mainImage, 1500)}
                       alt={project.mainImageAlt || project.title}
                       className="max-h-[720px] w-full object-cover"
-                      style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
+                      style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
                     />
                     <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
                       <ZoomIn size={14} />

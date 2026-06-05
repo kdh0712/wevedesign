@@ -119,6 +119,8 @@ type ManagedProject = {
   mainImage?: string;
   mainImageAlt?: string;
   mainImagePosition?: string;
+  mainImagePositionX?: number;
+  mainImagePositionY?: number;
   featured?: boolean;
   isVisible?: boolean;
   categoryId?: string;
@@ -178,6 +180,7 @@ export default function ManagerPage() {
   const [uploadSiteType, setUploadSiteType] = useState('아파트');
   const [uploadLocation, setUploadLocation] = useState('');
   const [uploadArea, setUploadArea] = useState('');
+  const [uploadDescription, setUploadDescription] = useState('');
   const [featured, setFeatured] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [consultationEmail, setConsultationEmail] = useState('');
@@ -226,6 +229,8 @@ export default function ManagerPage() {
   const [projectMaterials, setProjectMaterials] = useState('');
   const [projectDisplayOrder, setProjectDisplayOrder] = useState('');
   const [projectMainImagePosition, setProjectMainImagePosition] = useState('center');
+  const [projectMainImagePositionX, setProjectMainImagePositionX] = useState('50');
+  const [projectMainImagePositionY, setProjectMainImagePositionY] = useState('50');
   const [projectFeatured, setProjectFeatured] = useState(false);
   const [projectVisible, setProjectVisible] = useState(true);
   const [status, setStatus] = useState('');
@@ -387,6 +392,21 @@ export default function ManagerPage() {
     setFiles(Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/')));
   };
 
+  const handleFolderDrop = async (event: React.DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setError('');
+    setStatus('');
+    setResults([]);
+
+    try {
+      const droppedFiles = await filesFromDrop(event.dataTransfer);
+      setFiles(droppedFiles.filter((file) => file.type.startsWith('image/')));
+      setStatus('업로드할 현장 폴더를 불러왔습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '드래그한 폴더를 읽지 못했습니다.');
+    }
+  };
+
   const saveEmail = async () => {
     setError('');
     setStatus('');
@@ -515,6 +535,7 @@ export default function ManagerPage() {
       formData.append('category', categoryTitle);
       formData.append('siteType', uploadSiteType);
       formData.append('location', uploadLocation);
+      formData.append('description', uploadDescription);
       formData.append('area', uploadArea);
       formData.append('featured', String(featured));
       setStatus('Sanity로 업로드하고 있습니다...');
@@ -550,8 +571,20 @@ export default function ManagerPage() {
     setProjectMaterials(project?.materials || '');
     setProjectDisplayOrder(project?.displayOrder ? String(project.displayOrder) : '');
     setProjectMainImagePosition(project?.mainImagePosition || 'center');
+    setProjectMainImagePositionX(String(project?.mainImagePositionX ?? 50));
+    setProjectMainImagePositionY(String(project?.mainImagePositionY ?? 50));
     setProjectFeatured(Boolean(project?.featured));
     setProjectVisible(project?.isVisible !== false);
+  };
+
+  const updateProjectImageFocus = (event: React.PointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100));
+    const y = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100));
+
+    setProjectMainImagePosition('custom');
+    setProjectMainImagePositionX(String(Math.round(x)));
+    setProjectMainImagePositionY(String(Math.round(y)));
   };
 
   const saveProjectClassification = async () => {
@@ -606,6 +639,8 @@ export default function ManagerPage() {
           materials: projectMaterials,
           displayOrder: Number(projectDisplayOrder || 0),
           mainImagePosition: projectMainImagePosition,
+          mainImagePositionX: Number(projectMainImagePositionX || 50),
+          mainImagePositionY: Number(projectMainImagePositionY || 50),
           featured: projectFeatured,
           isVisible: projectVisible,
         },
@@ -1011,8 +1046,9 @@ export default function ManagerPage() {
 
             {homepageMode === 'detail' && (
               <Panel title="상세 홈페이지 수정">
-                <div className="grid gap-5">
-                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_460px]">
+                  <div className="grid gap-5">
+                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                     <h3 className="mb-3 font-semibold">첫 화면 배너</h3>
                     <div className="grid gap-4 xl:grid-cols-3">
                       {[
@@ -1047,9 +1083,9 @@ export default function ManagerPage() {
                       <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
                       <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
                     </div>
-                  </section>
+                    </section>
 
-                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                     <h3 className="mb-3 font-semibold">중간 문구와 Project 영역</h3>
                     <div className="grid gap-3 md:grid-cols-2">
                       <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} />
@@ -1059,9 +1095,9 @@ export default function ManagerPage() {
                       <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} />
                       <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} />
                     </div>
-                  </section>
+                    </section>
 
-                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                     <h3 className="mb-3 font-semibold">소개, 위치, 상담, 회사 정보</h3>
                     <div className="grid gap-3 md:grid-cols-2">
                       <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} />
@@ -1081,7 +1117,9 @@ export default function ManagerPage() {
                       <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
                       <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" />
                     </div>
-                  </section>
+                    </section>
+                  </div>
+                  <HomepageLivePreview />
                 </div>
                 <button
                   onClick={saveHomepageSettings}
@@ -1135,16 +1173,21 @@ export default function ManagerPage() {
                   </label>
                   <SettingInput label="지역" value={uploadLocation} onChange={setUploadLocation} placeholder="예: 수도권, 분당, 강남" />
                   <SettingInput label="평수" value={uploadArea} onChange={(value) => setUploadArea(onlyNumber(value))} placeholder="예: 32" />
+                  <SettingInput label="Project 설명" value={uploadDescription} onChange={setUploadDescription} placeholder="홈페이지 Project 상세 화면에 표시될 설명을 입력하세요." textarea />
                   <label className="flex items-center gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm font-semibold text-[#4d5d66]">
                     <input type="checkbox" checked={featured} onChange={(event) => setFeatured(event.target.checked)} />
                     메인 Project에도 표시
                   </label>
                 </div>
 
-                <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#9db6c1] bg-[#f7fafb] px-5 py-10 text-center transition hover:bg-[#eef9fb]">
+                <label
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={handleFolderDrop}
+                  className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#9db6c1] bg-[#f7fafb] px-5 py-10 text-center transition hover:bg-[#eef9fb]"
+                >
                   <UploadCloud className="mb-3 text-[#38a9bd]" size={34} />
-                  <span className="font-semibold">현장 폴더 선택</span>
-                  <span className="mt-2 text-sm text-[#60717d]">여러 현장 폴더가 들어있는 상위 폴더도 선택할 수 있습니다.</span>
+                  <span className="font-semibold">현장 폴더 선택 또는 드래그</span>
+                  <span className="mt-2 text-sm text-[#60717d]">폴더를 이 영역에 끌어오거나 클릭해서 선택할 수 있습니다.</span>
                   <input type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
                 </label>
 
@@ -1170,7 +1213,7 @@ export default function ManagerPage() {
                   className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-4 font-semibold text-white disabled:opacity-60"
                 >
                   {uploading ? <Loader2 className="animate-spin" size={18} /> : <UploadCloud size={18} />}
-                  Sanity에 업로드
+                  Project 업로드
                 </button>
               </Panel>
 
@@ -1214,16 +1257,35 @@ export default function ManagerPage() {
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-semibold text-[#4d5d66]">대표 사진 카드 미리보기</p>
-                          <p className="mt-1 text-xs text-[#60717d]">홈페이지 Project 카드에서 잘려 보이는 기준을 확인합니다.</p>
+                          <p className="mt-1 text-xs text-[#60717d]">사진 위를 클릭하거나 드래그해서 카드에 보일 중심을 정합니다.</p>
                         </div>
                       </div>
-                      <div className="overflow-hidden rounded-md bg-[#d8d1c5]">
-                        <img
-                          src={selectedProjectForEdit.mainImage}
-                          alt={selectedProjectForEdit.mainImageAlt || selectedProjectForEdit.title || 'Project preview'}
-                          className="aspect-[4/5] w-full object-cover"
-                          style={{ objectPosition: imageObjectPosition(projectMainImagePosition) }}
-                        />
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onPointerDown={updateProjectImageFocus}
+                          onPointerMove={(event) => {
+                            if (event.buttons === 1) updateProjectImageFocus(event);
+                          }}
+                          className="relative w-full max-w-[220px] cursor-crosshair overflow-hidden rounded-md bg-[#d8d1c5]"
+                        >
+                          <img
+                            src={selectedProjectForEdit.mainImage}
+                            alt={selectedProjectForEdit.mainImageAlt || selectedProjectForEdit.title || 'Project preview'}
+                            className="aspect-[4/5] w-full object-cover"
+                            style={{ objectPosition: imageObjectPosition(projectMainImagePosition, Number(projectMainImagePositionX), Number(projectMainImagePositionY)) }}
+                            draggable={false}
+                          />
+                          <span
+                            className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#38bcd4] shadow"
+                            style={{ left: `${Number(projectMainImagePositionX || 50)}%`, top: `${Number(projectMainImagePositionY || 50)}%` }}
+                          />
+                        </div>
+                        <div className="grid flex-1 gap-3">
+                          <SettingInput label="가로 중심" value={projectMainImagePositionX} onChange={(value) => setProjectMainImagePositionX(onlyNumber(value).slice(0, 3))} placeholder="0-100" />
+                          <SettingInput label="세로 중심" value={projectMainImagePositionY} onChange={(value) => setProjectMainImagePositionY(onlyNumber(value).slice(0, 3))} placeholder="0-100" />
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1275,6 +1337,7 @@ export default function ManagerPage() {
                       className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
                     >
                       <option value="center">가운데</option>
+                      <option value="custom">직접 조정</option>
                       <option value="top">위쪽</option>
                       <option value="bottom">아래쪽</option>
                       <option value="left">왼쪽</option>
@@ -1344,6 +1407,39 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function HomepageLivePreview() {
+  const [previewSrc, setPreviewSrc] = useState('/');
+  const sections = [
+    { label: '첫 화면', src: '/' },
+    { label: 'Project', src: '/#portfolio-preview' },
+    { label: '소개', src: '/#about' },
+    { label: '위치', src: '/#location' },
+    { label: '상담', src: '/#contact' },
+  ];
+
+  return (
+    <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm 2xl:sticky 2xl:top-5 2xl:self-start">
+      <div className="mb-3">
+        <h3 className="font-semibold">홈페이지 미리보기</h3>
+        <p className="mt-1 text-xs leading-5 text-[#60717d]">저장 후 실제 홈페이지에 반영된 화면을 보면서 위치를 확인하세요.</p>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {sections.map((section) => (
+          <button
+            key={section.src}
+            type="button"
+            onClick={() => setPreviewSrc(section.src)}
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold ${previewSrc === section.src ? 'bg-[#171512] text-white' : 'bg-[#edf2f5] text-[#4d5d66]'}`}
+          >
+            {section.label}
+          </button>
+        ))}
+      </div>
+      <iframe title="WEVE DESIGN 홈페이지 미리보기" src={previewSrc} className="h-[640px] w-full rounded-md border border-[#d5dde2] bg-white" />
+    </aside>
   );
 }
 
@@ -1486,6 +1582,67 @@ function buildPreview(files: File[]): PreviewProject[] {
   }));
 }
 
+type DropFileEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  file?: (success: (file: File) => void, error?: (error: Error) => void) => void;
+  createReader?: () => { readEntries: (success: (entries: DropFileEntry[]) => void, error?: (error: Error) => void) => void };
+};
+
+type DropItemWithEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => DropFileEntry | null;
+};
+
+async function filesFromDrop(dataTransfer: DataTransfer) {
+  const entries = Array.from(dataTransfer.items || [])
+    .map((item): DropFileEntry | null => ((item as DropItemWithEntry).webkitGetAsEntry?.() as unknown as DropFileEntry | null) || null)
+    .filter((entry): entry is DropFileEntry => Boolean(entry));
+
+  if (entries.length === 0) return Array.from(dataTransfer.files || []);
+
+  const nested = await Promise.all(entries.map((entry) => readDropEntry(entry)));
+  return nested.flat();
+}
+
+async function readDropEntry(entry: DropFileEntry, parentPath = ''): Promise<File[]> {
+  const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+
+  if (entry.isFile && entry.file) {
+    const file = await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject));
+    return [fileWithRelativePath(file, relativePath)];
+  }
+
+  if (entry.isDirectory && entry.createReader) {
+    const reader = entry.createReader();
+    const children: DropFileEntry[] = [];
+
+    while (true) {
+      const batch = await new Promise<DropFileEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
+      if (batch.length === 0) break;
+      children.push(...batch);
+    }
+
+    const nested = await Promise.all(children.map((child) => readDropEntry(child, relativePath)));
+    return nested.flat();
+  }
+
+  return [];
+}
+
+function fileWithRelativePath(file: File, relativePath: string) {
+  try {
+    Object.defineProperty(file, 'webkitRelativePath', {
+      configurable: true,
+      value: relativePath,
+    });
+  } catch {
+    return new File([file], relativePath, { type: file.type, lastModified: file.lastModified });
+  }
+
+  return file;
+}
+
 function roomNameFromFile(fileName: string) {
   const baseName = fileName.replace(/\.[^.]+$/, '').trim();
   const normalized = baseName.toLowerCase().replace(/\s+/g, '');
@@ -1568,7 +1725,11 @@ function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
 }
 
-function imageObjectPosition(value?: string) {
+function imageObjectPosition(value?: string, x?: number, y?: number) {
+  if (typeof x === 'number' || typeof y === 'number') {
+    return `${Math.min(100, Math.max(0, Math.round(x ?? 50)))}% ${Math.min(100, Math.max(0, Math.round(y ?? 50)))}%`;
+  }
+
   const positions: Record<string, string> = {
     top: 'center top',
     bottom: 'center bottom',

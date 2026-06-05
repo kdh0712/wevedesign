@@ -491,6 +491,7 @@ const project = defineType({
       options: {
         list: [
           { title: '가운데', value: 'center' },
+          { title: '직접 조정', value: 'custom' },
           { title: '위쪽', value: 'top' },
           { title: '아래쪽', value: 'bottom' },
           { title: '왼쪽', value: 'left' },
@@ -499,6 +500,22 @@ const project = defineType({
         layout: 'dropdown',
       },
       description: '홈페이지 Project 카드에서 대표 사진이 잘릴 때 어느 부분을 중심으로 보여줄지 정합니다.',
+    }),
+    defineField({
+      name: 'mainImagePositionX',
+      title: '대표 사진 가로 중심',
+      type: 'number',
+      group: 'images',
+      initialValue: 50,
+      hidden: true,
+    }),
+    defineField({
+      name: 'mainImagePositionY',
+      title: '대표 사진 세로 중심',
+      type: 'number',
+      group: 'images',
+      initialValue: 50,
+      hidden: true,
     }),
     defineField({
       name: 'beforeImage',

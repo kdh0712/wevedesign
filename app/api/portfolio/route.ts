@@ -23,6 +23,8 @@ const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coa
   materials,
   featured,
   mainImagePosition,
+  mainImagePositionX,
+  mainImagePositionY,
   "mainImage": mainImage.asset->url,
   "mainImageAlt": mainImage.alt,
   "beforeImage": beforeImage.asset->url,
