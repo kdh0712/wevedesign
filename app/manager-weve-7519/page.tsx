@@ -44,6 +44,7 @@ type Consultation = {
   _id: string;
   name?: string;
   phone?: string;
+  siteType?: string;
   address?: string;
   message?: string;
   status?: string;
@@ -56,6 +57,7 @@ type Customer = {
   _id: string;
   name?: string;
   phone?: string;
+  siteType?: string;
   address?: string;
   status?: string;
   memo?: string;
@@ -151,7 +153,7 @@ export default function ManagerPage() {
   const [savingOffice, setSavingOffice] = useState(false);
   const [officeData, setOfficeData] = useState<OfficeData>(emptyOfficeData);
   const [results, setResults] = useState<UploadResult[]>([]);
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '', status: '상담중', memo: '' });
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
@@ -397,7 +399,7 @@ export default function ManagerPage() {
                 items={officeData.consultations.slice(0, 6).map((item) => ({
                   key: item._id,
                   title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                  meta: `${item.address || '주소 없음'} · ${item.status || '신규'}`,
+                  meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'}`,
                   body: item.message,
                 }))}
               />
@@ -423,7 +425,7 @@ export default function ManagerPage() {
               items={officeData.consultations.map((item) => ({
                 key: item._id,
                 title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                meta: `${item.address || '주소 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
+                meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
                 body: item.message,
                 action: (
                   <div className="flex flex-wrap gap-2">
@@ -437,6 +439,7 @@ export default function ManagerPage() {
                         setCustomerForm({
                           name: item.name || '',
                           phone: item.phone || '',
+                          siteType: item.siteType || '아파트',
                           address: item.address || '',
                           status: '상담중',
                           memo: item.message || '',
@@ -460,7 +463,13 @@ export default function ManagerPage() {
               <OfficeForm
                 fields={[
                   { label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
-                  { label: '연락처', value: customerForm.phone, onChange: (value) => setCustomerForm({ ...customerForm, phone: value }) },
+                  { label: '연락처', value: customerForm.phone, onChange: (value) => setCustomerForm({ ...customerForm, phone: formatPhoneNumber(value) }) },
+                  {
+                    label: '현장 종류',
+                    value: customerForm.siteType,
+                    onChange: (value) => setCustomerForm({ ...customerForm, siteType: value }),
+                    options: ['아파트', '주택', '상가', '오피스', '기타'],
+                  },
                   { label: '주소', value: customerForm.address, onChange: (value) => setCustomerForm({ ...customerForm, address: value }) },
                   { label: '상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
                   { label: '메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
@@ -469,7 +478,7 @@ export default function ManagerPage() {
                 disabled={savingOffice}
                 onSubmit={async () => {
                   await saveOfficeRecord('customer', customerForm);
-                  setCustomerForm({ name: '', phone: '', address: '', status: '상담중', memo: '' });
+                  setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
                 }}
               />
             </Panel>
@@ -479,7 +488,7 @@ export default function ManagerPage() {
                 items={officeData.customers.map((item) => ({
                   key: item._id,
                   title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                  meta: `${item.address || '주소 없음'} · ${item.status || '상태 없음'}`,
+                  meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '상태 없음'}`,
                   body: item.memo,
                 }))}
               />
@@ -572,7 +581,7 @@ export default function ManagerPage() {
                 fields={[
                   { label: '업체명', value: vendorForm.name, onChange: (value) => setVendorForm({ ...vendorForm, name: value }) },
                   { label: '담당자', value: vendorForm.manager, onChange: (value) => setVendorForm({ ...vendorForm, manager: value }) },
-                  { label: '연락처', value: vendorForm.phone, onChange: (value) => setVendorForm({ ...vendorForm, phone: value }) },
+                  { label: '연락처', value: vendorForm.phone, onChange: (value) => setVendorForm({ ...vendorForm, phone: formatPhoneNumber(value) }) },
                   { label: '업무 분야', value: vendorForm.service, onChange: (value) => setVendorForm({ ...vendorForm, service: value }) },
                   { label: '상태', value: vendorForm.status, onChange: (value) => setVendorForm({ ...vendorForm, status: value }) },
                   { label: '메모', value: vendorForm.memo, onChange: (value) => setVendorForm({ ...vendorForm, memo: value }), textarea: true },
@@ -748,7 +757,7 @@ function OfficeForm({
   disabled,
   onSubmit,
 }: {
-  fields: Array<{ label: string; value: string; textarea?: boolean; onChange: (value: string) => void }>;
+  fields: Array<{ label: string; value: string; textarea?: boolean; options?: string[]; onChange: (value: string) => void }>;
   buttonLabel: string;
   disabled: boolean;
   onSubmit: () => void;
@@ -758,7 +767,19 @@ function OfficeForm({
       {fields.map((field) => (
         <label key={field.label} className="grid gap-1 text-sm font-semibold text-[#4d473f]">
           {field.label}
-          {field.textarea ? (
+          {field.options ? (
+            <select
+              value={field.value}
+              onChange={(event) => field.onChange(event.target.value)}
+              className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
+            >
+              {field.options.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          ) : field.textarea ? (
             <textarea
               value={field.value}
               onChange={(event) => field.onChange(event.target.value)}
@@ -884,4 +905,12 @@ function formatDate(value?: string) {
 
 function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
+}
+
+function formatPhoneNumber(value: string) {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }

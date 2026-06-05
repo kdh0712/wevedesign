@@ -15,10 +15,10 @@ const typeMap: Record<OfficeType, string> = {
 
 const query = `{
   "consultations": *[_type == "officeConsultation"] | order(createdAt desc, _createdAt desc)[0...100] {
-    _id, name, phone, address, message, status, source, memo, createdAt
+    _id, name, phone, siteType, address, message, status, source, memo, createdAt
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {
-    _id, name, phone, address, status, memo, createdAt
+    _id, name, phone, siteType, address, status, memo, createdAt
   },
   "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
     _id, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt

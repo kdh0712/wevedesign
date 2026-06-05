@@ -629,6 +629,12 @@ const officeConsultation = defineType({
   fields: [
     defineField({ name: 'name', title: '고객명', type: 'string' }),
     defineField({ name: 'phone', title: '연락처', type: 'string' }),
+    defineField({
+      name: 'siteType',
+      title: '현장 종류',
+      type: 'string',
+      options: { list: ['아파트', '주택', '상가', '오피스', '기타'] },
+    }),
     defineField({ name: 'address', title: '현장 주소', type: 'string' }),
     defineField({ name: 'message', title: '문의 내용', type: 'text', rows: 5 }),
     defineField({
@@ -643,9 +649,9 @@ const officeConsultation = defineType({
     defineField({ name: 'createdAt', title: '접수일', type: 'datetime' }),
   ],
   preview: {
-    select: { title: 'name', phone: 'phone', status: 'status' },
-    prepare({ title, phone, status }) {
-      return { title: title || '상담 요청', subtitle: [phone, status].filter(Boolean).join(' · ') };
+    select: { title: 'name', phone: 'phone', siteType: 'siteType', status: 'status' },
+    prepare({ title, phone, siteType, status }) {
+      return { title: title || '상담 요청', subtitle: [phone, siteType, status].filter(Boolean).join(' · ') };
     },
   },
 });
@@ -657,6 +663,12 @@ const officeCustomer = defineType({
   fields: [
     defineField({ name: 'name', title: '고객명', type: 'string' }),
     defineField({ name: 'phone', title: '연락처', type: 'string' }),
+    defineField({
+      name: 'siteType',
+      title: '현장 종류',
+      type: 'string',
+      options: { list: ['아파트', '주택', '상가', '오피스', '기타'] },
+    }),
     defineField({ name: 'address', title: '주소', type: 'string' }),
     defineField({ name: 'status', title: '상태', type: 'string', initialValue: '상담중' }),
     defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),

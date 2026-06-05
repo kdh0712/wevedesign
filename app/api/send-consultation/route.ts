@@ -5,6 +5,7 @@ import { createClient } from 'next-sanity';
 type ConsultationPayload = {
   name?: string;
   phone?: string;
+  siteType?: string;
   address?: string;
   message?: string;
 };
@@ -46,16 +47,18 @@ export async function POST(request: Request) {
     const payload = (await request.json()) as ConsultationPayload;
     const name = payload.name?.trim();
     const phone = payload.phone?.trim();
+    const siteType = payload.siteType?.trim();
     const address = payload.address?.trim();
     const message = payload.message?.trim();
 
-    if (!name || !phone || !address || !message) {
+    if (!name || !phone || !siteType || !address || !message) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
     }
 
     const resend = new Resend(apiKey);
     const safeName = escapeHtml(name);
     const safePhone = escapeHtml(phone);
+    const safeSiteType = escapeHtml(siteType);
     const safeAddress = escapeHtml(address);
     const safeMessage = escapeHtml(message).replace(/\n/g, '<br>');
 
@@ -65,6 +68,7 @@ export async function POST(request: Request) {
           _type: 'officeConsultation',
           name,
           phone,
+          siteType,
           address,
           message,
           status: '신규',
@@ -85,6 +89,7 @@ export async function POST(request: Request) {
           <h2 style="margin: 0 0 20px; color: #171512;">새 상담 신청이 접수되었습니다.</h2>
           <p><strong>이름:</strong> ${safeName}</p>
           <p><strong>연락처:</strong> ${safePhone}</p>
+          <p><strong>현장 종류:</strong> ${safeSiteType}</p>
           <p><strong>현장 위치:</strong> ${safeAddress}</p>
           <p><strong>문의 내용:</strong></p>
           <div style="background: #f6f4ef; padding: 16px; border-radius: 8px;">

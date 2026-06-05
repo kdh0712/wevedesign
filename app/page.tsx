@@ -5,6 +5,7 @@ import Script from 'next/script';
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   ArrowUpRight,
   Camera,
   Check,
@@ -275,6 +276,14 @@ const mixRgb = (from: [number, number, number], to: [number, number, number], pr
   return `rgb(${r} ${g} ${b})`;
 };
 
+const formatPhoneNumber = (value: string) => {
+  const digits = value.replace(/\D/g, '').slice(0, 11);
+
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+};
+
 export default function WeveDesignLanding() {
   const [viewMode, setViewMode] = useState<'main' | 'portfolio'>('main');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -284,7 +293,7 @@ export default function WeveDesignLanding() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'home' | 'about' | 'portfolio' | 'location' | 'contact'>('home');
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
-  const [formData, setFormData] = useState({ name: '', phone: '', address: '', message: '' });
+  const [formData, setFormData] = useState({ name: '', phone: '', siteType: '아파트', address: '', message: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
@@ -494,6 +503,10 @@ export default function WeveDesignLanding() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const scrollToSection = (sectionId: 'home' | 'about' | 'location' | 'contact') => {
     setViewMode('main');
     setSelectedProjectId(null);
@@ -665,8 +678,9 @@ export default function WeveDesignLanding() {
     initMap();
   }, [mapSearchAddress, roadAddress, lotAddress, pickedMapLocation?.lat, pickedMapLocation?.lng, settings.mapLat, settings.mapLng, viewMode]);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setFormData({ ...formData, [event.target.name]: event.target.value });
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = event.target;
+    setFormData({ ...formData, [name]: name === 'phone' ? formatPhoneNumber(value) : value });
     setSubmitStatus('');
     setSubmitErrorMessage('');
   };
@@ -675,11 +689,12 @@ export default function WeveDesignLanding() {
     const payload = {
       name: formData.name.trim(),
       phone: formData.phone.trim(),
+      siteType: formData.siteType.trim(),
       address: formData.address.trim(),
       message: formData.message.trim(),
     };
 
-    if (!payload.name || !payload.phone || !payload.address || !payload.message) {
+    if (!payload.name || !payload.phone || !payload.siteType || !payload.address || !payload.message) {
       setSubmitStatus('missing');
       return;
     }
@@ -694,7 +709,7 @@ export default function WeveDesignLanding() {
 
       if (response.ok) {
         setIsSubmitted(true);
-        setFormData({ name: '', phone: '', address: '', message: '' });
+        setFormData({ name: '', phone: '', siteType: '아파트', address: '', message: '' });
         setSubmitStatus('');
         setSubmitErrorMessage('');
       } else {
@@ -804,6 +819,14 @@ export default function WeveDesignLanding() {
       >
         <MessageCircle size={28} />
       </a>
+      <button
+        type="button"
+        onClick={scrollToTop}
+        aria-label="맨 위로 가기"
+        className="fixed bottom-24 right-5 z-40 inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#d8d1c5] bg-white text-[#171512] shadow-lg transition hover:-translate-y-0.5 hover:bg-[#fff7df]"
+      >
+        <ArrowUp size={22} />
+      </button>
 
         <Header
           mobileNavOpen={mobileNavOpen}
@@ -1246,8 +1269,10 @@ export default function WeveDesignLanding() {
                       name="phone"
                       value={formData.phone}
                       onChange={handleChange}
+                      inputMode="numeric"
+                      maxLength={13}
                       className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                      placeholder="연락처 *"
+                      placeholder="010-0000-0000 *"
                     />
                   </div>
                   <input
@@ -1258,6 +1283,18 @@ export default function WeveDesignLanding() {
                     className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
                     placeholder="현장 위치 또는 주소 *"
                   />
+                  <select
+                    name="siteType"
+                    value={formData.siteType}
+                    onChange={handleChange}
+                    className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
+                  >
+                    <option value="아파트">아파트</option>
+                    <option value="주택">주택</option>
+                    <option value="상가">상가</option>
+                    <option value="오피스">오피스</option>
+                    <option value="기타">기타</option>
+                  </select>
                   <textarea
                     name="message"
                     value={formData.message}
