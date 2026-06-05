@@ -105,6 +105,19 @@ type SiteSettings = {
   representativeName?: string;
   businessNumber?: string;
   companyStartYear?: string;
+  consultationPropertyQuestion?: string;
+  consultationPropertyOptions?: string;
+  consultationAreaQuestion?: string;
+  consultationAreaOptions?: string;
+  consultationStatusQuestion?: string;
+  consultationStatusOptions?: string;
+  consultationReasonQuestion?: string;
+  consultationReasonOptions?: string;
+  consultationBudgetQuestion?: string;
+  consultationBudgetOptions?: string;
+  consultationTimelineQuestion?: string;
+  consultationTimelineOptions?: string;
+  consultationPrivacyText?: string;
   kakaoUrl?: string;
 };
 
@@ -121,8 +134,6 @@ type ConsultationData = {
   areaRange: string;
   homeStatus: string;
   reason: string;
-  spaces: string[];
-  otherSpace: string;
   budget: string;
   timeline: string;
   name: string;
@@ -132,6 +143,15 @@ type ConsultationData = {
   detailAddress: string;
   message: string;
   privacyAgreed: boolean;
+};
+
+type ConsultationStepKey = 'propertyType' | 'areaRange' | 'homeStatus' | 'reason' | 'budget' | 'timeline';
+
+type ConsultationStep = {
+  key: ConsultationStepKey;
+  title: string;
+  description?: string;
+  options: string[];
 };
 
 declare global {
@@ -184,6 +204,20 @@ const defaultSettings: Required<SiteSettings> = {
   representativeName: '김동호',
   businessNumber: '',
   companyStartYear: '2026',
+  consultationPropertyQuestion: '반갑습니다. 고객님! 인테리어가 필요한 공간은 어디인가요?',
+  consultationPropertyOptions: '아파트\n빌라\n단독주택\n오피스텔\n상가\n오피스',
+  consultationAreaQuestion: '인테리어 공간의 평수를 선택해주세요.',
+  consultationAreaOptions: '10~20평대\n30평대\n40평대\n50평대 이상',
+  consultationStatusQuestion: '인테리어 할 집은 어떤 상태인가요?',
+  consultationStatusOptions: '집보관 후 살면서 공사예정\n현재 공실\n시공 시 공실 예정\n신축입주\n기타 (부동산 미계약 상태)',
+  consultationReasonQuestion: '인테리어를 고려하시게 된 주요 이유를 선택해주세요.',
+  consultationReasonOptions: '집을 구매하여 리모델링 계획 중\n사는 집을 새롭게 바꾸기 위해\n매매나 임대를 위한 리모델링\n기타',
+  consultationBudgetQuestion: '인테리어 예산은 총 얼마를 생각하시나요?',
+  consultationBudgetOptions: '5백만원 이하\n1천만원 이하\n2천만원 이하\n3천만원 이하\n4천만원 이하\n5천만원 이하\n6천만원 이하\n7천만원 이하\n1억원 이하\n1억원 이상\n아직 미정이에요',
+  consultationTimelineQuestion: '인테리어가 언제 시작되길 희망하시나요?',
+  consultationTimelineOptions: '1개월 이내\n2개월 이내\n3개월 이내\n3개월 이후\n6개월 이후',
+  consultationPrivacyText:
+    '수집 항목: 이름, 연락처, 시공 주소, 상담 설문 답변, 요청사항\n수집 목적: 인테리어 상담, 실측 및 견적 안내, 고객 문의 응대\n보유 기간: 상담 완료 후 1년 또는 고객 삭제 요청 시까지\n제공받는 자: WEVE DESIGN 상담 및 시공 담당자\n동의를 거부할 권리가 있으나, 동의하지 않을 경우 상담 신청이 제한될 수 있습니다.',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
 };
 
@@ -212,8 +246,6 @@ const initialConsultationData: ConsultationData = {
   areaRange: '',
   homeStatus: '',
   reason: '',
-  spaces: [],
-  otherSpace: '',
   budget: '',
   timeline: '',
   name: '',
@@ -225,11 +257,11 @@ const initialConsultationData: ConsultationData = {
   privacyAgreed: false,
 };
 
-const consultationSteps = [
+const defaultConsultationSteps: ConsultationStep[] = [
   {
     key: 'propertyType',
     title: '반갑습니다. 고객님! 인테리어가 필요한 공간은 어디인가요?',
-    options: ['아파트', '빌라', '단독주택', '오피스텔'],
+    options: ['아파트', '빌라', '단독주택', '오피스텔', '상가', '오피스'],
   },
   {
     key: 'areaRange',
@@ -247,17 +279,10 @@ const consultationSteps = [
     options: ['집을 구매하여 리모델링 계획 중', '사는 집을 새롭게 바꾸기 위해', '매매나 임대를 위한 리모델링', '기타'],
   },
   {
-    key: 'spaces',
-    title: '인테리어가 필요한 공간을 모두 골라주세요.',
-    description: '특정 상품 부분 교체만 원하시면 기타 입력으로 신청해주세요.',
-    options: ['키친', '바스', '수납', '마루', '중문', '도어', '창호', '필름', '조명', '타일', '가전', '기타 입력'],
-    multiple: true,
-  },
-  {
     key: 'budget',
     title: '인테리어 예산은 총 얼마를 생각하시나요?',
     description: '예산 선택 시 더 정확한 상담이 가능하며, 상담 중 변경할 수 있습니다.',
-    options: ['5백만원 이하', '1천만원 이하', '2천만원 이하', '3천만원 이하', '4천만원 이하', '5천만원 이하', '6천만원 이하', '7천만원 이하', '1억원 이하', '아직 미정이에요'],
+    options: ['5백만원 이하', '1천만원 이하', '2천만원 이하', '3천만원 이하', '4천만원 이하', '5천만원 이하', '6천만원 이하', '7천만원 이하', '1억원 이하', '1억원 이상', '아직 미정이에요'],
   },
   {
     key: 'timeline',
@@ -267,7 +292,16 @@ const consultationSteps = [
   },
 ] as const;
 
-const consultationTotalSteps = 8;
+const consultationTotalSteps = 7;
+
+const settingOptions = (value: string | undefined, fallback: string[]) => {
+  const options = (value || '')
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return options.length > 0 ? options : fallback;
+};
 
 const strengths = [
   {
@@ -427,6 +461,7 @@ export default function WeveDesignLanding() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [showTopButton, setShowTopButton] = useState(false);
@@ -468,6 +503,43 @@ export default function WeveDesignLanding() {
   );
   const activeHero = heroSlides[activeHeroIndex] || heroSlides[0];
   const naverMapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
+  const consultationSteps = useMemo<ConsultationStep[]>(
+    () => [
+      {
+        key: 'propertyType',
+        title: settings.consultationPropertyQuestion || defaultConsultationSteps[0].title,
+        options: settingOptions(settings.consultationPropertyOptions, defaultConsultationSteps[0].options),
+      },
+      {
+        key: 'areaRange',
+        title: settings.consultationAreaQuestion || defaultConsultationSteps[1].title,
+        options: settingOptions(settings.consultationAreaOptions, defaultConsultationSteps[1].options),
+      },
+      {
+        key: 'homeStatus',
+        title: settings.consultationStatusQuestion || defaultConsultationSteps[2].title,
+        options: settingOptions(settings.consultationStatusOptions, defaultConsultationSteps[2].options),
+      },
+      {
+        key: 'reason',
+        title: settings.consultationReasonQuestion || defaultConsultationSteps[3].title,
+        options: settingOptions(settings.consultationReasonOptions, defaultConsultationSteps[3].options),
+      },
+      {
+        key: 'budget',
+        title: settings.consultationBudgetQuestion || defaultConsultationSteps[4].title,
+        description: defaultConsultationSteps[4].description,
+        options: settingOptions(settings.consultationBudgetOptions, defaultConsultationSteps[4].options),
+      },
+      {
+        key: 'timeline',
+        title: settings.consultationTimelineQuestion || defaultConsultationSteps[5].title,
+        description: defaultConsultationSteps[5].description,
+        options: settingOptions(settings.consultationTimelineOptions, defaultConsultationSteps[5].options),
+      },
+    ],
+    [settings],
+  );
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -832,20 +904,8 @@ export default function WeveDesignLanding() {
     resetSubmitMessage();
   };
 
-  const selectConsultationOption = (key: (typeof consultationSteps)[number]['key'], value: string) => {
-    if (key === 'spaces') {
-      setFormData((current) => {
-        const isSelected = current.spaces.includes(value);
-        return {
-          ...current,
-          spaces: isSelected ? current.spaces.filter((space) => space !== value) : [...current.spaces, value],
-          otherSpace: value === '기타 입력' && isSelected ? '' : current.otherSpace,
-        };
-      });
-    } else {
-      setFormData((current) => ({ ...current, [key]: value }));
-    }
-
+  const selectConsultationOption = (key: ConsultationStepKey, value: string) => {
+    setFormData((current) => ({ ...current, [key]: value }));
     resetSubmitMessage();
   };
 
@@ -858,10 +918,6 @@ export default function WeveDesignLanding() {
           formData.detailAddress.trim() &&
           formData.privacyAgreed,
       );
-    }
-
-    if (currentConsultationStep.key === 'spaces') {
-      return formData.spaces.length > 0 && (!formData.spaces.includes('기타 입력') || Boolean(formData.otherSpace.trim()));
     }
 
     return Boolean(formData[currentConsultationStep.key]);
@@ -914,8 +970,6 @@ export default function WeveDesignLanding() {
       areaRange: formData.areaRange.trim(),
       homeStatus: formData.homeStatus.trim(),
       reason: formData.reason.trim(),
-      spaces: formData.spaces,
-      otherSpace: formData.otherSpace.trim(),
       budget: formData.budget.trim(),
       timeline: formData.timeline.trim(),
       postcode: formData.postcode.trim(),
@@ -931,7 +985,6 @@ export default function WeveDesignLanding() {
       !payload.areaRange ||
       !payload.homeStatus ||
       !payload.reason ||
-      payload.spaces.length === 0 ||
       !payload.budget ||
       !payload.timeline
     ) {
@@ -1478,19 +1531,22 @@ export default function WeveDesignLanding() {
         </section>
 
         <section id="contact" className="scroll-reveal bg-white px-5 py-20 md:px-8 md:py-28">
-          <div className="mx-auto grid max-w-[1440px] gap-10 lg:grid-cols-[0.82fr_1.18fr] lg:items-stretch">
-            <aside className="relative min-h-[420px] overflow-hidden rounded-lg md:min-h-[560px]">
-              <img
-                src={optimizedImage(settings.heroImage2 || settings.heroImage || defaultSettings.heroImage2, 1200, 82)}
-                alt="인테리어 상담 신청"
-                className="absolute inset-0 h-full w-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#171512]/72 via-[#171512]/22 to-transparent" />
-              <div className="absolute bottom-8 left-7 right-7 text-white md:bottom-10 md:left-10 md:right-10">
-                <p className="text-2xl font-semibold">신청 &gt; 상담 &gt; 실측 &gt; 견적</p>
-                <p className="mt-3 text-lg text-white/84">전 과정 무료 상담으로 공간의 방향을 먼저 잡아드립니다.</p>
+          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
+            <div>
+              <p data-preview-target="contactLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
+                {settings.contactLabel || defaultSettings.contactLabel}
+              </p>
+              <h2 data-preview-target="contactTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
+                {settings.contactTitle || defaultSettings.contactTitle}
+              </h2>
+              <p data-preview-target="contactBody" className="mt-6 text-lg leading-8 text-[#625d54]">
+                {settings.contactBody || defaultSettings.contactBody}
+              </p>
+              <div className="mt-8 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
+                <p className="font-semibold text-[#171512]">신청 &gt; 상담 &gt; 실측 &gt; 견적</p>
+                <p className="mt-2">사진과 현장 정보를 남겨주시면 확인 후 순서대로 연락드립니다.</p>
               </div>
-            </aside>
+            </div>
 
             <div className="flex min-h-[560px] flex-col justify-between py-2 lg:py-6">
               {isSubmitted ? (
@@ -1531,10 +1587,7 @@ export default function WeveDesignLanding() {
 
                     <div className="mt-12 grid gap-5 sm:grid-cols-2">
                       {currentConsultationStep.options.map((option) => {
-                        const selected =
-                          currentConsultationStep.key === 'spaces'
-                            ? formData.spaces.includes(option)
-                            : formData[currentConsultationStep.key] === option;
+                        const selected = formData[currentConsultationStep.key] === option;
 
                         return (
                           <button
@@ -1553,18 +1606,7 @@ export default function WeveDesignLanding() {
                       })}
                     </div>
 
-                    {formData.spaces.includes('기타 입력') && (
-                      <input
-                        type="text"
-                        name="otherSpace"
-                        value={formData.otherSpace}
-                        onChange={handleChange}
-                        className="mt-5 w-full rounded-md border border-[#d8d1c5] bg-white px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                        placeholder="필요한 공간이나 상품을 적어주세요. 예: 시스템에어컨, 싱크대 수전"
-                      />
-                    )}
-
-                    {consultationStep === 6 && (
+                    {consultationStep === 5 && (
                       <div className="mt-8 border-t border-[#ece6dc] pt-5 text-sm leading-7 text-[#625d54]">
                         <p>주문량이 몰리는 경우 시공 일정이 다소 지연될 수 있습니다.</p>
                         <p>담당자가 상담 후 가능한 일정과 진행 방식을 함께 안내드립니다.</p>
@@ -1682,16 +1724,25 @@ export default function WeveDesignLanding() {
                         />
                         <span className="text-right text-xs text-[#8b8276]">({formData.message.length} / 300)</span>
                       </label>
-                      <label className="flex items-center gap-3 border-t border-[#ece6dc] pt-5 text-sm font-semibold">
-                        <input
-                          type="checkbox"
-                          name="privacyAgreed"
-                          checked={formData.privacyAgreed}
-                          onChange={handleChange}
-                          className="h-5 w-5 accent-[#171512]"
-                        />
-                        <span><span className="text-red-500">(필수)</span> 개인정보 제3자 제공 동의</span>
-                      </label>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ece6dc] pt-5 text-sm font-semibold">
+                        <label className="flex items-center gap-3">
+                          <input
+                            type="checkbox"
+                            name="privacyAgreed"
+                            checked={formData.privacyAgreed}
+                            onChange={handleChange}
+                            className="h-5 w-5 accent-[#171512]"
+                          />
+                          <span><span className="text-red-500">(필수)</span> 개인정보 제3자 제공 동의</span>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowPrivacyPolicy(true)}
+                          className="rounded-full border border-[#d8d1c5] px-4 py-2 text-xs font-semibold text-[#625d54] transition hover:border-[#171512] hover:text-[#171512]"
+                        >
+                          내용 보기
+                        </button>
+                      </div>
                     </div>
 
                     {submitStatus === 'missing' && <p className="mt-5 text-sm font-semibold text-red-600">필수 정보를 모두 입력해 주세요.</p>}
@@ -1725,6 +1776,37 @@ export default function WeveDesignLanding() {
           </div>
         </section>
       </main>
+
+      {showPrivacyPolicy && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#171512]/55 px-4 py-6 backdrop-blur-sm" onClick={() => setShowPrivacyPolicy(false)}>
+          <div className="max-h-[82vh] w-full max-w-xl overflow-y-auto rounded-lg bg-white p-6 shadow-2xl md:p-8" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">Privacy</p>
+                <h3 className="mt-2 text-2xl font-semibold">개인정보 제3자 제공 동의</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPrivacyPolicy(false)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#f3efe7] text-xl"
+                aria-label="개인정보 동의 내용 닫기"
+              >
+                ×
+              </button>
+            </div>
+            <div className="mt-6 whitespace-pre-wrap rounded-md border border-[#eadfcd] bg-[#fffdf8] p-5 text-sm leading-7 text-[#625d54]">
+              {settings.consultationPrivacyText || defaultSettings.consultationPrivacyText}
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPrivacyPolicy(false)}
+              className="mt-6 w-full rounded-md bg-[#171512] px-5 py-3 font-semibold text-white transition hover:bg-[#2f2a23]"
+            >
+              확인
+            </button>
+          </div>
+        </div>
+      )}
 
       <footer id="footer" className="bg-[#171512] px-5 py-16 text-[#b8b0a3] md:px-8">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">

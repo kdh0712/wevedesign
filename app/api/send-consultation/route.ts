@@ -10,8 +10,6 @@ type ConsultationPayload = {
   areaRange?: string;
   homeStatus?: string;
   reason?: string;
-  spaces?: string[];
-  otherSpace?: string;
   budget?: string;
   timeline?: string;
   postcode?: string;
@@ -64,8 +62,6 @@ export async function POST(request: Request) {
     const areaRange = payload.areaRange?.trim() || '';
     const homeStatus = payload.homeStatus?.trim() || '';
     const reason = payload.reason?.trim() || '';
-    const spaces = Array.isArray(payload.spaces) ? payload.spaces.map((space) => space.trim()).filter(Boolean) : [];
-    const otherSpace = payload.otherSpace?.trim() || '';
     const budget = payload.budget?.trim() || '';
     const timeline = payload.timeline?.trim() || '';
     const postcode = payload.postcode?.trim() || '';
@@ -74,7 +70,6 @@ export async function POST(request: Request) {
     const message = payload.message?.trim() || '';
     const privacyAgreed = payload.privacyAgreed === true;
     const fullAddress = [postcode ? `(${postcode})` : '', address, detailAddress].filter(Boolean).join(' ');
-    const spaceText = [...spaces.filter((space) => space !== '기타 입력'), otherSpace ? `기타: ${otherSpace}` : ''].filter(Boolean).join(', ');
 
     if (
       !name ||
@@ -83,7 +78,6 @@ export async function POST(request: Request) {
       !areaRange ||
       !homeStatus ||
       !reason ||
-      spaces.length === 0 ||
       !budget ||
       !timeline ||
       !address ||
@@ -106,8 +100,6 @@ export async function POST(request: Request) {
       areaRange,
       homeStatus,
       reason,
-      spaces,
-      otherSpace,
       budget,
       timeline,
       postcode,
@@ -142,7 +134,6 @@ export async function POST(request: Request) {
             ${fieldRow('평수', areaRange)}
             ${fieldRow('현재 상태', homeStatus)}
             ${fieldRow('인테리어 이유', reason)}
-            ${fieldRow('필요 공간', spaceText)}
             ${fieldRow('예산', budget)}
             ${fieldRow('희망 시작일', timeline)}
           </table>

@@ -17,7 +17,7 @@ const typeMap: Record<OfficeType, string> = {
 
 const query = `{
   "consultations": *[_type == "officeConsultation"] | order(createdAt desc, _createdAt desc)[0...100] {
-    _id, name, phone, siteType, propertyType, areaRange, homeStatus, reason, spaces, otherSpace, budget, timeline,
+    _id, name, phone, siteType, propertyType, areaRange, homeStatus, reason, budget, timeline,
     postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {

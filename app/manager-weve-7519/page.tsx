@@ -50,8 +50,6 @@ type Consultation = {
   areaRange?: string;
   homeStatus?: string;
   reason?: string;
-  spaces?: string[];
-  otherSpace?: string;
   budget?: string;
   timeline?: string;
   postcode?: string;
@@ -263,6 +261,19 @@ export default function ManagerPage() {
     contactLabel: '',
     contactTitle: '',
     contactBody: '',
+    consultationPropertyQuestion: '',
+    consultationPropertyOptions: '',
+    consultationAreaQuestion: '',
+    consultationAreaOptions: '',
+    consultationStatusQuestion: '',
+    consultationStatusOptions: '',
+    consultationReasonQuestion: '',
+    consultationReasonOptions: '',
+    consultationBudgetQuestion: '',
+    consultationBudgetOptions: '',
+    consultationTimelineQuestion: '',
+    consultationTimelineOptions: '',
+    consultationPrivacyText: '',
     kakaoUrl: '',
     heroImage: '',
     heroImage2: '',
@@ -404,6 +415,19 @@ export default function ManagerPage() {
         contactLabel: settings.contactLabel || '',
         contactTitle: settings.contactTitle || '',
         contactBody: settings.contactBody || '',
+        consultationPropertyQuestion: settings.consultationPropertyQuestion || '',
+        consultationPropertyOptions: settings.consultationPropertyOptions || '',
+        consultationAreaQuestion: settings.consultationAreaQuestion || '',
+        consultationAreaOptions: settings.consultationAreaOptions || '',
+        consultationStatusQuestion: settings.consultationStatusQuestion || '',
+        consultationStatusOptions: settings.consultationStatusOptions || '',
+        consultationReasonQuestion: settings.consultationReasonQuestion || '',
+        consultationReasonOptions: settings.consultationReasonOptions || '',
+        consultationBudgetQuestion: settings.consultationBudgetQuestion || '',
+        consultationBudgetOptions: settings.consultationBudgetOptions || '',
+        consultationTimelineQuestion: settings.consultationTimelineQuestion || '',
+        consultationTimelineOptions: settings.consultationTimelineOptions || '',
+        consultationPrivacyText: settings.consultationPrivacyText || '',
         kakaoUrl: settings.kakaoUrl || '',
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
@@ -1325,6 +1349,25 @@ export default function ManagerPage() {
                 <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
                 <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
               </div>
+              <div className="mt-5 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                <h3 className="mb-3 font-semibold">상담 설문 질문 수정</h3>
+                <p className="mb-4 text-sm leading-6 text-[#60717d]">선택지는 한 줄에 하나씩 입력하세요. 저장하면 홈페이지 상담 설문에 반영됩니다.</p>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <SettingInput label="질문 1 문구" value={homepageSettings.consultationPropertyQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPropertyQuestion: value })} />
+                  <SettingInput label="질문 1 선택지" value={homepageSettings.consultationPropertyOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPropertyOptions: value })} textarea />
+                  <SettingInput label="질문 2 문구" value={homepageSettings.consultationAreaQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationAreaQuestion: value })} />
+                  <SettingInput label="질문 2 선택지" value={homepageSettings.consultationAreaOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationAreaOptions: value })} textarea />
+                  <SettingInput label="질문 3 문구" value={homepageSettings.consultationStatusQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationStatusQuestion: value })} />
+                  <SettingInput label="질문 3 선택지" value={homepageSettings.consultationStatusOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationStatusOptions: value })} textarea />
+                  <SettingInput label="질문 4 문구" value={homepageSettings.consultationReasonQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationReasonQuestion: value })} />
+                  <SettingInput label="질문 4 선택지" value={homepageSettings.consultationReasonOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationReasonOptions: value })} textarea />
+                  <SettingInput label="질문 5 문구" value={homepageSettings.consultationBudgetQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationBudgetQuestion: value })} />
+                  <SettingInput label="질문 5 선택지" value={homepageSettings.consultationBudgetOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationBudgetOptions: value })} textarea />
+                  <SettingInput label="질문 6 문구" value={homepageSettings.consultationTimelineQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationTimelineQuestion: value })} />
+                  <SettingInput label="질문 6 선택지" value={homepageSettings.consultationTimelineOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationTimelineOptions: value })} textarea />
+                  <SettingInput label="개인정보 제3자 제공 동의 내용" value={homepageSettings.consultationPrivacyText} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPrivacyText: value })} textarea />
+                </div>
+              </div>
               <button
                 onClick={saveHomepageSettings}
                 disabled={savingEmail}
@@ -1758,12 +1801,6 @@ function ConsultationDetailModal({
           <InfoLine label="평수" value={consultation.areaRange || '-'} />
           <InfoLine label="현재 상태" value={consultation.homeStatus || '-'} />
           <InfoLine label="인테리어 이유" value={consultation.reason || '-'} />
-          <InfoLine
-            label="필요 공간"
-            value={[...(consultation.spaces || []).filter((space) => space !== '기타 입력'), consultation.otherSpace ? `기타: ${consultation.otherSpace}` : '']
-              .filter(Boolean)
-              .join(', ') || '-'}
-          />
           <InfoLine label="예산" value={consultation.budget || '-'} />
           <InfoLine label="희망 시작일" value={consultation.timeline || '-'} />
           <InfoLine label="개인정보 동의" value={consultation.privacyAgreed ? '동의' : '확인 필요'} />
