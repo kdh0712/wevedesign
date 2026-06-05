@@ -241,6 +241,8 @@ export default function ManagerPage() {
   const [savingOffice, setSavingOffice] = useState(false);
   const [officeData, setOfficeData] = useState<OfficeData>(emptyOfficeData);
   const [results, setResults] = useState<UploadResult[]>([]);
+  const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
+  const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
@@ -380,6 +382,69 @@ export default function ManagerPage() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '저장 중 오류가 발생했습니다.');
       return null;
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  const deleteOfficeRecord = async (id: string) => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/office', {
+        method: 'DELETE',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+      const result = await readJsonResponse<{ error?: string }>(response);
+
+      if (!response.ok) throw new Error(result.error || '삭제에 실패했습니다.');
+      setSelectedConsultation(null);
+      await loadOfficeData();
+      setStatus('상담 요청을 삭제했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '삭제 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  const completeConsultation = async (consultation: Consultation, registerCustomer: boolean) => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    setSavingOffice(true);
+    try {
+      if (registerCustomer) {
+        await saveOfficeRecord('customer', {
+          name: consultation.name || '',
+          phone: consultation.phone || '',
+          siteType: consultation.siteType || '아파트',
+          address: consultation.address || '',
+          status: '상담완료',
+          memo: consultation.message || '',
+        });
+        await saveOfficeRecord('project', {
+          title: `${consultation.name || '고객'} 현장`,
+          description: consultation.message || '',
+          siteType: consultation.siteType || '',
+          location: consultation.address || '',
+          isVisible: false,
+          featured: false,
+        });
+      }
+
+      await saveOfficeRecord('consultation', { status: '완료' }, consultation._id);
+      setCompletionConsultation(null);
+      setSelectedConsultation(null);
+      setStatus(registerCustomer ? '고객과 현장을 등록하고 상담을 완료했습니다.' : '상담을 완료했습니다.');
     } finally {
       setSavingOffice(false);
     }
@@ -790,6 +855,17 @@ export default function ManagerPage() {
                   title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
                   meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'}`,
                   body: item.message,
+                  onClick: () => setSelectedConsultation(item),
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
+                        상담 완료
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
                 }))}
               />
             </Panel>
@@ -816,13 +892,20 @@ export default function ManagerPage() {
                 title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
                 meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
                 body: item.message,
+                onClick: () => setSelectedConsultation(item),
                 action: (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                     {['신규', '상담중', '견적', '계약', '완료'].map((nextStatus) => (
                       <button key={nextStatus} onClick={() => saveOfficeRecord('consultation', { status: nextStatus }, item._id)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs">
                         {nextStatus}
                       </button>
                     ))}
+                    <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
+                      상담 완료
+                    </button>
+                    <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                      삭제
+                    </button>
                     <button
                       onClick={() => {
                         setCustomerForm({
@@ -1385,6 +1468,23 @@ export default function ManagerPage() {
             )}
           </section>
         )}
+        {selectedConsultation && (
+          <ConsultationDetailModal
+            consultation={selectedConsultation}
+            onClose={() => setSelectedConsultation(null)}
+            onComplete={() => setCompletionConsultation(selectedConsultation)}
+            onDelete={() => deleteOfficeRecord(selectedConsultation._id)}
+          />
+        )}
+        {completionConsultation && (
+          <ConsultationCompleteModal
+            consultation={completionConsultation}
+            disabled={savingOffice}
+            onClose={() => setCompletionConsultation(null)}
+            onCompleteOnly={() => completeConsultation(completionConsultation, false)}
+            onRegisterCustomer={() => completeConsultation(completionConsultation, true)}
+          />
+        )}
         </section>
       </div>
     </main>
@@ -1407,6 +1507,101 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function ConsultationDetailModal({
+  consultation,
+  onClose,
+  onComplete,
+  onDelete,
+}: {
+  consultation: Consultation;
+  onClose: () => void;
+  onComplete: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[86vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Consultation</p>
+            <h2 className="mt-2 text-2xl font-semibold">{consultation.name || '이름 없음'}</h2>
+            <p className="mt-1 text-sm text-[#60717d]">{formatDate(consultation.createdAt)}</p>
+          </div>
+          <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#edf2f5]">
+            ×
+          </button>
+        </div>
+        <div className="mt-5 grid gap-3 rounded-md border border-[#d5dde2] bg-[#f7fafb] p-4 text-sm">
+          <InfoLine label="연락처" value={consultation.phone || '-'} />
+          <InfoLine label="현장 종류" value={consultation.siteType || '-'} />
+          <InfoLine label="주소" value={consultation.address || '-'} />
+          <InfoLine label="상태" value={consultation.status || '신규'} />
+        </div>
+        <div className="mt-5">
+          <p className="mb-2 text-sm font-semibold text-[#4d5d66]">문의 내용</p>
+          <div className="max-h-[320px] overflow-y-auto whitespace-pre-wrap rounded-md border border-[#d5dde2] bg-[#fffdf8] p-4 text-sm leading-7 text-[#4d473f]">
+            {consultation.message || '문의 내용 없음'}
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onDelete} className="rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-600">
+            삭제
+          </button>
+          <button type="button" onClick={onComplete} className="rounded-md bg-[#38bcd4] px-4 py-2 text-sm font-semibold text-white">
+            상담 완료
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConsultationCompleteModal({
+  consultation,
+  disabled,
+  onClose,
+  onCompleteOnly,
+  onRegisterCustomer,
+}: {
+  consultation: Consultation;
+  disabled: boolean;
+  onClose: () => void;
+  onCompleteOnly: () => void;
+  onRegisterCustomer: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#17212b]/60 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Complete</p>
+        <h2 className="mt-2 text-2xl font-semibold">상담 완료 처리</h2>
+        <p className="mt-3 text-sm leading-6 text-[#60717d]">
+          {consultation.name || '고객'}님의 상담을 완료합니다. 고객 등록과 함께 비공개 현장도 만들까요?
+        </p>
+        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+          <button type="button" onClick={onClose} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
+            취소
+          </button>
+          <button type="button" onClick={onCompleteOnly} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
+            상담만 완료
+          </button>
+          <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+            고객 + 현장 등록
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[88px_1fr] gap-3">
+      <span className="font-semibold text-[#4d5d66]">{label}</span>
+      <span className="text-[#171512]">{value}</span>
+    </div>
   );
 }
 
@@ -1484,7 +1679,7 @@ function RecordList({
   items,
 }: {
   empty: string;
-  items: Array<{ key: string; title: string; meta?: string; body?: string; action?: React.ReactNode }>;
+  items: Array<{ key: string; title: string; meta?: string; body?: string; action?: React.ReactNode; onClick?: () => void }>;
 }) {
   if (items.length === 0) {
     return <p className="rounded-md bg-[#fffdf8] px-4 py-5 text-sm text-[#625d54]">{empty}</p>;
@@ -1493,7 +1688,11 @@ function RecordList({
   return (
     <div className="grid gap-3">
       {items.map((item) => (
-        <article key={item.key} className="rounded-md border border-[#eadfcd] bg-[#fffdf8] p-4">
+        <article
+          key={item.key}
+          onClick={item.onClick}
+          className={`rounded-md border border-[#eadfcd] bg-[#fffdf8] p-4 ${item.onClick ? 'cursor-pointer transition hover:border-[#38a9bd] hover:bg-white' : ''}`}
+        >
           <div className="flex flex-col justify-between gap-3 md:flex-row">
             <div>
               <h3 className="font-semibold">{item.title}</h3>
@@ -1501,7 +1700,7 @@ function RecordList({
             </div>
             {item.action}
           </div>
-          {item.body && <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-[#4d473f]">{item.body}</p>}
+          {item.body && <p className="mt-3 max-h-12 overflow-hidden whitespace-pre-wrap text-sm leading-6 text-[#4d473f]">{item.body}</p>}
         </article>
       ))}
     </div>

@@ -1612,6 +1612,8 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 
 function ProjectModal({ project, onClose }: { project: Project; onClose: () => void }) {
   const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
+  const [lightboxTop, setLightboxTop] = useState(80);
+  const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const legacyImages =
     project.gallery
       ?.filter((image) => image.url)
@@ -1643,9 +1645,20 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           return groups;
         }, []);
   const detailImageCount = imageGroups.reduce((count, group) => count + group.images.length, 0);
+  const defaultProjectIntro = '공간의 분위기와 시공 포인트를 사진으로 확인해 보세요.';
+  const openOriginalImage = (image: { src: string; alt: string }, event: React.MouseEvent<HTMLElement>) => {
+    const container = modalScrollRef.current;
+
+    if (container) {
+      const rect = container.getBoundingClientRect();
+      setLightboxTop(Math.max(24, container.scrollTop + event.clientY - rect.top - 260));
+    }
+
+    setLightboxImage(image);
+  };
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto bg-[#171512]/72 px-4 py-6 backdrop-blur-sm md:px-8">
+    <div ref={modalScrollRef} className="fixed inset-0 z-[80] overflow-y-auto bg-[#171512]/72 px-4 py-6 backdrop-blur-sm md:px-8">
       <div className="mx-auto max-w-6xl bg-[#fffdf8] shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d8d1c5] bg-[#fffdf8]/95 p-5 backdrop-blur">
           <div>
@@ -1670,7 +1683,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                 <>
                   <button
                     type="button"
-                    onClick={() => setLightboxImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title })}
+                    onClick={(event) => openOriginalImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title }, event)}
                     className="group relative block w-full"
                   >
                     <img
@@ -1692,15 +1705,20 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
               )}
             </div>
             <aside className="space-y-6">
+              <p className="text-lg leading-8 text-[#514c43]">
+                {defaultProjectIntro}
+              </p>
               <div className="grid gap-3 border-y border-[#d8d1c5] py-5 text-sm">
                 {project.location && <InfoRow label="지역" value={project.location} />}
                 {project.area && <InfoRow label="면적" value={`${project.area}평`} />}
                 {project.year && <InfoRow label="연도" value={project.year} />}
                 {project.materials && <InfoRow label="주요 자재" value={project.materials} />}
               </div>
-              <p className="whitespace-pre-line text-lg leading-8 text-[#514c43]">
-                {project.description || '공간의 분위기와 시공 포인트를 사진으로 확인해 보세요.'}
-              </p>
+              {project.description && (
+                <p className="whitespace-pre-line text-lg leading-8 text-[#514c43]">
+                  {project.description}
+                </p>
+              )}
             </aside>
           </div>
 
@@ -1710,7 +1728,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
               <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
                 <button
                   type="button"
-                  onClick={() => setLightboxImage({ src: project.beforeImage!, alt: `${project.title} 시공 전` })}
+                  onClick={(event) => openOriginalImage({ src: project.beforeImage!, alt: `${project.title} 시공 전` }, event)}
                   className="group relative block w-full"
                 >
                   <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-cover" loading="lazy" />
@@ -1744,7 +1762,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                           <div className="relative">
                             <button
                               type="button"
-                              onClick={() => setLightboxImage({ src: image.url!, alt: image.alt || image.caption || project.title })}
+                              onClick={(event) => openOriginalImage({ src: image.url!, alt: image.alt || image.caption || project.title }, event)}
                               className="group block w-full bg-[#f6f1e8]"
                             >
                               <img
@@ -1775,23 +1793,23 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           )}
         </div>
       </div>
-      {lightboxImage && <OriginalImageDialog image={lightboxImage} onClose={() => setLightboxImage(null)} />}
+      {lightboxImage && <OriginalImageDialog image={lightboxImage} top={lightboxTop} onClose={() => setLightboxImage(null)} />}
     </div>
   );
 }
 
-function OriginalImageDialog({ image, onClose }: { image: { src: string; alt: string }; onClose: () => void }) {
+function OriginalImageDialog({ image, top, onClose }: { image: { src: string; alt: string }; top: number; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-[#171512]/48 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[86vh] w-full max-w-5xl overflow-hidden rounded-lg bg-[#171512] shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+    <div className="absolute left-0 right-0 z-[95] flex justify-center px-4" style={{ top }} onClick={onClose}>
+      <div className="w-full max-w-4xl overflow-hidden rounded-lg border border-white/55 bg-[#fffdf8]/88 shadow-2xl backdrop-blur-md" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-[#d8d1c5]/70 px-4 py-3">
           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1c76a]">Original view</span>
           <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-white text-[#171512]" aria-label="원본 보기 닫기">
             <X size={18} />
           </button>
         </div>
-        <div className="flex max-h-[78vh] items-center justify-center p-4">
-          <img src={image.src} alt={image.alt} className="max-h-[74vh] max-w-full object-contain" />
+        <div className="flex max-h-[72vh] items-center justify-center bg-white/20 p-4">
+          <img src={image.src} alt={image.alt} className="max-h-[68vh] max-w-full object-contain" />
         </div>
       </div>
     </div>

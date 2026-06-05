@@ -74,7 +74,14 @@ export async function POST(request: Request) {
 
     if (type === 'project') {
       if (!body?.id) {
-        return NextResponse.json({ error: '수정할 Project를 선택해 주세요.' }, { status: 400 });
+        const record = await managerClient.create({
+          _type: 'project',
+          ...cleanData,
+          isVisible: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+        return NextResponse.json({ record });
       }
 
       const projectId = String(body.id).replace(/^drafts\./, '');
@@ -108,6 +115,26 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Office data save failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 저장하지 못했습니다.') }, { status: 500 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  const authError = assertManager(request);
+  if (authError) return authError;
+
+  try {
+    const body = await request.json();
+    const id = String(body?.id || '').trim();
+
+    if (!id) {
+      return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
+    }
+
+    await managerClient.delete(id);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Office data delete failed:', error);
+    return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 삭제하지 못했습니다.') }, { status: 500 });
   }
 }
 
