@@ -25,6 +25,14 @@ const client = createClient({
   token: process.env.SANITY_READ_TOKEN,
 });
 
+const writeClient = createClient({
+  projectId: 'q2qjj1se',
+  dataset: 'production',
+  useCdn: false,
+  apiVersion: '2026-01-01',
+  token: process.env.SANITY_WRITE_TOKEN,
+});
+
 export async function POST(request: Request) {
   try {
     const apiKey = process.env.RESEND_API_KEY;
@@ -50,6 +58,23 @@ export async function POST(request: Request) {
     const safePhone = escapeHtml(phone);
     const safeAddress = escapeHtml(address);
     const safeMessage = escapeHtml(message).replace(/\n/g, '<br>');
+
+    if (process.env.SANITY_WRITE_TOKEN) {
+      try {
+        await writeClient.create({
+          _type: 'officeConsultation',
+          name,
+          phone,
+          address,
+          message,
+          status: '신규',
+          source: '홈페이지 상담폼',
+          createdAt: new Date().toISOString(),
+        });
+      } catch (recordError) {
+        console.error('Consultation record create failed:', recordError);
+      }
+    }
 
     const { data, error } = await resend.emails.send({
       from: 'WEVE DESIGN <onboarding@resend.dev>',

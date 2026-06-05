@@ -622,6 +622,119 @@ const project = defineType({
   },
 });
 
+const officeConsultation = defineType({
+  name: 'officeConsultation',
+  title: '상담 요청',
+  type: 'document',
+  fields: [
+    defineField({ name: 'name', title: '고객명', type: 'string' }),
+    defineField({ name: 'phone', title: '연락처', type: 'string' }),
+    defineField({ name: 'address', title: '현장 주소', type: 'string' }),
+    defineField({ name: 'message', title: '문의 내용', type: 'text', rows: 5 }),
+    defineField({
+      name: 'status',
+      title: '상태',
+      type: 'string',
+      options: { list: ['신규', '상담중', '견적', '계약', '완료'] },
+      initialValue: '신규',
+    }),
+    defineField({ name: 'source', title: '유입 경로', type: 'string' }),
+    defineField({ name: 'memo', title: '관리 메모', type: 'text', rows: 4 }),
+    defineField({ name: 'createdAt', title: '접수일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'name', phone: 'phone', status: 'status' },
+    prepare({ title, phone, status }) {
+      return { title: title || '상담 요청', subtitle: [phone, status].filter(Boolean).join(' · ') };
+    },
+  },
+});
+
+const officeCustomer = defineType({
+  name: 'officeCustomer',
+  title: '고객',
+  type: 'document',
+  fields: [
+    defineField({ name: 'name', title: '고객명', type: 'string' }),
+    defineField({ name: 'phone', title: '연락처', type: 'string' }),
+    defineField({ name: 'address', title: '주소', type: 'string' }),
+    defineField({ name: 'status', title: '상태', type: 'string', initialValue: '상담중' }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),
+    defineField({ name: 'createdAt', title: '등록일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'name', phone: 'phone', status: 'status' },
+    prepare({ title, phone, status }) {
+      return { title: title || '고객', subtitle: [phone, status].filter(Boolean).join(' · ') };
+    },
+  },
+});
+
+const officeSale = defineType({
+  name: 'officeSale',
+  title: '매출',
+  type: 'document',
+  fields: [
+    defineField({ name: 'customerName', title: '고객명', type: 'string' }),
+    defineField({ name: 'projectTitle', title: '현장명', type: 'string' }),
+    defineField({ name: 'amount', title: '매출액', type: 'number' }),
+    defineField({ name: 'cost', title: '원가', type: 'number' }),
+    defineField({ name: 'status', title: '상태', type: 'string', initialValue: '견적' }),
+    defineField({ name: 'paymentDate', title: '입금일', type: 'date' }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),
+    defineField({ name: 'createdAt', title: '등록일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'projectTitle', customerName: 'customerName', amount: 'amount' },
+    prepare({ title, customerName, amount }) {
+      return { title: title || customerName || '매출', subtitle: amount ? `${Number(amount).toLocaleString('ko-KR')}원` : customerName };
+    },
+  },
+});
+
+const officeInventoryItem = defineType({
+  name: 'officeInventoryItem',
+  title: '재고',
+  type: 'document',
+  fields: [
+    defineField({ name: 'itemName', title: '품목명', type: 'string' }),
+    defineField({ name: 'category', title: '분류', type: 'string' }),
+    defineField({ name: 'quantity', title: '수량', type: 'number' }),
+    defineField({ name: 'unit', title: '단위', type: 'string', initialValue: '개' }),
+    defineField({ name: 'minQuantity', title: '최소 수량', type: 'number' }),
+    defineField({ name: 'vendor', title: '거래처', type: 'string' }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 4 }),
+    defineField({ name: 'createdAt', title: '등록일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'itemName', quantity: 'quantity', unit: 'unit' },
+    prepare({ title, quantity, unit }) {
+      return { title: title || '재고', subtitle: quantity !== undefined ? `${quantity}${unit || ''}` : undefined };
+    },
+  },
+});
+
+const officeVendor = defineType({
+  name: 'officeVendor',
+  title: '협력업체',
+  type: 'document',
+  fields: [
+    defineField({ name: 'name', title: '업체명', type: 'string' }),
+    defineField({ name: 'manager', title: '담당자', type: 'string' }),
+    defineField({ name: 'phone', title: '연락처', type: 'string' }),
+    defineField({ name: 'service', title: '업무 분야', type: 'string' }),
+    defineField({ name: 'status', title: '상태', type: 'string', initialValue: '거래중' }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),
+    defineField({ name: 'createdAt', title: '등록일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'name', service: 'service', phone: 'phone' },
+    prepare({ title, service, phone }) {
+      return { title: title || '협력업체', subtitle: [service, phone].filter(Boolean).join(' · ') };
+    },
+  },
+});
+
 export const schema: { types: SchemaTypeDefinition[] } = {
-  types: [siteSettings, category, project],
+  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSale, officeInventoryItem, officeVendor],
 };
