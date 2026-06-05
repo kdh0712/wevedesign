@@ -40,10 +40,6 @@ export async function POST(request: Request) {
     const settings = await client.fetch('*[_type == "siteSettings"][0]{consultationEmail}', {}, { next: { revalidate: 60 } });
     const toEmail = settings?.consultationEmail || process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
 
-    if (!apiKey) {
-      return NextResponse.json({ error: '메일 전송 키가 설정되지 않았습니다. Vercel의 RESEND_API_KEY를 확인해 주세요.' }, { status: 500 });
-    }
-
     const payload = (await request.json()) as ConsultationPayload;
     const name = payload.name?.trim();
     const phone = payload.phone?.trim();
@@ -55,7 +51,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
     }
 
-    const resend = new Resend(apiKey);
     const safeName = escapeHtml(name);
     const safePhone = escapeHtml(phone);
     const safeSiteType = escapeHtml(siteType);
@@ -80,6 +75,11 @@ export async function POST(request: Request) {
       }
     }
 
+    if (!apiKey) {
+      return NextResponse.json({ error: '메일 전송 키가 설정되지 않았습니다. Vercel의 RESEND_API_KEY를 확인해 주세요.' }, { status: 500 });
+    }
+
+    const resend = new Resend(apiKey);
     const { data, error } = await resend.emails.send({
       from: 'WEVE DESIGN <onboarding@resend.dev>',
       to: [toEmail],

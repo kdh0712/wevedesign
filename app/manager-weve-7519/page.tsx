@@ -166,6 +166,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
 
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
+  const [isUnlocked, setIsUnlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [category, setCategory] = useState('');
   const [newCategory, setNewCategory] = useState('');
@@ -190,6 +191,7 @@ export default function ManagerPage() {
     kakaoUrl: '',
   });
   const [selectedProjectId, setSelectedProjectId] = useState('');
+  const [projectFilterCategoryId, setProjectFilterCategoryId] = useState('');
   const [projectTitle, setProjectTitle] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
   const [projectCategoryId, setProjectCategoryId] = useState('');
@@ -216,6 +218,10 @@ export default function ManagerPage() {
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
 
   const previews = useMemo(() => buildPreview(files), [files]);
+  const filteredProjectsForEdit = useMemo(() => {
+    if (!projectFilterCategoryId) return officeData.projects;
+    return officeData.projects.filter((project) => project.categoryId === projectFilterCategoryId);
+  }, [officeData.projects, projectFilterCategoryId]);
   const salesTotal = useMemo(() => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0), [officeData.sales]);
   const profitTotal = useMemo(
     () => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0) - Number(sale.cost || 0), 0),
@@ -226,8 +232,8 @@ export default function ManagerPage() {
     [officeData.inventory],
   );
 
-  const authHeaders = () => ({
-    'x-manager-password': password,
+  const authHeaders = (managerPassword = password) => ({
+    'x-manager-password': managerPassword,
   });
 
   const readJsonResponse = async <T,>(response: Response): Promise<T> => {
@@ -241,22 +247,22 @@ export default function ManagerPage() {
     }
   };
 
-  const requirePassword = () => {
-    if (password) return true;
+  const requirePassword = (managerPassword = password) => {
+    if (managerPassword) return true;
     setError('관리 비밀번호를 먼저 입력해 주세요.');
     return false;
   };
 
-  const loadOfficeData = async () => {
+  const loadOfficeData = async (managerPassword = password) => {
     setError('');
     setStatus('');
-    if (!requirePassword()) return;
+    if (!requirePassword(managerPassword)) return;
 
     setLoadingOffice(true);
     try {
       const [response, settingsResponse] = await Promise.all([
-        fetch('/api/manager/office', { headers: authHeaders() }),
-        fetch('/api/manager/settings', { headers: authHeaders() }),
+        fetch('/api/manager/office', { headers: authHeaders(managerPassword) }),
+        fetch('/api/manager/settings', { headers: authHeaders(managerPassword) }),
       ]);
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 불러오지 못했습니다.');
@@ -289,6 +295,8 @@ export default function ManagerPage() {
       });
       setConsultationEmail(settings.consultationEmail || '');
       if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
+      setPassword(managerPassword);
+      setIsUnlocked(true);
       setStatus('업무 데이터를 불러왔습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
@@ -536,7 +544,50 @@ export default function ManagerPage() {
 
   return (
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
-      <div className="flex min-h-screen">
+      {!isUnlocked && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void loadOfficeData(password);
+            }}
+            className="w-full max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-2xl"
+          >
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-md bg-[#edf8fb] text-[#38a9bd]">
+                <ShieldCheck size={22} />
+              </span>
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">WEVE MANAGER</p>
+                <h1 className="text-2xl font-semibold tracking-normal">관리자 비밀번호</h1>
+              </div>
+            </div>
+            <p className="mt-4 text-sm leading-6 text-[#60717d]">
+              비밀번호를 입력하면 관리자 데이터와 홈페이지 설정을 함께 불러옵니다.
+            </p>
+            <label className="mt-5 grid gap-2 text-sm font-semibold text-[#4d5d66]">
+              비밀번호
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoFocus
+                className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={loadingOffice}
+              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60"
+            >
+              {loadingOffice ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+              접속하기
+            </button>
+            {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
+          </form>
+        </div>
+      )}
+      <div className={`flex min-h-screen ${!isUnlocked ? 'pointer-events-none select-none blur-[2px]' : ''}`}>
         <aside className="hidden w-64 shrink-0 bg-[#273541] text-[#dfe8ed] lg:block">
           <div className="border-b border-white/10 px-6 py-6">
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
@@ -569,7 +620,7 @@ export default function ManagerPage() {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <button
-                  onClick={loadOfficeData}
+                  onClick={() => loadOfficeData()}
                   disabled={loadingOffice}
                   className="inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                 >
@@ -944,6 +995,24 @@ export default function ManagerPage() {
               <Panel title="Project 분류 관리">
                 <div className="grid gap-3">
                   <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    분류로 Project 찾기
+                    <select
+                      value={projectFilterCategoryId}
+                      onChange={(event) => {
+                        setProjectFilterCategoryId(event.target.value);
+                        selectProjectForEdit('');
+                      }}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">전체 Project</option>
+                      {officeData.categories.map((item) => (
+                        <option key={item._id} value={item._id}>
+                          {item.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                     Project 선택
                     <select
                       value={selectedProjectId}
@@ -951,7 +1020,7 @@ export default function ManagerPage() {
                       className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
                     >
                       <option value="">Project 선택</option>
-                      {officeData.projects.map((project) => (
+                      {filteredProjectsForEdit.map((project) => (
                         <option key={project._id} value={project._id}>
                           {project.title || '이름 없는 Project'} · {project.categoryTitle || '분류 없음'}
                         </option>

@@ -34,7 +34,7 @@ const query = `{
   "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
     _id, title, "slug": slug.current
   },
-  "projects": *[_type == "project"] | order(_createdAt desc)[0...200] {
+  "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
     _id, title, description, location, siteType, area, year, materials, displayOrder, featured, isVisible,
     "categoryId": category->_id,
     "categoryTitle": category->title
@@ -75,7 +75,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: '수정할 Project를 선택해 주세요.' }, { status: 400 });
       }
 
-      const record = await managerClient.patch(String(body.id)).set({ ...cleanData, updatedAt: now }).commit();
+      const projectId = String(body.id).replace(/^drafts\./, '');
+      const updates = { ...cleanData, updatedAt: now };
+      const record = await managerClient.patch(projectId).set(updates).commit();
+      const draftId = `drafts.${projectId}`;
+      const draft = await managerClient.fetch('*[_id == $draftId][0]{_id}', { draftId });
+
+      if (draft?._id) {
+        await managerClient.patch(draftId).set(updates).commit();
+      }
+
       return NextResponse.json({ record });
     }
 

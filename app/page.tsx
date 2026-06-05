@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Sparkles,
   X,
+  ZoomIn,
 } from 'lucide-react';
 
 type Category = {
@@ -1514,7 +1515,7 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
           <img
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
-            className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
+            className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1560,7 +1561,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           <img
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
-            className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+            className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1593,6 +1594,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 }
 
 function ProjectModal({ project, onClose }: { project: Project; onClose: () => void }) {
+  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
   const legacyImages =
     project.gallery
       ?.filter((image) => image.url)
@@ -1648,11 +1650,21 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
-                <img
-                  src={optimizedImage(project.mainImage, 1500)}
-                  alt={project.mainImageAlt || project.title}
-                  className="h-full max-h-[720px] w-full object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={() => setLightboxImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title })}
+                  className="group relative block w-full"
+                >
+                  <img
+                    src={optimizedImage(project.mainImage, 1500)}
+                    alt={project.mainImageAlt || project.title}
+                    className="max-h-[720px] w-full object-contain"
+                  />
+                  <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                    <ZoomIn size={14} />
+                    Original
+                  </span>
+                </button>
               ) : (
                 <div className="flex aspect-video items-center justify-center text-[#8d8578]">
                   <Camera size={48} />
@@ -1676,7 +1688,17 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <section>
               <h3 className="mb-4 text-xl font-semibold">시공 전 사진</h3>
               <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
-                <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-cover" loading="lazy" />
+                <button
+                  type="button"
+                  onClick={() => setLightboxImage({ src: project.beforeImage!, alt: `${project.title} 시공 전` })}
+                  className="group relative block w-full"
+                >
+                  <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-contain" loading="lazy" />
+                  <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                    <ZoomIn size={14} />
+                    Original
+                  </span>
+                </button>
               </div>
             </section>
           )}
@@ -1700,11 +1722,21 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                       {group.images.map((image, index) => (
                         <figure key={`${image.url}-${index}`} className="w-[280px] shrink-0 overflow-hidden rounded-lg bg-white shadow-sm sm:w-[360px] lg:w-[520px]">
                           <div className="relative">
-                            <img
-                              src={optimizedImage(image.url, 1100)}
-                              alt={image.alt || image.caption || project.title}
-                              className="aspect-[4/3] w-full object-cover"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => setLightboxImage({ src: image.url!, alt: image.alt || image.caption || project.title })}
+                              className="group block w-full bg-[#f6f1e8]"
+                            >
+                              <img
+                                src={optimizedImage(image.url, 1100)}
+                                alt={image.alt || image.caption || project.title}
+                                className="aspect-[4/3] w-full object-contain"
+                              />
+                              <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                                <ZoomIn size={14} />
+                                Original
+                              </span>
+                            </button>
                             <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
                               {image.roomType || group.roomType}
                             </span>
@@ -1723,6 +1755,30 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           )}
         </div>
       </div>
+      {lightboxImage && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-[#171512]/92 p-4"
+          onClick={() => setLightboxImage(null)}
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              setLightboxImage(null);
+            }}
+            className="absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-md bg-white text-[#171512]"
+            aria-label="Close image"
+          >
+            <X size={22} />
+          </button>
+          <img
+            src={lightboxImage.src}
+            alt={lightboxImage.alt}
+            className="max-h-[92vh] max-w-[96vw] object-contain"
+            onClick={(event) => event.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
