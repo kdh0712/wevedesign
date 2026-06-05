@@ -1678,7 +1678,6 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                       Original
                     </span>
                   </button>
-                  {lightboxImage && lightboxImage.src === project.mainImage ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
                 </>
               ) : (
                 <div className="flex aspect-video items-center justify-center text-[#8d8578]">
@@ -1687,15 +1686,15 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
               )}
             </div>
             <aside className="space-y-6">
-              <p className="text-lg leading-8 text-[#514c43]">
-                {project.description || '공간의 분위기와 시공 포인트를 사진으로 확인해 보세요.'}
-              </p>
               <div className="grid gap-3 border-y border-[#d8d1c5] py-5 text-sm">
                 {project.location && <InfoRow label="지역" value={project.location} />}
                 {project.area && <InfoRow label="면적" value={`${project.area}평`} />}
                 {project.year && <InfoRow label="연도" value={project.year} />}
                 {project.materials && <InfoRow label="주요 자재" value={project.materials} />}
               </div>
+              <p className="whitespace-pre-line text-lg leading-8 text-[#514c43]">
+                {project.description || '공간의 분위기와 시공 포인트를 사진으로 확인해 보세요.'}
+              </p>
             </aside>
           </div>
 
@@ -1714,7 +1713,6 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                     Original
                   </span>
                 </button>
-                {lightboxImage && lightboxImage.src === project.beforeImage ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
               </div>
             </section>
           )}
@@ -1757,7 +1755,6 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                               {image.roomType || group.roomType}
                             </span>
                           </div>
-                          {lightboxImage && lightboxImage.src === image.url ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
                           {image.caption && (
                             <figcaption className="px-4 py-3 text-sm font-medium text-[#625d54]">{image.caption}</figcaption>
                           )}
@@ -1772,24 +1769,28 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           )}
         </div>
       </div>
+      {lightboxImage && <OriginalImageDialog image={lightboxImage} onClose={() => setLightboxImage(null)} />}
     </div>
   );
 }
 
-function InlineOriginalImage({ image, onClose }: { image: { src: string; alt: string }; onClose: () => void }) {
+function OriginalImageDialog({ image, onClose }: { image: { src: string; alt: string }; onClose: () => void }) {
   return (
-    <div className="border-t border-[#eadfcd] bg-[#171512] p-3">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1c76a]">Original view</span>
-        <button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white text-[#171512]" aria-label="원본 보기 닫기">
-          <X size={18} />
-        </button>
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-[#171512]/48 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[86vh] w-full max-w-5xl overflow-hidden rounded-lg bg-[#171512] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1c76a]">Original view</span>
+          <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-white text-[#171512]" aria-label="원본 보기 닫기">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex max-h-[78vh] items-center justify-center p-4">
+          <img src={image.src} alt={image.alt} className="max-h-[74vh] max-w-full object-contain" />
+        </div>
       </div>
-      <img src={image.src} alt={image.alt} className="max-h-[70vh] w-full object-contain" />
     </div>
   );
 }
-
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[76px_1fr] gap-4">

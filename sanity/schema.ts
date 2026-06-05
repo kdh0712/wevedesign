@@ -429,6 +429,14 @@ const project = defineType({
       description: '숫자가 작을수록 먼저 보입니다. 예: 1, 2, 3',
     }),
     defineField({
+      name: 'updatedAt',
+      title: '마지막 수정일',
+      type: 'datetime',
+      group: 'publish',
+      readOnly: true,
+      hidden: true,
+    }),
+    defineField({
       name: 'title',
       title: 'Project 이름',
       type: 'string',
