@@ -46,8 +46,20 @@ type Consultation = {
   name?: string;
   phone?: string;
   siteType?: string;
+  propertyType?: string;
+  areaRange?: string;
+  homeStatus?: string;
+  reason?: string;
+  spaces?: string[];
+  otherSpace?: string;
+  budget?: string;
+  timeline?: string;
+  postcode?: string;
   address?: string;
+  detailAddress?: string;
+  fullAddress?: string;
   message?: string;
+  privacyAgreed?: boolean;
   status?: string;
   source?: string;
   createdAt?: string;
@@ -477,16 +489,16 @@ export default function ManagerPage() {
         await saveOfficeRecord('customer', {
           name: consultation.name || '',
           phone: consultation.phone || '',
-          siteType: consultation.siteType || '아파트',
-          address: consultation.address || '',
+          siteType: consultation.propertyType || consultation.siteType || '아파트',
+          address: consultation.fullAddress || consultation.address || '',
           status: '상담완료',
           memo: consultation.message || '',
         });
         await saveOfficeRecord('project', {
           title: `${consultation.name || '고객'} 현장`,
           description: consultation.message || '',
-          siteType: consultation.siteType || '',
-          location: consultation.address || '',
+          siteType: consultation.propertyType || consultation.siteType || '',
+          location: consultation.fullAddress || consultation.address || '',
           isVisible: false,
           featured: false,
         });
@@ -530,8 +542,8 @@ export default function ManagerPage() {
     setCustomerForm({
       name: consultation.name || '',
       phone: consultation.phone || '',
-      siteType: consultation.siteType || '아파트',
-      address: consultation.address || '',
+      siteType: consultation.propertyType || consultation.siteType || '아파트',
+      address: consultation.fullAddress || consultation.address || '',
       status: '상담중',
       memo: consultation.message || '',
     });
@@ -1039,7 +1051,7 @@ export default function ManagerPage() {
               items={officeData.consultations.map((item) => ({
                 key: item._id,
                 title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
+                meta: `${item.propertyType || item.siteType || '공간 종류 없음'} · ${item.areaRange || '평수 미선택'} · ${item.budget || '예산 미선택'} · ${item.timeline || '일정 미선택'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
                 body: item.message,
                 onClick: () => setSelectedConsultation(item),
                 action: (
@@ -1738,9 +1750,23 @@ function ConsultationDetailModal({
         </div>
         <div className="mt-5 grid gap-3 rounded-md border border-[#d5dde2] bg-[#f7fafb] p-4 text-sm">
           <InfoLine label="연락처" value={consultation.phone || '-'} />
-          <InfoLine label="현장 종류" value={consultation.siteType || '-'} />
-          <InfoLine label="주소" value={consultation.address || '-'} />
+          <InfoLine label="공간 종류" value={consultation.propertyType || consultation.siteType || '-'} />
+          <InfoLine label="주소" value={consultation.fullAddress || consultation.address || '-'} />
           <InfoLine label="상태" value={consultation.status || '신규'} />
+        </div>
+        <div className="mt-5 grid gap-3 rounded-md border border-[#eadfcd] bg-[#fffdf8] p-4 text-sm">
+          <InfoLine label="평수" value={consultation.areaRange || '-'} />
+          <InfoLine label="현재 상태" value={consultation.homeStatus || '-'} />
+          <InfoLine label="인테리어 이유" value={consultation.reason || '-'} />
+          <InfoLine
+            label="필요 공간"
+            value={[...(consultation.spaces || []).filter((space) => space !== '기타 입력'), consultation.otherSpace ? `기타: ${consultation.otherSpace}` : '']
+              .filter(Boolean)
+              .join(', ') || '-'}
+          />
+          <InfoLine label="예산" value={consultation.budget || '-'} />
+          <InfoLine label="희망 시작일" value={consultation.timeline || '-'} />
+          <InfoLine label="개인정보 동의" value={consultation.privacyAgreed ? '동의' : '확인 필요'} />
         </div>
         <div className="mt-5">
           <p className="mb-2 text-sm font-semibold text-[#4d5d66]">문의 내용</p>

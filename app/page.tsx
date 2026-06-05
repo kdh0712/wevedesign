@@ -16,6 +16,7 @@ import {
   MessageCircle,
   Phone,
   Ruler,
+  Search,
   ShieldCheck,
   Sparkles,
   X,
@@ -107,6 +108,40 @@ type SiteSettings = {
   kakaoUrl?: string;
 };
 
+type DaumPostcodeData = {
+  zonecode?: string;
+  roadAddress?: string;
+  jibunAddress?: string;
+  buildingName?: string;
+  apartment?: 'Y' | 'N';
+};
+
+type ConsultationData = {
+  propertyType: string;
+  areaRange: string;
+  homeStatus: string;
+  reason: string;
+  spaces: string[];
+  otherSpace: string;
+  budget: string;
+  timeline: string;
+  name: string;
+  phone: string;
+  postcode: string;
+  address: string;
+  detailAddress: string;
+  message: string;
+  privacyAgreed: boolean;
+};
+
+declare global {
+  interface Window {
+    daum?: {
+      Postcode: new (options: { oncomplete: (data: DaumPostcodeData) => void }) => { open: () => void };
+    };
+  }
+}
+
 const defaultSettings: Required<SiteSettings> = {
   heroImage: '/hero-living-bright.webp',
   heroImage2: '/hero-kitchen-bright.webp',
@@ -171,6 +206,68 @@ const fallbackHeroSlides = [
 ];
 
 const serviceLines = ['아파트 전체 리모델링', '주거 공간 부분 시공', '상업 공간 인테리어', '자재 제안 및 현장 관리'];
+
+const initialConsultationData: ConsultationData = {
+  propertyType: '',
+  areaRange: '',
+  homeStatus: '',
+  reason: '',
+  spaces: [],
+  otherSpace: '',
+  budget: '',
+  timeline: '',
+  name: '',
+  phone: '',
+  postcode: '',
+  address: '',
+  detailAddress: '',
+  message: '',
+  privacyAgreed: false,
+};
+
+const consultationSteps = [
+  {
+    key: 'propertyType',
+    title: '반갑습니다. 고객님! 인테리어가 필요한 공간은 어디인가요?',
+    options: ['아파트', '빌라', '단독주택', '오피스텔'],
+  },
+  {
+    key: 'areaRange',
+    title: '인테리어 공간의 평수를 선택해주세요.',
+    options: ['10~20평대', '30평대', '40평대', '50평대 이상'],
+  },
+  {
+    key: 'homeStatus',
+    title: '인테리어 할 집은 어떤 상태인가요?',
+    options: ['집보관 후 살면서 공사예정', '현재 공실', '시공 시 공실 예정', '신축입주', '기타 (부동산 미계약 상태)'],
+  },
+  {
+    key: 'reason',
+    title: '인테리어를 고려하시게 된 주요 이유를 선택해주세요.',
+    options: ['집을 구매하여 리모델링 계획 중', '사는 집을 새롭게 바꾸기 위해', '매매나 임대를 위한 리모델링', '기타'],
+  },
+  {
+    key: 'spaces',
+    title: '인테리어가 필요한 공간을 모두 골라주세요.',
+    description: '특정 상품 부분 교체만 원하시면 기타 입력으로 신청해주세요.',
+    options: ['키친', '바스', '수납', '마루', '중문', '도어', '창호', '필름', '조명', '타일', '가전', '기타 입력'],
+    multiple: true,
+  },
+  {
+    key: 'budget',
+    title: '인테리어 예산은 총 얼마를 생각하시나요?',
+    description: '예산 선택 시 더 정확한 상담이 가능하며, 상담 중 변경할 수 있습니다.',
+    options: ['5백만원 이하', '1천만원 이하', '2천만원 이하', '3천만원 이하', '4천만원 이하', '5천만원 이하', '6천만원 이하', '7천만원 이하', '1억원 이하', '아직 미정이에요'],
+  },
+  {
+    key: 'timeline',
+    title: '인테리어가 언제 시작되길 희망하시나요?',
+    description: '신청일 기준으로 가장 가까운 일정을 골라주세요.',
+    options: ['1개월 이내', '2개월 이내', '3개월 이내', '3개월 이후', '6개월 이후'],
+  },
+] as const;
+
+const consultationTotalSteps = 8;
 
 const strengths = [
   {
@@ -324,7 +421,8 @@ export default function WeveDesignLanding() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<'home' | 'about' | 'portfolio' | 'location' | 'contact'>('home');
   const [activeHeroIndex, setActiveHeroIndex] = useState(0);
-  const [formData, setFormData] = useState({ name: '', phone: '', siteType: '아파트', address: '', message: '' });
+  const [consultationStep, setConsultationStep] = useState(0);
+  const [formData, setFormData] = useState<ConsultationData>(initialConsultationData);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
@@ -713,23 +811,130 @@ export default function WeveDesignLanding() {
     initMap();
   }, [mapSearchAddress, roadAddress, lotAddress, pickedMapLocation?.lat, pickedMapLocation?.lng, settings.mapLat, settings.mapLng, viewMode]);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setFormData({ ...formData, [name]: name === 'phone' ? formatPhoneNumber(value) : value });
+  const currentConsultationStep = consultationSteps[consultationStep];
+  const consultationProgress = ((consultationStep + 1) / consultationTotalSteps) * 100;
+
+  const resetSubmitMessage = () => {
     setSubmitStatus('');
     setSubmitErrorMessage('');
+  };
+
+  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = event.target;
+    const nextValue =
+      type === 'checkbox' && event.target instanceof HTMLInputElement
+        ? event.target.checked
+        : name === 'phone'
+          ? formatPhoneNumber(value)
+          : value;
+
+    setFormData((current) => ({ ...current, [name]: nextValue }));
+    resetSubmitMessage();
+  };
+
+  const selectConsultationOption = (key: (typeof consultationSteps)[number]['key'], value: string) => {
+    if (key === 'spaces') {
+      setFormData((current) => {
+        const isSelected = current.spaces.includes(value);
+        return {
+          ...current,
+          spaces: isSelected ? current.spaces.filter((space) => space !== value) : [...current.spaces, value],
+          otherSpace: value === '기타 입력' && isSelected ? '' : current.otherSpace,
+        };
+      });
+    } else {
+      setFormData((current) => ({ ...current, [key]: value }));
+    }
+
+    resetSubmitMessage();
+  };
+
+  const isCurrentStepComplete = () => {
+    if (consultationStep === consultationTotalSteps - 1) {
+      return Boolean(
+        formData.name.trim() &&
+          formData.phone.trim() &&
+          formData.address.trim() &&
+          formData.detailAddress.trim() &&
+          formData.privacyAgreed,
+      );
+    }
+
+    if (currentConsultationStep.key === 'spaces') {
+      return formData.spaces.length > 0 && (!formData.spaces.includes('기타 입력') || Boolean(formData.otherSpace.trim()));
+    }
+
+    return Boolean(formData[currentConsultationStep.key]);
+  };
+
+  const goToNextConsultationStep = () => {
+    if (!isCurrentStepComplete()) {
+      setSubmitStatus('missing');
+      return;
+    }
+
+    setConsultationStep((step) => Math.min(step + 1, consultationTotalSteps - 1));
+    resetSubmitMessage();
+  };
+
+  const goToPreviousConsultationStep = () => {
+    setConsultationStep((step) => Math.max(step - 1, 0));
+    resetSubmitMessage();
+  };
+
+  const openPostcodeSearch = () => {
+    if (!window.daum?.Postcode) {
+      setSubmitStatus('server');
+      setSubmitErrorMessage('우편번호 검색을 불러오는 중입니다. 잠시 후 다시 눌러주세요.');
+      return;
+    }
+
+    new window.daum.Postcode({
+      oncomplete: (data) => {
+        const baseAddress = data.roadAddress || data.jibunAddress || '';
+        const buildingName = data.buildingName && data.apartment === 'Y' ? ` (${data.buildingName})` : '';
+
+        setFormData((current) => ({
+          ...current,
+          postcode: data.zonecode || '',
+          address: `${baseAddress}${buildingName}`.trim(),
+          detailAddress: '',
+        }));
+        resetSubmitMessage();
+      },
+    }).open();
   };
 
   const handleSubmit = async () => {
     const payload = {
       name: formData.name.trim(),
       phone: formData.phone.trim(),
-      siteType: formData.siteType.trim(),
+      siteType: formData.propertyType.trim(),
+      propertyType: formData.propertyType.trim(),
+      areaRange: formData.areaRange.trim(),
+      homeStatus: formData.homeStatus.trim(),
+      reason: formData.reason.trim(),
+      spaces: formData.spaces,
+      otherSpace: formData.otherSpace.trim(),
+      budget: formData.budget.trim(),
+      timeline: formData.timeline.trim(),
+      postcode: formData.postcode.trim(),
+      detailAddress: formData.detailAddress.trim(),
+      privacyAgreed: formData.privacyAgreed,
       address: formData.address.trim(),
       message: formData.message.trim(),
     };
 
-    if (!payload.name || !payload.phone || !payload.siteType || !payload.address || !payload.message) {
+    if (
+      !isCurrentStepComplete() ||
+      !payload.propertyType ||
+      !payload.areaRange ||
+      !payload.homeStatus ||
+      !payload.reason ||
+      payload.spaces.length === 0 ||
+      !payload.budget ||
+      !payload.timeline
+    ) {
       setSubmitStatus('missing');
       return;
     }
@@ -744,7 +949,8 @@ export default function WeveDesignLanding() {
 
       if (response.ok) {
         setIsSubmitted(true);
-        setFormData({ name: '', phone: '', siteType: '아파트', address: '', message: '' });
+        setConsultationStep(0);
+        setFormData(initialConsultationData);
         setSubmitStatus('');
         setSubmitErrorMessage('');
       } else {
@@ -844,6 +1050,7 @@ export default function WeveDesignLanding() {
           onError={() => setMapStatus('네이버 지도 API를 불러오지 못했습니다. API 키와 허용 도메인을 확인해주세요.')}
         />
       )}
+      <Script strategy="afterInteractive" src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" />
 
       <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
         {showTopButton && (
@@ -1270,99 +1477,249 @@ export default function WeveDesignLanding() {
           </div>
         </section>
 
-        <section id="contact" className="scroll-reveal px-5 py-24 md:px-8">
-          <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.8fr_1.2fr]">
-            <div>
-              <p data-preview-target="contactLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
-                {settings.contactLabel || defaultSettings.contactLabel}
-              </p>
-              <h2 data-preview-target="contactTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
-                {settings.contactTitle || defaultSettings.contactTitle}
-              </h2>
-              <p data-preview-target="contactBody" className="mt-6 text-lg leading-8 text-[#625d54]">
-                {settings.contactBody || defaultSettings.contactBody}
-              </p>
-            </div>
+        <section id="contact" className="scroll-reveal bg-white px-5 py-20 md:px-8 md:py-28">
+          <div className="mx-auto grid max-w-[1440px] gap-10 lg:grid-cols-[0.82fr_1.18fr] lg:items-stretch">
+            <aside className="relative min-h-[420px] overflow-hidden rounded-lg md:min-h-[560px]">
+              <img
+                src={optimizedImage(settings.heroImage2 || settings.heroImage || defaultSettings.heroImage2, 1200, 82)}
+                alt="인테리어 상담 신청"
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#171512]/72 via-[#171512]/22 to-transparent" />
+              <div className="absolute bottom-8 left-7 right-7 text-white md:bottom-10 md:left-10 md:right-10">
+                <p className="text-2xl font-semibold">신청 &gt; 상담 &gt; 실측 &gt; 견적</p>
+                <p className="mt-3 text-lg text-white/84">전 과정 무료 상담으로 공간의 방향을 먼저 잡아드립니다.</p>
+              </div>
+            </aside>
 
-            <div className="motion-card bg-white p-6 shadow-sm md:p-10">
+            <div className="flex min-h-[560px] flex-col justify-between py-2 lg:py-6">
               {isSubmitted ? (
-                <div className="py-16 text-center">
+                <div className="motion-card flex min-h-[520px] flex-col items-center justify-center bg-[#fffdf8] p-8 text-center shadow-sm md:p-12">
                   <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#e9f7ed] text-[#2f8f50]">
                     <Check size={34} />
                   </div>
                   <h3 className="text-3xl font-semibold">상담 신청이 접수되었습니다.</h3>
-                  <p className="mt-4 text-[#625d54]">확인 후 빠르게 연락드리겠습니다.</p>
+                  <p className="mt-4 max-w-md text-[#625d54]">관리자 페이지의 상담 요청에 저장했고, 담당자가 확인 후 빠르게 연락드리겠습니다.</p>
                   <button
-                    onClick={() => setIsSubmitted(false)}
+                    onClick={() => {
+                      setIsSubmitted(false);
+                      setConsultationStep(0);
+                    }}
                     className="hover-shine mt-8 rounded-md bg-[#f1c76a] px-6 py-3 font-semibold text-[#171512] transition hover:bg-[#ffd879]"
                   >
                     새 상담 작성
                   </button>
                 </div>
-              ) : (
-                <div className="grid gap-4">
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <input
-                      type="text"
-                      name="name"
-                      value={formData.name}
-                      onChange={handleChange}
-                      className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                      placeholder="이름 *"
-                    />
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      inputMode="numeric"
-                      maxLength={13}
-                      className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                      placeholder="010-0000-0000 *"
-                    />
-                  </div>
-                  <input
-                    type="text"
-                    name="address"
-                    value={formData.address}
-                    onChange={handleChange}
-                    className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                    placeholder="현장 위치 또는 주소 *"
-                  />
-                  <select
-                    name="siteType"
-                    value={formData.siteType}
-                    onChange={handleChange}
-                    className="w-full rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                  >
-                    <option value="아파트">아파트</option>
-                    <option value="주택">주택</option>
-                    <option value="상가">상가</option>
-                    <option value="오피스">오피스</option>
-                    <option value="기타">기타</option>
-                  </select>
-                  <textarea
-                    name="message"
-                    value={formData.message}
-                    onChange={handleChange}
-                    rows={5}
-                    className="w-full resize-none rounded-md border border-[#d8d1c5] bg-[#fbfaf7] px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
-                    placeholder="문의 내용 *"
-                  />
-                  <button
-                    onClick={handleSubmit}
-                    disabled={isSubmitting}
-                    className="hover-shine rounded-md bg-[#f1c76a] px-6 py-5 text-lg font-semibold text-[#171512] shadow-[0_12px_30px_rgba(191,143,51,0.18)] transition hover:bg-[#ffd879] disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isSubmitting ? '전송 중...' : '상담 신청하기'}
-                  </button>
-                  {submitStatus === 'missing' && <p className="text-sm font-semibold text-red-600">필수 정보를 모두 입력해 주세요.</p>}
-                  {submitStatus === 'server' && (
-                    <p className="text-sm font-semibold text-red-600">
-                      {submitErrorMessage || '상담 신청 전송 설정을 확인해야 합니다.'}
+              ) : consultationStep < consultationTotalSteps - 1 ? (
+                <>
+                  <div>
+                    <p data-preview-target="contactLabel" className="text-base font-semibold text-[#8f6f43]">
+                      인테리어 상담신청
                     </p>
-                  )}
-                </div>
+                    <div className="mt-4 flex items-end justify-between gap-4">
+                      <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
+                        {currentConsultationStep.title}
+                      </h2>
+                      <span className="shrink-0 text-sm font-semibold text-[#8b8276]">{consultationStep + 1} / {consultationTotalSteps}</span>
+                    </div>
+                    {'description' in currentConsultationStep && currentConsultationStep.description && (
+                      <p className="mt-3 text-sm leading-6 text-[#625d54]">{currentConsultationStep.description}</p>
+                    )}
+                    <div className="mt-8 h-px w-full bg-[#ece6dc]">
+                      <div className="h-px bg-[#171512] transition-all duration-300" style={{ width: `${consultationProgress}%` }} />
+                    </div>
+
+                    <div className="mt-12 grid gap-5 sm:grid-cols-2">
+                      {currentConsultationStep.options.map((option) => {
+                        const selected =
+                          currentConsultationStep.key === 'spaces'
+                            ? formData.spaces.includes(option)
+                            : formData[currentConsultationStep.key] === option;
+
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => selectConsultationOption(currentConsultationStep.key, option)}
+                            className={`min-h-[68px] rounded-full border px-5 text-base font-semibold transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(57,46,31,0.1)] ${
+                              selected
+                                ? 'border-[#2f64ff] bg-[#eef2ff] text-[#2f64ff]'
+                                : 'border-transparent bg-[#f6f6f6] text-[#171512] hover:border-[#d8d1c5] hover:bg-white'
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {formData.spaces.includes('기타 입력') && (
+                      <input
+                        type="text"
+                        name="otherSpace"
+                        value={formData.otherSpace}
+                        onChange={handleChange}
+                        className="mt-5 w-full rounded-md border border-[#d8d1c5] bg-white px-5 py-4 font-medium outline-none transition focus:border-[#8f6f43]"
+                        placeholder="필요한 공간이나 상품을 적어주세요. 예: 시스템에어컨, 싱크대 수전"
+                      />
+                    )}
+
+                    {consultationStep === 6 && (
+                      <div className="mt-8 border-t border-[#ece6dc] pt-5 text-sm leading-7 text-[#625d54]">
+                        <p>주문량이 몰리는 경우 시공 일정이 다소 지연될 수 있습니다.</p>
+                        <p>담당자가 상담 후 가능한 일정과 진행 방식을 함께 안내드립니다.</p>
+                      </div>
+                    )}
+
+                    {submitStatus === 'missing' && <p className="mt-5 text-sm font-semibold text-red-600">필수 항목을 선택해 주세요.</p>}
+                  </div>
+
+                  <div className="mt-12 flex justify-center gap-3">
+                    {consultationStep > 0 && (
+                      <button
+                        type="button"
+                        onClick={goToPreviousConsultationStep}
+                        className="h-14 min-w-[130px] rounded-full border border-[#171512] px-8 font-semibold transition hover:bg-[#171512] hover:text-white"
+                      >
+                        이전
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={goToNextConsultationStep}
+                      className="h-14 min-w-[220px] rounded-full bg-[#171512] px-10 font-semibold text-white transition hover:bg-[#2f2a23]"
+                    >
+                      다음
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-base font-semibold text-[#8f6f43]">인테리어 상담신청</p>
+                    <div className="mt-5 rounded-none bg-[#eee1d5] px-6 py-7 md:px-10">
+                      <h2 className="text-2xl font-semibold">고객님의 소중한 정보는</h2>
+                      <p className="mt-2 text-[#625d54]">오직 상담 목적으로만 활용됩니다.</p>
+                    </div>
+                    <div className="mt-8 flex items-center gap-4">
+                      <div className="h-px flex-1 bg-[#171512]" />
+                      <span className="text-sm font-semibold text-[#8b8276]">{consultationTotalSteps} / {consultationTotalSteps}</span>
+                    </div>
+
+                    <div className="mt-8 grid gap-6">
+                      <label className="grid gap-2">
+                        <span className="font-semibold">이름 <span className="text-red-500">*</span></span>
+                        <input
+                          type="text"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleChange}
+                          className="w-full border border-[#d8d1c5] bg-white px-5 py-4 font-medium outline-none transition focus:border-[#171512]"
+                          placeholder="이름 입력"
+                        />
+                      </label>
+                      <label className="grid gap-2">
+                        <span className="font-semibold">휴대폰번호 <span className="text-red-500">*</span></span>
+                        <input
+                          type="tel"
+                          name="phone"
+                          value={formData.phone}
+                          onChange={handleChange}
+                          inputMode="numeric"
+                          maxLength={13}
+                          className="w-full border border-[#d8d1c5] bg-white px-5 py-4 font-medium outline-none transition focus:border-[#171512]"
+                          placeholder="숫자만 입력"
+                        />
+                      </label>
+                      <div className="grid gap-3">
+                        <span className="font-semibold">시공 주소 <span className="text-red-500">*</span></span>
+                        <p className="text-sm text-[#8b8276]">우편번호 검색으로 주소를 찾은 뒤 상세 주소를 입력해주세요.</p>
+                        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+                          <input
+                            type="text"
+                            name="postcode"
+                            value={formData.postcode}
+                            readOnly
+                            className="w-full bg-[#f7f7f7] px-5 py-4 font-medium text-[#625d54] outline-none"
+                            placeholder="우편번호"
+                          />
+                          <button
+                            type="button"
+                            onClick={openPostcodeSearch}
+                            className="inline-flex items-center justify-center gap-2 border border-[#d8d1c5] bg-white px-5 py-4 font-semibold transition hover:border-[#171512]"
+                          >
+                            <Search size={18} />
+                            우편번호 검색
+                          </button>
+                        </div>
+                        <input
+                          type="text"
+                          name="address"
+                          value={formData.address}
+                          readOnly
+                          className="w-full bg-[#f7f7f7] px-5 py-4 font-medium text-[#625d54] outline-none"
+                          placeholder="주소 입력"
+                        />
+                        <input
+                          type="text"
+                          name="detailAddress"
+                          value={formData.detailAddress}
+                          onChange={handleChange}
+                          className="w-full bg-[#f7f7f7] px-5 py-4 font-medium outline-none transition focus:bg-white focus:ring-1 focus:ring-[#171512]"
+                          placeholder="상세 주소"
+                        />
+                      </div>
+                      <label className="grid gap-2">
+                        <span className="font-semibold">요청사항 <span className="text-[#8b8276]">(선택)</span></span>
+                        <textarea
+                          name="message"
+                          value={formData.message}
+                          onChange={handleChange}
+                          rows={4}
+                          maxLength={300}
+                          className="w-full resize-none border border-[#d8d1c5] bg-white px-5 py-4 font-medium outline-none transition focus:border-[#171512]"
+                          placeholder="예) 5인 가족이라 짐이 많아요. 수납공간을 넉넉하게 배치하고 싶어요."
+                        />
+                        <span className="text-right text-xs text-[#8b8276]">({formData.message.length} / 300)</span>
+                      </label>
+                      <label className="flex items-center gap-3 border-t border-[#ece6dc] pt-5 text-sm font-semibold">
+                        <input
+                          type="checkbox"
+                          name="privacyAgreed"
+                          checked={formData.privacyAgreed}
+                          onChange={handleChange}
+                          className="h-5 w-5 accent-[#171512]"
+                        />
+                        <span><span className="text-red-500">(필수)</span> 개인정보 제3자 제공 동의</span>
+                      </label>
+                    </div>
+
+                    {submitStatus === 'missing' && <p className="mt-5 text-sm font-semibold text-red-600">필수 정보를 모두 입력해 주세요.</p>}
+                    {submitStatus === 'server' && (
+                      <p className="mt-5 text-sm font-semibold text-red-600">
+                        {submitErrorMessage || '상담 신청 전송 설정을 확인해야 합니다.'}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-10 flex justify-center gap-3">
+                    <button
+                      type="button"
+                      onClick={goToPreviousConsultationStep}
+                      className="h-14 min-w-[130px] rounded-full border border-[#171512] px-8 font-semibold transition hover:bg-[#171512] hover:text-white"
+                    >
+                      이전
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmit}
+                      disabled={isSubmitting}
+                      className="h-14 min-w-[220px] rounded-full bg-[#171512] px-10 font-semibold text-white transition hover:bg-[#2f2a23] disabled:cursor-not-allowed disabled:bg-[#ececec] disabled:text-[#b8b0a3]"
+                    >
+                      {isSubmitting ? '전송 중...' : '상담신청'}
+                    </button>
+                  </div>
+                </>
               )}
             </div>
           </div>
