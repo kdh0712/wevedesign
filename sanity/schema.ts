@@ -353,6 +353,14 @@ const siteSettings = defineType({
     defineField({ name: 'consultationTimelineOptions', title: '상담 질문 6 선택지', type: 'text', rows: 5, group: 'location' }),
     defineField({ name: 'consultationPrivacyText', title: '개인정보 제3자 제공 동의 내용', type: 'text', rows: 8, group: 'location' }),
     defineField({
+      name: 'consultationSurveyConfig',
+      title: '상담 설문 고급 설정',
+      type: 'text',
+      rows: 12,
+      group: 'location',
+      description: '관리자 페이지의 상담 설문 편집기에서 자동 저장되는 설정입니다.',
+    }),
+    defineField({
       name: 'consultationEmail',
       title: '상담문의 받을 이메일',
       type: 'string',

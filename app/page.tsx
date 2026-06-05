@@ -118,6 +118,7 @@ type SiteSettings = {
   consultationTimelineQuestion?: string;
   consultationTimelineOptions?: string;
   consultationPrivacyText?: string;
+  consultationSurveyConfig?: string;
   kakaoUrl?: string;
 };
 
@@ -152,6 +153,19 @@ type ConsultationStep = {
   title: string;
   description?: string;
   options: string[];
+};
+
+type ConsultationAreaGroup = {
+  id: string;
+  label: string;
+  propertyOptions: string[];
+  step: ConsultationStep;
+};
+
+type ConsultationSurveyConfig = {
+  propertyStep: ConsultationStep;
+  areaGroups: ConsultationAreaGroup[];
+  commonSteps: ConsultationStep[];
 };
 
 declare global {
@@ -218,6 +232,7 @@ const defaultSettings: Required<SiteSettings> = {
   consultationTimelineOptions: '1개월 이내\n2개월 이내\n3개월 이내\n3개월 이후\n6개월 이후',
   consultationPrivacyText:
     '수집 항목: 이름, 연락처, 시공 주소, 상담 설문 답변, 요청사항\n수집 목적: 인테리어 상담, 실측 및 견적 안내, 고객 문의 응대\n보유 기간: 상담 완료 후 1년 또는 고객 삭제 요청 시까지\n제공받는 자: WEVE DESIGN 상담 및 시공 담당자\n동의를 거부할 권리가 있으나, 동의하지 않을 경우 상담 신청이 제한될 수 있습니다.',
+  consultationSurveyConfig: '',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
 };
 
@@ -292,7 +307,28 @@ const defaultConsultationSteps: ConsultationStep[] = [
   },
 ] as const;
 
-const consultationTotalSteps = 7;
+const defaultConsultationSurveyConfig: ConsultationSurveyConfig = {
+  propertyStep: defaultConsultationSteps[0],
+  areaGroups: [
+    {
+      id: 'residential',
+      label: '주거 공간',
+      propertyOptions: ['아파트', '빌라', '단독주택', '오피스텔'],
+      step: defaultConsultationSteps[1],
+    },
+    {
+      id: 'commercial',
+      label: '상업 공간',
+      propertyOptions: ['상가', '오피스'],
+      step: {
+        key: 'areaRange',
+        title: '인테리어 공간의 규모를 선택해주세요.',
+        options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
+      },
+    },
+  ],
+  commonSteps: defaultConsultationSteps.slice(2),
+};
 
 const settingOptions = (value: string | undefined, fallback: string[]) => {
   const options = (value || '')
@@ -301,6 +337,82 @@ const settingOptions = (value: string | undefined, fallback: string[]) => {
     .filter(Boolean);
 
   return options.length > 0 ? options : fallback;
+};
+
+const parseConsultationSurveyConfig = (settings: SiteSettings): ConsultationSurveyConfig => {
+  if (settings.consultationSurveyConfig) {
+    try {
+      const parsed = JSON.parse(settings.consultationSurveyConfig) as Partial<ConsultationSurveyConfig>;
+      if (parsed.propertyStep?.options?.length && parsed.areaGroups?.length && parsed.commonSteps?.length) {
+        return {
+          propertyStep: {
+            ...defaultConsultationSurveyConfig.propertyStep,
+            ...parsed.propertyStep,
+            key: 'propertyType',
+          },
+          areaGroups: parsed.areaGroups.map((group, index) => ({
+            id: group.id || `group-${index + 1}`,
+            label: group.label || `묶음 ${index + 1}`,
+            propertyOptions: group.propertyOptions?.filter(Boolean) || [],
+            step: {
+              ...defaultConsultationSurveyConfig.areaGroups[0].step,
+              ...group.step,
+              key: 'areaRange',
+            },
+          })),
+          commonSteps: parsed.commonSteps.map((step, index) => ({
+            ...defaultConsultationSurveyConfig.commonSteps[index],
+            ...step,
+          })) as ConsultationStep[],
+        };
+      }
+    } catch {
+      // 관리자 설정이 손상되면 기존 개별 필드 설정으로 안전하게 돌아갑니다.
+    }
+  }
+
+  return {
+    propertyStep: {
+      key: 'propertyType',
+      title: settings.consultationPropertyQuestion || defaultConsultationSurveyConfig.propertyStep.title,
+      options: settingOptions(settings.consultationPropertyOptions, defaultConsultationSurveyConfig.propertyStep.options),
+    },
+    areaGroups: [
+      {
+        ...defaultConsultationSurveyConfig.areaGroups[0],
+        step: {
+          ...defaultConsultationSurveyConfig.areaGroups[0].step,
+          title: settings.consultationAreaQuestion || defaultConsultationSurveyConfig.areaGroups[0].step.title,
+          options: settingOptions(settings.consultationAreaOptions, defaultConsultationSurveyConfig.areaGroups[0].step.options),
+        },
+      },
+      defaultConsultationSurveyConfig.areaGroups[1],
+    ],
+    commonSteps: [
+      {
+        key: 'homeStatus',
+        title: settings.consultationStatusQuestion || defaultConsultationSteps[2].title,
+        options: settingOptions(settings.consultationStatusOptions, defaultConsultationSteps[2].options),
+      },
+      {
+        key: 'reason',
+        title: settings.consultationReasonQuestion || defaultConsultationSteps[3].title,
+        options: settingOptions(settings.consultationReasonOptions, defaultConsultationSteps[3].options),
+      },
+      {
+        key: 'budget',
+        title: settings.consultationBudgetQuestion || defaultConsultationSteps[4].title,
+        description: defaultConsultationSteps[4].description,
+        options: settingOptions(settings.consultationBudgetOptions, defaultConsultationSteps[4].options),
+      },
+      {
+        key: 'timeline',
+        title: settings.consultationTimelineQuestion || defaultConsultationSteps[5].title,
+        description: defaultConsultationSteps[5].description,
+        options: settingOptions(settings.consultationTimelineOptions, defaultConsultationSteps[5].options),
+      },
+    ],
+  };
 };
 
 const strengths = [
@@ -503,43 +615,15 @@ export default function WeveDesignLanding() {
   );
   const activeHero = heroSlides[activeHeroIndex] || heroSlides[0];
   const naverMapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
-  const consultationSteps = useMemo<ConsultationStep[]>(
-    () => [
-      {
-        key: 'propertyType',
-        title: settings.consultationPropertyQuestion || defaultConsultationSteps[0].title,
-        options: settingOptions(settings.consultationPropertyOptions, defaultConsultationSteps[0].options),
-      },
-      {
-        key: 'areaRange',
-        title: settings.consultationAreaQuestion || defaultConsultationSteps[1].title,
-        options: settingOptions(settings.consultationAreaOptions, defaultConsultationSteps[1].options),
-      },
-      {
-        key: 'homeStatus',
-        title: settings.consultationStatusQuestion || defaultConsultationSteps[2].title,
-        options: settingOptions(settings.consultationStatusOptions, defaultConsultationSteps[2].options),
-      },
-      {
-        key: 'reason',
-        title: settings.consultationReasonQuestion || defaultConsultationSteps[3].title,
-        options: settingOptions(settings.consultationReasonOptions, defaultConsultationSteps[3].options),
-      },
-      {
-        key: 'budget',
-        title: settings.consultationBudgetQuestion || defaultConsultationSteps[4].title,
-        description: defaultConsultationSteps[4].description,
-        options: settingOptions(settings.consultationBudgetOptions, defaultConsultationSteps[4].options),
-      },
-      {
-        key: 'timeline',
-        title: settings.consultationTimelineQuestion || defaultConsultationSteps[5].title,
-        description: defaultConsultationSteps[5].description,
-        options: settingOptions(settings.consultationTimelineOptions, defaultConsultationSteps[5].options),
-      },
-    ],
-    [settings],
-  );
+  const consultationSurveyConfig = useMemo(() => parseConsultationSurveyConfig(settings), [settings]);
+  const consultationSteps = useMemo<ConsultationStep[]>(() => {
+    const selectedAreaGroup =
+      consultationSurveyConfig.areaGroups.find((group) => group.propertyOptions.includes(formData.propertyType)) ||
+      consultationSurveyConfig.areaGroups[0];
+
+    return [consultationSurveyConfig.propertyStep, selectedAreaGroup.step, ...consultationSurveyConfig.commonSteps];
+  }, [consultationSurveyConfig, formData.propertyType]);
+  const consultationTotalSteps = consultationSteps.length + 1;
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -905,7 +989,21 @@ export default function WeveDesignLanding() {
   };
 
   const selectConsultationOption = (key: ConsultationStepKey, value: string) => {
-    setFormData((current) => ({ ...current, [key]: value }));
+    setFormData((current) => {
+      if (key === 'propertyType' && current.propertyType !== value) {
+        return {
+          ...current,
+          propertyType: value,
+          areaRange: '',
+          homeStatus: '',
+          reason: '',
+          budget: '',
+          timeline: '',
+        };
+      }
+
+      return { ...current, [key]: value };
+    });
     resetSubmitMessage();
   };
 
@@ -1542,9 +1640,25 @@ export default function WeveDesignLanding() {
               <p data-preview-target="contactBody" className="mt-6 text-lg leading-8 text-[#625d54]">
                 {settings.contactBody || defaultSettings.contactBody}
               </p>
-              <div className="mt-8 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
-                <p className="font-semibold text-[#171512]">신청 &gt; 상담 &gt; 실측 &gt; 견적</p>
-                <p className="mt-2">사진과 현장 정보를 남겨주시면 확인 후 순서대로 연락드립니다.</p>
+              <div className="mt-10 border-t border-[#eadfcd] pt-7">
+                <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#b08a4a]">Before Consultation</p>
+                <div className="mt-5 grid gap-3">
+                  {[
+                    ['01', '시공 주소', '우편번호 검색으로 현장 위치를 정확히 남겨주세요.'],
+                    ['02', '공간 상태', '현재 거주 여부와 공사 희망 시기를 알려주세요.'],
+                    ['03', '예산 방향', '대략적인 예산만 선택해도 상담 중 조정할 수 있습니다.'],
+                  ].map(([number, title, body]) => (
+                    <div key={number} className="group grid grid-cols-[42px_1fr] gap-4 border-b border-[#eee6da] py-4">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f8efd9] text-sm font-bold text-[#9a7335] transition group-hover:bg-[#171512] group-hover:text-white">
+                        {number}
+                      </span>
+                      <div>
+                        <p className="font-semibold text-[#171512]">{title}</p>
+                        <p className="mt-1 text-sm leading-6 text-[#625d54]">{body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 

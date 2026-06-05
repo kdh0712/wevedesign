@@ -104,6 +104,7 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
   consultationTimelineQuestion,
   consultationTimelineOptions,
   consultationPrivacyText,
+  consultationSurveyConfig,
   representativeName,
   businessNumber,
   companyStartYear,

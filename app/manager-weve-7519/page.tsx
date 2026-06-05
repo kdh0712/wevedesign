@@ -64,6 +64,28 @@ type Consultation = {
   memo?: string;
 };
 
+type SurveyStepKey = 'propertyType' | 'areaRange' | 'homeStatus' | 'reason' | 'budget' | 'timeline';
+
+type SurveyStep = {
+  key: SurveyStepKey;
+  title: string;
+  description?: string;
+  options: string[];
+};
+
+type SurveyAreaGroup = {
+  id: string;
+  label: string;
+  propertyOptions: string[];
+  step: SurveyStep;
+};
+
+type SurveyConfig = {
+  propertyStep: SurveyStep;
+  areaGroups: SurveyAreaGroup[];
+  commonSteps: SurveyStep[];
+};
+
 type Customer = {
   _id: string;
   name?: string;
@@ -200,6 +222,90 @@ const homepagePreviewTargets = {
   companyStartYear: { key: 'companyStartYear', label: '회사 시작 연도', src: '/#footer' },
 } satisfies Record<string, PreviewTarget>;
 
+const defaultSurveyConfig: SurveyConfig = {
+  propertyStep: {
+    key: 'propertyType',
+    title: '반갑습니다. 고객님! 인테리어가 필요한 공간은 어디인가요?',
+    options: ['아파트', '빌라', '단독주택', '오피스텔', '상가', '오피스'],
+  },
+  areaGroups: [
+    {
+      id: 'residential',
+      label: '주거 공간',
+      propertyOptions: ['아파트', '빌라', '단독주택', '오피스텔'],
+      step: {
+        key: 'areaRange',
+        title: '인테리어 공간의 평수를 선택해주세요.',
+        options: ['10~20평대', '30평대', '40평대', '50평대 이상'],
+      },
+    },
+    {
+      id: 'commercial',
+      label: '상업 공간',
+      propertyOptions: ['상가', '오피스'],
+      step: {
+        key: 'areaRange',
+        title: '인테리어 공간의 규모를 선택해주세요.',
+        options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
+      },
+    },
+  ],
+  commonSteps: [
+    {
+      key: 'homeStatus',
+      title: '인테리어 할 공간은 어떤 상태인가요?',
+      options: ['집보관 후 살면서 공사예정', '현재 공실', '시공 시 공실 예정', '신축입주', '영업 중', '기타'],
+    },
+    {
+      key: 'reason',
+      title: '인테리어를 고려하시게 된 주요 이유를 선택해주세요.',
+      options: ['집을 구매하여 리모델링 계획 중', '사는 집을 새롭게 바꾸기 위해', '매매나 임대를 위한 리모델링', '상업 공간 오픈 준비', '기타'],
+    },
+    {
+      key: 'budget',
+      title: '인테리어 예산은 총 얼마를 생각하시나요?',
+      description: '예산 선택 시 더 정확한 상담이 가능해요. 상담 시 변경 가능합니다.',
+      options: ['5백만원 이하', '1천만원 이하', '2천만원 이하', '3천만원 이하', '4천만원 이하', '5천만원 이하', '6천만원 이하', '7천만원 이하', '1억원 이하', '1억원 이상', '아직 미정이에요'],
+    },
+    {
+      key: 'timeline',
+      title: '인테리어가 언제 시작되길 희망하시나요?',
+      description: '신청일 기준으로 가장 가까운 일정을 골라주세요.',
+      options: ['1개월 이내', '2개월 이내', '3개월 이내', '3개월 이후', '6개월 이후'],
+    },
+  ],
+};
+
+const defaultPrivacyText =
+  '수집 항목: 이름, 연락처, 시공 주소, 상담 설문 답변, 요청사항\n수집 목적: 인테리어 상담, 실측 및 견적 안내, 고객 문의 응대\n보유 기간: 상담 완료 후 1년 또는 고객 삭제 요청 시까지\n제공받는 자: WEVE DESIGN 상담 및 시공 담당자\n동의를 거부할 권리가 있으나, 동의하지 않을 경우 상담 신청이 제한될 수 있습니다.';
+
+const parseSurveyConfig = (value?: string): SurveyConfig => {
+  if (!value) return defaultSurveyConfig;
+
+  try {
+    const parsed = JSON.parse(value) as Partial<SurveyConfig>;
+    if (!parsed.propertyStep?.options?.length || !parsed.areaGroups?.length || !parsed.commonSteps?.length) {
+      return defaultSurveyConfig;
+    }
+
+    return {
+      propertyStep: { ...defaultSurveyConfig.propertyStep, ...parsed.propertyStep, key: 'propertyType' },
+      areaGroups: parsed.areaGroups.map((group, index) => ({
+        id: group.id || `group-${index + 1}`,
+        label: group.label || `묶음 ${index + 1}`,
+        propertyOptions: group.propertyOptions?.filter(Boolean) || [],
+        step: { ...defaultSurveyConfig.areaGroups[0].step, ...group.step, key: 'areaRange' },
+      })),
+      commonSteps: parsed.commonSteps.map((step, index) => ({
+        ...defaultSurveyConfig.commonSteps[index],
+        ...step,
+      })) as SurveyStep[],
+    };
+  } catch {
+    return defaultSurveyConfig;
+  }
+};
+
 const UPLOAD_PRESETS = [
   { maxWidth: 1920, quality: 0.82 },
   { maxWidth: 1680, quality: 0.78 },
@@ -274,6 +380,7 @@ export default function ManagerPage() {
     consultationTimelineQuestion: '',
     consultationTimelineOptions: '',
     consultationPrivacyText: '',
+    consultationSurveyConfig: '',
     kakaoUrl: '',
     heroImage: '',
     heroImage2: '',
@@ -307,6 +414,9 @@ export default function ManagerPage() {
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
   const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
+  const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
+  const [surveyEditorTab, setSurveyEditorTab] = useState(0);
+  const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
@@ -386,6 +496,8 @@ export default function ManagerPage() {
         projects: data.projects || [],
       });
       const settings = settingsData.settings || {};
+      const savedSurveyConfig = settings.consultationSurveyConfig || JSON.stringify(defaultSurveyConfig);
+      const parsedSurveyConfig = parseSurveyConfig(savedSurveyConfig);
       setHomepageSettings({
         consultationEmail: settings.consultationEmail || '',
         representativeName: settings.representativeName || '',
@@ -415,24 +527,26 @@ export default function ManagerPage() {
         contactLabel: settings.contactLabel || '',
         contactTitle: settings.contactTitle || '',
         contactBody: settings.contactBody || '',
-        consultationPropertyQuestion: settings.consultationPropertyQuestion || '',
-        consultationPropertyOptions: settings.consultationPropertyOptions || '',
-        consultationAreaQuestion: settings.consultationAreaQuestion || '',
-        consultationAreaOptions: settings.consultationAreaOptions || '',
-        consultationStatusQuestion: settings.consultationStatusQuestion || '',
-        consultationStatusOptions: settings.consultationStatusOptions || '',
-        consultationReasonQuestion: settings.consultationReasonQuestion || '',
-        consultationReasonOptions: settings.consultationReasonOptions || '',
-        consultationBudgetQuestion: settings.consultationBudgetQuestion || '',
-        consultationBudgetOptions: settings.consultationBudgetOptions || '',
-        consultationTimelineQuestion: settings.consultationTimelineQuestion || '',
-        consultationTimelineOptions: settings.consultationTimelineOptions || '',
-        consultationPrivacyText: settings.consultationPrivacyText || '',
+        consultationPropertyQuestion: settings.consultationPropertyQuestion || parsedSurveyConfig.propertyStep.title,
+        consultationPropertyOptions: settings.consultationPropertyOptions || parsedSurveyConfig.propertyStep.options.join('\n'),
+        consultationAreaQuestion: settings.consultationAreaQuestion || parsedSurveyConfig.areaGroups[0]?.step.title || '',
+        consultationAreaOptions: settings.consultationAreaOptions || parsedSurveyConfig.areaGroups[0]?.step.options.join('\n') || '',
+        consultationStatusQuestion: settings.consultationStatusQuestion || parsedSurveyConfig.commonSteps[0]?.title || '',
+        consultationStatusOptions: settings.consultationStatusOptions || parsedSurveyConfig.commonSteps[0]?.options.join('\n') || '',
+        consultationReasonQuestion: settings.consultationReasonQuestion || parsedSurveyConfig.commonSteps[1]?.title || '',
+        consultationReasonOptions: settings.consultationReasonOptions || parsedSurveyConfig.commonSteps[1]?.options.join('\n') || '',
+        consultationBudgetQuestion: settings.consultationBudgetQuestion || parsedSurveyConfig.commonSteps[2]?.title || '',
+        consultationBudgetOptions: settings.consultationBudgetOptions || parsedSurveyConfig.commonSteps[2]?.options.join('\n') || '',
+        consultationTimelineQuestion: settings.consultationTimelineQuestion || parsedSurveyConfig.commonSteps[3]?.title || '',
+        consultationTimelineOptions: settings.consultationTimelineOptions || parsedSurveyConfig.commonSteps[3]?.options.join('\n') || '',
+        consultationPrivacyText: settings.consultationPrivacyText || defaultPrivacyText,
+        consultationSurveyConfig: savedSurveyConfig,
         kakaoUrl: settings.kakaoUrl || '',
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
         heroImage3: settings.heroImage3 || '',
       });
+      setSurveyDraft(parsedSurveyConfig);
       setConsultationEmail(settings.consultationEmail || '');
       if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
       setPassword(managerPassword);
@@ -678,6 +792,97 @@ export default function ManagerPage() {
     } finally {
       setSavingEmail(false);
     }
+  };
+
+  const syncSurveySettings = (config: SurveyConfig) => {
+    setSurveyDraft(config);
+    setHomepageSettings((current) => ({
+      ...current,
+      consultationSurveyConfig: JSON.stringify(config),
+      consultationPropertyQuestion: config.propertyStep.title,
+      consultationPropertyOptions: config.propertyStep.options.join('\n'),
+      consultationAreaQuestion: config.areaGroups[0]?.step.title || '',
+      consultationAreaOptions: config.areaGroups[0]?.step.options.join('\n') || '',
+      consultationStatusQuestion: config.commonSteps[0]?.title || '',
+      consultationStatusOptions: config.commonSteps[0]?.options.join('\n') || '',
+      consultationReasonQuestion: config.commonSteps[1]?.title || '',
+      consultationReasonOptions: config.commonSteps[1]?.options.join('\n') || '',
+      consultationBudgetQuestion: config.commonSteps[2]?.title || '',
+      consultationBudgetOptions: config.commonSteps[2]?.options.join('\n') || '',
+      consultationTimelineQuestion: config.commonSteps[3]?.title || '',
+      consultationTimelineOptions: config.commonSteps[3]?.options.join('\n') || '',
+    }));
+  };
+
+  const openSurveyEditor = () => {
+    setSurveyDraft(parseSurveyConfig(homepageSettings.consultationSurveyConfig));
+    setSurveyEditorTab(0);
+    setIsSurveyEditorOpen(true);
+  };
+
+  const updateSurveyDraft = (updater: (current: SurveyConfig) => SurveyConfig) => {
+    setSurveyDraft((current) => updater(current));
+  };
+
+  const updateSurveyStep = (stepIndex: number, updates: Partial<SurveyStep>) => {
+    updateSurveyDraft((current) => {
+      if (stepIndex === 0) {
+        return { ...current, propertyStep: { ...current.propertyStep, ...updates } };
+      }
+
+      const commonIndex = stepIndex - 2;
+      return {
+        ...current,
+        commonSteps: current.commonSteps.map((step, index) => (index === commonIndex ? { ...step, ...updates } : step)),
+      };
+    });
+  };
+
+  const updateSurveyOption = (stepIndex: number, optionIndex: number, value: string) => {
+    const applyOptions = (options: string[]) => options.map((option, index) => (index === optionIndex ? value : option));
+    updateSurveyStep(stepIndex, {
+      options: stepIndex === 0 ? applyOptions(surveyDraft.propertyStep.options) : applyOptions(surveyDraft.commonSteps[stepIndex - 2]?.options || []),
+    });
+  };
+
+  const addSurveyOption = (stepIndex: number) => {
+    updateSurveyStep(stepIndex, {
+      options: stepIndex === 0 ? [...surveyDraft.propertyStep.options, '새 선택지'] : [...(surveyDraft.commonSteps[stepIndex - 2]?.options || []), '새 선택지'],
+    });
+  };
+
+  const removeSurveyOption = (stepIndex: number, optionIndex: number) => {
+    updateSurveyStep(stepIndex, {
+      options: stepIndex === 0 ? surveyDraft.propertyStep.options.filter((_, index) => index !== optionIndex) : (surveyDraft.commonSteps[stepIndex - 2]?.options || []).filter((_, index) => index !== optionIndex),
+    });
+  };
+
+  const saveSurveyEditor = () => {
+    const cleaned: SurveyConfig = {
+      propertyStep: {
+        ...surveyDraft.propertyStep,
+        options: surveyDraft.propertyStep.options.map((option) => option.trim()).filter(Boolean),
+      },
+      areaGroups: surveyDraft.areaGroups
+        .map((group, index) => ({
+          ...group,
+          id: group.id || `group-${index + 1}`,
+          label: group.label.trim() || `묶음 ${index + 1}`,
+          propertyOptions: group.propertyOptions.filter((option) => surveyDraft.propertyStep.options.includes(option)),
+          step: {
+            ...group.step,
+            options: group.step.options.map((option) => option.trim()).filter(Boolean),
+          },
+        }))
+        .filter((group) => group.propertyOptions.length > 0),
+      commonSteps: surveyDraft.commonSteps.map((step) => ({
+        ...step,
+        options: step.options.map((option) => option.trim()).filter(Boolean),
+      })),
+    };
+
+    syncSurveySettings(cleaned);
+    setIsSurveyEditorOpen(false);
   };
 
   const saveHomepageSettings = async () => {
@@ -1350,22 +1555,18 @@ export default function ManagerPage() {
                 <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
               </div>
               <div className="mt-5 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                <h3 className="mb-3 font-semibold">상담 설문 질문 수정</h3>
-                <p className="mb-4 text-sm leading-6 text-[#60717d]">선택지는 한 줄에 하나씩 입력하세요. 저장하면 홈페이지 상담 설문에 반영됩니다.</p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <SettingInput label="질문 1 문구" value={homepageSettings.consultationPropertyQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPropertyQuestion: value })} />
-                  <SettingInput label="질문 1 선택지" value={homepageSettings.consultationPropertyOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPropertyOptions: value })} textarea />
-                  <SettingInput label="질문 2 문구" value={homepageSettings.consultationAreaQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationAreaQuestion: value })} />
-                  <SettingInput label="질문 2 선택지" value={homepageSettings.consultationAreaOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationAreaOptions: value })} textarea />
-                  <SettingInput label="질문 3 문구" value={homepageSettings.consultationStatusQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationStatusQuestion: value })} />
-                  <SettingInput label="질문 3 선택지" value={homepageSettings.consultationStatusOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationStatusOptions: value })} textarea />
-                  <SettingInput label="질문 4 문구" value={homepageSettings.consultationReasonQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationReasonQuestion: value })} />
-                  <SettingInput label="질문 4 선택지" value={homepageSettings.consultationReasonOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationReasonOptions: value })} textarea />
-                  <SettingInput label="질문 5 문구" value={homepageSettings.consultationBudgetQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationBudgetQuestion: value })} />
-                  <SettingInput label="질문 5 선택지" value={homepageSettings.consultationBudgetOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationBudgetOptions: value })} textarea />
-                  <SettingInput label="질문 6 문구" value={homepageSettings.consultationTimelineQuestion} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationTimelineQuestion: value })} />
-                  <SettingInput label="질문 6 선택지" value={homepageSettings.consultationTimelineOptions} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationTimelineOptions: value })} textarea />
-                  <SettingInput label="개인정보 제3자 제공 동의 내용" value={homepageSettings.consultationPrivacyText} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPrivacyText: value })} textarea />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold">상담 설문 질문 수정</h3>
+                    <p className="mt-1 text-sm leading-6 text-[#60717d]">질문별 탭에서 문구와 선택지를 수정하고, 첫 질문 선택지별 다음 질문 묶음을 관리합니다.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openSurveyEditor}
+                    className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2d2822]"
+                  >
+                    상담 설문 편집
+                  </button>
                 </div>
               </div>
               <button
@@ -1722,6 +1923,18 @@ export default function ManagerPage() {
             )}
           </section>
         )}
+        {isSurveyEditorOpen && (
+          <SurveyEditorModal
+            config={surveyDraft}
+            privacyText={homepageSettings.consultationPrivacyText || defaultPrivacyText}
+            activeTab={surveyEditorTab}
+            onTabChange={setSurveyEditorTab}
+            onChange={setSurveyDraft}
+            onPrivacyTextChange={(value) => setHomepageSettings({ ...homepageSettings, consultationPrivacyText: value })}
+            onClose={() => setIsSurveyEditorOpen(false)}
+            onSave={saveSurveyEditor}
+          />
+        )}
         {selectedConsultation && (
           <ConsultationDetailModal
             consultation={selectedConsultation}
@@ -1762,6 +1975,317 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
       <h2 className="mb-4 text-xl font-semibold">{title}</h2>
       {children}
     </section>
+  );
+}
+
+function SurveyEditorModal({
+  config,
+  privacyText,
+  activeTab,
+  onTabChange,
+  onChange,
+  onPrivacyTextChange,
+  onClose,
+  onSave,
+}: {
+  config: SurveyConfig;
+  privacyText: string;
+  activeTab: number;
+  onTabChange: (tab: number) => void;
+  onChange: React.Dispatch<React.SetStateAction<SurveyConfig>>;
+  onPrivacyTextChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const tabs = ['1 공간유형', '2 다음 질문', '3 상태', '4 이유', '5 예산', '6 일정', '동의문'];
+  const commonStep = config.commonSteps[activeTab - 2];
+
+  const updatePropertyStep = (updates: Partial<SurveyStep>) => {
+    onChange((current) => ({ ...current, propertyStep: { ...current.propertyStep, ...updates } }));
+  };
+
+  const updateCommonStep = (index: number, updates: Partial<SurveyStep>) => {
+    onChange((current) => ({
+      ...current,
+      commonSteps: current.commonSteps.map((step, stepIndex) => (stepIndex === index ? { ...step, ...updates } : step)),
+    }));
+  };
+
+  const updateAreaGroup = (groupIndex: number, updater: (group: SurveyAreaGroup) => SurveyAreaGroup) => {
+    onChange((current) => ({
+      ...current,
+      areaGroups: current.areaGroups.map((group, index) => (index === groupIndex ? updater(group) : group)),
+    }));
+  };
+
+  const movePropertyToGroup = (propertyOption: string, targetGroupIndex: number) => {
+    onChange((current) => ({
+      ...current,
+      areaGroups: current.areaGroups.map((group, index) => {
+        const withoutOption = group.propertyOptions.filter((option) => option !== propertyOption);
+        if (index !== targetGroupIndex) return { ...group, propertyOptions: withoutOption };
+
+        return {
+          ...group,
+          propertyOptions: [...withoutOption, propertyOption],
+        };
+      }),
+    }));
+  };
+
+  const addAreaGroup = () => {
+    onChange((current) => ({
+      ...current,
+      areaGroups: [
+        ...current.areaGroups,
+        {
+          id: `group-${Date.now()}`,
+          label: '새 묶음',
+          propertyOptions: [],
+          step: {
+            key: 'areaRange',
+            title: '다음 질문을 입력해주세요.',
+            options: ['선택지 1'],
+          },
+        },
+      ],
+    }));
+  };
+
+  const removeAreaGroup = (groupIndex: number) => {
+    if (config.areaGroups.length <= 1) return;
+    onChange((current) => ({
+      ...current,
+      areaGroups: current.areaGroups.filter((_, index) => index !== groupIndex),
+    }));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#17212b]/60 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-[#d5dde2] px-6 py-5">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Consultation Survey</p>
+            <h2 className="mt-1 text-2xl font-semibold">상담 설문 편집</h2>
+            <p className="mt-2 text-sm text-[#60717d]">질문과 선택지를 수정한 뒤 저장하면 홈페이지 상담 신청 화면에 반영됩니다.</p>
+          </div>
+          <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#edf2f5] text-lg font-semibold">
+            ×
+          </button>
+        </div>
+
+        <div className="grid max-h-[calc(90vh-92px)] overflow-hidden lg:grid-cols-[210px_1fr]">
+          <div className="border-b border-[#d5dde2] bg-[#f7fafb] p-3 lg:border-b-0 lg:border-r">
+            <div className="grid gap-2">
+              {tabs.map((tab, index) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => onTabChange(index)}
+                  className={`rounded-md px-4 py-3 text-left text-sm font-semibold transition ${
+                    activeTab === index ? 'bg-[#171512] text-white' : 'bg-white text-[#4d5d66] hover:bg-[#eef3f5]'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="overflow-y-auto p-6">
+            {activeTab === 0 && (
+              <StepEditor
+                title="첫 질문"
+                step={config.propertyStep}
+                onTitleChange={(title) => updatePropertyStep({ title })}
+                onOptionChange={(index, value) => updatePropertyStep({ options: config.propertyStep.options.map((option, optionIndex) => (optionIndex === index ? value : option)) })}
+                onAddOption={() => updatePropertyStep({ options: [...config.propertyStep.options, '새 선택지'] })}
+                onRemoveOption={(index) => {
+                  const removed = config.propertyStep.options[index];
+                  updatePropertyStep({ options: config.propertyStep.options.filter((_, optionIndex) => optionIndex !== index) });
+                  onChange((current) => ({
+                    ...current,
+                    areaGroups: current.areaGroups.map((group) => ({
+                      ...group,
+                      propertyOptions: group.propertyOptions.filter((option) => option !== removed),
+                    })),
+                  }));
+                }}
+              />
+            )}
+
+            {activeTab === 1 && (
+              <div className="grid gap-5">
+                <div>
+                  <h3 className="text-xl font-semibold">첫 질문 선택지별 다음 질문 묶음</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#60717d]">아파트와 빌라처럼 같은 다음 질문을 쓰는 선택지는 같은 묶음에 넣으면 됩니다.</p>
+                </div>
+                {config.areaGroups.map((group, groupIndex) => (
+                  <div key={group.id} className="rounded-lg border border-[#d5dde2] bg-[#fbfcfd] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <input
+                        value={group.label}
+                        onChange={(event) => updateAreaGroup(groupIndex, (current) => ({ ...current, label: event.target.value }))}
+                        className="min-w-[180px] rounded-md border border-[#d5dde2] bg-white px-4 py-3 font-semibold outline-none focus:border-[#38a9bd]"
+                      />
+                      <button type="button" onClick={() => removeAreaGroup(groupIndex)} className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-600">
+                        묶음 삭제
+                      </button>
+                    </div>
+                    <div className="mt-4">
+                      <p className="mb-2 text-sm font-semibold text-[#4d5d66]">이 묶음에 포함할 1번 선택지</p>
+                      <div className="flex flex-wrap gap-2">
+                        {config.propertyStep.options.map((option) => {
+                          const selected = group.propertyOptions.includes(option);
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              onClick={() => movePropertyToGroup(option, groupIndex)}
+                              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                                selected ? 'border-[#38a9bd] bg-[#e8f8fb] text-[#14798a]' : 'border-[#d5dde2] bg-white text-[#60717d]'
+                              }`}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="mt-5">
+                      <StepEditor
+                        title={`${group.label || '묶음'}의 다음 질문`}
+                        step={group.step}
+                        onTitleChange={(title) => updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, title } }))}
+                        onOptionChange={(index, value) =>
+                          updateAreaGroup(groupIndex, (current) => ({
+                            ...current,
+                            step: { ...current.step, options: current.step.options.map((option, optionIndex) => (optionIndex === index ? value : option)) },
+                          }))
+                        }
+                        onAddOption={() => updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, options: [...current.step.options, '새 선택지'] } }))}
+                        onRemoveOption={(index) =>
+                          updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, options: current.step.options.filter((_, optionIndex) => optionIndex !== index) } }))
+                        }
+                        compact
+                      />
+                    </div>
+                  </div>
+                ))}
+                <button type="button" onClick={addAreaGroup} className="rounded-md border border-[#38a9bd] px-4 py-3 text-sm font-semibold text-[#14798a] transition hover:bg-[#e8f8fb]">
+                  다음 질문 묶음 추가
+                </button>
+              </div>
+            )}
+
+            {activeTab >= 2 && activeTab <= 5 && commonStep && (
+              <StepEditor
+                title={`질문 ${activeTab + 1}`}
+                step={commonStep}
+                onTitleChange={(title) => updateCommonStep(activeTab - 2, { title })}
+                onDescriptionChange={(description) => updateCommonStep(activeTab - 2, { description })}
+                onOptionChange={(index, value) => updateCommonStep(activeTab - 2, { options: commonStep.options.map((option, optionIndex) => (optionIndex === index ? value : option)) })}
+                onAddOption={() => updateCommonStep(activeTab - 2, { options: [...commonStep.options, '새 선택지'] })}
+                onRemoveOption={(index) => updateCommonStep(activeTab - 2, { options: commonStep.options.filter((_, optionIndex) => optionIndex !== index) })}
+                showDescription
+              />
+            )}
+
+            {activeTab === 6 && (
+              <div>
+                <h3 className="text-xl font-semibold">개인정보 제3자 제공 동의 내용</h3>
+                <p className="mt-2 text-sm text-[#60717d]">상담 신청 마지막 단계에서 고객이 버튼을 눌러 확인하는 내용입니다.</p>
+                <textarea
+                  value={privacyText}
+                  onChange={(event) => onPrivacyTextChange(event.target.value)}
+                  className="mt-5 min-h-[260px] w-full rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 leading-7 outline-none focus:border-[#38a9bd] focus:bg-white"
+                />
+              </div>
+            )}
+
+            <div className="sticky bottom-0 mt-8 flex justify-end gap-2 border-t border-[#d5dde2] bg-white/95 pt-4 backdrop-blur">
+              <button type="button" onClick={onClose} className="rounded-md border border-[#d5dde2] px-5 py-3 font-semibold">
+                닫기
+              </button>
+              <button type="button" onClick={onSave} className="rounded-md bg-[#171512] px-5 py-3 font-semibold text-white">
+                설문 설정 반영
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StepEditor({
+  title,
+  step,
+  onTitleChange,
+  onDescriptionChange,
+  onOptionChange,
+  onAddOption,
+  onRemoveOption,
+  compact = false,
+  showDescription = false,
+}: {
+  title: string;
+  step: SurveyStep;
+  onTitleChange: (value: string) => void;
+  onDescriptionChange?: (value: string) => void;
+  onOptionChange: (index: number, value: string) => void;
+  onAddOption: () => void;
+  onRemoveOption: (index: number) => void;
+  compact?: boolean;
+  showDescription?: boolean;
+}) {
+  return (
+    <div className={compact ? '' : 'grid gap-5'}>
+      <div>
+        <h3 className="text-xl font-semibold">{title}</h3>
+        <label className="mt-4 grid gap-2 text-sm font-semibold text-[#4d5d66]">
+          질문 문구
+          <input
+            value={step.title}
+            onChange={(event) => onTitleChange(event.target.value)}
+            className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal text-[#171512] outline-none focus:border-[#38a9bd] focus:bg-white"
+          />
+        </label>
+        {showDescription && onDescriptionChange && (
+          <label className="mt-3 grid gap-2 text-sm font-semibold text-[#4d5d66]">
+            보조 설명
+            <input
+              value={step.description || ''}
+              onChange={(event) => onDescriptionChange(event.target.value)}
+              className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal text-[#171512] outline-none focus:border-[#38a9bd] focus:bg-white"
+              placeholder="필요 없으면 비워두세요"
+            />
+          </label>
+        )}
+      </div>
+      <div className="mt-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-[#4d5d66]">선택지</p>
+          <button type="button" onClick={onAddOption} className="rounded-md border border-[#38a9bd] px-3 py-2 text-sm font-semibold text-[#14798a]">
+            선택지 추가
+          </button>
+        </div>
+        <div className="grid gap-2">
+          {step.options.map((option, index) => (
+            <div key={`${option}-${index}`} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+              <input
+                value={option}
+                onChange={(event) => onOptionChange(index, event.target.value)}
+                className="rounded-md border border-[#d5dde2] bg-white px-4 py-3 outline-none focus:border-[#38a9bd]"
+              />
+              <button type="button" onClick={() => onRemoveOption(index)} className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-600">
+                삭제
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
