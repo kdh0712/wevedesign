@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
   Boxes,
@@ -247,6 +247,14 @@ export default function ManagerPage() {
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
+  const [editingCustomerId, setEditingCustomerId] = useState('');
+  const [editingSaleId, setEditingSaleId] = useState('');
+  const [editingInventoryId, setEditingInventoryId] = useState('');
+  const [editingVendorId, setEditingVendorId] = useState('');
+  const customerFormRef = useRef<HTMLDivElement | null>(null);
+  const saleFormRef = useRef<HTMLDivElement | null>(null);
+  const inventoryFormRef = useRef<HTMLDivElement | null>(null);
+  const vendorFormRef = useRef<HTMLDivElement | null>(null);
 
   const previews = useMemo(() => buildPreview(files), [files]);
   const filteredProjectsForEdit = useMemo(() => {
@@ -407,7 +415,7 @@ export default function ManagerPage() {
       if (!response.ok) throw new Error(result.error || '삭제에 실패했습니다.');
       setSelectedConsultation(null);
       await loadOfficeData();
-      setStatus('상담 요청을 삭제했습니다.');
+      setStatus('삭제했습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '삭제 중 오류가 발생했습니다.');
     } finally {
@@ -448,6 +456,100 @@ export default function ManagerPage() {
     } finally {
       setSavingOffice(false);
     }
+  };
+
+  const scrollToForm = (ref: React.RefObject<HTMLDivElement | null>) => {
+    window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
+
+  const resetCustomerForm = () => {
+    setEditingCustomerId('');
+    setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
+  };
+
+  const resetSaleForm = () => {
+    setEditingSaleId('');
+    setSaleForm({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
+  };
+
+  const resetInventoryForm = () => {
+    setEditingInventoryId('');
+    setInventoryForm({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
+  };
+
+  const resetVendorForm = () => {
+    setEditingVendorId('');
+    setVendorForm({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
+  };
+
+  const prepareCustomerFromConsultation = (consultation: Consultation) => {
+    setEditingCustomerId('');
+    setCustomerForm({
+      name: consultation.name || '',
+      phone: consultation.phone || '',
+      siteType: consultation.siteType || '아파트',
+      address: consultation.address || '',
+      status: '상담중',
+      memo: consultation.message || '',
+    });
+    setSelectedConsultation(null);
+    setCompletionConsultation(null);
+    setActiveTab('customers');
+    scrollToForm(customerFormRef);
+  };
+
+  const editCustomer = (customer: Customer) => {
+    setEditingCustomerId(customer._id);
+    setCustomerForm({
+      name: customer.name || '',
+      phone: customer.phone || '',
+      siteType: customer.siteType || '아파트',
+      address: customer.address || '',
+      status: customer.status || '상담중',
+      memo: customer.memo || '',
+    });
+    scrollToForm(customerFormRef);
+  };
+
+  const editSale = (sale: Sale) => {
+    setEditingSaleId(sale._id);
+    setSaleForm({
+      customerName: sale.customerName || '',
+      projectTitle: sale.projectTitle || '',
+      amount: sale.amount ? String(sale.amount) : '',
+      cost: sale.cost ? String(sale.cost) : '',
+      status: sale.status || '견적',
+      paymentDate: sale.paymentDate || '',
+      memo: sale.memo || '',
+    });
+    scrollToForm(saleFormRef);
+  };
+
+  const editInventory = (item: InventoryItem) => {
+    setEditingInventoryId(item._id);
+    setInventoryForm({
+      itemName: item.itemName || '',
+      category: item.category || '',
+      quantity: item.quantity ? String(item.quantity) : '',
+      unit: item.unit || '개',
+      minQuantity: item.minQuantity ? String(item.minQuantity) : '',
+      vendor: item.vendor || '',
+      memo: item.memo || '',
+    });
+    scrollToForm(inventoryFormRef);
+  };
+
+  const editVendor = (vendor: Vendor) => {
+    setEditingVendorId(vendor._id);
+    setVendorForm({
+      name: vendor.name || '',
+      manager: vendor.manager || '',
+      phone: vendor.phone || '',
+      service: vendor.service || '',
+      status: vendor.status || '거래중',
+      memo: vendor.memo || '',
+    });
+    scrollToForm(vendorFormRef);
   };
 
   const handleFolderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -907,17 +1009,7 @@ export default function ManagerPage() {
                       삭제
                     </button>
                     <button
-                      onClick={() => {
-                        setCustomerForm({
-                          name: item.name || '',
-                          phone: item.phone || '',
-                          siteType: item.siteType || '아파트',
-                          address: item.address || '',
-                          status: '상담중',
-                          memo: item.message || '',
-                        });
-                        setActiveTab('customers');
-                      }}
+                      onClick={() => prepareCustomerFromConsultation(item)}
                       className="rounded-md bg-[#f1c76a] px-3 py-1 text-xs font-semibold"
                     >
                       고객으로 등록
@@ -931,7 +1023,8 @@ export default function ManagerPage() {
 
         {activeTab === 'customers' && (
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-            <Panel title="고객 등록">
+            <Panel title={editingCustomerId ? '고객 수정' : '고객 등록'}>
+              <div ref={customerFormRef}>
               <OfficeForm
                 fields={[
                   { label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
@@ -946,13 +1039,16 @@ export default function ManagerPage() {
                   { label: '상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
                   { label: '메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
                 ]}
-                buttonLabel="고객 저장"
+                buttonLabel={editingCustomerId ? '고객 수정 저장' : '고객 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  await saveOfficeRecord('customer', customerForm);
-                  setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
+                  await saveOfficeRecord('customer', customerForm, editingCustomerId || undefined);
+                  resetCustomerForm();
                 }}
+                secondaryLabel={editingCustomerId ? '수정 취소' : undefined}
+                onSecondary={resetCustomerForm}
               />
+              </div>
             </Panel>
             <Panel title="고객 목록">
               <RecordList
@@ -962,6 +1058,16 @@ export default function ManagerPage() {
                   title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
                   meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '상태 없음'}`,
                   body: item.memo,
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => editCustomer(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
                 }))}
               />
             </Panel>
@@ -970,7 +1076,8 @@ export default function ManagerPage() {
 
         {activeTab === 'sales' && (
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-            <Panel title="매출 등록">
+            <Panel title={editingSaleId ? '매출 수정' : '매출 등록'}>
+              <div ref={saleFormRef}>
               <OfficeForm
                 fields={[
                   { label: '고객명', value: saleForm.customerName, onChange: (value) => setSaleForm({ ...saleForm, customerName: value }) },
@@ -981,17 +1088,20 @@ export default function ManagerPage() {
                   { label: '입금일', value: saleForm.paymentDate, onChange: (value) => setSaleForm({ ...saleForm, paymentDate: value }) },
                   { label: '메모', value: saleForm.memo, onChange: (value) => setSaleForm({ ...saleForm, memo: value }), textarea: true },
                 ]}
-                buttonLabel="매출 저장"
+                buttonLabel={editingSaleId ? '매출 수정 저장' : '매출 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
                   await saveOfficeRecord('sale', {
                     ...saleForm,
                     amount: Number(saleForm.amount || 0),
                     cost: Number(saleForm.cost || 0),
-                  });
-                  setSaleForm({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
+                  }, editingSaleId || undefined);
+                  resetSaleForm();
                 }}
+                secondaryLabel={editingSaleId ? '수정 취소' : undefined}
+                onSecondary={resetSaleForm}
               />
+              </div>
             </Panel>
             <Panel title="매출 목록">
               <RecordList
@@ -1001,6 +1111,16 @@ export default function ManagerPage() {
                   title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
                   meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))} · 이익 ${formatMoney(Number(item.amount || 0) - Number(item.cost || 0))}`,
                   body: item.memo,
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => editSale(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
                 }))}
               />
             </Panel>
@@ -1009,7 +1129,8 @@ export default function ManagerPage() {
 
         {activeTab === 'inventory' && (
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-            <Panel title="재고 등록">
+            <Panel title={editingInventoryId ? '재고 수정' : '재고 등록'}>
+              <div ref={inventoryFormRef}>
               <OfficeForm
                 fields={[
                   { label: '품목명', value: inventoryForm.itemName, onChange: (value) => setInventoryForm({ ...inventoryForm, itemName: value }) },
@@ -1020,17 +1141,20 @@ export default function ManagerPage() {
                   { label: '거래처', value: inventoryForm.vendor, onChange: (value) => setInventoryForm({ ...inventoryForm, vendor: value }) },
                   { label: '메모', value: inventoryForm.memo, onChange: (value) => setInventoryForm({ ...inventoryForm, memo: value }), textarea: true },
                 ]}
-                buttonLabel="재고 저장"
+                buttonLabel={editingInventoryId ? '재고 수정 저장' : '재고 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
                   await saveOfficeRecord('inventory', {
                     ...inventoryForm,
                     quantity: Number(inventoryForm.quantity || 0),
                     minQuantity: Number(inventoryForm.minQuantity || 0),
-                  });
-                  setInventoryForm({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
+                  }, editingInventoryId || undefined);
+                  resetInventoryForm();
                 }}
+                secondaryLabel={editingInventoryId ? '수정 취소' : undefined}
+                onSecondary={resetInventoryForm}
               />
+              </div>
             </Panel>
             <Panel title="재고 목록">
               <RecordList
@@ -1040,6 +1164,16 @@ export default function ManagerPage() {
                   title: `${item.itemName || '품목'} · ${Number(item.quantity || 0)}${item.unit || ''}`,
                   meta: `${item.category || '분류 없음'} · 최소 ${Number(item.minQuantity || 0)}${item.unit || ''} · ${item.vendor || '거래처 없음'}`,
                   body: item.memo,
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => editInventory(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
                 }))}
               />
             </Panel>
@@ -1048,7 +1182,8 @@ export default function ManagerPage() {
 
         {activeTab === 'vendors' && (
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
-            <Panel title="협력업체 등록">
+            <Panel title={editingVendorId ? '협력업체 수정' : '협력업체 등록'}>
+              <div ref={vendorFormRef}>
               <OfficeForm
                 fields={[
                   { label: '업체명', value: vendorForm.name, onChange: (value) => setVendorForm({ ...vendorForm, name: value }) },
@@ -1058,13 +1193,16 @@ export default function ManagerPage() {
                   { label: '상태', value: vendorForm.status, onChange: (value) => setVendorForm({ ...vendorForm, status: value }) },
                   { label: '메모', value: vendorForm.memo, onChange: (value) => setVendorForm({ ...vendorForm, memo: value }), textarea: true },
                 ]}
-                buttonLabel="협력업체 저장"
+                buttonLabel={editingVendorId ? '협력업체 수정 저장' : '협력업체 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  await saveOfficeRecord('vendor', vendorForm);
-                  setVendorForm({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
+                  await saveOfficeRecord('vendor', vendorForm, editingVendorId || undefined);
+                  resetVendorForm();
                 }}
+                secondaryLabel={editingVendorId ? '수정 취소' : undefined}
+                onSecondary={resetVendorForm}
               />
+              </div>
             </Panel>
             <Panel title="협력업체 목록">
               <RecordList
@@ -1074,6 +1212,16 @@ export default function ManagerPage() {
                   title: `${item.name || '업체명 없음'} · ${item.service || '업무 분야 없음'}`,
                   meta: `${item.manager || '담당자 없음'} · ${item.phone || '연락처 없음'} · ${item.status || '상태 없음'}`,
                   body: item.memo,
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => editVendor(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
                 }))}
               />
             </Panel>
@@ -1473,6 +1621,7 @@ export default function ManagerPage() {
             consultation={selectedConsultation}
             onClose={() => setSelectedConsultation(null)}
             onComplete={() => setCompletionConsultation(selectedConsultation)}
+            onRegisterCustomer={() => prepareCustomerFromConsultation(selectedConsultation)}
             onDelete={() => deleteOfficeRecord(selectedConsultation._id)}
           />
         )}
@@ -1514,11 +1663,13 @@ function ConsultationDetailModal({
   consultation,
   onClose,
   onComplete,
+  onRegisterCustomer,
   onDelete,
 }: {
   consultation: Consultation;
   onClose: () => void;
   onComplete: () => void;
+  onRegisterCustomer: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -1549,6 +1700,9 @@ function ConsultationDetailModal({
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button type="button" onClick={onDelete} className="rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-600">
             삭제
+          </button>
+          <button type="button" onClick={onRegisterCustomer} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
+            고객으로 등록
           </button>
           <button type="button" onClick={onComplete} className="rounded-md bg-[#38bcd4] px-4 py-2 text-sm font-semibold text-white">
             상담 완료
@@ -1710,13 +1864,17 @@ function RecordList({
 function OfficeForm({
   fields,
   buttonLabel,
+  secondaryLabel,
   disabled,
   onSubmit,
+  onSecondary,
 }: {
   fields: Array<{ label: string; value: string; textarea?: boolean; options?: string[]; onChange: (value: string) => void }>;
   buttonLabel: string;
+  secondaryLabel?: string;
   disabled: boolean;
   onSubmit: () => void;
+  onSecondary?: () => void;
 }) {
   return (
     <div className="grid gap-3">
@@ -1751,10 +1909,17 @@ function OfficeForm({
           )}
         </label>
       ))}
-      <button onClick={onSubmit} disabled={disabled} className="mt-2 inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60">
-        {disabled ? <Loader2 className="animate-spin" size={18} /> : <PackagePlus size={18} />}
-        {buttonLabel}
-      </button>
+      <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+        <button onClick={onSubmit} disabled={disabled} className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60">
+          {disabled ? <Loader2 className="animate-spin" size={18} /> : <PackagePlus size={18} />}
+          {buttonLabel}
+        </button>
+        {secondaryLabel && onSecondary && (
+          <button type="button" onClick={onSecondary} disabled={disabled} className="inline-flex items-center justify-center rounded-md border border-[#d8d1c5] px-5 py-3 font-semibold text-[#4d473f] disabled:opacity-60">
+            {secondaryLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

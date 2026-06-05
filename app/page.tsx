@@ -267,7 +267,7 @@ const constructionModels = [
 
 const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
 
-const optimizedImage = (src: string | undefined, width: number, quality = 78) => {
+const optimizedImage = (src: string | undefined, width: number, quality = 88) => {
   if (!src) return '';
   if (!src.includes('cdn.sanity.io')) return src;
 
@@ -1528,7 +1528,7 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={optimizedImage(project.mainImage, 900)}
+            src={optimizedImage(project.mainImage, 1400, 90)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
             style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
@@ -1572,10 +1572,10 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       onClick={onClick}
       className="project-card-3d motion-card fade-up group flex h-full w-full flex-col overflow-hidden rounded-lg bg-white text-left transition"
     >
-      <div className="relative aspect-[4/5] overflow-hidden bg-[#ded7cc]">
+      <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={optimizedImage(project.mainImage, 900)}
+            src={optimizedImage(project.mainImage, 1400, 90)}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
             style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
