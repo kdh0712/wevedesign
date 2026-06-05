@@ -22,6 +22,7 @@ const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coa
   year,
   materials,
   featured,
+  mainImagePosition,
   "mainImage": mainImage.asset->url,
   "mainImageAlt": mainImage.alt,
   "beforeImage": beforeImage.asset->url,
@@ -88,6 +89,7 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
   contactTitle,
   contactBody,
   consultationEmail,
+  businessNumber,
   kakaoUrl
 }`;
 

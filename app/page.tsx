@@ -53,6 +53,7 @@ type Project = {
   year?: string;
   materials?: string;
   featured?: boolean;
+  mainImagePosition?: string;
   mainImage?: string;
   mainImageAlt?: string;
   beforeImage?: string;
@@ -98,6 +99,7 @@ type SiteSettings = {
   contactTitle?: string;
   contactBody?: string;
   consultationEmail?: string;
+  businessNumber?: string;
   kakaoUrl?: string;
 };
 
@@ -140,6 +142,7 @@ const defaultSettings: Required<SiteSettings> = {
   contactTitle: '공간 이야기를 남겨주세요.',
   contactBody: '이름, 연락처, 현장 주소, 원하는 시공 범위를 보내주시면 확인 후 연락드립니다.',
   consultationEmail: 'ehogh1@gmail.com',
+  businessNumber: '',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
 };
 
@@ -288,6 +291,18 @@ const formatPhoneNumber = (value: string) => {
 const locationTitleText = (value?: string) => {
   if (!value || value.includes('안양')) return '전문 인테리어 상담을 시작합니다.';
   return value;
+};
+
+const imageObjectPosition = (value?: string) => {
+  const positions: Record<string, string> = {
+    top: 'center top',
+    bottom: 'center bottom',
+    left: 'left center',
+    right: 'right center',
+    center: 'center center',
+  };
+
+  return positions[value || 'center'] || positions.center;
 };
 
 export default function WeveDesignLanding() {
@@ -1226,18 +1241,9 @@ export default function WeveDesignLanding() {
                   {settings.phone || defaultSettings.phone}
                 </p>
               </div>
-              <div className="mt-10 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-                {[
-                  ['상담 방식', '방문 상담과 현장 확인을 기반으로 범위와 예산을 정리합니다.'],
-                  ['진행 범위', '주거, 상가, 오피스 등 공간 성격에 맞춰 설계와 시공을 관리합니다.'],
-                  ['견적 안내', '사진과 현장 정보를 남겨주시면 확인 후 순서대로 연락드립니다.'],
-                ].map(([title, body]) => (
-                  <div key={title} className="rounded-md border border-[#eadfcd] bg-[#fffaf0] p-4">
-                    <p className="text-sm font-bold text-[#8f6f43]">{title}</p>
-                    <p className="mt-2 text-sm leading-6 text-[#625d54]">{body}</p>
-                  </div>
-                ))}
-              </div>
+              <p className="mt-10 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
+                방문 상담은 일정 확인이 필요하니 오시기 전에 연락 부탁드립니다.
+              </p>
             </div>
             <div className="relative">
               <div id="map" className="motion-card h-[440px] overflow-hidden rounded-lg border border-[#eadfcd] bg-[#f3ecdf]" />
@@ -1358,9 +1364,12 @@ export default function WeveDesignLanding() {
             <p className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
           </div>
           <div className="space-y-2 text-sm">
-            <p>대표: 김현종 | 연락처: {settings.phone || defaultSettings.phone}</p>
-            <p>도로명: {roadAddress}</p>
-            <p>지번: {lotAddress}</p>
+            <p>대표 김동호 | 연락처 {settings.phone || defaultSettings.phone}</p>
+            {(settings.businessNumber || defaultSettings.businessNumber) && (
+              <p>사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
+            )}
+            <p>도로명 {roadAddress}</p>
+            <p>지번 {lotAddress}</p>
             <p className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">© 2026 WEVE DESIGN. All rights reserved.</p>
           </div>
         </div>
@@ -1515,7 +1524,8 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
           <img
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
-            className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
+            className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
+            style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1561,7 +1571,8 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           <img
             src={optimizedImage(project.mainImage, 900)}
             alt={project.mainImageAlt || project.title}
-            className="h-full w-full object-contain transition duration-700 group-hover:scale-105"
+            className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+            style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-[#8d8578]">
@@ -1650,21 +1661,25 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
             <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
-                <button
-                  type="button"
-                  onClick={() => setLightboxImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title })}
-                  className="group relative block w-full"
-                >
-                  <img
-                    src={optimizedImage(project.mainImage, 1500)}
-                    alt={project.mainImageAlt || project.title}
-                    className="max-h-[720px] w-full object-contain"
-                  />
-                  <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                    <ZoomIn size={14} />
-                    Original
-                  </span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLightboxImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title })}
+                    className="group relative block w-full"
+                  >
+                    <img
+                      src={optimizedImage(project.mainImage, 1500)}
+                      alt={project.mainImageAlt || project.title}
+                      className="max-h-[720px] w-full object-cover"
+                      style={{ objectPosition: imageObjectPosition(project.mainImagePosition) }}
+                    />
+                    <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+                      <ZoomIn size={14} />
+                      Original
+                    </span>
+                  </button>
+                  {lightboxImage && lightboxImage.src === project.mainImage ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
+                </>
               ) : (
                 <div className="flex aspect-video items-center justify-center text-[#8d8578]">
                   <Camera size={48} />
@@ -1693,12 +1708,13 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                   onClick={() => setLightboxImage({ src: project.beforeImage!, alt: `${project.title} 시공 전` })}
                   className="group relative block w-full"
                 >
-                  <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-contain" loading="lazy" />
+                  <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-cover" loading="lazy" />
                   <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
                     <ZoomIn size={14} />
                     Original
                   </span>
                 </button>
+                {lightboxImage && lightboxImage.src === project.beforeImage ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
               </div>
             </section>
           )}
@@ -1730,7 +1746,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                               <img
                                 src={optimizedImage(image.url, 1100)}
                                 alt={image.alt || image.caption || project.title}
-                                className="aspect-[4/3] w-full object-contain"
+                                className="aspect-[4/3] w-full object-cover"
                               />
                               <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
                                 <ZoomIn size={14} />
@@ -1741,6 +1757,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                               {image.roomType || group.roomType}
                             </span>
                           </div>
+                          {lightboxImage && lightboxImage.src === image.url ? <InlineOriginalImage image={lightboxImage} onClose={() => setLightboxImage(null)} /> : null}
                           {image.caption && (
                             <figcaption className="px-4 py-3 text-sm font-medium text-[#625d54]">{image.caption}</figcaption>
                           )}
@@ -1755,30 +1772,20 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           )}
         </div>
       </div>
-      {lightboxImage && (
-        <div
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-[#171512]/92 p-4"
-          onClick={() => setLightboxImage(null)}
-        >
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              setLightboxImage(null);
-            }}
-            className="absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-md bg-white text-[#171512]"
-            aria-label="Close image"
-          >
-            <X size={22} />
-          </button>
-          <img
-            src={lightboxImage.src}
-            alt={lightboxImage.alt}
-            className="max-h-[92vh] max-w-[96vw] object-contain"
-            onClick={(event) => event.stopPropagation()}
-          />
-        </div>
-      )}
+    </div>
+  );
+}
+
+function InlineOriginalImage({ image, onClose }: { image: { src: string; alt: string }; onClose: () => void }) {
+  return (
+    <div className="border-t border-[#eadfcd] bg-[#171512] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1c76a]">Original view</span>
+        <button type="button" onClick={onClose} className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white text-[#171512]" aria-label="원본 보기 닫기">
+          <X size={18} />
+        </button>
+      </div>
+      <img src={image.src} alt={image.alt} className="max-h-[70vh] w-full object-contain" />
     </div>
   );
 }

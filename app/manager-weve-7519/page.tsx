@@ -8,6 +8,7 @@ import {
   Check,
   ClipboardList,
   FolderUp,
+  Image as ImageIcon,
   Loader2,
   Mail,
   PackagePlus,
@@ -115,6 +116,9 @@ type ManagedProject = {
   year?: string;
   materials?: string;
   displayOrder?: number;
+  mainImage?: string;
+  mainImageAlt?: string;
+  mainImagePosition?: string;
   featured?: boolean;
   isVisible?: boolean;
   categoryId?: string;
@@ -168,6 +172,7 @@ export default function ManagerPage() {
   const [password, setPassword] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [homepageMode, setHomepageMode] = useState<'quick' | 'detail'>('quick');
   const [category, setCategory] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [uploadSiteType, setUploadSiteType] = useState('아파트');
@@ -178,17 +183,35 @@ export default function ManagerPage() {
   const [consultationEmail, setConsultationEmail] = useState('');
   const [homepageSettings, setHomepageSettings] = useState({
     consultationEmail: '',
+    businessNumber: '',
     phone: '',
     address: '',
     lotAddress: '',
+    locationLabel: '',
     locationTitle: '',
+    heroLabel: '',
     heroTitle: '',
     heroDescription: '',
     primaryButtonLabel: '',
     secondaryButtonLabel: '',
+    statementLabel: '',
+    statementTitle: '',
+    statementBody: '',
+    projectSectionTitle: '',
+    projectButtonLabel: '',
+    portfolioTitle: '',
+    aboutLabel: '',
+    aboutTitle: '',
+    aboutBody: '',
+    processLabel: '',
+    processTitle: '',
+    contactLabel: '',
     contactTitle: '',
     contactBody: '',
     kakaoUrl: '',
+    heroImage: '',
+    heroImage2: '',
+    heroImage3: '',
   });
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectFilterCategoryId, setProjectFilterCategoryId] = useState('');
@@ -202,6 +225,7 @@ export default function ManagerPage() {
   const [projectYear, setProjectYear] = useState('');
   const [projectMaterials, setProjectMaterials] = useState('');
   const [projectDisplayOrder, setProjectDisplayOrder] = useState('');
+  const [projectMainImagePosition, setProjectMainImagePosition] = useState('center');
   const [projectFeatured, setProjectFeatured] = useState(false);
   const [projectVisible, setProjectVisible] = useState(true);
   const [status, setStatus] = useState('');
@@ -222,6 +246,10 @@ export default function ManagerPage() {
     if (!projectFilterCategoryId) return officeData.projects;
     return officeData.projects.filter((project) => project.categoryId === projectFilterCategoryId);
   }, [officeData.projects, projectFilterCategoryId]);
+  const selectedProjectForEdit = useMemo(
+    () => officeData.projects.find((project) => project._id === selectedProjectId),
+    [officeData.projects, selectedProjectId],
+  );
   const salesTotal = useMemo(() => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0), [officeData.sales]);
   const profitTotal = useMemo(
     () => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0) - Number(sale.cost || 0), 0),
@@ -281,17 +309,35 @@ export default function ManagerPage() {
       const settings = settingsData.settings || {};
       setHomepageSettings({
         consultationEmail: settings.consultationEmail || '',
+        businessNumber: settings.businessNumber || '',
         phone: settings.phone || '',
         address: settings.address || '',
         lotAddress: settings.lotAddress || '',
+        locationLabel: settings.locationLabel || '',
         locationTitle: settings.locationTitle || '',
+        heroLabel: settings.heroLabel || '',
         heroTitle: settings.heroTitle || '',
         heroDescription: settings.heroDescription || '',
         primaryButtonLabel: settings.primaryButtonLabel || '',
         secondaryButtonLabel: settings.secondaryButtonLabel || '',
+        statementLabel: settings.statementLabel || '',
+        statementTitle: settings.statementTitle || '',
+        statementBody: settings.statementBody || '',
+        projectSectionTitle: settings.projectSectionTitle || '',
+        projectButtonLabel: settings.projectButtonLabel || '',
+        portfolioTitle: settings.portfolioTitle || '',
+        aboutLabel: settings.aboutLabel || '',
+        aboutTitle: settings.aboutTitle || '',
+        aboutBody: settings.aboutBody || '',
+        processLabel: settings.processLabel || '',
+        processTitle: settings.processTitle || '',
+        contactLabel: settings.contactLabel || '',
         contactTitle: settings.contactTitle || '',
         contactBody: settings.contactBody || '',
         kakaoUrl: settings.kakaoUrl || '',
+        heroImage: settings.heroImage || '',
+        heroImage2: settings.heroImage2 || '',
+        heroImage3: settings.heroImage3 || '',
       });
       setConsultationEmail(settings.consultationEmail || '');
       if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
@@ -396,6 +442,35 @@ export default function ManagerPage() {
     }
   };
 
+  const uploadHomepageImage = async (field: 'heroImage' | 'heroImage2' | 'heroImage3', file?: File) => {
+    setError('');
+    setStatus('');
+    if (!file) return;
+    if (!requirePassword()) return;
+
+    setSavingEmail(true);
+    try {
+      const formData = new FormData();
+      formData.append('field', field);
+      formData.append('file', file);
+
+      const response = await fetch('/api/manager/settings-image', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+      });
+      const data = await readJsonResponse<{ assetUrl?: string; error?: string }>(response);
+
+      if (!response.ok || !data.assetUrl) throw new Error(data.error || '이미지를 저장하지 못했습니다.');
+      setHomepageSettings((current) => ({ ...current, [field]: data.assetUrl || '' }));
+      setStatus('홈페이지 이미지를 저장했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '이미지 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
   const uploadProjects = async () => {
     setError('');
     setStatus('');
@@ -474,6 +549,7 @@ export default function ManagerPage() {
     setProjectYear(project?.year || '');
     setProjectMaterials(project?.materials || '');
     setProjectDisplayOrder(project?.displayOrder ? String(project.displayOrder) : '');
+    setProjectMainImagePosition(project?.mainImagePosition || 'center');
     setProjectFeatured(Boolean(project?.featured));
     setProjectVisible(project?.isVisible !== false);
   };
@@ -529,6 +605,7 @@ export default function ManagerPage() {
           year: projectYear,
           materials: projectMaterials,
           displayOrder: Number(projectDisplayOrder || 0),
+          mainImagePosition: projectMainImagePosition,
           featured: projectFeatured,
           isVisible: projectVisible,
         },
@@ -887,9 +964,28 @@ export default function ManagerPage() {
 
         {activeTab === 'portfolio' && (
           <div className="grid gap-5">
+            <div className="flex flex-wrap gap-2 rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
+              {[
+                { key: 'quick', label: '간편 홈페이지 관리' },
+                { key: 'detail', label: '상세 홈페이지 수정' },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setHomepageMode(item.key as 'quick' | 'detail')}
+                  className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
+                    homepageMode === item.key ? 'bg-[#171512] text-white' : 'bg-[#f7fafb] text-[#4d5d66] hover:bg-[#edf2f5]'
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {homepageMode === 'quick' && (
             <Panel title="간편 홈페이지 관리">
               <div className="grid gap-3 md:grid-cols-2">
                 <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} />
+                <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" />
                 <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
                 <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
                 <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
@@ -911,6 +1007,92 @@ export default function ManagerPage() {
                 홈페이지 설정 저장
               </button>
             </Panel>
+            )}
+
+            {homepageMode === 'detail' && (
+              <Panel title="상세 홈페이지 수정">
+                <div className="grid gap-5">
+                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <h3 className="mb-3 font-semibold">첫 화면 배너</h3>
+                    <div className="grid gap-4 xl:grid-cols-3">
+                      {[
+                        ['heroImage', '배너 이미지 1'],
+                        ['heroImage2', '배너 이미지 2'],
+                        ['heroImage3', '배너 이미지 3'],
+                      ].map(([field, label]) => (
+                        <label key={field} className="grid gap-2 text-sm font-semibold text-[#4d5d66]">
+                          {label}
+                          <div className="overflow-hidden rounded-md border border-[#d5dde2] bg-white">
+                            {homepageSettings[field as 'heroImage'] ? (
+                              <img src={homepageSettings[field as 'heroImage']} alt={label} className="aspect-video w-full object-cover" />
+                            ) : (
+                              <div className="flex aspect-video items-center justify-center text-[#8aa0aa]">
+                                <ImageIcon size={28} />
+                              </div>
+                            )}
+                          </div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(event) => void uploadHomepageImage(field as 'heroImage' | 'heroImage2' | 'heroImage3', event.target.files?.[0])}
+                            className="text-sm"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <SettingInput label="배너 작은 문구" value={homepageSettings.heroLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroLabel: value })} />
+                      <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea />
+                      <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea />
+                      <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} />
+                      <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} />
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <h3 className="mb-3 font-semibold">중간 문구와 Project 영역</h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} />
+                      <SettingInput label="브랜드 큰 문구" value={homepageSettings.statementTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementTitle: value })} textarea />
+                      <SettingInput label="브랜드 설명" value={homepageSettings.statementBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementBody: value })} textarea />
+                      <SettingInput label="Project 섹션 제목" value={homepageSettings.projectSectionTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectSectionTitle: value })} />
+                      <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} />
+                      <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} />
+                    </div>
+                  </section>
+
+                  <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <h3 className="mb-3 font-semibold">소개, 위치, 상담, 회사 정보</h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} />
+                      <SettingInput label="소개 큰 문구" value={homepageSettings.aboutTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutTitle: value })} textarea />
+                      <SettingInput label="소개 설명" value={homepageSettings.aboutBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutBody: value })} textarea />
+                      <SettingInput label="진행 과정 작은 문구" value={homepageSettings.processLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, processLabel: value })} />
+                      <SettingInput label="진행 과정 큰 문구" value={homepageSettings.processTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, processTitle: value })} textarea />
+                      <SettingInput label="위치 작은 문구" value={homepageSettings.locationLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationLabel: value })} />
+                      <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} />
+                      <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} />
+                      <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} />
+                      <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} />
+                      <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} />
+                      <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} />
+                      <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea />
+                      <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} />
+                      <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} />
+                      <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" />
+                    </div>
+                  </section>
+                </div>
+                <button
+                  onClick={saveHomepageSettings}
+                  disabled={savingEmail}
+                  className="mt-5 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
+                >
+                  {savingEmail ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                  상세 홈페이지 설정 저장
+                </button>
+              </Panel>
+            )}
 
             <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
               <Panel title="현장 폴더 한번에 업로드">
@@ -1027,6 +1209,24 @@ export default function ManagerPage() {
                       ))}
                     </select>
                   </label>
+                  {selectedProjectForEdit?.mainImage && (
+                    <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                      <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-[#4d5d66]">대표 사진 카드 미리보기</p>
+                          <p className="mt-1 text-xs text-[#60717d]">홈페이지 Project 카드에서 잘려 보이는 기준을 확인합니다.</p>
+                        </div>
+                      </div>
+                      <div className="overflow-hidden rounded-md bg-[#d8d1c5]">
+                        <img
+                          src={selectedProjectForEdit.mainImage}
+                          alt={selectedProjectForEdit.mainImageAlt || selectedProjectForEdit.title || 'Project preview'}
+                          className="aspect-[4/5] w-full object-cover"
+                          style={{ objectPosition: imageObjectPosition(projectMainImagePosition) }}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <SettingInput label="Project 이름" value={projectTitle} onChange={setProjectTitle} />
                   <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                     카테고리 선택
@@ -1067,6 +1267,20 @@ export default function ManagerPage() {
                   <SettingInput label="시공 연도" value={projectYear} onChange={setProjectYear} placeholder="예: 2026" />
                   <SettingInput label="사용 자재" value={projectMaterials} onChange={setProjectMaterials} placeholder="예: 포세린 타일, 무몰딩, 제작가구" />
                   <SettingInput label="노출 순서" value={projectDisplayOrder} onChange={(value) => setProjectDisplayOrder(onlyNumber(value))} placeholder="숫자가 작을수록 먼저 표시" />
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    대표 사진 표시 위치
+                    <select
+                      value={projectMainImagePosition}
+                      onChange={(event) => setProjectMainImagePosition(event.target.value)}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="center">가운데</option>
+                      <option value="top">위쪽</option>
+                      <option value="bottom">아래쪽</option>
+                      <option value="left">왼쪽</option>
+                      <option value="right">오른쪽</option>
+                    </select>
+                  </label>
                   <div className="grid gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3 text-sm font-semibold text-[#4d5d66]">
                     <label className="flex items-center gap-2">
                       <input type="checkbox" checked={projectFeatured} onChange={(event) => setProjectFeatured(event.target.checked)} />
@@ -1352,6 +1566,18 @@ function formatDate(value?: string) {
 
 function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
+}
+
+function imageObjectPosition(value?: string) {
+  const positions: Record<string, string> = {
+    top: 'center top',
+    bottom: 'center bottom',
+    left: 'left center',
+    right: 'right center',
+    center: 'center center',
+  };
+
+  return positions[value || 'center'] || positions.center;
 }
 
 function formatPhoneNumber(value: string) {

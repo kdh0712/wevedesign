@@ -282,6 +282,13 @@ const siteSettings = defineType({
       description: '상단 전화번호, 오시는 길, 푸터에 보입니다.',
     }),
     defineField({
+      name: 'businessNumber',
+      title: '사업자등록번호',
+      type: 'string',
+      group: 'location',
+      description: '홈페이지 맨 아래 회사 정보에 표시됩니다.',
+    }),
+    defineField({
       name: 'mapLat',
       title: '지도 위도',
       type: 'number',
@@ -466,6 +473,24 @@ const project = defineType({
       description: '목록에서 가장 먼저 보이는 사진입니다. 꼭 등록하세요.',
       fields: [defineField({ name: 'alt', title: '사진 설명', type: 'string' })],
       validation: (Rule) => Rule.required(),
+    }),
+    defineField({
+      name: 'mainImagePosition',
+      title: '대표 사진 표시 위치',
+      type: 'string',
+      group: 'images',
+      initialValue: 'center',
+      options: {
+        list: [
+          { title: '가운데', value: 'center' },
+          { title: '위쪽', value: 'top' },
+          { title: '아래쪽', value: 'bottom' },
+          { title: '왼쪽', value: 'left' },
+          { title: '오른쪽', value: 'right' },
+        ],
+        layout: 'dropdown',
+      },
+      description: '홈페이지 Project 카드에서 대표 사진이 잘릴 때 어느 부분을 중심으로 보여줄지 정합니다.',
     }),
     defineField({
       name: 'beforeImage',

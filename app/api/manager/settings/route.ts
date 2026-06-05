@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      '*[_type == "siteSettings"][0]{consultationEmail, phone, address, lotAddress, locationTitle, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, contactTitle, contactBody, kakaoUrl}',
+      '*[_type == "siteSettings"][0]{consultationEmail, businessNumber, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, kakaoUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -27,22 +27,38 @@ export async function PATCH(request: Request) {
 
     const allowedFields = [
       'consultationEmail',
+      'businessNumber',
       'phone',
       'address',
       'lotAddress',
+      'locationLabel',
       'locationTitle',
+      'heroLabel',
       'heroTitle',
       'heroDescription',
       'primaryButtonLabel',
       'secondaryButtonLabel',
+      'statementLabel',
+      'statementTitle',
+      'statementBody',
+      'projectSectionTitle',
+      'projectButtonLabel',
+      'portfolioTitle',
+      'aboutLabel',
+      'aboutTitle',
+      'aboutBody',
+      'processLabel',
+      'processTitle',
+      'contactLabel',
       'contactTitle',
       'contactBody',
       'kakaoUrl',
     ];
 
     for (const field of allowedFields) {
-      const value = body[field]?.trim();
-      if (value) updates[field] = value;
+      if (Object.prototype.hasOwnProperty.call(body, field)) {
+        updates[field] = String(body[field] || '').trim();
+      }
     }
 
     if (updates.consultationEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.consultationEmail)) {
