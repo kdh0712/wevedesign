@@ -44,12 +44,54 @@ const query = `{
   }
 }`;
 
+const seoulDateKey = (date: Date) =>
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+
+const weekDateKeys = () => {
+  const now = new Date();
+  const seoulNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Seoul' }));
+  const day = seoulNow.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  const monday = new Date(seoulNow);
+  monday.setDate(seoulNow.getDate() + mondayOffset);
+
+  const keys: string[] = [];
+  for (let date = new Date(monday); date <= seoulNow; date.setDate(date.getDate() + 1)) {
+    keys.push(seoulDateKey(date));
+  }
+  return keys;
+};
+
+async function getVisitStats() {
+  const today = seoulDateKey(new Date());
+  const weekDates = weekDateKeys();
+  const rows = await managerClient.fetch<Array<{ date: string; count?: number }>>(
+    '*[_type == "siteVisitDaily" && date in $dates]{date,count}',
+    { dates: weekDates },
+  );
+  const todayCount = rows.find((row) => row.date === today)?.count || 0;
+  const weekCount = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
+
+  return {
+    today,
+    todayCount,
+    weekCount,
+    refreshSeconds: 30,
+  };
+}
+
 export async function GET(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
 
   try {
     const data = await managerClient.fetch(query);
+    data.visitStats = await getVisitStats();
     return NextResponse.json(data);
   } catch (error) {
     console.error('Office data fetch failed:', error);

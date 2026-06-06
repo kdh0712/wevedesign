@@ -644,6 +644,23 @@ export default function WeveDesignLanding() {
   const consultationTotalSteps = consultationSteps.length + 1;
 
   useEffect(() => {
+    const today = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Seoul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+    const storageKey = `weve-visit-tracked-${today}`;
+
+    if (window.localStorage.getItem(storageKey)) return;
+
+    window.localStorage.setItem(storageKey, '1');
+    fetch('/api/track-visit', { method: 'POST', keepalive: true }).catch(() => {
+      window.localStorage.removeItem(storageKey);
+    });
+  }, []);
+
+  useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach((entry) => {

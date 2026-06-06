@@ -8,6 +8,7 @@ import {
   Check,
   ClipboardList,
   FolderUp,
+  Home,
   Image as ImageIcon,
   Loader2,
   Mail,
@@ -168,6 +169,14 @@ type OfficeData = {
   vendors: Vendor[];
   categories: CategoryOption[];
   projects: ManagedProject[];
+  visitStats?: VisitStats;
+};
+
+type VisitStats = {
+  today: string;
+  todayCount: number;
+  weekCount: number;
+  refreshSeconds: number;
 };
 
 type PreviewTarget = {
@@ -190,6 +199,9 @@ const emptyOfficeData: OfficeData = {
   categories: [],
   projects: [],
 };
+
+const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
+const OFFICE_REFRESH_SECONDS = 30;
 
 const homepagePreviewTargets = {
   heroLabel: { key: 'heroLabel', label: '배너 작은 문구', src: '/#home' },
@@ -433,6 +445,8 @@ export default function ManagerPage() {
   const [loadingOffice, setLoadingOffice] = useState(false);
   const [savingOffice, setSavingOffice] = useState(false);
   const [officeData, setOfficeData] = useState<OfficeData>(emptyOfficeData);
+  const [visitStats, setVisitStats] = useState<VisitStats | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState('');
   const [results, setResults] = useState<UploadResult[]>([]);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
@@ -472,6 +486,26 @@ export default function ManagerPage() {
     [officeData.inventory],
   );
 
+  useEffect(() => {
+    const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY);
+    if (!savedPassword) return;
+
+    setPassword(savedPassword);
+    void loadOfficeData(savedPassword, { silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!isUnlocked || !password) return;
+
+    const timer = window.setInterval(() => {
+      void refreshOfficeData(password);
+    }, OFFICE_REFRESH_SECONDS * 1000);
+
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, password]);
+
   const authHeaders = (managerPassword = password) => ({
     'x-manager-password': managerPassword,
   });
@@ -493,12 +527,14 @@ export default function ManagerPage() {
     return false;
   };
 
-  const loadOfficeData = async (managerPassword = password) => {
-    setError('');
-    setStatus('');
+  const loadOfficeData = async (managerPassword = password, options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setError('');
+      setStatus('');
+    }
     if (!requirePassword(managerPassword)) return;
 
-    setLoadingOffice(true);
+    if (!options.silent) setLoadingOffice(true);
     try {
       const [response, settingsResponse] = await Promise.all([
         fetch('/api/manager/office', { headers: authHeaders(managerPassword) }),
@@ -517,7 +553,9 @@ export default function ManagerPage() {
         vendors: data.vendors || [],
         categories: data.categories || [],
         projects: data.projects || [],
+        visitStats: data.visitStats,
       });
+      setVisitStats(data.visitStats || null);
       const settings = settingsData.settings || {};
       const savedSurveyConfig = settings.consultationSurveyConfig || JSON.stringify(defaultSurveyConfig);
       const parsedSurveyConfig = parseSurveyConfig(savedSurveyConfig);
@@ -574,11 +612,42 @@ export default function ManagerPage() {
       if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
       setPassword(managerPassword);
       setIsUnlocked(true);
-      setStatus('업무 데이터를 불러왔습니다.');
+      setLastRefreshedAt(formatTime(new Date()));
+      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, managerPassword);
+      if (!options.silent) setStatus('업무 데이터를 불러왔습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
+      if (caught instanceof Error && caught.message.includes('비밀번호')) {
+        window.localStorage.removeItem(MANAGER_PASSWORD_STORAGE_KEY);
+      }
     } finally {
-      setLoadingOffice(false);
+      if (!options.silent) setLoadingOffice(false);
+    }
+  };
+
+  const refreshOfficeData = async (managerPassword = password) => {
+    if (!managerPassword) return;
+
+    try {
+      const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword) });
+      const data = await readJsonResponse<OfficeApiResponse>(response);
+      if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
+
+      setOfficeData((current) => ({
+        ...current,
+        consultations: data.consultations || [],
+        customers: data.customers || [],
+        sales: data.sales || [],
+        inventory: data.inventory || [],
+        vendors: data.vendors || [],
+        categories: data.categories || [],
+        projects: data.projects || [],
+        visitStats: data.visitStats,
+      }));
+      setVisitStats(data.visitStats || null);
+      setLastRefreshedAt(formatTime(new Date()));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '업무 데이터 자동 갱신 중 오류가 발생했습니다.');
     }
   };
 
@@ -1221,15 +1290,33 @@ export default function ManagerPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    window.location.href = 'weve://open';
+                    window.open('/', '_blank', 'noopener,noreferrer');
                   }}
-                  className="rounded-md border border-[#171512] bg-[#171512] px-4 py-2.5 text-center text-sm font-semibold text-white"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[#171512] bg-[#171512] px-4 py-2.5 text-center text-sm font-semibold text-white"
                 >
-                  WEVE 프로그램 실행
+                  <Home size={16} />
+                  홈페이지로 가기
                 </button>
                 <a href="/studio-weve-3891" className="rounded-md border border-[#c8d4da] bg-white px-4 py-2.5 text-center text-sm font-semibold">
                   Sanity Studio
                 </a>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
+                <p className="text-xs font-semibold text-[#60717d]">오늘 접속자 수</p>
+                <p className="mt-1 text-2xl font-semibold">{visitStats?.todayCount ?? 0}</p>
+              </div>
+              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
+                <p className="text-xs font-semibold text-[#60717d]">이번 주 접속자 수</p>
+                <p className="mt-1 text-2xl font-semibold">{visitStats?.weekCount ?? 0}</p>
+              </div>
+              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
+                <p className="text-xs font-semibold text-[#60717d]">자동 새로고침</p>
+                <p className="mt-1 text-sm font-semibold text-[#273541]">
+                  {OFFICE_REFRESH_SECONDS}초마다 갱신{lastRefreshedAt ? ` · 마지막 ${lastRefreshedAt}` : ''}
+                </p>
+                <p className="mt-1 text-xs text-[#60717d]">상담 요청도 이 주기로 자동 반영됩니다.</p>
               </div>
             </div>
             <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
@@ -2848,6 +2935,10 @@ function formatMoney(value: number) {
 function formatDate(value?: string) {
   if (!value) return '날짜 없음';
   return new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value));
+}
+
+function formatTime(value: Date) {
+  return new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit' }).format(value);
 }
 
 function onlyNumber(value: string) {
