@@ -1218,6 +1218,15 @@ export default function ManagerPage() {
                   {loadingOffice ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
                   데이터 불러오기
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = 'weve://open';
+                  }}
+                  className="rounded-md border border-[#171512] bg-[#171512] px-4 py-2.5 text-center text-sm font-semibold text-white"
+                >
+                  WEVE 프로그램 실행
+                </button>
                 <a href="/studio-weve-3891" className="rounded-md border border-[#c8d4da] bg-white px-4 py-2.5 text-center text-sm font-semibold">
                   Sanity Studio
                 </a>
