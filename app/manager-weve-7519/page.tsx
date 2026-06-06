@@ -77,7 +77,8 @@ type SurveyAreaGroup = {
   id: string;
   label: string;
   propertyOptions: string[];
-  step: SurveyStep;
+  step?: SurveyStep;
+  steps: SurveyStep[];
 };
 
 type SurveyConfig = {
@@ -233,34 +234,48 @@ const defaultSurveyConfig: SurveyConfig = {
       id: 'residential',
       label: '주거 공간',
       propertyOptions: ['아파트', '빌라', '단독주택', '오피스텔'],
-      step: {
-        key: 'areaRange',
-        title: '인테리어 공간의 평수를 선택해주세요.',
-        options: ['10~20평대', '30평대', '40평대', '50평대 이상'],
-      },
+      steps: [
+        {
+          key: 'areaRange',
+          title: '인테리어 공간의 평수를 선택해주세요.',
+          options: ['10~20평대', '30평대', '40평대', '50평대 이상'],
+        },
+        {
+          key: 'homeStatus',
+          title: '인테리어 할 집은 어떤 상태인가요?',
+          options: ['집보관 후 살면서 공사예정', '현재 공실', '시공 시 공실 예정', '신축입주', '기타 (부동산 미계약 상태)'],
+        },
+        {
+          key: 'reason',
+          title: '인테리어를 고려하시게 된 주요 이유를 선택해주세요.',
+          options: ['집을 구매하여 리모델링 계획 중', '사는 집을 새롭게 바꾸기 위해', '매매나 임대를 위한 리모델링', '기타'],
+        },
+      ],
     },
     {
       id: 'commercial',
       label: '상업 공간',
       propertyOptions: ['상가', '오피스'],
-      step: {
-        key: 'areaRange',
-        title: '인테리어 공간의 규모를 선택해주세요.',
-        options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
-      },
+      steps: [
+        {
+          key: 'areaRange',
+          title: '인테리어 공간의 규모를 선택해주세요.',
+          options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
+        },
+        {
+          key: 'homeStatus',
+          title: '상업 공간은 현재 어떤 상태인가요?',
+          options: ['영업 중', '공실', '오픈 준비 중', '계약 전 검토 중', '기타'],
+        },
+        {
+          key: 'reason',
+          title: '상업 공간 인테리어를 진행하는 이유를 선택해주세요.',
+          options: ['신규 매장 오픈', '기존 매장 리뉴얼', '사무실 이전/확장', '임대/매매를 위한 정비', '기타'],
+        },
+      ],
     },
   ],
   commonSteps: [
-    {
-      key: 'homeStatus',
-      title: '인테리어 할 공간은 어떤 상태인가요?',
-      options: ['집보관 후 살면서 공사예정', '현재 공실', '시공 시 공실 예정', '신축입주', '영업 중', '기타'],
-    },
-    {
-      key: 'reason',
-      title: '인테리어를 고려하시게 된 주요 이유를 선택해주세요.',
-      options: ['집을 구매하여 리모델링 계획 중', '사는 집을 새롭게 바꾸기 위해', '매매나 임대를 위한 리모델링', '상업 공간 오픈 준비', '기타'],
-    },
     {
       key: 'budget',
       title: '인테리어 예산은 총 얼마를 생각하시나요?',
@@ -290,13 +305,21 @@ const parseSurveyConfig = (value?: string): SurveyConfig => {
 
     return {
       propertyStep: { ...defaultSurveyConfig.propertyStep, ...parsed.propertyStep, key: 'propertyType' },
-      areaGroups: parsed.areaGroups.map((group, index) => ({
-        id: group.id || `group-${index + 1}`,
-        label: group.label || `묶음 ${index + 1}`,
-        propertyOptions: group.propertyOptions?.filter(Boolean) || [],
-        step: { ...defaultSurveyConfig.areaGroups[0].step, ...group.step, key: 'areaRange' },
-      })),
-      commonSteps: parsed.commonSteps.map((step, index) => ({
+      areaGroups: parsed.areaGroups.map((group, index) => {
+        const legacySteps = [group.step, parsed.commonSteps?.[0], parsed.commonSteps?.[1]].filter(Boolean) as SurveyStep[];
+        const steps = (group.steps?.length ? group.steps : legacySteps).slice(0, 3);
+
+        return {
+          id: group.id || `group-${index + 1}`,
+          label: group.label || `묶음 ${index + 1}`,
+          propertyOptions: group.propertyOptions?.filter(Boolean) || [],
+          steps: [0, 1, 2].map((stepIndex) => ({
+            ...defaultSurveyConfig.areaGroups[0].steps[stepIndex],
+            ...steps[stepIndex],
+          })),
+        };
+      }),
+      commonSteps: (parsed.commonSteps.length > 2 ? parsed.commonSteps.slice(2) : parsed.commonSteps).map((step, index) => ({
         ...defaultSurveyConfig.commonSteps[index],
         ...step,
       })) as SurveyStep[],
@@ -529,16 +552,16 @@ export default function ManagerPage() {
         contactBody: settings.contactBody || '',
         consultationPropertyQuestion: settings.consultationPropertyQuestion || parsedSurveyConfig.propertyStep.title,
         consultationPropertyOptions: settings.consultationPropertyOptions || parsedSurveyConfig.propertyStep.options.join('\n'),
-        consultationAreaQuestion: settings.consultationAreaQuestion || parsedSurveyConfig.areaGroups[0]?.step.title || '',
-        consultationAreaOptions: settings.consultationAreaOptions || parsedSurveyConfig.areaGroups[0]?.step.options.join('\n') || '',
-        consultationStatusQuestion: settings.consultationStatusQuestion || parsedSurveyConfig.commonSteps[0]?.title || '',
-        consultationStatusOptions: settings.consultationStatusOptions || parsedSurveyConfig.commonSteps[0]?.options.join('\n') || '',
-        consultationReasonQuestion: settings.consultationReasonQuestion || parsedSurveyConfig.commonSteps[1]?.title || '',
-        consultationReasonOptions: settings.consultationReasonOptions || parsedSurveyConfig.commonSteps[1]?.options.join('\n') || '',
-        consultationBudgetQuestion: settings.consultationBudgetQuestion || parsedSurveyConfig.commonSteps[2]?.title || '',
-        consultationBudgetOptions: settings.consultationBudgetOptions || parsedSurveyConfig.commonSteps[2]?.options.join('\n') || '',
-        consultationTimelineQuestion: settings.consultationTimelineQuestion || parsedSurveyConfig.commonSteps[3]?.title || '',
-        consultationTimelineOptions: settings.consultationTimelineOptions || parsedSurveyConfig.commonSteps[3]?.options.join('\n') || '',
+        consultationAreaQuestion: settings.consultationAreaQuestion || parsedSurveyConfig.areaGroups[0]?.steps[0]?.title || '',
+        consultationAreaOptions: settings.consultationAreaOptions || parsedSurveyConfig.areaGroups[0]?.steps[0]?.options.join('\n') || '',
+        consultationStatusQuestion: settings.consultationStatusQuestion || parsedSurveyConfig.areaGroups[0]?.steps[1]?.title || '',
+        consultationStatusOptions: settings.consultationStatusOptions || parsedSurveyConfig.areaGroups[0]?.steps[1]?.options.join('\n') || '',
+        consultationReasonQuestion: settings.consultationReasonQuestion || parsedSurveyConfig.areaGroups[0]?.steps[2]?.title || '',
+        consultationReasonOptions: settings.consultationReasonOptions || parsedSurveyConfig.areaGroups[0]?.steps[2]?.options.join('\n') || '',
+        consultationBudgetQuestion: settings.consultationBudgetQuestion || parsedSurveyConfig.commonSteps[0]?.title || '',
+        consultationBudgetOptions: settings.consultationBudgetOptions || parsedSurveyConfig.commonSteps[0]?.options.join('\n') || '',
+        consultationTimelineQuestion: settings.consultationTimelineQuestion || parsedSurveyConfig.commonSteps[1]?.title || '',
+        consultationTimelineOptions: settings.consultationTimelineOptions || parsedSurveyConfig.commonSteps[1]?.options.join('\n') || '',
         consultationPrivacyText: settings.consultationPrivacyText || defaultPrivacyText,
         consultationSurveyConfig: savedSurveyConfig,
         kakaoUrl: settings.kakaoUrl || '',
@@ -801,16 +824,16 @@ export default function ManagerPage() {
       consultationSurveyConfig: JSON.stringify(config),
       consultationPropertyQuestion: config.propertyStep.title,
       consultationPropertyOptions: config.propertyStep.options.join('\n'),
-      consultationAreaQuestion: config.areaGroups[0]?.step.title || '',
-      consultationAreaOptions: config.areaGroups[0]?.step.options.join('\n') || '',
-      consultationStatusQuestion: config.commonSteps[0]?.title || '',
-      consultationStatusOptions: config.commonSteps[0]?.options.join('\n') || '',
-      consultationReasonQuestion: config.commonSteps[1]?.title || '',
-      consultationReasonOptions: config.commonSteps[1]?.options.join('\n') || '',
-      consultationBudgetQuestion: config.commonSteps[2]?.title || '',
-      consultationBudgetOptions: config.commonSteps[2]?.options.join('\n') || '',
-      consultationTimelineQuestion: config.commonSteps[3]?.title || '',
-      consultationTimelineOptions: config.commonSteps[3]?.options.join('\n') || '',
+      consultationAreaQuestion: config.areaGroups[0]?.steps[0]?.title || '',
+      consultationAreaOptions: config.areaGroups[0]?.steps[0]?.options.join('\n') || '',
+      consultationStatusQuestion: config.areaGroups[0]?.steps[1]?.title || '',
+      consultationStatusOptions: config.areaGroups[0]?.steps[1]?.options.join('\n') || '',
+      consultationReasonQuestion: config.areaGroups[0]?.steps[2]?.title || '',
+      consultationReasonOptions: config.areaGroups[0]?.steps[2]?.options.join('\n') || '',
+      consultationBudgetQuestion: config.commonSteps[0]?.title || '',
+      consultationBudgetOptions: config.commonSteps[0]?.options.join('\n') || '',
+      consultationTimelineQuestion: config.commonSteps[1]?.title || '',
+      consultationTimelineOptions: config.commonSteps[1]?.options.join('\n') || '',
     }));
   };
 
@@ -869,10 +892,11 @@ export default function ManagerPage() {
           id: group.id || `group-${index + 1}`,
           label: group.label.trim() || `묶음 ${index + 1}`,
           propertyOptions: group.propertyOptions.filter((option) => surveyDraft.propertyStep.options.includes(option)),
-          step: {
-            ...group.step,
-            options: group.step.options.map((option) => option.trim()).filter(Boolean),
-          },
+          steps: group.steps.slice(0, 3).map((step, stepIndex) => ({
+            ...defaultSurveyConfig.areaGroups[0].steps[stepIndex],
+            ...step,
+            options: step.options.map((option) => option.trim()).filter(Boolean),
+          })),
         }))
         .filter((group) => group.propertyOptions.length > 0),
       commonSteps: surveyDraft.commonSteps.map((step) => ({
@@ -1997,7 +2021,7 @@ function SurveyEditorModal({
   onClose: () => void;
   onSave: () => void;
 }) {
-  const tabs = ['1 공간유형', '2 다음 질문', '3 상태', '4 이유', '5 예산', '6 일정', '동의문'];
+  const tabs = ['1 공간유형', '2~4 묶음별 질문', '5 예산', '6 일정', '동의문'];
   const commonStep = config.commonSteps[activeTab - 2];
 
   const updatePropertyStep = (updates: Partial<SurveyStep>) => {
@@ -2042,11 +2066,23 @@ function SurveyEditorModal({
           id: `group-${Date.now()}`,
           label: '새 묶음',
           propertyOptions: [],
-          step: {
-            key: 'areaRange',
-            title: '다음 질문을 입력해주세요.',
-            options: ['선택지 1'],
-          },
+          steps: [
+            {
+              key: 'areaRange',
+              title: '2번 질문을 입력해주세요.',
+              options: ['선택지 1'],
+            },
+            {
+              key: 'homeStatus',
+              title: '3번 질문을 입력해주세요.',
+              options: ['선택지 1'],
+            },
+            {
+              key: 'reason',
+              title: '4번 질문을 입력해주세요.',
+              options: ['선택지 1'],
+            },
+          ],
         },
       ],
     }));
@@ -2075,7 +2111,7 @@ function SurveyEditorModal({
         </div>
 
         <div className="grid max-h-[calc(90vh-92px)] overflow-hidden lg:grid-cols-[210px_1fr]">
-          <div className="border-b border-[#d5dde2] bg-[#f7fafb] p-3 lg:border-b-0 lg:border-r">
+          <div className="max-h-[220px] overflow-y-auto border-b border-[#d5dde2] bg-[#f7fafb] p-3 lg:max-h-none lg:border-b-0 lg:border-r">
             <div className="grid gap-2">
               {tabs.map((tab, index) => (
                 <button
@@ -2092,7 +2128,7 @@ function SurveyEditorModal({
             </div>
           </div>
 
-          <div className="overflow-y-auto p-6">
+          <div className="max-h-[calc(90vh-92px)] overflow-y-auto p-6 pb-28">
             {activeTab === 0 && (
               <StepEditor
                 title="첫 질문"
@@ -2117,11 +2153,12 @@ function SurveyEditorModal({
             {activeTab === 1 && (
               <div className="grid gap-5">
                 <div>
-                  <h3 className="text-xl font-semibold">첫 질문 선택지별 다음 질문 묶음</h3>
-                  <p className="mt-2 text-sm leading-6 text-[#60717d]">아파트와 빌라처럼 같은 다음 질문을 쓰는 선택지는 같은 묶음에 넣으면 됩니다.</p>
+                  <h3 className="text-xl font-semibold">첫 질문 선택지별 2~4번 질문 묶음</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#60717d]">아파트와 빌라처럼 같은 질문 흐름을 쓰는 선택지는 같은 묶음에 넣으면 됩니다. 각 묶음마다 2번, 3번, 4번 질문을 다르게 만들 수 있습니다.</p>
                 </div>
+                <div className="grid gap-5 xl:grid-cols-2">
                 {config.areaGroups.map((group, groupIndex) => (
-                  <div key={group.id} className="rounded-lg border border-[#d5dde2] bg-[#fbfcfd] p-4">
+                  <div key={group.id} className="max-h-[62vh] overflow-y-auto rounded-lg border border-[#d5dde2] bg-[#fbfcfd] p-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <input
                         value={group.label}
@@ -2152,35 +2189,61 @@ function SurveyEditorModal({
                         })}
                       </div>
                     </div>
-                    <div className="mt-5">
-                      <StepEditor
-                        title={`${group.label || '묶음'}의 다음 질문`}
-                        step={group.step}
-                        onTitleChange={(title) => updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, title } }))}
-                        onOptionChange={(index, value) =>
-                          updateAreaGroup(groupIndex, (current) => ({
-                            ...current,
-                            step: { ...current.step, options: current.step.options.map((option, optionIndex) => (optionIndex === index ? value : option)) },
-                          }))
-                        }
-                        onAddOption={() => updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, options: [...current.step.options, '새 선택지'] } }))}
-                        onRemoveOption={(index) =>
-                          updateAreaGroup(groupIndex, (current) => ({ ...current, step: { ...current.step, options: current.step.options.filter((_, optionIndex) => optionIndex !== index) } }))
-                        }
-                        compact
-                      />
+                    <div className="mt-5 grid gap-5">
+                      {group.steps.map((step, stepIndex) => (
+                        <div key={`${group.id}-${step.key}`} className="rounded-lg border border-[#e3e9ed] bg-white p-4">
+                          <StepEditor
+                            title={`${stepIndex + 2}번 질문`}
+                            step={step}
+                            onTitleChange={(title) =>
+                              updateAreaGroup(groupIndex, (current) => ({
+                                ...current,
+                                steps: current.steps.map((currentStep, currentStepIndex) => (currentStepIndex === stepIndex ? { ...currentStep, title } : currentStep)),
+                              }))
+                            }
+                            onOptionChange={(index, value) =>
+                              updateAreaGroup(groupIndex, (current) => ({
+                                ...current,
+                                steps: current.steps.map((currentStep, currentStepIndex) =>
+                                  currentStepIndex === stepIndex
+                                    ? { ...currentStep, options: currentStep.options.map((option, optionIndex) => (optionIndex === index ? value : option)) }
+                                    : currentStep,
+                                ),
+                              }))
+                            }
+                            onAddOption={() =>
+                              updateAreaGroup(groupIndex, (current) => ({
+                                ...current,
+                                steps: current.steps.map((currentStep, currentStepIndex) =>
+                                  currentStepIndex === stepIndex ? { ...currentStep, options: [...currentStep.options, '새 선택지'] } : currentStep,
+                                ),
+                              }))
+                            }
+                            onRemoveOption={(index) =>
+                              updateAreaGroup(groupIndex, (current) => ({
+                                ...current,
+                                steps: current.steps.map((currentStep, currentStepIndex) =>
+                                  currentStepIndex === stepIndex ? { ...currentStep, options: currentStep.options.filter((_, optionIndex) => optionIndex !== index) } : currentStep,
+                                ),
+                              }))
+                            }
+                            compact
+                          />
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))}
+                </div>
                 <button type="button" onClick={addAreaGroup} className="rounded-md border border-[#38a9bd] px-4 py-3 text-sm font-semibold text-[#14798a] transition hover:bg-[#e8f8fb]">
                   다음 질문 묶음 추가
                 </button>
               </div>
             )}
 
-            {activeTab >= 2 && activeTab <= 5 && commonStep && (
+            {activeTab >= 2 && activeTab <= 3 && commonStep && (
               <StepEditor
-                title={`질문 ${activeTab + 1}`}
+                title={`질문 ${activeTab + 3}`}
                 step={commonStep}
                 onTitleChange={(title) => updateCommonStep(activeTab - 2, { title })}
                 onDescriptionChange={(description) => updateCommonStep(activeTab - 2, { description })}
@@ -2191,7 +2254,7 @@ function SurveyEditorModal({
               />
             )}
 
-            {activeTab === 6 && (
+            {activeTab === 4 && (
               <div>
                 <h3 className="text-xl font-semibold">개인정보 제3자 제공 동의 내용</h3>
                 <p className="mt-2 text-sm text-[#60717d]">상담 신청 마지막 단계에서 고객이 버튼을 눌러 확인하는 내용입니다.</p>

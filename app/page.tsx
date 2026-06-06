@@ -159,7 +159,8 @@ type ConsultationAreaGroup = {
   id: string;
   label: string;
   propertyOptions: string[];
-  step: ConsultationStep;
+  step?: ConsultationStep;
+  steps?: ConsultationStep[];
 };
 
 type ConsultationSurveyConfig = {
@@ -314,20 +315,32 @@ const defaultConsultationSurveyConfig: ConsultationSurveyConfig = {
       id: 'residential',
       label: '주거 공간',
       propertyOptions: ['아파트', '빌라', '단독주택', '오피스텔'],
-      step: defaultConsultationSteps[1],
+      steps: defaultConsultationSteps.slice(1, 4),
     },
     {
       id: 'commercial',
       label: '상업 공간',
       propertyOptions: ['상가', '오피스'],
-      step: {
-        key: 'areaRange',
-        title: '인테리어 공간의 규모를 선택해주세요.',
-        options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
-      },
+      steps: [
+        {
+          key: 'areaRange',
+          title: '인테리어 공간의 규모를 선택해주세요.',
+          options: ['10평 이하', '10~20평대', '30평대', '40평대', '50평대 이상', '100평 이상'],
+        },
+        {
+          key: 'homeStatus',
+          title: '상업 공간은 현재 어떤 상태인가요?',
+          options: ['영업 중', '공실', '오픈 준비 중', '계약 전 검토 중', '기타'],
+        },
+        {
+          key: 'reason',
+          title: '상업 공간 인테리어를 진행하는 이유를 선택해주세요.',
+          options: ['신규 매장 오픈', '기존 매장 리뉴얼', '사무실 이전/확장', '임대/매매를 위한 정비', '기타'],
+        },
+      ],
     },
   ],
-  commonSteps: defaultConsultationSteps.slice(2),
+  commonSteps: defaultConsultationSteps.slice(4),
 };
 
 const settingOptions = (value: string | undefined, fallback: string[]) => {
@@ -344,6 +357,7 @@ const parseConsultationSurveyConfig = (settings: SiteSettings): ConsultationSurv
     try {
       const parsed = JSON.parse(settings.consultationSurveyConfig) as Partial<ConsultationSurveyConfig>;
       if (parsed.propertyStep?.options?.length && parsed.areaGroups?.length && parsed.commonSteps?.length) {
+        const parsedCommonSteps = parsed.commonSteps.length > 2 ? parsed.commonSteps.slice(2) : parsed.commonSteps;
         return {
           propertyStep: {
             ...defaultConsultationSurveyConfig.propertyStep,
@@ -354,13 +368,15 @@ const parseConsultationSurveyConfig = (settings: SiteSettings): ConsultationSurv
             id: group.id || `group-${index + 1}`,
             label: group.label || `묶음 ${index + 1}`,
             propertyOptions: group.propertyOptions?.filter(Boolean) || [],
-            step: {
-              ...defaultConsultationSurveyConfig.areaGroups[0].step,
-              ...group.step,
-              key: 'areaRange',
-            },
+            steps: (group.steps?.length ? group.steps : [group.step, parsed.commonSteps?.[0], parsed.commonSteps?.[1]])
+              .filter(Boolean)
+              .slice(0, 3)
+              .map((step, stepIndex) => ({
+                ...defaultConsultationSteps[stepIndex + 1],
+                ...step,
+              })) as ConsultationStep[],
           })),
-          commonSteps: parsed.commonSteps.map((step, index) => ({
+          commonSteps: parsedCommonSteps.map((step, index) => ({
             ...defaultConsultationSurveyConfig.commonSteps[index],
             ...step,
           })) as ConsultationStep[],
@@ -380,25 +396,27 @@ const parseConsultationSurveyConfig = (settings: SiteSettings): ConsultationSurv
     areaGroups: [
       {
         ...defaultConsultationSurveyConfig.areaGroups[0],
-        step: {
-          ...defaultConsultationSurveyConfig.areaGroups[0].step,
-          title: settings.consultationAreaQuestion || defaultConsultationSurveyConfig.areaGroups[0].step.title,
-          options: settingOptions(settings.consultationAreaOptions, defaultConsultationSurveyConfig.areaGroups[0].step.options),
-        },
+        steps: [
+          {
+            ...defaultConsultationSteps[1],
+            title: settings.consultationAreaQuestion || defaultConsultationSteps[1].title,
+            options: settingOptions(settings.consultationAreaOptions, defaultConsultationSteps[1].options),
+          },
+          {
+            ...defaultConsultationSteps[2],
+            title: settings.consultationStatusQuestion || defaultConsultationSteps[2].title,
+            options: settingOptions(settings.consultationStatusOptions, defaultConsultationSteps[2].options),
+          },
+          {
+            ...defaultConsultationSteps[3],
+            title: settings.consultationReasonQuestion || defaultConsultationSteps[3].title,
+            options: settingOptions(settings.consultationReasonOptions, defaultConsultationSteps[3].options),
+          },
+        ],
       },
       defaultConsultationSurveyConfig.areaGroups[1],
     ],
     commonSteps: [
-      {
-        key: 'homeStatus',
-        title: settings.consultationStatusQuestion || defaultConsultationSteps[2].title,
-        options: settingOptions(settings.consultationStatusOptions, defaultConsultationSteps[2].options),
-      },
-      {
-        key: 'reason',
-        title: settings.consultationReasonQuestion || defaultConsultationSteps[3].title,
-        options: settingOptions(settings.consultationReasonOptions, defaultConsultationSteps[3].options),
-      },
       {
         key: 'budget',
         title: settings.consultationBudgetQuestion || defaultConsultationSteps[4].title,
@@ -621,7 +639,7 @@ export default function WeveDesignLanding() {
       consultationSurveyConfig.areaGroups.find((group) => group.propertyOptions.includes(formData.propertyType)) ||
       consultationSurveyConfig.areaGroups[0];
 
-    return [consultationSurveyConfig.propertyStep, selectedAreaGroup.step, ...consultationSurveyConfig.commonSteps];
+    return [consultationSurveyConfig.propertyStep, ...(selectedAreaGroup.steps || []).slice(0, 3), ...consultationSurveyConfig.commonSteps];
   }, [consultationSurveyConfig, formData.propertyType]);
   const consultationTotalSteps = consultationSteps.length + 1;
 
