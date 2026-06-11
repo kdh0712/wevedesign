@@ -2426,10 +2426,13 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                   href={project.blogUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-2 self-start rounded-md border border-[#d8b461] bg-[#fff7df] px-4 py-3 text-sm font-bold text-[#171512] transition hover:bg-[#f1c76a]"
+                  className="hover-shine inline-flex items-center gap-3 self-start rounded-md border border-[#d8b461]/70 bg-[#f1c76a] px-4 py-3 text-sm font-bold text-[#171512] shadow-[0_14px_30px_rgba(191,143,51,0.22)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#ffd879]"
                 >
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/75 text-[#8f6f43] shadow-sm">
+                    <ArrowUpRight size={15} />
+                  </span>
                   블로그에서 자세히 보기
-                  <ArrowUpRight size={16} />
+                  <ArrowUpRight size={16} className="shrink-0" />
                 </a>
               )}
               {project.description && (
