@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { assertManager, hashId, managerClient } from '../_utils';
+import { firebaseSignUp, getFirebaseAccounts, isFirebaseManagerConfigured, setFirebaseProfile, type FirebaseProfile } from '../firebase';
 
 export const runtime = 'nodejs';
 
@@ -10,6 +11,23 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
+    const firebaseToken = request.headers.get('x-firebase-token') || '';
+    if (isFirebaseManagerConfigured() && firebaseToken) {
+      const accounts = await getFirebaseAccounts(firebaseToken);
+      return NextResponse.json({
+        accounts: accounts.map((account) => ({
+          _id: account.uid,
+          name: account.name,
+          loginId: account.email,
+          role: account.role,
+          permissions: account.permissions,
+          isActive: account.isActive,
+          createdAt: account.createdAt,
+          updatedAt: account.updatedAt,
+        })),
+      });
+    }
+
     const accounts = await managerClient.fetch(
       '*[_type == "managerAccount"] | order(_createdAt desc){_id,name,loginId,role,permissions,isActive,createdAt,updatedAt}',
     );
@@ -42,6 +60,34 @@ export async function POST(request: Request) {
 
     if (!id && !password) {
       return NextResponse.json({ error: '새 계정은 비밀번호가 필요합니다.' }, { status: 400 });
+    }
+
+    const firebaseToken = request.headers.get('x-firebase-token') || '';
+    if (isFirebaseManagerConfigured() && firebaseToken) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId)) {
+        return NextResponse.json({ error: 'Firebase 계정은 로그인 이메일 형식으로 입력해야 합니다.' }, { status: 400 });
+      }
+
+      const profile: Omit<FirebaseProfile, 'uid'> = {
+        name,
+        email: loginId,
+        role,
+        permissions: role === 'admin' ? Array.from(allowedPermissions) : permissions,
+        isActive,
+        updatedAt: now,
+      };
+
+      if (id) {
+        const record = await setFirebaseProfile(id, firebaseToken, profile);
+        return NextResponse.json({ account: { _id: id, loginId, ...record } });
+      }
+
+      const createdUser = await firebaseSignUp(loginId, password);
+      const record = await setFirebaseProfile(createdUser.localId, createdUser.idToken, {
+        ...profile,
+        createdAt: now,
+      });
+      return NextResponse.json({ account: { _id: createdUser.localId, loginId, ...record } });
     }
 
     const duplicated = await managerClient.fetch<{ _id: string } | null>(
@@ -86,6 +132,12 @@ export async function DELETE(request: Request) {
     const body = await request.json();
     const id = String(body?.id || '').trim();
     if (!id) return NextResponse.json({ error: '삭제할 계정을 선택해 주세요.' }, { status: 400 });
+
+    const firebaseToken = request.headers.get('x-firebase-token') || '';
+    if (isFirebaseManagerConfigured() && firebaseToken) {
+      await setFirebaseProfile(id, firebaseToken, { isActive: false, updatedAt: new Date().toISOString() });
+      return NextResponse.json({ ok: true });
+    }
 
     await managerClient.delete(id);
     return NextResponse.json({ ok: true });

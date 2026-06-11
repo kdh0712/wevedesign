@@ -214,6 +214,7 @@ type OfficeApiResponse = Partial<OfficeData> & {
 type AuthApiResponse = {
   error?: string;
   token?: string;
+  firebaseToken?: string;
   user?: ManagerUser;
 };
 
@@ -397,6 +398,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
 
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
+  const [firebaseToken, setFirebaseToken] = useState('');
   const [loginId, setLoginId] = useState('admin');
   const [loginPassword, setLoginPassword] = useState('');
   const [currentUser, setCurrentUser] = useState<ManagerUser | null>(null);
@@ -546,12 +548,13 @@ export default function ManagerPage() {
     const savedSession = window.localStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
     if (savedSession) {
       try {
-        const parsed = JSON.parse(savedSession) as { token?: string; user?: ManagerUser };
+        const parsed = JSON.parse(savedSession) as { token?: string; firebaseToken?: string; user?: ManagerUser };
         if (parsed.token && parsed.user) {
           setPassword(parsed.token);
+          setFirebaseToken(parsed.firebaseToken || '');
           setCurrentUser(parsed.user);
           void loadOfficeData(parsed.token, { silent: true });
-          if (parsed.user.role === 'admin') void loadAccounts(parsed.token);
+          if (parsed.user.role === 'admin') void loadAccounts(parsed.token, parsed.firebaseToken || '');
           return;
         }
       } catch {
@@ -603,6 +606,7 @@ export default function ManagerPage() {
   const authHeaders = (managerPassword = password) => ({
     'x-manager-password': managerPassword,
     'x-manager-user': currentUser?.loginId || 'admin',
+    ...(firebaseToken ? { 'x-firebase-token': firebaseToken } : {}),
   });
 
   const readJsonResponse = async <T,>(response: Response): Promise<T> => {
@@ -638,11 +642,12 @@ export default function ManagerPage() {
       }
 
       setPassword(result.token);
+      setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
-      window.localStorage.setItem(MANAGER_SESSION_STORAGE_KEY, JSON.stringify({ token: result.token, user: result.user }));
+      window.localStorage.setItem(MANAGER_SESSION_STORAGE_KEY, JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user }));
       window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, result.token);
       await loadOfficeData(result.token, { silent: true });
-      if (result.user.role === 'admin') await loadAccounts(result.token);
+      if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
       setStatus('로그인했습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
@@ -655,16 +660,22 @@ export default function ManagerPage() {
     window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
     window.localStorage.removeItem(MANAGER_PASSWORD_STORAGE_KEY);
     setPassword('');
+    setFirebaseToken('');
     setLoginPassword('');
     setCurrentUser(null);
     setIsUnlocked(false);
     setActiveTab('dashboard');
   };
 
-  const loadAccounts = async (managerPassword = password) => {
+  const loadAccounts = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
     if (!managerPassword) return;
     try {
-      const response = await fetch('/api/manager/accounts', { headers: { 'x-manager-password': managerPassword } });
+      const response = await fetch('/api/manager/accounts', {
+        headers: {
+          'x-manager-password': managerPassword,
+          ...(firebaseAuthToken ? { 'x-firebase-token': firebaseAuthToken } : {}),
+        },
+      });
       const data = await readJsonResponse<AccountApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '계정 목록을 불러오지 못했습니다.');
       setAccounts(data.accounts || []);
@@ -1448,7 +1459,7 @@ export default function ManagerPage() {
               계정별 권한에 따라 사무업무와 홈페이지 관리 메뉴를 표시합니다.
             </p>
             <label className="mt-5 grid gap-2 text-sm font-semibold text-[#4d5d66]">
-              계정 ID
+              계정 ID 또는 이메일
               <input
                 type="text"
                 value={loginId}
@@ -1482,7 +1493,7 @@ export default function ManagerPage() {
         <aside className="hidden w-64 shrink-0 flex-col bg-[#273541] text-[#dfe8ed] lg:flex">
           <div className="border-b border-white/10 px-6 py-6">
             <div className="flex items-center gap-3">
-              <img src="/weve-mark.png" alt="WEVE DESIGN" className="h-10 w-10 rounded-md bg-white/8 object-contain p-1" />
+              <img src="/weve-mark.png" alt="WEVE DESIGN" className="brand-mark-on-dark h-11 w-11 rounded-md bg-white/8 object-contain p-1.5" />
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
                 <h1 className="mt-1 text-xl font-semibold text-white">통합 관리</h1>
@@ -1869,7 +1880,7 @@ export default function ManagerPage() {
               <div className="grid gap-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <SettingInput label="이름" value={accountForm.name} onChange={(value) => setAccountForm({ ...accountForm, name: value })} placeholder="예: 현장 관리자" />
-                  <SettingInput label="로그인 ID" value={accountForm.loginId} onChange={(value) => setAccountForm({ ...accountForm, loginId: value.trim() })} placeholder="예: staff01" />
+                <SettingInput label="로그인 이메일" value={accountForm.loginId} onChange={(value) => setAccountForm({ ...accountForm, loginId: value.trim() })} placeholder="예: staff@wevedesign.co.kr" />
                   <SettingInput
                     label={accountForm.id ? '새 비밀번호(변경 시 입력)' : '비밀번호'}
                     value={accountForm.password}

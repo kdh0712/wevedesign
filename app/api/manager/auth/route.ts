@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 import { managerClient } from '../_utils';
+import {
+  firebaseLookup,
+  firebaseSignIn,
+  getFirebaseAdminFlag,
+  getFirebaseProfile,
+  isFirebaseManagerConfigured,
+  setFirebaseProfile,
+} from '../firebase';
 
 export const runtime = 'nodejs';
 
@@ -28,6 +36,45 @@ export async function POST(request: Request) {
 
     if (!loginPassword) {
       return NextResponse.json({ error: '비밀번호를 입력해 주세요.' }, { status: 400 });
+    }
+
+    if (isFirebaseManagerConfigured() && loginId.includes('@')) {
+      const firebaseUser = await firebaseSignIn(loginId, loginPassword);
+      const lookupUser = await firebaseLookup(firebaseUser.idToken);
+      const uid = lookupUser?.localId || firebaseUser.localId;
+      const email = lookupUser?.email || firebaseUser.email || loginId;
+      let profile = await getFirebaseProfile(uid, firebaseUser.idToken);
+
+      if (!profile) {
+        profile = {
+          uid,
+          name: email.split('@')[0],
+          email,
+          role: 'staff',
+          permissions: ['dashboard', 'consultations'],
+          isActive: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await setFirebaseProfile(uid, firebaseUser.idToken, profile);
+      }
+
+      if (profile.isActive === false) {
+        return NextResponse.json({ error: '비활성화된 계정입니다.' }, { status: 403 });
+      }
+
+      const isAdmin = profile.role === 'admin' || (await getFirebaseAdminFlag(uid, firebaseUser.idToken));
+      return NextResponse.json({
+        token: managerPassword,
+        firebaseToken: firebaseUser.idToken,
+        user: {
+          id: uid,
+          name: profile.name || email.split('@')[0],
+          loginId: email,
+          role: isAdmin ? 'admin' : 'staff',
+          permissions: isAdmin ? allPermissions : profile.permissions || [],
+        },
+      });
     }
 
     if ((loginId === 'admin' || loginId === 'manager') && loginPassword === managerPassword) {
