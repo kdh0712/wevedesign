@@ -63,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     const firebaseToken = request.headers.get('x-firebase-token') || '';
-    if (isFirebaseManagerConfigured() && firebaseToken) {
+    if (isFirebaseManagerConfigured()) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId)) {
         return NextResponse.json({ error: 'Firebase 계정은 로그인 이메일 형식으로 입력해야 합니다.' }, { status: 400 });
       }
@@ -78,6 +78,9 @@ export async function POST(request: Request) {
       };
 
       if (id) {
+        if (!firebaseToken) {
+          return NextResponse.json({ error: 'Firebase 계정 수정은 Firebase 관리자 계정으로 로그인해야 합니다.' }, { status: 401 });
+        }
         const record = await setFirebaseProfile(id, firebaseToken, profile);
         return NextResponse.json({ account: { _id: id, loginId, ...record } });
       }
