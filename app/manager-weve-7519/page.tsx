@@ -525,6 +525,22 @@ export default function ManagerPage() {
     return tabs.filter((tab) => currentUser.permissions.includes(tab.key));
   }, [currentUser]);
 
+  const visibleAccounts = useMemo(() => {
+    if (!currentUser) return accounts;
+
+    const currentAccount: ManagerAccount = {
+      _id: currentUser.id,
+      name: currentUser.name,
+      loginId: currentUser.loginId,
+      role: currentUser.role,
+      permissions: currentUser.permissions,
+      isActive: true,
+    };
+
+    const hasCurrentAccount = accounts.some((account) => account._id === currentUser.id || account.loginId === currentUser.loginId);
+    return hasCurrentAccount ? accounts : [currentAccount, ...accounts];
+  }, [accounts, currentUser]);
+
   const previews = useMemo(() => buildPreview(files), [files]);
   const filteredProjectsForEdit = useMemo(() => {
     if (!projectFilterCategoryId) return officeData.projects;
@@ -1956,13 +1972,21 @@ export default function ManagerPage() {
               </div>
             </Panel>
             <Panel title="계정 목록">
+              {!firebaseToken && (
+                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                  현재 기존 관리자 비밀번호 세션입니다. Firebase 사용자 목록을 보려면 로그아웃 후 Firebase 이메일 계정으로 다시 로그인하세요.
+                  Firebase 계정의 UID는 Realtime Database의 launcher_admins에도 true로 등록되어 있어야 합니다.
+                </div>
+              )}
               <RecordList
                 empty="등록된 실무 계정이 없습니다."
-                items={accounts.map((account) => ({
+                items={visibleAccounts.map((account) => ({
                   key: account._id,
                   title: `${account.name || '이름 없음'} · ${account.loginId || 'ID 없음'}`,
                   meta: `${account.role === 'admin' ? '총괄 관리자' : '실무 계정'} · ${account.isActive === false ? '비활성' : '사용 중'}`,
-                  body: (account.permissions || []).map((permission) => tabs.find((tab) => tab.key === permission)?.label || permission).join(', '),
+                  body: (Array.isArray(account.permissions) ? account.permissions : [])
+                    .map((permission) => tabs.find((tab) => tab.key === permission)?.label || permission)
+                    .join(', '),
                   action: (
                     <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                       <button onClick={() => editAccount(account)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">

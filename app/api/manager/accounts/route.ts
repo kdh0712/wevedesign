@@ -6,6 +6,20 @@ export const runtime = 'nodejs';
 
 const allowedPermissions = new Set(['dashboard', 'consultations', 'customers', 'sales', 'inventory', 'vendors', 'portfolio', 'accounts']);
 
+const normalizePermissions = (value: unknown) => {
+  if (Array.isArray(value)) {
+    return value.filter((permission) => allowedPermissions.has(String(permission))).map(String);
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .filter((permission) => allowedPermissions.has(String(permission)))
+      .map(String);
+  }
+
+  return [];
+};
+
 export async function GET(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
@@ -20,7 +34,7 @@ export async function GET(request: Request) {
           name: account.name,
           loginId: account.email,
           role: account.role,
-          permissions: account.permissions,
+          permissions: normalizePermissions(account.permissions),
           isActive: account.isActive,
           createdAt: account.createdAt,
           updatedAt: account.updatedAt,
@@ -48,9 +62,7 @@ export async function POST(request: Request) {
     const loginId = String(body?.loginId || '').trim();
     const password = String(body?.password || '').trim();
     const role = body?.role === 'admin' ? 'admin' : 'staff';
-    const permissions = Array.isArray(body?.permissions)
-      ? body.permissions.filter((permission: unknown) => allowedPermissions.has(String(permission))).map(String)
-      : [];
+    const permissions = normalizePermissions(body?.permissions);
     const isActive = body?.isActive !== false;
     const now = new Date().toISOString();
 

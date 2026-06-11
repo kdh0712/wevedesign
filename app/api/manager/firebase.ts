@@ -22,7 +22,13 @@ async function firebaseFetch<T>(url: string, init?: RequestInit): Promise<T> {
   const data = (await response.json().catch(() => null)) as (T & { error?: { message?: string } }) | null;
 
   if (!response.ok) {
-    throw new Error(data?.error?.message || `Firebase request failed: ${response.status}`);
+    const message = data?.error?.message || `Firebase request failed: ${response.status}`;
+    if (response.status === 401 || message.toLowerCase().includes('permission')) {
+      throw new Error(
+        'Firebase Realtime Database 권한이 없습니다. 로그인한 사용자의 UID가 launcher_admins에 true로 등록되어 있는지, /users 읽기 규칙이 허용되어 있는지 확인해 주세요.',
+      );
+    }
+    throw new Error(message);
   }
 
   return data as T;
