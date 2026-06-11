@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { assertManager, hashId, managerClient } from '../_utils';
-import { firebaseSignUp, getFirebaseAccounts, isFirebaseManagerConfigured, setFirebaseProfile, type FirebaseProfile } from '../firebase';
+import {
+  firebaseLookup,
+  firebaseSignUp,
+  getFirebaseAccounts,
+  getFirebaseAdminFlag,
+  getFirebaseProfile,
+  isFirebaseManagerConfigured,
+  setFirebaseProfile,
+  type FirebaseProfile,
+} from '../firebase';
 
 export const runtime = 'nodejs';
 
@@ -20,8 +29,30 @@ const normalizePermissions = (value: unknown) => {
   return [];
 };
 
-export async function GET(request: Request) {
+async function assertAccountAdmin(request: Request) {
   const authError = assertManager(request);
+  if (authError) return authError;
+
+  const firebaseToken = request.headers.get('x-firebase-token') || '';
+  if (!isFirebaseManagerConfigured() || !firebaseToken) return null;
+
+  const user = await firebaseLookup(firebaseToken);
+  const uid = user?.localId;
+  if (!uid) {
+    return NextResponse.json({ error: 'Firebase 로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.' }, { status: 401 });
+  }
+
+  const profile = await getFirebaseProfile(uid, firebaseToken);
+  const isAdmin = profile?.role === 'admin' || (await getFirebaseAdminFlag(uid, firebaseToken));
+  if (!isAdmin) {
+    return NextResponse.json({ error: '총괄 관리자 계정만 계정을 추가, 수정, 삭제할 수 있습니다.' }, { status: 403 });
+  }
+
+  return null;
+}
+
+export async function GET(request: Request) {
+  const authError = await assertAccountAdmin(request);
   if (authError) return authError;
 
   try {
@@ -52,7 +83,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
+  const authError = await assertAccountAdmin(request);
   if (authError) return authError;
 
   try {
@@ -140,7 +171,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authError = assertManager(request);
+  const authError = await assertAccountAdmin(request);
   if (authError) return authError;
 
   try {
