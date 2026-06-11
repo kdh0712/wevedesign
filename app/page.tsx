@@ -20,7 +20,6 @@ import {
   ShieldCheck,
   Sparkles,
   X,
-  ZoomIn,
 } from 'lucide-react';
 
 type Category = {
@@ -2318,8 +2317,6 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
 }
 
 function ProjectModal({ project, onClose }: { project: Project; onClose: () => void }) {
-  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt: string } | null>(null);
-  const [lightboxTop, setLightboxTop] = useState(80);
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const legacyImages =
     project.gallery
@@ -2353,16 +2350,6 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
         }, []);
   const detailImageCount = imageGroups.reduce((count, group) => count + group.images.length, 0);
   const defaultProjectIntro = '공간의 분위기와 시공 포인트를 사진으로 확인해 보세요.';
-  const openOriginalImage = (image: { src: string; alt: string }, event: React.MouseEvent<HTMLElement>) => {
-    const container = modalScrollRef.current;
-
-    if (container) {
-      const rect = container.getBoundingClientRect();
-      setLightboxTop(Math.max(24, container.scrollTop + event.clientY - rect.top - 260));
-    }
-
-    setLightboxImage(image);
-  };
 
   return (
     <div ref={modalScrollRef} className="fixed inset-0 z-[80] overflow-y-auto bg-[#171512]/72 px-4 py-6 backdrop-blur-sm md:px-8">
@@ -2387,24 +2374,12 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
             <div className="min-w-0 overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={(event) => openOriginalImage({ src: project.mainImage!, alt: project.mainImageAlt || project.title }, event)}
-                    className="group relative block w-full"
-                  >
-                    <img
-                      src={optimizedImage(project.mainImage, 1500)}
-                      alt={project.mainImageAlt || project.title}
-                      className="block max-h-[72vh] w-full max-w-full object-contain"
-                      style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
-                    />
-                    <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                      <ZoomIn size={14} />
-                      Original
-                    </span>
-                  </button>
-                </>
+                <img
+                  src={optimizedImage(project.mainImage, 1500)}
+                  alt={project.mainImageAlt || project.title}
+                  className="block max-h-[72vh] w-full max-w-full object-contain"
+                  style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
+                />
               ) : (
                 <div className="flex aspect-video items-center justify-center text-[#8d8578]">
                   <Camera size={48} />
@@ -2422,18 +2397,23 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                 {project.materials && <InfoRow label="주요 자재" value={project.materials} />}
               </div>
               {project.blogUrl && (
-                <a
-                  href={project.blogUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="hover-shine inline-flex items-center gap-3 self-start rounded-md border border-[#d8b461]/70 bg-[#f1c76a] px-4 py-3 text-sm font-bold text-[#171512] shadow-[0_14px_30px_rgba(191,143,51,0.22)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#ffd879]"
-                >
-                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/75 text-[#8f6f43] shadow-sm">
-                    <ArrowUpRight size={15} />
-                  </span>
-                  블로그에서 자세히 보기
-                  <ArrowUpRight size={16} className="shrink-0" />
-                </a>
+                <div className="grid gap-3">
+                  <p className="text-base font-semibold leading-7 text-[#514c43]">
+                    자세한 시공 현장을 보고 싶으시다면 블로그를 확인해주세요
+                  </p>
+                  <a
+                    href={project.blogUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="hover-shine inline-flex items-center gap-2.5 self-start rounded-md border border-[#d8b461]/70 bg-[#f1c76a] px-3.5 py-2.5 text-sm font-bold text-[#171512] shadow-[0_14px_30px_rgba(191,143,51,0.22)] transition duration-300 hover:-translate-y-0.5 hover:bg-[#ffd879]"
+                  >
+                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/75 text-[#8f6f43] shadow-sm">
+                      <ArrowUpRight size={14} />
+                    </span>
+                    블로그에서 자세히 보기
+                    <ArrowUpRight size={15} className="shrink-0" />
+                  </a>
+                </div>
               )}
               {project.description && (
                 <p className="whitespace-pre-line text-lg leading-8 text-[#514c43]">
@@ -2447,17 +2427,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <section>
               <h3 className="mb-4 text-xl font-semibold">시공 전 사진</h3>
               <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
-                <button
-                  type="button"
-                  onClick={(event) => openOriginalImage({ src: project.beforeImage!, alt: `${project.title} 시공 전` }, event)}
-                  className="group relative block w-full"
-                >
-                  <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="w-full object-cover" loading="lazy" />
-                  <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                    <ZoomIn size={14} />
-                    Original
-                  </span>
-                </button>
+                <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="max-h-[72vh] w-full object-contain" loading="lazy" />
               </div>
             </section>
           )}
@@ -2476,7 +2446,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                       </h4>
                       <span className="h-px flex-1 bg-[#d8d1c5]" />
                     </div>
-                    <ProjectImageSlider group={group} projectTitle={project.title} onOriginal={openOriginalImage} />
+                    <ProjectImageSlider group={group} projectTitle={project.title} />
                   </div>
                 ))}
               </div>
@@ -2484,7 +2454,6 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
           )}
         </div>
       </div>
-      {lightboxImage && <OriginalImageDialog image={lightboxImage} top={lightboxTop} onClose={() => setLightboxImage(null)} />}
     </div>
   );
 }
@@ -2492,11 +2461,9 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
 function ProjectImageSlider({
   group,
   projectTitle,
-  onOriginal,
 }: {
   group: { roomType: string; title: string; images: GalleryImage[] };
   projectTitle: string;
-  onOriginal: (image: { src: string; alt: string }, event: React.MouseEvent<HTMLElement>) => void;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeImage = group.images[Math.min(activeIndex, group.images.length - 1)];
@@ -2518,23 +2485,13 @@ function ProjectImageSlider({
 
   return (
     <figure className="overflow-hidden rounded-lg bg-white shadow-sm">
-      <div className="relative bg-[#f6f1e8]">
-        <button
-          type="button"
-          onClick={(event) => onOriginal({ src: activeImage.url!, alt: activeImage.alt || projectTitle }, event)}
-          className="group block w-full"
-        >
-          <img
-            src={optimizedImage(activeImage.url, 1400, 90)}
-            alt={activeImage.alt || projectTitle}
-            className="block aspect-[4/3] w-full object-cover"
-            loading="lazy"
-          />
-          <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-            <ZoomIn size={14} />
-            Original
-          </span>
-        </button>
+      <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f6f1e8]">
+        <img
+          src={optimizedImage(activeImage.url, 1400, 90)}
+          alt={activeImage.alt || projectTitle}
+          className="block h-full w-full object-contain"
+          loading="lazy"
+        />
         <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
           {activeImage.roomType || group.roomType}
         </span>
@@ -2556,31 +2513,21 @@ function ProjectImageSlider({
             >
               <ArrowRight size={18} />
             </button>
-            <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
-              {activeIndex + 1} / {group.images.length}
+            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/88 px-3 py-2 shadow-sm backdrop-blur">
+              {group.images.map((image, index) => (
+                <button
+                  key={`${image.url}-${index}`}
+                  type="button"
+                  onClick={() => setActiveIndex(index)}
+                  className={`h-2.5 rounded-full transition-all ${activeIndex === index ? 'w-6 bg-[#171512]' : 'w-2.5 bg-[#b8ad9b] hover:bg-[#8f6f43]'}`}
+                  aria-label={`${index + 1}번째 사진 보기`}
+                />
+              ))}
             </div>
           </>
         )}
       </div>
     </figure>
-  );
-}
-
-function OriginalImageDialog({ image, top, onClose }: { image: { src: string; alt: string }; top: number; onClose: () => void }) {
-  return (
-    <div className="absolute left-0 right-0 z-[95] flex justify-center px-4" style={{ top }} onClick={onClose}>
-      <div className="w-full max-w-4xl overflow-hidden rounded-lg border border-white/55 bg-[#fffdf8]/88 shadow-2xl backdrop-blur-md" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-[#d8d1c5]/70 px-4 py-3">
-          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#f1c76a]">Original view</span>
-          <button type="button" onClick={onClose} className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-white text-[#171512]" aria-label="원본 보기 닫기">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="flex max-h-[72vh] items-center justify-center bg-white/20 p-4">
-          <img src={image.src} alt={image.alt} className="max-h-[68vh] max-w-full object-contain" />
-        </div>
-      </div>
-    </div>
   );
 }
 function InfoRow({ label, value }: { label: string; value: string }) {
