@@ -53,7 +53,7 @@ const categoryQuery = `*[_type == "category" && coalesce(isVisible, true) != fal
   "value": slug.current
 }`;
 
-const settingsQuery = `*[_type == "siteSettings"][0]{
+const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){
   "heroImage": heroImage.asset->url,
   "heroImageAlt": heroImage.alt,
   "heroImage2": heroImage2.asset->url,
@@ -108,7 +108,8 @@ const settingsQuery = `*[_type == "siteSettings"][0]{
   representativeName,
   businessNumber,
   companyStartYear,
-  kakaoUrl
+  kakaoUrl,
+  kakaoChannelManagerUrl
 }`;
 
 export async function GET() {

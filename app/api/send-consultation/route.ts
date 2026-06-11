@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
+import { isPhoneVerified } from '../phone-verification/store';
 
 type ConsultationPayload = {
   name?: string;
@@ -17,6 +18,7 @@ type ConsultationPayload = {
   detailAddress?: string;
   message?: string;
   privacyAgreed?: boolean;
+  phoneVerificationToken?: string;
 };
 
 const escapeHtml = (value: string) =>
@@ -52,7 +54,7 @@ const fieldRow = (label: string, value: string) => `
 
 export async function POST(request: Request) {
   try {
-    const settings = await client.fetch('*[_type == "siteSettings"][0]{consultationEmail}', {}, { next: { revalidate: 60 } });
+    const settings = await client.fetch('coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail}', {}, { next: { revalidate: 60 } });
     const toEmail = settings?.consultationEmail || process.env.CONSULTATION_TO_EMAIL || 'ehogh1@gmail.com';
     const payload = (await request.json()) as ConsultationPayload;
 
@@ -85,6 +87,10 @@ export async function POST(request: Request) {
       !privacyAgreed
     ) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
+    }
+
+    if (!isPhoneVerified(phone, payload.phoneVerificationToken)) {
+      return NextResponse.json({ error: '휴대폰 인증을 완료해 주세요.' }, { status: 400 });
     }
 
     if (!process.env.SANITY_WRITE_TOKEN) {

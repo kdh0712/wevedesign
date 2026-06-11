@@ -120,6 +120,7 @@ type SiteSettings = {
   consultationPrivacyText?: string;
   consultationSurveyConfig?: string;
   kakaoUrl?: string;
+  kakaoChannelManagerUrl?: string;
 };
 
 type DaumPostcodeData = {
@@ -235,6 +236,7 @@ const defaultSettings: Required<SiteSettings> = {
     '수집 항목: 이름, 연락처, 시공 주소, 상담 설문 답변, 요청사항\n수집 목적: 인테리어 상담, 실측 및 견적 안내, 고객 문의 응대\n보유 기간: 상담 완료 후 1년 또는 고객 삭제 요청 시까지\n제공받는 자: WEVE DESIGN 상담 및 시공 담당자\n동의를 거부할 권리가 있으나, 동의하지 않을 경우 상담 신청이 제한될 수 있습니다.',
   consultationSurveyConfig: '',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
+  kakaoChannelManagerUrl: '',
 };
 
 const fallbackHeroSlides = [
@@ -591,6 +593,11 @@ export default function WeveDesignLanding() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
+  const [phoneVerificationCode, setPhoneVerificationCode] = useState('');
+  const [phoneVerificationToken, setPhoneVerificationToken] = useState('');
+  const [phoneVerificationStatus, setPhoneVerificationStatus] = useState<'idle' | 'sent' | 'verified' | 'error'>('idle');
+  const [phoneVerificationMessage, setPhoneVerificationMessage] = useState('');
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
@@ -789,6 +796,10 @@ export default function WeveDesignLanding() {
     const featured = projects.filter((project) => project.featured);
     return featured.length > 0 ? featured : projects;
   }, [projects]);
+  const loopedFeaturedProjects = useMemo(
+    () => (featuredProjects.length > 1 ? [...featuredProjects, ...featuredProjects] : featuredProjects),
+    [featuredProjects],
+  );
   const categoriesWithCounts = useMemo(
     () =>
       categories.map((category) => ({
@@ -1019,6 +1030,13 @@ export default function WeveDesignLanding() {
           ? formatPhoneNumber(value)
           : value;
 
+    if (name === 'phone') {
+      setPhoneVerificationStatus('idle');
+      setPhoneVerificationCode('');
+      setPhoneVerificationToken('');
+      setPhoneVerificationMessage('');
+    }
+
     setFormData((current) => ({ ...current, [name]: nextValue }));
     resetSubmitMessage();
   };
@@ -1094,6 +1112,47 @@ export default function WeveDesignLanding() {
     }).open();
   };
 
+  const requestPhoneVerification = async () => {
+    setSubmitStatus('');
+    setPhoneVerificationMessage('');
+    setIsSendingVerification(true);
+    try {
+      const response = await fetch('/api/phone-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', phone: formData.phone }),
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string; message?: string; debugCode?: string } | null;
+      if (!response.ok) throw new Error(data?.error || '인증번호 요청에 실패했습니다.');
+      setPhoneVerificationStatus('sent');
+      setPhoneVerificationMessage(data?.debugCode ? `임시 인증번호: ${data.debugCode}` : data?.message || '인증번호를 발송했습니다.');
+    } catch (caught) {
+      setPhoneVerificationStatus('error');
+      setPhoneVerificationMessage(caught instanceof Error ? caught.message : '인증번호 요청 중 오류가 발생했습니다.');
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const confirmPhoneVerification = async () => {
+    setPhoneVerificationMessage('');
+    try {
+      const response = await fetch('/api/phone-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', phone: formData.phone, code: phoneVerificationCode }),
+      });
+      const data = (await response.json().catch(() => null)) as { error?: string; verified?: boolean; token?: string } | null;
+      if (!response.ok || !data?.verified) throw new Error(data?.error || '인증번호 확인에 실패했습니다.');
+      setPhoneVerificationStatus('verified');
+      setPhoneVerificationToken(data.token || '');
+      setPhoneVerificationMessage('휴대폰 인증이 완료되었습니다.');
+    } catch (caught) {
+      setPhoneVerificationStatus('error');
+      setPhoneVerificationMessage(caught instanceof Error ? caught.message : '인증번호 확인 중 오류가 발생했습니다.');
+    }
+  };
+
   const handleSubmit = async () => {
     const payload = {
       name: formData.name.trim(),
@@ -1110,6 +1169,7 @@ export default function WeveDesignLanding() {
       privacyAgreed: formData.privacyAgreed,
       address: formData.address.trim(),
       message: formData.message.trim(),
+      phoneVerificationToken,
     };
 
     if (
@@ -1119,7 +1179,9 @@ export default function WeveDesignLanding() {
       !payload.homeStatus ||
       !payload.reason ||
       !payload.budget ||
-      !payload.timeline
+      !payload.timeline ||
+      phoneVerificationStatus !== 'verified' ||
+      !phoneVerificationToken
     ) {
       setSubmitStatus('missing');
       return;
@@ -1137,6 +1199,10 @@ export default function WeveDesignLanding() {
         setIsSubmitted(true);
         setConsultationStep(0);
         setFormData(initialConsultationData);
+        setPhoneVerificationCode('');
+        setPhoneVerificationToken('');
+        setPhoneVerificationStatus('idle');
+        setPhoneVerificationMessage('');
         setSubmitStatus('');
         setSubmitErrorMessage('');
       } else {
@@ -1396,10 +1462,10 @@ export default function WeveDesignLanding() {
               </button>
             </div>
 
-            <div className="portfolio-scroll -mx-5 overflow-x-auto px-5 pb-4 md:-mx-8 md:px-8">
-              <div className="flex items-stretch gap-5">
-                {featuredProjects.map((project) => (
-                  <div key={project.id} className="w-[280px] shrink-0 sm:w-[340px] lg:w-[390px]">
+            <div className="project-marquee -mx-5 overflow-hidden px-5 pb-4 md:-mx-8 md:px-8">
+              <div className={`flex items-stretch gap-5 ${featuredProjects.length > 1 ? 'project-marquee-track' : ''}`}>
+                {loopedFeaturedProjects.map((project, index) => (
+                  <div key={`${project.id}-${index}`} className="w-[280px] shrink-0 sm:w-[340px] lg:w-[390px]">
                     <ProjectCard
                       project={project}
                       onClick={() => setSelectedProjectId(project.id)}
@@ -1822,6 +1888,40 @@ export default function WeveDesignLanding() {
                           placeholder="숫자만 입력"
                         />
                       </label>
+                      <div className="grid gap-3 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row">
+                          <button
+                            type="button"
+                            onClick={requestPhoneVerification}
+                            disabled={isSendingVerification || !formData.phone || phoneVerificationStatus === 'verified'}
+                            className="inline-flex min-h-12 items-center justify-center rounded-md bg-[#171512] px-4 text-sm font-semibold text-white disabled:opacity-45"
+                          >
+                            {isSendingVerification ? '요청 중...' : phoneVerificationStatus === 'verified' ? '인증 완료' : '인증번호 요청'}
+                          </button>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={phoneVerificationCode}
+                            onChange={(event) => setPhoneVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                            disabled={phoneVerificationStatus === 'verified'}
+                            className="min-h-12 flex-1 border border-[#d8d1c5] bg-white px-4 font-medium outline-none transition focus:border-[#171512] disabled:bg-[#f7f7f7]"
+                            placeholder="6자리 인증번호"
+                          />
+                          <button
+                            type="button"
+                            onClick={confirmPhoneVerification}
+                            disabled={phoneVerificationStatus === 'verified' || phoneVerificationCode.length !== 6}
+                            className="inline-flex min-h-12 items-center justify-center rounded-md border border-[#171512] bg-white px-4 text-sm font-semibold disabled:opacity-45"
+                          >
+                            확인
+                          </button>
+                        </div>
+                        {phoneVerificationMessage && (
+                          <p className={`text-sm font-semibold ${phoneVerificationStatus === 'verified' ? 'text-[#2f7d45]' : phoneVerificationStatus === 'error' ? 'text-red-600' : 'text-[#8f6f43]'}`}>
+                            {phoneVerificationMessage}
+                          </p>
+                        )}
+                      </div>
                       <div className="grid gap-3">
                         <span className="font-semibold">시공 주소 <span className="text-red-500">*</span></span>
                         <p className="text-sm text-[#8b8276]">우편번호 검색으로 주소를 찾은 뒤 상세 주소를 입력해주세요.</p>

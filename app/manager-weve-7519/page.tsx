@@ -6,12 +6,14 @@ import {
   Boxes,
   Building2,
   Check,
-  ClipboardList,
+  ExternalLink,
   FolderUp,
   Home,
   Image as ImageIcon,
+  KeyRound,
   Loader2,
-  Mail,
+  LogOut,
+  MessageCircle,
   PackagePlus,
   Phone,
   ShieldCheck,
@@ -40,7 +42,26 @@ type ManagerApiResponse = {
 };
 
 type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor' | 'project';
-type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sales' | 'inventory' | 'vendors' | 'portfolio';
+type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sales' | 'inventory' | 'vendors' | 'portfolio' | 'accounts';
+
+type ManagerUser = {
+  id: string;
+  name: string;
+  loginId: string;
+  role: 'admin' | 'staff';
+  permissions: TabKey[];
+};
+
+type ManagerAccount = {
+  _id: string;
+  name?: string;
+  loginId?: string;
+  role?: 'admin' | 'staff';
+  permissions?: TabKey[];
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 type Consultation = {
   _id: string;
@@ -190,6 +211,18 @@ type OfficeApiResponse = Partial<OfficeData> & {
   record?: Consultation | Customer | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
+type AuthApiResponse = {
+  error?: string;
+  token?: string;
+  user?: ManagerUser;
+};
+
+type AccountApiResponse = {
+  error?: string;
+  accounts?: ManagerAccount[];
+  account?: ManagerAccount;
+};
+
 const emptyOfficeData: OfficeData = {
   consultations: [],
   customers: [],
@@ -201,6 +234,7 @@ const emptyOfficeData: OfficeData = {
 };
 
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
+const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session';
 const OFFICE_REFRESH_SECONDS = 30;
 
 const homepagePreviewTargets = {
@@ -230,6 +264,7 @@ const homepagePreviewTargets = {
   contactBody: { key: 'contactBody', label: '상담 설명', src: '/#contact' },
   consultationEmail: { key: 'consultationEmail', label: '상담문의 이메일', src: '/#footer' },
   kakaoUrl: { key: 'kakaoUrl', label: '카카오톡 상담 링크', src: '/#contact' },
+  kakaoChannelManagerUrl: { key: 'kakaoChannelManagerUrl', label: '카카오 채널 관리 링크', src: '/#contact' },
   representativeName: { key: 'representativeName', label: '대표자명', src: '/#footer' },
   businessNumber: { key: 'businessNumber', label: '사업자등록번호', src: '/#footer' },
   companyStartYear: { key: 'companyStartYear', label: '회사 시작 연도', src: '/#footer' },
@@ -357,10 +392,24 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'inventory', label: '재고 관리', icon: <Boxes size={16} /> },
   { key: 'vendors', label: '협력업체', icon: <Building2 size={16} /> },
   { key: 'portfolio', label: '홈페이지', icon: <FolderUp size={16} /> },
+  { key: 'accounts', label: '계정 권한', icon: <KeyRound size={16} /> },
 ];
 
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
+  const [loginId, setLoginId] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [currentUser, setCurrentUser] = useState<ManagerUser | null>(null);
+  const [accounts, setAccounts] = useState<ManagerAccount[]>([]);
+  const [accountForm, setAccountForm] = useState({
+    id: '',
+    name: '',
+    loginId: '',
+    password: '',
+    role: 'staff' as 'admin' | 'staff',
+    permissions: ['dashboard', 'consultations'] as TabKey[],
+    isActive: true,
+  });
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [homepageMode, setHomepageMode] = useState<'quick' | 'detail'>('quick');
@@ -417,6 +466,7 @@ export default function ManagerPage() {
     consultationPrivacyText: '',
     consultationSurveyConfig: '',
     kakaoUrl: '',
+    kakaoChannelManagerUrl: '',
     heroImage: '',
     heroImage2: '',
     heroImage3: '',
@@ -467,6 +517,12 @@ export default function ManagerPage() {
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
 
+  const visibleTabs = useMemo(() => {
+    if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts');
+    if (currentUser.role === 'admin') return tabs;
+    return tabs.filter((tab) => currentUser.permissions.includes(tab.key));
+  }, [currentUser]);
+
   const previews = useMemo(() => buildPreview(files), [files]);
   const filteredProjectsForEdit = useMemo(() => {
     if (!projectFilterCategoryId) return officeData.projects;
@@ -487,11 +543,36 @@ export default function ManagerPage() {
   );
 
   useEffect(() => {
-    const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY);
-    if (!savedPassword) return;
+    const savedSession = window.localStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession) as { token?: string; user?: ManagerUser };
+        if (parsed.token && parsed.user) {
+          setPassword(parsed.token);
+          setCurrentUser(parsed.user);
+          void loadOfficeData(parsed.token, { silent: true });
+          if (parsed.user.role === 'admin') void loadAccounts(parsed.token);
+          return;
+        }
+      } catch {
+        window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
+      }
+    }
 
-    setPassword(savedPassword);
-    void loadOfficeData(savedPassword, { silent: true });
+    const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY);
+    if (savedPassword) {
+      const fallbackUser: ManagerUser = {
+        id: 'admin',
+        name: '총괄 관리자',
+        loginId: 'admin',
+        role: 'admin',
+        permissions: tabs.map((tab) => tab.key),
+      };
+      setPassword(savedPassword);
+      setCurrentUser(fallbackUser);
+      void loadOfficeData(savedPassword, { silent: true });
+      void loadAccounts(savedPassword);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -506,8 +587,22 @@ export default function ManagerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUnlocked, password]);
 
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.key === activeTab)) {
+      setActiveTab(visibleTabs[0]?.key || 'dashboard');
+    }
+  }, [activeTab, visibleTabs]);
+
+  useEffect(() => {
+    if (activeTab === 'accounts' && currentUser?.role === 'admin') {
+      void loadAccounts();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, currentUser?.role]);
+
   const authHeaders = (managerPassword = password) => ({
     'x-manager-password': managerPassword,
+    'x-manager-user': currentUser?.loginId || 'admin',
   });
 
   const readJsonResponse = async <T,>(response: Response): Promise<T> => {
@@ -525,6 +620,108 @@ export default function ManagerPage() {
     if (managerPassword) return true;
     setError('관리 비밀번호를 먼저 입력해 주세요.');
     return false;
+  };
+
+  const handleLogin = async () => {
+    setError('');
+    setStatus('');
+    setLoadingOffice(true);
+    try {
+      const response = await fetch('/api/manager/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId, password: loginPassword }),
+      });
+      const result = await readJsonResponse<AuthApiResponse>(response);
+      if (!response.ok || !result.token || !result.user) {
+        throw new Error(result.error || '로그인에 실패했습니다.');
+      }
+
+      setPassword(result.token);
+      setCurrentUser(result.user);
+      window.localStorage.setItem(MANAGER_SESSION_STORAGE_KEY, JSON.stringify({ token: result.token, user: result.user }));
+      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, result.token);
+      await loadOfficeData(result.token, { silent: true });
+      if (result.user.role === 'admin') await loadAccounts(result.token);
+      setStatus('로그인했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setLoadingOffice(false);
+    }
+  };
+
+  const handleLogout = () => {
+    window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
+    window.localStorage.removeItem(MANAGER_PASSWORD_STORAGE_KEY);
+    setPassword('');
+    setLoginPassword('');
+    setCurrentUser(null);
+    setIsUnlocked(false);
+    setActiveTab('dashboard');
+  };
+
+  const loadAccounts = async (managerPassword = password) => {
+    if (!managerPassword) return;
+    try {
+      const response = await fetch('/api/manager/accounts', { headers: { 'x-manager-password': managerPassword } });
+      const data = await readJsonResponse<AccountApiResponse>(response);
+      if (!response.ok) throw new Error(data.error || '계정 목록을 불러오지 못했습니다.');
+      setAccounts(data.accounts || []);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '계정 목록 조회 중 오류가 발생했습니다.');
+    }
+  };
+
+  const saveAccount = async () => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/accounts', {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(accountForm),
+      });
+      const data = await readJsonResponse<AccountApiResponse>(response);
+      if (!response.ok) throw new Error(data.error || '계정을 저장하지 못했습니다.');
+      setStatus('계정 권한을 저장했습니다.');
+      resetAccountForm();
+      await loadAccounts();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '계정 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  const deleteAccount = async (id: string) => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/accounts', {
+        method: 'DELETE',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id }),
+      });
+      const data = await readJsonResponse<AccountApiResponse>(response);
+      if (!response.ok) throw new Error(data.error || '계정을 삭제하지 못했습니다.');
+      setStatus('계정을 삭제했습니다.');
+      await loadAccounts();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '계정 삭제 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
   };
 
   const loadOfficeData = async (managerPassword = password, options: { silent?: boolean } = {}) => {
@@ -603,6 +800,7 @@ export default function ManagerPage() {
         consultationPrivacyText: settings.consultationPrivacyText || defaultPrivacyText,
         consultationSurveyConfig: savedSurveyConfig,
         kakaoUrl: settings.kakaoUrl || '',
+        kakaoChannelManagerUrl: settings.kakaoChannelManagerUrl || '',
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
         heroImage3: settings.heroImage3 || '',
@@ -765,6 +963,30 @@ export default function ManagerPage() {
   const resetVendorForm = () => {
     setEditingVendorId('');
     setVendorForm({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
+  };
+
+  const resetAccountForm = () => {
+    setAccountForm({
+      id: '',
+      name: '',
+      loginId: '',
+      password: '',
+      role: 'staff',
+      permissions: ['dashboard', 'consultations'],
+      isActive: true,
+    });
+  };
+
+  const editAccount = (account: ManagerAccount) => {
+    setAccountForm({
+      id: account._id,
+      name: account.name || '',
+      loginId: account.loginId || '',
+      password: '',
+      role: account.role || 'staff',
+      permissions: account.permissions?.length ? account.permissions : ['dashboard', 'consultations'],
+      isActive: account.isActive !== false,
+    });
   };
 
   const prepareCustomerFromConsultation = (consultation: Consultation) => {
@@ -1209,7 +1431,7 @@ export default function ManagerPage() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void loadOfficeData(password);
+              void handleLogin();
             }}
             className="w-full max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-2xl"
           >
@@ -1219,19 +1441,28 @@ export default function ManagerPage() {
               </span>
               <div>
                 <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">WEVE MANAGER</p>
-                <h1 className="text-2xl font-semibold tracking-normal">관리자 비밀번호</h1>
+                <h1 className="text-2xl font-semibold tracking-normal">관리자 로그인</h1>
               </div>
             </div>
             <p className="mt-4 text-sm leading-6 text-[#60717d]">
-              비밀번호를 입력하면 관리자 데이터와 홈페이지 설정을 함께 불러옵니다.
+              계정별 권한에 따라 사무업무와 홈페이지 관리 메뉴를 표시합니다.
             </p>
             <label className="mt-5 grid gap-2 text-sm font-semibold text-[#4d5d66]">
+              계정 ID
+              <input
+                type="text"
+                value={loginId}
+                onChange={(event) => setLoginId(event.target.value)}
+                autoFocus
+                className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+              />
+            </label>
+            <label className="mt-4 grid gap-2 text-sm font-semibold text-[#4d5d66]">
               비밀번호
               <input
                 type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                autoFocus
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
                 className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
               />
             </label>
@@ -1241,21 +1472,26 @@ export default function ManagerPage() {
               className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
               {loadingOffice ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
-              접속하기
+              로그인
             </button>
             {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
           </form>
         </div>
       )}
       <div className={`flex min-h-screen ${!isUnlocked ? 'pointer-events-none select-none blur-[2px]' : ''}`}>
-        <aside className="hidden w-64 shrink-0 bg-[#273541] text-[#dfe8ed] lg:block">
+        <aside className="hidden w-64 shrink-0 flex-col bg-[#273541] text-[#dfe8ed] lg:flex">
           <div className="border-b border-white/10 px-6 py-6">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
-            <h1 className="mt-2 text-xl font-semibold text-white">통합 관리</h1>
-            <p className="mt-1 text-xs text-[#9fb1bd]">상담부터 홈페이지까지</p>
+            <div className="flex items-center gap-3">
+              <img src="/weve-mark.png" alt="WEVE DESIGN" className="h-10 w-10 rounded-md bg-white/8 object-contain p-1" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
+                <h1 className="mt-1 text-xl font-semibold text-white">통합 관리</h1>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-[#9fb1bd]">{currentUser?.name || '관리자'} · {currentUser?.role === 'admin' ? '총괄 관리자' : '실무 계정'}</p>
           </div>
           <nav className="grid gap-1 px-3 py-4">
-            {tabs.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -1268,6 +1504,24 @@ export default function ManagerPage() {
               </button>
             ))}
           </nav>
+          <div className="mt-auto grid gap-2 border-t border-white/10 p-3">
+            <button
+              type="button"
+              onClick={() => window.open('/', '_blank', 'noopener,noreferrer')}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/16"
+            >
+              <Home size={16} />
+              홈페이지 가기
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-white/10 px-4 py-3 text-sm font-semibold text-[#dfe8ed] transition hover:bg-white/8"
+            >
+              <LogOut size={16} />
+              로그아웃
+            </button>
+          </div>
         </aside>
 
         <section className="min-w-0 flex-1 px-4 py-5 md:px-6">
@@ -1278,46 +1532,19 @@ export default function ManagerPage() {
                 <h1 className="mt-2 text-3xl font-semibold tracking-normal md:text-4xl">사무업무 통합 콘솔</h1>
                 <p className="mt-2 text-sm text-[#60717d]">상담, 고객, 매출, 재고, 협력업체, 홈페이지 관리를 한 곳에서 처리합니다.</p>
               </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <button
-                  onClick={() => loadOfficeData()}
-                  disabled={loadingOffice}
-                  className="inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
-                >
-                  {loadingOffice ? <Loader2 className="animate-spin" size={16} /> : <ClipboardList size={16} />}
-                  데이터 불러오기
+              <div className="flex flex-col items-start gap-2 sm:items-end">
+                <span className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">
+                  접속자 오늘 {visitStats?.todayCount ?? 0} · 이번 주 {visitStats?.weekCount ?? 0}
+                </span>
+                <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
+                  <LogOut size={15} />
+                  로그아웃
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.open('/', '_blank', 'noopener,noreferrer');
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-md border border-[#171512] bg-[#171512] px-4 py-2.5 text-center text-sm font-semibold text-white"
-                >
-                  <Home size={16} />
-                  홈페이지로 가기
-                </button>
-                <a href="/studio-weve-3891" className="rounded-md border border-[#c8d4da] bg-white px-4 py-2.5 text-center text-sm font-semibold">
-                  Sanity Studio
-                </a>
               </div>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
-                <p className="text-xs font-semibold text-[#60717d]">오늘 접속자 수</p>
-                <p className="mt-1 text-2xl font-semibold">{visitStats?.todayCount ?? 0}</p>
-              </div>
-              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
-                <p className="text-xs font-semibold text-[#60717d]">이번 주 접속자 수</p>
-                <p className="mt-1 text-2xl font-semibold">{visitStats?.weekCount ?? 0}</p>
-              </div>
-              <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
-                <p className="text-xs font-semibold text-[#60717d]">자동 새로고침</p>
-                <p className="mt-1 text-sm font-semibold text-[#273541]">
-                  {OFFICE_REFRESH_SECONDS}초마다 갱신{lastRefreshedAt ? ` · 마지막 ${lastRefreshedAt}` : ''}
-                </p>
-                <p className="mt-1 text-xs text-[#60717d]">상담 요청도 이 주기로 자동 반영됩니다.</p>
-              </div>
+            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold text-[#60717d]">
+              <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
+              {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1">마지막 갱신 {lastRefreshedAt}</span>}
             </div>
             <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
               <label className="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
@@ -1331,7 +1558,7 @@ export default function ManagerPage() {
                 />
               </label>
               <div className="flex gap-2 overflow-x-auto lg:hidden">
-                {tabs.map((tab) => (
+                {visibleTabs.map((tab) => (
                   <button
                     key={tab.key}
                     onClick={() => setActiveTab(tab.key)}
@@ -1356,7 +1583,7 @@ export default function ManagerPage() {
         </div>
 
         {activeTab === 'dashboard' && (
-          <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
             <Panel title="최근 상담 요청">
               <RecordList
                 empty="상담 기록이 없습니다."
@@ -1636,6 +1863,152 @@ export default function ManagerPage() {
           </div>
         )}
 
+        {activeTab === 'accounts' && currentUser?.role === 'admin' && (
+          <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+            <Panel title={accountForm.id ? '계정 권한 수정' : '계정 생성'}>
+              <div className="grid gap-4">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <SettingInput label="이름" value={accountForm.name} onChange={(value) => setAccountForm({ ...accountForm, name: value })} placeholder="예: 현장 관리자" />
+                  <SettingInput label="로그인 ID" value={accountForm.loginId} onChange={(value) => setAccountForm({ ...accountForm, loginId: value.trim() })} placeholder="예: staff01" />
+                  <SettingInput
+                    label={accountForm.id ? '새 비밀번호(변경 시 입력)' : '비밀번호'}
+                    value={accountForm.password}
+                    onChange={(value) => setAccountForm({ ...accountForm, password: value })}
+                    placeholder="계정 비밀번호"
+                  />
+                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                    역할
+                    <select
+                      value={accountForm.role}
+                      onChange={(event) => setAccountForm({ ...accountForm, role: event.target.value as 'admin' | 'staff' })}
+                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="staff">실무 계정</option>
+                      <option value="admin">총괄 관리자</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">접속 권한</h3>
+                      <p className="mt-1 text-sm text-[#60717d]">계정별로 접근 가능한 관리자 카테고리를 선택합니다.</p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#4d5d66]">
+                      <input
+                        type="checkbox"
+                        checked={accountForm.isActive}
+                        onChange={(event) => setAccountForm({ ...accountForm, isActive: event.target.checked })}
+                      />
+                      사용
+                    </label>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {tabs.map((tab) => {
+                      const checked = accountForm.role === 'admin' || accountForm.permissions.includes(tab.key);
+                      return (
+                        <label key={tab.key} className="flex items-center gap-3 rounded-md border border-[#d5dde2] bg-white px-4 py-3 text-sm font-semibold">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={accountForm.role === 'admin'}
+                            onChange={(event) => {
+                              const next = event.target.checked
+                                ? Array.from(new Set([...accountForm.permissions, tab.key]))
+                                : accountForm.permissions.filter((permission) => permission !== tab.key);
+                              setAccountForm({ ...accountForm, permissions: next });
+                            }}
+                          />
+                          {tab.icon}
+                          {tab.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={saveAccount}
+                    disabled={savingOffice}
+                    className="inline-flex items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60"
+                  >
+                    {savingOffice ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                    계정 저장
+                  </button>
+                  {accountForm.id && (
+                    <button type="button" onClick={resetAccountForm} className="rounded-md border border-[#d5dde2] bg-white px-5 py-3 font-semibold">
+                      수정 취소
+                    </button>
+                  )}
+                </div>
+              </div>
+            </Panel>
+            <Panel title="계정 목록">
+              <RecordList
+                empty="등록된 실무 계정이 없습니다."
+                items={accounts.map((account) => ({
+                  key: account._id,
+                  title: `${account.name || '이름 없음'} · ${account.loginId || 'ID 없음'}`,
+                  meta: `${account.role === 'admin' ? '총괄 관리자' : '실무 계정'} · ${account.isActive === false ? '비활성' : '사용 중'}`,
+                  body: (account.permissions || []).map((permission) => tabs.find((tab) => tab.key === permission)?.label || permission).join(', '),
+                  action: (
+                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => editAccount(account)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteAccount(account._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
+                }))}
+              />
+            </Panel>
+            <Panel title="카카오 채널">
+              <div className="grid gap-3">
+                <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#ffe812] text-[#171512]">
+                      <MessageCircle size={20} />
+                    </span>
+                    <div>
+                      <p className="font-semibold">채팅 요청 확인</p>
+                      <p className="mt-1 text-sm leading-6 text-[#60717d]">
+                        카카오 비즈니스 채널에서 들어온 채팅은 채널 관리자 페이지에서 확인합니다. 링크를 저장하면 이곳에서 바로 열 수 있습니다.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {homepageSettings.kakaoChannelManagerUrl && (
+                      <a
+                        href={homepageSettings.kakaoChannelManagerUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
+                      >
+                        채널 관리 열기
+                        <ExternalLink size={15} />
+                      </a>
+                    )}
+                    {homepageSettings.kakaoUrl && (
+                      <a
+                        href={homepageSettings.kakaoUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold"
+                      >
+                        고객 상담 링크
+                        <ExternalLink size={15} />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </Panel>
+          </div>
+        )}
+
         {activeTab === 'portfolio' && (
           <div className="grid gap-5">
             <div className="flex flex-wrap gap-2 rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
@@ -1669,6 +2042,7 @@ export default function ManagerPage() {
                 <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
                 <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
                 <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
+                <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
                 <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
                 <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
                 <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
@@ -1771,6 +2145,7 @@ export default function ManagerPage() {
                       <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
                       <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
                       <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
+                      <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
                       <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
                       <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
                       <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
@@ -2081,10 +2456,11 @@ export default function ManagerPage() {
 
 function MetricCard({ title, value, sub }: { title: string; value: string; sub: string }) {
   return (
-    <section className="rounded-lg border border-[#d9cdbb] bg-white p-4 shadow-sm">
-      <p className="text-sm font-semibold text-[#625d54]">{title}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-[#8f6f43]">{sub}</p>
+    <section className="relative overflow-hidden rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#38bcd4] via-[#f1c76a] to-[#273541]" />
+      <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60717d]">{title}</p>
+      <p className="mt-3 text-3xl font-semibold tracking-normal text-[#171512]">{value}</p>
+      <p className="mt-2 text-sm font-medium text-[#60717d]">{sub}</p>
     </section>
   );
 }
@@ -2092,7 +2468,10 @@ function MetricCard({ title, value, sub }: { title: string; value: string; sub: 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-xl font-semibold">{title}</h2>
+      <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold">
+        <span className="h-2 w-2 rounded-full bg-[#38bcd4]" />
+        {title}
+      </h2>
       {children}
     </section>
   );

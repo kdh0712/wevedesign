@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      '*[_type == "siteSettings"][0]{consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url}',
+      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -69,6 +69,7 @@ export async function PATCH(request: Request) {
       'consultationPrivacyText',
       'consultationSurveyConfig',
       'kakaoUrl',
+      'kakaoChannelManagerUrl',
     ];
 
     for (const field of allowedFields) {
@@ -85,11 +86,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: '저장할 홈페이지 설정을 입력해주세요.' }, { status: 400 });
     }
 
-    await managerClient.createIfNotExists({
-      _id: 'siteSettings',
-      _type: 'siteSettings',
-      title: 'WEVE DESIGN 홈페이지 설정',
-    });
+    const fixedSettings = await managerClient.fetch('*[_id == "siteSettings"][0]{_id}');
+    if (!fixedSettings?._id) {
+      const existingSettings = await managerClient.fetch('*[_type == "siteSettings"][0]');
+      const { _id, _rev, _createdAt, _updatedAt, ...portableSettings } = existingSettings || {};
+      await managerClient.createIfNotExists({
+        ...portableSettings,
+        _id: 'siteSettings',
+        _type: 'siteSettings',
+        title: portableSettings.title || 'WEVE DESIGN 홈페이지 설정',
+      });
+    }
 
     const settings = await managerClient.patch('siteSettings').set(updates).commit();
     return NextResponse.json({ settings });

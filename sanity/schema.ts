@@ -373,6 +373,13 @@ const siteSettings = defineType({
       type: 'url',
       group: 'location',
     }),
+    defineField({
+      name: 'kakaoChannelManagerUrl',
+      title: '카카오 채널 관리 링크',
+      type: 'url',
+      group: 'location',
+      description: '관리자 페이지에서 카카오 비즈니스 채널 관리자 화면으로 이동할 때 사용합니다.',
+    }),
   ],
   preview: {
     prepare() {
@@ -851,6 +858,56 @@ const officeVendor = defineType({
   },
 });
 
+const managerAccount = defineType({
+  name: 'managerAccount',
+  title: '관리자 계정',
+  type: 'document',
+  fields: [
+    defineField({ name: 'name', title: '이름', type: 'string' }),
+    defineField({ name: 'loginId', title: '로그인 ID', type: 'string' }),
+    defineField({ name: 'password', title: '비밀번호', type: 'string' }),
+    defineField({
+      name: 'role',
+      title: '역할',
+      type: 'string',
+      initialValue: 'staff',
+      options: {
+        list: [
+          { title: '총괄 관리자', value: 'admin' },
+          { title: '실무 계정', value: 'staff' },
+        ],
+      },
+    }),
+    defineField({
+      name: 'permissions',
+      title: '접속 권한',
+      type: 'array',
+      of: [{ type: 'string' }],
+      options: {
+        list: [
+          { title: '업무 현황', value: 'dashboard' },
+          { title: '상담 요청', value: 'consultations' },
+          { title: '고객 관리', value: 'customers' },
+          { title: '매출 관리', value: 'sales' },
+          { title: '재고 관리', value: 'inventory' },
+          { title: '협력업체', value: 'vendors' },
+          { title: '홈페이지', value: 'portfolio' },
+          { title: '계정 권한', value: 'accounts' },
+        ],
+      },
+    }),
+    defineField({ name: 'isActive', title: '사용 여부', type: 'boolean', initialValue: true }),
+    defineField({ name: 'createdAt', title: '생성일', type: 'datetime' }),
+    defineField({ name: 'updatedAt', title: '수정일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'name', loginId: 'loginId', role: 'role' },
+    prepare({ title, loginId, role }) {
+      return { title: title || loginId || '관리자 계정', subtitle: role === 'admin' ? '총괄 관리자' : '실무 계정' };
+    },
+  },
+});
+
 export const schema: { types: SchemaTypeDefinition[] } = {
-  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSale, officeInventoryItem, officeVendor],
+  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSale, officeInventoryItem, officeVendor, managerAccount],
 };
