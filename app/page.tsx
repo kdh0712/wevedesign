@@ -595,6 +595,7 @@ export default function WeveDesignLanding() {
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
   const [phoneVerificationCode, setPhoneVerificationCode] = useState('');
   const [phoneVerificationToken, setPhoneVerificationToken] = useState('');
+  const [phoneVerificationChallenge, setPhoneVerificationChallenge] = useState('');
   const [phoneVerificationStatus, setPhoneVerificationStatus] = useState<'idle' | 'sent' | 'verified' | 'error'>('idle');
   const [phoneVerificationMessage, setPhoneVerificationMessage] = useState('');
   const [isSendingVerification, setIsSendingVerification] = useState(false);
@@ -1035,6 +1036,7 @@ export default function WeveDesignLanding() {
       setPhoneVerificationStatus('idle');
       setPhoneVerificationCode('');
       setPhoneVerificationToken('');
+      setPhoneVerificationChallenge('');
       setPhoneVerificationMessage('');
     }
 
@@ -1123,10 +1125,11 @@ export default function WeveDesignLanding() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'send', phone: formData.phone }),
       });
-      const data = (await response.json().catch(() => null)) as { error?: string; message?: string; debugCode?: string } | null;
+      const data = (await response.json().catch(() => null)) as { error?: string; message?: string; challenge?: string } | null;
       if (!response.ok) throw new Error(data?.error || '인증번호 요청에 실패했습니다.');
       setPhoneVerificationStatus('sent');
-      setPhoneVerificationMessage(data?.debugCode ? `임시 인증번호: ${data.debugCode}` : data?.message || '인증번호를 발송했습니다.');
+      setPhoneVerificationChallenge(data?.challenge || '');
+      setPhoneVerificationMessage(data?.message || '인증번호를 발송했습니다.');
     } catch (caught) {
       setPhoneVerificationStatus('error');
       setPhoneVerificationMessage(caught instanceof Error ? caught.message : '인증번호 요청 중 오류가 발생했습니다.');
@@ -1141,7 +1144,7 @@ export default function WeveDesignLanding() {
       const response = await fetch('/api/phone-verification', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'verify', phone: formData.phone, code: phoneVerificationCode }),
+        body: JSON.stringify({ action: 'verify', phone: formData.phone, code: phoneVerificationCode, challenge: phoneVerificationChallenge }),
       });
       const data = (await response.json().catch(() => null)) as { error?: string; verified?: boolean; token?: string } | null;
       if (!response.ok || !data?.verified) throw new Error(data?.error || '인증번호 확인에 실패했습니다.');
@@ -1202,6 +1205,7 @@ export default function WeveDesignLanding() {
         setFormData(initialConsultationData);
         setPhoneVerificationCode('');
         setPhoneVerificationToken('');
+        setPhoneVerificationChallenge('');
         setPhoneVerificationStatus('idle');
         setPhoneVerificationMessage('');
         setSubmitStatus('');

@@ -22,6 +22,22 @@ export function createVerificationToken(phoneValue: string) {
   return createHash('sha256').update(`${phone}:${tokenSecret()}`).digest('hex');
 }
 
+export function createVerificationChallenge(phoneValue: string, code: string, expiresAt: number) {
+  const phone = normalizePhone(phoneValue);
+  const signature = createHash('sha256').update(`${phone}:${code}:${expiresAt}:${tokenSecret()}`).digest('hex');
+  return `${expiresAt}.${signature}`;
+}
+
+export function isValidVerificationChallenge(phoneValue: string, code: string, challenge?: string) {
+  if (!challenge) return false;
+
+  const [expiresAtValue, signature] = challenge.split('.');
+  const expiresAt = Number(expiresAtValue);
+  if (!expiresAt || !signature || expiresAt < Date.now()) return false;
+
+  return challenge === createVerificationChallenge(phoneValue, code, expiresAt);
+}
+
 export function isPhoneVerified(phoneValue: string, token?: string) {
   if (token && token === createVerificationToken(phoneValue)) return true;
 
