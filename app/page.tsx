@@ -2381,7 +2381,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                 <img
                   src={optimizedImage(project.mainImage, 1500)}
                   alt={project.mainImageAlt || project.title}
-                  className="block max-h-[72vh] w-full max-w-full object-contain"
+                  className="block aspect-video w-full object-cover"
                   style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
                 />
               ) : (

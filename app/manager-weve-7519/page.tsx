@@ -161,6 +161,20 @@ type CategoryOption = {
   slug?: string;
 };
 
+type ManagedProjectImage = {
+  assetId?: string;
+  url?: string;
+  alt?: string;
+  caption?: string;
+  roomType?: string;
+};
+
+type ManagedProjectGalleryGroup = {
+  roomType?: string;
+  title?: string;
+  images?: ManagedProjectImage[];
+};
+
 type ManagedProject = {
   _id: string;
   title?: string;
@@ -173,6 +187,7 @@ type ManagedProject = {
   blogUrl?: string;
   displayOrder?: number;
   mainImage?: string;
+  mainImageAssetId?: string;
   mainImageAlt?: string;
   mainImagePosition?: string;
   mainImagePositionX?: number;
@@ -181,6 +196,12 @@ type ManagedProject = {
   isVisible?: boolean;
   categoryId?: string;
   categoryTitle?: string;
+  galleryGroups?: ManagedProjectGalleryGroup[];
+  gallery?: ManagedProjectImage[];
+};
+
+type ProjectImageOption = ManagedProjectImage & {
+  label: string;
 };
 
 type OfficeData = {
@@ -496,6 +517,7 @@ export default function ManagerPage() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadingMainImage, setUploadingMainImage] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
   const [loadingOffice, setLoadingOffice] = useState(false);
   const [savingOffice, setSavingOffice] = useState(false);
@@ -554,6 +576,7 @@ export default function ManagerPage() {
     () => officeData.projects.find((project) => project._id === selectedProjectId),
     [officeData.projects, selectedProjectId],
   );
+  const selectedProjectImageOptions = useMemo(() => getProjectImageOptions(selectedProjectForEdit), [selectedProjectForEdit]);
   const salesTotal = useMemo(() => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0), [officeData.sales]);
   const profitTotal = useMemo(
     () => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0) - Number(sale.cost || 0), 0),
@@ -1382,6 +1405,63 @@ export default function ManagerPage() {
     setProjectMainImagePosition('custom');
     setProjectMainImagePositionX(String(Math.round(x)));
     setProjectMainImagePositionY(String(Math.round(y)));
+  };
+
+  const saveProjectMainImage = async ({ file, option }: { file?: File; option?: ProjectImageOption }) => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    const project = officeData.projects.find((item) => item._id === selectedProjectId);
+    if (!project) {
+      setError('대표사진을 등록할 Project를 먼저 선택해 주세요.');
+      return;
+    }
+
+    if (!file && !option?.assetId) {
+      setError('대표사진으로 사용할 이미지를 선택해 주세요.');
+      return;
+    }
+
+    setUploadingMainImage(true);
+    try {
+      const formData = new FormData();
+      formData.append('projectId', project._id);
+      formData.append('alt', `${projectTitle || project.title || 'Project'} 대표 사진`);
+      if (file) formData.append('file', file);
+      if (option?.assetId) formData.append('assetId', option.assetId);
+      if (option?.url) formData.append('assetUrl', option.url);
+
+      const response = await fetch('/api/manager/project-main-image', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+      });
+      const data = await readJsonResponse<{ assetId?: string; assetUrl?: string; error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || '대표사진을 저장하지 못했습니다.');
+
+      const nextImage = data.assetUrl || option?.url || project.mainImage;
+      setOfficeData((previous) => ({
+        ...previous,
+        projects: previous.projects.map((item) =>
+          item._id === project._id
+            ? {
+                ...item,
+                mainImage: nextImage,
+                mainImageAssetId: data.assetId || option?.assetId || item.mainImageAssetId,
+                mainImageAlt: `${projectTitle || project.title || 'Project'} 대표 사진`,
+              }
+            : item,
+        ),
+      }));
+      setProjectMainImagePosition('custom');
+      setStatus('대표사진을 저장했습니다. 16:9 미리보기에서 보이는 위치를 맞춘 뒤 Project 정보를 저장해 주세요.');
+      await loadOfficeData(password, { silent: true });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '대표사진 저장 중 오류가 발생했습니다.');
+    } finally {
+      setUploadingMainImage(false);
+    }
   };
 
   const saveProjectClassification = async () => {
@@ -2344,12 +2424,72 @@ export default function ManagerPage() {
                       ))}
                     </select>
                   </label>
+                  {selectedProjectForEdit && (
+                    <div className="rounded-lg border border-[#d5dde2] bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-[#26343b]">대표사진 등록/지정</p>
+                          <p className="mt-1 text-xs text-[#60717d]">홈페이지 Project 카드와 상세 상단에 사용할 대표사진을 선택합니다.</p>
+                        </div>
+                        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md bg-[#24323a] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#11181d]">
+                          {uploadingMainImage ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
+                          대표사진 업로드
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="sr-only"
+                            disabled={uploadingMainImage}
+                            onChange={(event) => {
+                              const file = event.currentTarget.files?.[0];
+                              event.currentTarget.value = '';
+                              if (file) void saveProjectMainImage({ file });
+                            }}
+                          />
+                        </label>
+                      </div>
+                      {selectedProjectImageOptions.length > 0 ? (
+                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                          {selectedProjectImageOptions.map((image, index) => {
+                            const isCurrent = Boolean(image.assetId && image.assetId === selectedProjectForEdit.mainImageAssetId);
+
+                            return (
+                              <button
+                                key={`${image.assetId || image.url}-${index}`}
+                                type="button"
+                                disabled={uploadingMainImage || !image.assetId}
+                                onClick={() => void saveProjectMainImage({ option: image })}
+                                className={`group overflow-hidden rounded-md border bg-[#f7fafb] text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 ${
+                                  isCurrent ? 'border-[#38bcd4] ring-2 ring-[#38bcd4]/25' : 'border-[#d5dde2]'
+                                }`}
+                              >
+                                {image.url ? (
+                                  <img src={image.url} alt={image.alt || image.label} className="aspect-video w-full object-cover" loading="lazy" />
+                                ) : (
+                                  <div className="flex aspect-video items-center justify-center text-[#8a98a1]">
+                                    <ImageIcon size={24} />
+                                  </div>
+                                )}
+                                <span className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-[#4d5d66]">
+                                  <span className="min-w-0 truncate">{image.label}</span>
+                                  {isCurrent ? <Check size={14} className="shrink-0 text-[#1492a8]" /> : <ImageIcon size={14} className="shrink-0 text-[#8a98a1]" />}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="mt-4 rounded-md bg-[#f7fafb] px-3 py-2 text-xs font-semibold text-[#60717d]">
+                          아직 상세사진이 없습니다. 새 대표사진을 직접 업로드할 수 있습니다.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {selectedProjectForEdit?.mainImage && (
                     <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                       <div className="mb-3 flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-[#4d5d66]">대표 사진 카드 미리보기</p>
-                          <p className="mt-1 text-xs text-[#60717d]">사진 위를 클릭하거나 드래그해서 카드에 보일 중심을 정합니다.</p>
+                          <p className="text-sm font-semibold text-[#4d5d66]">대표사진 16:9 미리보기</p>
+                          <p className="mt-1 text-xs text-[#60717d]">사진 위를 클릭하거나 드래그해서 16:9 영역에 보일 중심을 정합니다.</p>
                         </div>
                       </div>
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -2360,12 +2500,12 @@ export default function ManagerPage() {
                           onPointerMove={(event) => {
                             if (event.buttons === 1) updateProjectImageFocus(event);
                           }}
-                          className="relative w-full max-w-[220px] cursor-crosshair overflow-hidden rounded-md bg-[#d8d1c5]"
+                          className="relative w-full max-w-[360px] cursor-crosshair overflow-hidden rounded-md bg-[#d8d1c5]"
                         >
                           <img
                             src={selectedProjectForEdit.mainImage}
                             alt={selectedProjectForEdit.mainImageAlt || selectedProjectForEdit.title || 'Project preview'}
-                            className="aspect-[4/5] w-full object-cover"
+                            className="aspect-video w-full object-cover"
                             style={{ objectPosition: imageObjectPosition(projectMainImagePosition, Number(projectMainImagePositionX), Number(projectMainImagePositionY)) }}
                             draggable={false}
                           />
@@ -3398,6 +3538,40 @@ function imageObjectPosition(value?: string, x?: number, y?: number) {
   };
 
   return positions[value || 'center'] || positions.center;
+}
+
+function getProjectImageOptions(project?: ManagedProject): ProjectImageOption[] {
+  if (!project) return [];
+
+  const options: ProjectImageOption[] = [];
+
+  project.galleryGroups?.forEach((group, groupIndex) => {
+    const groupLabel = group.title || group.roomType || `상세사진 ${groupIndex + 1}`;
+    group.images?.forEach((image, imageIndex) => {
+      if (!image.assetId || !image.url) return;
+      options.push({
+        ...image,
+        roomType: image.roomType || group.roomType,
+        label: image.caption || `${groupLabel} ${imageIndex + 1}`,
+      });
+    });
+  });
+
+  project.gallery?.forEach((image, imageIndex) => {
+    if (!image.assetId || !image.url) return;
+    options.push({
+      ...image,
+      label: image.caption || image.roomType || `상세사진 ${imageIndex + 1}`,
+    });
+  });
+
+  const seen = new Set<string>();
+  return options.filter((option) => {
+    const key = option.assetId || option.url || '';
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function formatPhoneNumber(value: string) {

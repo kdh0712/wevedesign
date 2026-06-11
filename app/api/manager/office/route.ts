@@ -38,9 +38,23 @@ const query = `{
   "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
     _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
     "mainImage": mainImage.asset->url,
+    "mainImageAssetId": mainImage.asset->_id,
     "mainImageAlt": mainImage.alt,
     "categoryId": category->_id,
-    "categoryTitle": category->title
+    "categoryTitle": category->title,
+    "galleryGroups": galleryGroups[] {
+      roomType, title,
+      images[] {
+        "assetId": asset->_id,
+        "url": asset->url,
+        alt, caption
+      }
+    },
+    "gallery": gallery[] {
+      "assetId": asset->_id,
+      "url": asset->url,
+      alt, caption, roomType
+    }
   }
 }`;
 
