@@ -53,6 +53,7 @@ type Project = {
   location?: string;
   year?: string;
   materials?: string;
+  blogUrl?: string;
   featured?: boolean;
   mainImagePosition?: string;
   mainImagePositionX?: number;
@@ -800,6 +801,7 @@ export default function WeveDesignLanding() {
     () => (featuredProjects.length > 1 ? [...featuredProjects, ...featuredProjects] : featuredProjects),
     [featuredProjects],
   );
+  const projectMarqueeDuration = `${Math.max(featuredProjects.length, 1) * 8.5}s`;
   const categoriesWithCounts = useMemo(
     () =>
       categories.map((category) => ({
@@ -1463,7 +1465,10 @@ export default function WeveDesignLanding() {
             </div>
 
             <div className="project-marquee -mx-5 overflow-hidden px-5 pb-4 md:-mx-8 md:px-8">
-              <div className={`flex items-stretch gap-5 ${featuredProjects.length > 1 ? 'project-marquee-track' : ''}`}>
+              <div
+                className={`flex items-stretch gap-5 ${featuredProjects.length > 1 ? 'project-marquee-track' : ''}`}
+                style={{ '--project-marquee-duration': projectMarqueeDuration } as React.CSSProperties}
+              >
                 {loopedFeaturedProjects.map((project, index) => (
                   <div key={`${project.id}-${index}`} className="w-[280px] shrink-0 sm:w-[340px] lg:w-[390px]">
                     <ProjectCard
@@ -2361,7 +2366,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
 
   return (
     <div ref={modalScrollRef} className="fixed inset-0 z-[80] overflow-y-auto bg-[#171512]/72 px-4 py-6 backdrop-blur-sm md:px-8">
-      <div className="mx-auto max-w-6xl bg-[#fffdf8] shadow-2xl">
+      <div className="mx-auto w-full max-w-6xl overflow-hidden bg-[#fffdf8] shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#d8d1c5] bg-[#fffdf8]/95 p-5 backdrop-blur">
           <div>
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">
@@ -2379,8 +2384,8 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
         </div>
 
         <div className="grid gap-8 p-5 md:p-8">
-          <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+            <div className="min-w-0 overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
                 <>
                   <button
@@ -2391,7 +2396,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                     <img
                       src={optimizedImage(project.mainImage, 1500)}
                       alt={project.mainImageAlt || project.title}
-                      className="max-h-[720px] w-full object-cover"
+                      className="block max-h-[72vh] w-full max-w-full object-contain"
                       style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
                     />
                     <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
@@ -2406,7 +2411,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                 </div>
               )}
             </div>
-            <aside className="space-y-6">
+            <aside className="min-w-0 space-y-6">
               <p className="text-lg leading-8 text-[#514c43]">
                 {defaultProjectIntro}
               </p>
@@ -2416,6 +2421,17 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                 {project.year && <InfoRow label="연도" value={project.year} />}
                 {project.materials && <InfoRow label="주요 자재" value={project.materials} />}
               </div>
+              {project.blogUrl && (
+                <a
+                  href={project.blogUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-2 self-start rounded-md border border-[#d8b461] bg-[#fff7df] px-4 py-3 text-sm font-bold text-[#171512] transition hover:bg-[#f1c76a]"
+                >
+                  블로그에서 자세히 보기
+                  <ArrowUpRight size={16} />
+                </a>
+              )}
               {project.description && (
                 <p className="whitespace-pre-line text-lg leading-8 text-[#514c43]">
                   {project.description}
@@ -2448,7 +2464,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
               <h3 className="mb-4 text-xl font-semibold">상세 사진</h3>
               <div className="grid gap-8">
                 {imageGroups.map((group) => (
-                  <div key={group.roomType}>
+                  <div key={group.roomType} className="min-w-0">
                     <div className="mb-4 flex items-center gap-3">
                       <span className="h-px flex-1 bg-[#d8d1c5]" />
                       <h4 className="rounded-full bg-[#fff7df] px-4 py-2 text-sm font-bold text-[#8f6f43]">
@@ -2457,37 +2473,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
                       </h4>
                       <span className="h-px flex-1 bg-[#d8d1c5]" />
                     </div>
-                    <div className="portfolio-scroll -mx-2 overflow-x-auto px-2 pb-4">
-                      <div className="flex gap-4">
-                      {group.images.map((image, index) => (
-                        <figure key={`${image.url}-${index}`} className="w-[280px] shrink-0 overflow-hidden rounded-lg bg-white shadow-sm sm:w-[360px] lg:w-[520px]">
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={(event) => openOriginalImage({ src: image.url!, alt: image.alt || image.caption || project.title }, event)}
-                              className="group block w-full bg-[#f6f1e8]"
-                            >
-                              <img
-                                src={optimizedImage(image.url, 1100)}
-                                alt={image.alt || image.caption || project.title}
-                                className="aspect-[4/3] w-full object-cover"
-                              />
-                              <span className="absolute bottom-3 right-3 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
-                                <ZoomIn size={14} />
-                                Original
-                              </span>
-                            </button>
-                            <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
-                              {image.roomType || group.roomType}
-                            </span>
-                          </div>
-                          {image.caption && (
-                            <figcaption className="px-4 py-3 text-sm font-medium text-[#625d54]">{image.caption}</figcaption>
-                          )}
-                        </figure>
-                      ))}
-                      </div>
-                    </div>
+                    <ProjectImageSlider group={group} projectTitle={project.title} onOriginal={openOriginalImage} />
                   </div>
                 ))}
               </div>
@@ -2497,6 +2483,83 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
       </div>
       {lightboxImage && <OriginalImageDialog image={lightboxImage} top={lightboxTop} onClose={() => setLightboxImage(null)} />}
     </div>
+  );
+}
+
+function ProjectImageSlider({
+  group,
+  projectTitle,
+  onOriginal,
+}: {
+  group: { roomType: string; title: string; images: GalleryImage[] };
+  projectTitle: string;
+  onOriginal: (image: { src: string; alt: string }, event: React.MouseEvent<HTMLElement>) => void;
+}) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const activeImage = group.images[Math.min(activeIndex, group.images.length - 1)];
+  const canSlide = group.images.length > 1;
+
+  useEffect(() => {
+    setActiveIndex((current) => Math.min(current, Math.max(0, group.images.length - 1)));
+  }, [group.images.length]);
+
+  if (!activeImage?.url) return null;
+
+  const goPrevious = () => {
+    setActiveIndex((current) => (current === 0 ? group.images.length - 1 : current - 1));
+  };
+
+  const goNext = () => {
+    setActiveIndex((current) => (current + 1) % group.images.length);
+  };
+
+  return (
+    <figure className="overflow-hidden rounded-lg bg-white shadow-sm">
+      <div className="relative bg-[#f6f1e8]">
+        <button
+          type="button"
+          onClick={(event) => onOriginal({ src: activeImage.url!, alt: activeImage.alt || projectTitle }, event)}
+          className="group block w-full"
+        >
+          <img
+            src={optimizedImage(activeImage.url, 1400, 90)}
+            alt={activeImage.alt || projectTitle}
+            className="block aspect-[4/3] w-full object-cover"
+            loading="lazy"
+          />
+          <span className="absolute bottom-4 right-4 inline-flex items-center gap-2 rounded-full bg-[#171512]/85 px-3 py-2 text-xs font-semibold text-white opacity-0 transition group-hover:opacity-100">
+            <ZoomIn size={14} />
+            Original
+          </span>
+        </button>
+        <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
+          {activeImage.roomType || group.roomType}
+        </span>
+        {canSlide && (
+          <>
+            <button
+              type="button"
+              onClick={goPrevious}
+              className="absolute left-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#171512] shadow-lg transition hover:bg-white"
+              aria-label="이전 사진"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            <button
+              type="button"
+              onClick={goNext}
+              className="absolute right-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#171512] shadow-lg transition hover:bg-white"
+              aria-label="다음 사진"
+            >
+              <ArrowRight size={18} />
+            </button>
+            <div className="absolute bottom-4 left-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
+              {activeIndex + 1} / {group.images.length}
+            </div>
+          </>
+        )}
+      </div>
+    </figure>
   );
 }
 

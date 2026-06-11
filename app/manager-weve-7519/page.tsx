@@ -170,6 +170,7 @@ type ManagedProject = {
   area?: number;
   year?: string;
   materials?: string;
+  blogUrl?: string;
   displayOrder?: number;
   mainImage?: string;
   mainImageAlt?: string;
@@ -423,6 +424,7 @@ export default function ManagerPage() {
   const [uploadDescription, setUploadDescription] = useState('');
   const [featured, setFeatured] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
+  const [uploadInputKey, setUploadInputKey] = useState(0);
   const [consultationEmail, setConsultationEmail] = useState('');
   const [homepageSettings, setHomepageSettings] = useState({
     consultationEmail: '',
@@ -484,6 +486,7 @@ export default function ManagerPage() {
   const [projectArea, setProjectArea] = useState('');
   const [projectYear, setProjectYear] = useState('');
   const [projectMaterials, setProjectMaterials] = useState('');
+  const [projectBlogUrl, setProjectBlogUrl] = useState('');
   const [projectDisplayOrder, setProjectDisplayOrder] = useState('');
   const [projectMainImagePosition, setProjectMainImagePosition] = useState('center');
   const [projectMainImagePositionX, setProjectMainImagePositionX] = useState('50');
@@ -502,6 +505,7 @@ export default function ManagerPage() {
   const [results, setResults] = useState<UploadResult[]>([]);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
+  const [pendingConsultationForCustomer, setPendingConsultationForCustomer] = useState<Consultation | null>(null);
   const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
   const [surveyEditorTab, setSurveyEditorTab] = useState(0);
@@ -938,31 +942,18 @@ export default function ManagerPage() {
     setStatus('');
     if (!requirePassword()) return;
 
+    if (registerCustomer) {
+      prepareCustomerFromConsultation(consultation, true);
+      setStatus('고객 정보를 확인한 뒤 저장하면 상담 완료와 현장 등록까지 함께 처리됩니다.');
+      return;
+    }
+
     setSavingOffice(true);
     try {
-      if (registerCustomer) {
-        await saveOfficeRecord('customer', {
-          name: consultation.name || '',
-          phone: consultation.phone || '',
-          siteType: consultation.propertyType || consultation.siteType || '아파트',
-          address: consultation.fullAddress || consultation.address || '',
-          status: '상담완료',
-          memo: consultation.message || '',
-        });
-        await saveOfficeRecord('project', {
-          title: `${consultation.name || '고객'} 현장`,
-          description: consultation.message || '',
-          siteType: consultation.propertyType || consultation.siteType || '',
-          location: consultation.fullAddress || consultation.address || '',
-          isVisible: false,
-          featured: false,
-        });
-      }
-
       await saveOfficeRecord('consultation', { status: '완료' }, consultation._id);
       setCompletionConsultation(null);
       setSelectedConsultation(null);
-      setStatus(registerCustomer ? '고객과 현장을 등록하고 상담을 완료했습니다.' : '상담을 완료했습니다.');
+      setStatus('상담을 완료했습니다.');
     } finally {
       setSavingOffice(false);
     }
@@ -974,6 +965,7 @@ export default function ManagerPage() {
 
   const resetCustomerForm = () => {
     setEditingCustomerId('');
+    setPendingConsultationForCustomer(null);
     setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   };
 
@@ -1016,14 +1008,15 @@ export default function ManagerPage() {
     });
   };
 
-  const prepareCustomerFromConsultation = (consultation: Consultation) => {
+  const prepareCustomerFromConsultation = (consultation: Consultation, completeAfterSave = false) => {
     setEditingCustomerId('');
+    setPendingConsultationForCustomer(completeAfterSave ? consultation : null);
     setCustomerForm({
       name: consultation.name || '',
       phone: consultation.phone || '',
       siteType: consultation.propertyType || consultation.siteType || '아파트',
       address: consultation.fullAddress || consultation.address || '',
-      status: '상담중',
+      status: completeAfterSave ? '상담완료' : '상담중',
       memo: consultation.message || '',
     });
     setSelectedConsultation(null);
@@ -1034,6 +1027,7 @@ export default function ManagerPage() {
 
   const editCustomer = (customer: Customer) => {
     setEditingCustomerId(customer._id);
+    setPendingConsultationForCustomer(null);
     setCustomerForm({
       name: customer.name || '',
       phone: customer.phone || '',
@@ -1342,6 +1336,15 @@ export default function ManagerPage() {
 
       if (!response.ok) throw new Error(data.error || '업로드에 실패했습니다.');
       setResults(data.results || []);
+      setFiles([]);
+      setUploadInputKey((key) => key + 1);
+      setCategory(officeData.categories[0]?._id || '');
+      setNewCategory('');
+      setUploadSiteType('아파트');
+      setUploadLocation('');
+      setUploadArea('');
+      setUploadDescription('');
+      setFeatured(false);
       setStatus('현장 사진 업로드가 완료되었습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업로드 중 오류가 발생했습니다.');
@@ -1362,6 +1365,7 @@ export default function ManagerPage() {
     setProjectArea(project?.area ? String(project.area) : '');
     setProjectYear(project?.year || '');
     setProjectMaterials(project?.materials || '');
+    setProjectBlogUrl(project?.blogUrl || '');
     setProjectDisplayOrder(project?.displayOrder ? String(project.displayOrder) : '');
     setProjectMainImagePosition(project?.mainImagePosition || 'center');
     setProjectMainImagePositionX(String(project?.mainImagePositionX ?? 50));
@@ -1430,6 +1434,7 @@ export default function ManagerPage() {
           area: Number(projectArea || 0),
           year: projectYear,
           materials: projectMaterials,
+          blogUrl: projectBlogUrl,
           displayOrder: Number(projectDisplayOrder || 0),
           mainImagePosition: projectMainImagePosition,
           mainImagePositionX: Number(projectMainImagePositionX || 50),
@@ -1509,7 +1514,7 @@ export default function ManagerPage() {
         <aside className="hidden w-64 shrink-0 flex-col bg-[#273541] text-[#dfe8ed] lg:flex">
           <div className="border-b border-white/10 px-6 py-6">
             <div className="flex items-center gap-3">
-              <img src="/weve-mark.png" alt="WEVE DESIGN" className="brand-mark-on-dark h-11 w-11 rounded-md bg-white/8 object-contain p-1.5" />
+              <img src="/weve-mark.png" alt="WEVE DESIGN" className="brand-mark-on-dark h-12 w-28 object-contain" />
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#9fd4e8]">WEVE OFFICE</p>
                 <h1 className="mt-1 text-xl font-semibold text-white">통합 관리</h1>
@@ -1687,6 +1692,11 @@ export default function ManagerPage() {
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
             <Panel title={editingCustomerId ? '고객 수정' : '고객 등록'}>
               <div ref={customerFormRef}>
+              {pendingConsultationForCustomer && (
+                <div className="mb-4 rounded-lg border border-[#f1c76a] bg-[#fff9e8] p-4 text-sm leading-6 text-[#6e5420]">
+                  상담 요청에서 가져온 고객입니다. 내용을 확인한 뒤 저장하면 상담은 완료 처리되고 비공개 현장이 함께 등록됩니다.
+                </div>
+              )}
               <OfficeForm
                 fields={[
                   { label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
@@ -1701,13 +1711,27 @@ export default function ManagerPage() {
                   { label: '상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
                   { label: '메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
                 ]}
-                buttonLabel={editingCustomerId ? '고객 수정 저장' : '고객 저장'}
+                buttonLabel={pendingConsultationForCustomer ? '고객 저장 + 현장 등록' : editingCustomerId ? '고객 수정 저장' : '고객 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  await saveOfficeRecord('customer', customerForm, editingCustomerId || undefined);
+                  const savedCustomer = await saveOfficeRecord('customer', customerForm, editingCustomerId || undefined);
+                  if (!savedCustomer) return;
+
+                  if (pendingConsultationForCustomer) {
+                    await saveOfficeRecord('project', {
+                      title: `${customerForm.name || pendingConsultationForCustomer.name || '고객'} 현장`,
+                      description: customerForm.memo || pendingConsultationForCustomer.message || '',
+                      siteType: customerForm.siteType || pendingConsultationForCustomer.propertyType || pendingConsultationForCustomer.siteType || '',
+                      location: customerForm.address || pendingConsultationForCustomer.fullAddress || pendingConsultationForCustomer.address || '',
+                      isVisible: false,
+                      featured: false,
+                    });
+                    await saveOfficeRecord('consultation', { status: '완료' }, pendingConsultationForCustomer._id);
+                    setStatus('고객과 비공개 현장을 등록하고 상담을 완료했습니다.');
+                  }
                   resetCustomerForm();
                 }}
-                secondaryLabel={editingCustomerId ? '수정 취소' : undefined}
+                secondaryLabel={editingCustomerId || pendingConsultationForCustomer ? '취소' : undefined}
                 onSecondary={resetCustomerForm}
               />
               </div>
@@ -2256,7 +2280,7 @@ export default function ManagerPage() {
                   <UploadCloud className="mb-3 text-[#38a9bd]" size={34} />
                   <span className="font-semibold">현장 폴더 선택 또는 드래그</span>
                   <span className="mt-2 text-sm text-[#60717d]">폴더를 이 영역에 끌어오거나 클릭해서 선택할 수 있습니다.</span>
-                  <input type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
+                  <input key={uploadInputKey} type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
                 </label>
 
                 {previews.length > 0 && (
@@ -2396,6 +2420,7 @@ export default function ManagerPage() {
                   <SettingInput label="평수" value={projectArea} onChange={(value) => setProjectArea(onlyNumber(value))} />
                   <SettingInput label="시공 연도" value={projectYear} onChange={setProjectYear} placeholder="예: 2026" />
                   <SettingInput label="사용 자재" value={projectMaterials} onChange={setProjectMaterials} placeholder="예: 포세린 타일, 무몰딩, 제작가구" />
+                  <SettingInput label="블로그 링크" value={projectBlogUrl} onChange={setProjectBlogUrl} placeholder="예: https://blog.naver.com/..." />
                   <SettingInput label="노출 순서" value={projectDisplayOrder} onChange={(value) => setProjectDisplayOrder(onlyNumber(value))} placeholder="숫자가 작을수록 먼저 표시" />
                   <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                     대표 사진 표시 위치

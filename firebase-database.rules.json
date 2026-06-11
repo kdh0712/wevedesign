@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "launcher_admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+    "users": {
+      ".read": "auth != null && (root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    }
+  }
+}

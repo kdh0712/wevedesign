@@ -21,6 +21,7 @@ const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coa
   location,
   year,
   materials,
+  blogUrl,
   featured,
   mainImagePosition,
   mainImagePositionX,

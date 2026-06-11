@@ -399,7 +399,7 @@ img {
 
 .project-marquee-track {
   width: max-content;
-  animation: project-marquee 34s linear infinite;
+  animation: project-marquee var(--project-marquee-duration, 34s) linear infinite;
 }
 
 .project-marquee:hover .project-marquee-track {

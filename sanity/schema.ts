@@ -509,6 +509,13 @@ const project = defineType({
     defineField({ name: 'year', title: '시공 연도', type: 'string', group: 'content' }),
     defineField({ name: 'materials', title: '사용 자재', type: 'string', group: 'content' }),
     defineField({
+      name: 'blogUrl',
+      title: '블로그 링크',
+      type: 'url',
+      group: 'content',
+      description: '프로젝트 상세 화면의 기본 정보 아래에 표시할 블로그 글 주소입니다.',
+    }),
+    defineField({
       name: 'description',
       title: '짧은 설명',
       type: 'text',
