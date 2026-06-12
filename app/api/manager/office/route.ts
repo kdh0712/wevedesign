@@ -3,11 +3,12 @@ import { assertManager, getOrCreateCategory, managerClient } from '../_utils';
 
 export const runtime = 'nodejs';
 
-type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor' | 'project' | 'category';
+type OfficeType = 'consultation' | 'customer' | 'site' | 'sale' | 'inventory' | 'vendor' | 'project' | 'category';
 
 const typeMap: Record<OfficeType, string> = {
   consultation: 'officeConsultation',
   customer: 'officeCustomer',
+  site: 'officeSite',
   sale: 'officeSale',
   inventory: 'officeInventoryItem',
   vendor: 'officeVendor',
@@ -22,6 +23,9 @@ const query = `{
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, siteType, address, status, memo, createdAt
+  },
+  "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...200] {
+    _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
     _id, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt

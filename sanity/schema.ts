@@ -800,6 +800,41 @@ const officeCustomer = defineType({
   },
 });
 
+const officeSite = defineType({
+  name: 'officeSite',
+  title: '현장',
+  type: 'document',
+  fields: [
+    defineField({ name: 'title', title: '현장명', type: 'string' }),
+    defineField({ name: 'customerName', title: '고객명', type: 'string' }),
+    defineField({ name: 'customerPhone', title: '연락처', type: 'string' }),
+    defineField({ name: 'customerId', title: '고객 ID', type: 'string' }),
+    defineField({ name: 'consultationId', title: '상담 ID', type: 'string' }),
+    defineField({
+      name: 'siteType',
+      title: '현장 종류',
+      type: 'string',
+      options: { list: ['아파트', '주택', '상가', '오피스', '기타'] },
+    }),
+    defineField({ name: 'address', title: '현장 주소', type: 'string' }),
+    defineField({
+      name: 'status',
+      title: '상태',
+      type: 'string',
+      initialValue: '상담중',
+      options: { list: ['상담중', '상담완료', '실측 예정', '견적', '계약', '시공중', '완료', '보류'] },
+    }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),
+    defineField({ name: 'createdAt', title: '등록일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'title', customerName: 'customerName', status: 'status' },
+    prepare({ title, customerName, status }) {
+      return { title: title || '현장', subtitle: [customerName, status].filter(Boolean).join(' · ') };
+    },
+  },
+});
+
 const officeSale = defineType({
   name: 'officeSale',
   title: '매출',
@@ -895,6 +930,7 @@ const managerAccount = defineType({
           { title: '업무 현황', value: 'dashboard' },
           { title: '상담 요청', value: 'consultations' },
           { title: '고객 관리', value: 'customers' },
+          { title: '현장 관리', value: 'sites' },
           { title: '매출 관리', value: 'sales' },
           { title: '재고 관리', value: 'inventory' },
           { title: '협력업체', value: 'vendors' },
@@ -916,5 +952,5 @@ const managerAccount = defineType({
 });
 
 export const schema: { types: SchemaTypeDefinition[] } = {
-  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSale, officeInventoryItem, officeVendor, managerAccount],
+  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSite, officeSale, officeInventoryItem, officeVendor, managerAccount],
 };

@@ -41,8 +41,8 @@ type ManagerApiResponse = {
   results?: UploadResult[];
 };
 
-type OfficeType = 'consultation' | 'customer' | 'sale' | 'inventory' | 'vendor' | 'project';
-type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sales' | 'inventory' | 'vendors' | 'portfolio' | 'accounts';
+type OfficeType = 'consultation' | 'customer' | 'site' | 'sale' | 'inventory' | 'vendor' | 'project';
+type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sites' | 'sales' | 'inventory' | 'vendors' | 'portfolio' | 'accounts';
 
 type ManagerUser = {
   id: string;
@@ -113,6 +113,20 @@ type Customer = {
   _id: string;
   name?: string;
   phone?: string;
+  siteType?: string;
+  address?: string;
+  status?: string;
+  memo?: string;
+  createdAt?: string;
+};
+
+type Site = {
+  _id: string;
+  title?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerId?: string;
+  consultationId?: string;
   siteType?: string;
   address?: string;
   status?: string;
@@ -207,6 +221,7 @@ type ProjectImageOption = ManagedProjectImage & {
 type OfficeData = {
   consultations: Consultation[];
   customers: Customer[];
+  sites: Site[];
   sales: Sale[];
   inventory: InventoryItem[];
   vendors: Vendor[];
@@ -230,7 +245,7 @@ type PreviewTarget = {
 
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
-  record?: Consultation | Customer | Sale | InventoryItem | Vendor | ManagedProject;
+  record?: Consultation | Customer | Site | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
 type AuthApiResponse = {
@@ -249,6 +264,7 @@ type AccountApiResponse = {
 const emptyOfficeData: OfficeData = {
   consultations: [],
   customers: [],
+  sites: [],
   sales: [],
   inventory: [],
   vendors: [],
@@ -406,11 +422,14 @@ const UPLOAD_PRESETS = [
   { maxWidth: 1280, quality: 0.7 },
 ];
 const MAX_UPLOAD_BYTES = 3.8 * 1024 * 1024;
+const CONSULTATION_STATUSES = ['신규', '상담중', '견적', '계약', '완료'];
+const SITE_STATUSES = ['상담중', '상담완료', '실측 예정', '견적', '계약', '시공중', '완료', '보류'];
 
 const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'dashboard', label: '업무 현황', icon: <BarChart3 size={16} /> },
   { key: 'consultations', label: '상담 요청', icon: <Phone size={16} /> },
   { key: 'customers', label: '고객 관리', icon: <Users size={16} /> },
+  { key: 'sites', label: '현장 관리', icon: <Home size={16} /> },
   { key: 'sales', label: '매출 관리', icon: <WalletCards size={16} /> },
   { key: 'inventory', label: '재고 관리', icon: <Boxes size={16} /> },
   { key: 'vendors', label: '협력업체', icon: <Building2 size={16} /> },
@@ -532,15 +551,18 @@ export default function ManagerPage() {
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
   const [surveyEditorTab, setSurveyEditorTab] = useState(0);
   const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
+  const [siteForm, setSiteForm] = useState({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
   const [editingCustomerId, setEditingCustomerId] = useState('');
+  const [editingSiteId, setEditingSiteId] = useState('');
   const [editingSaleId, setEditingSaleId] = useState('');
   const [editingInventoryId, setEditingInventoryId] = useState('');
   const [editingVendorId, setEditingVendorId] = useState('');
   const customerFormRef = useRef<HTMLDivElement | null>(null);
+  const siteFormRef = useRef<HTMLDivElement | null>(null);
   const saleFormRef = useRef<HTMLDivElement | null>(null);
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
@@ -799,6 +821,7 @@ export default function ManagerPage() {
       setOfficeData({
         consultations: data.consultations || [],
         customers: data.customers || [],
+        sites: data.sites || [],
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
@@ -889,6 +912,7 @@ export default function ManagerPage() {
         ...current,
         consultations: data.consultations || [],
         customers: data.customers || [],
+        sites: data.sites || [],
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
@@ -989,7 +1013,12 @@ export default function ManagerPage() {
   const resetCustomerForm = () => {
     setEditingCustomerId('');
     setPendingConsultationForCustomer(null);
-    setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
+    setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
+  };
+
+  const resetSiteForm = () => {
+    setEditingSiteId('');
+    setSiteForm({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   };
 
   const resetSaleForm = () => {
@@ -1041,6 +1070,9 @@ export default function ManagerPage() {
       address: consultation.fullAddress || consultation.address || '',
       status: completeAfterSave ? '상담완료' : '상담중',
       memo: consultation.message || '',
+      siteTitle: `${consultation.name || '고객'} 현장`,
+      siteStatus: completeAfterSave ? '상담완료' : '상담중',
+      siteMemo: consultation.message || '',
     });
     setSelectedConsultation(null);
     setCompletionConsultation(null);
@@ -1058,8 +1090,26 @@ export default function ManagerPage() {
       address: customer.address || '',
       status: customer.status || '상담중',
       memo: customer.memo || '',
+      siteTitle: '',
+      siteStatus: '상담중',
+      siteMemo: '',
     });
     scrollToForm(customerFormRef);
+  };
+
+  const editSite = (site: Site) => {
+    setEditingSiteId(site._id);
+    setSiteForm({
+      title: site.title || '',
+      customerName: site.customerName || '',
+      customerPhone: site.customerPhone || '',
+      siteType: site.siteType || '아파트',
+      address: site.address || '',
+      status: site.status || '상담중',
+      memo: site.memo || '',
+    });
+    setActiveTab('sites');
+    scrollToForm(siteFormRef);
   };
 
   const editSale = (sale: Sale) => {
@@ -1658,18 +1708,8 @@ export default function ManagerPage() {
               <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
               {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1">마지막 갱신 {lastRefreshedAt}</span>}
             </div>
-            <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
-              <label className="flex min-w-0 flex-1 items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3">
-                <ShieldCheck className="shrink-0 text-[#38a9bd]" size={20} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="관리 비밀번호"
-                  className="min-w-0 flex-1 bg-transparent outline-none"
-                />
-              </label>
-              <div className="flex gap-2 overflow-x-auto lg:hidden">
+            <div className="mt-5 lg:hidden">
+              <div className="flex gap-2 overflow-x-auto">
                 {visibleTabs.map((tab) => (
                   <button
                     key={tab.key}
@@ -1689,9 +1729,9 @@ export default function ManagerPage() {
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
           <MetricCard title="고객" value={`${officeData.customers.length}명`} sub="등록 고객" />
+          <MetricCard title="현장" value={`${officeData.sites.length}곳`} sub="관리 현장" />
           <MetricCard title="매출" value={formatMoney(salesTotal)} sub={`예상 이익 ${formatMoney(profitTotal)}`} />
           <MetricCard title="재고" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
-          <MetricCard title="협력업체" value={`${officeData.vendors.length}곳`} sub="거래처" />
         </div>
 
         {activeTab === 'dashboard' && (
@@ -1743,23 +1783,33 @@ export default function ManagerPage() {
                 body: item.message,
                 onClick: () => setSelectedConsultation(item),
                 action: (
-                  <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                    {['신규', '상담중', '견적', '계약', '완료'].map((nextStatus) => (
-                      <button key={nextStatus} onClick={() => saveOfficeRecord('consultation', { status: nextStatus }, item._id)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs">
-                        {nextStatus}
-                      </button>
-                    ))}
-                    <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
-                      상담 완료
-                    </button>
-                    <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                      삭제
-                    </button>
+                  <div className="flex flex-wrap items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                    <span className={`inline-flex min-w-20 justify-center rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(item.status || '신규')}`}>
+                      {item.status || '신규'}
+                    </span>
+                    <select
+                      value={item.status || '신규'}
+                      onChange={(event) => saveOfficeRecord('consultation', { status: event.target.value }, item._id)}
+                      className="rounded-md border border-[#d8d1c5] bg-white px-3 py-1.5 text-xs font-semibold outline-none focus:border-[#38a9bd]"
+                      aria-label="상담 상태 변경"
+                    >
+                      {CONSULTATION_STATUSES.map((nextStatus) => (
+                        <option key={nextStatus} value={nextStatus}>
+                          {nextStatus}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       onClick={() => prepareCustomerFromConsultation(item)}
-                      className="rounded-md bg-[#f1c76a] px-3 py-1 text-xs font-semibold"
+                      className="rounded-md bg-[#f1c76a] px-3 py-1.5 text-xs font-semibold"
                     >
                       고객으로 등록
+                    </button>
+                    <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1.5 text-xs font-semibold text-white">
+                      상담 완료
+                    </button>
+                    <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600">
+                      삭제
                     </button>
                   </div>
                 ),
@@ -1790,24 +1840,42 @@ export default function ManagerPage() {
                   { label: '주소', value: customerForm.address, onChange: (value) => setCustomerForm({ ...customerForm, address: value }) },
                   { label: '상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
                   { label: '메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
+                  { label: '현장명', value: customerForm.siteTitle, onChange: (value) => setCustomerForm({ ...customerForm, siteTitle: value }) },
+                  {
+                    label: '현장 상태',
+                    value: customerForm.siteStatus,
+                    onChange: (value) => setCustomerForm({ ...customerForm, siteStatus: value }),
+                    options: SITE_STATUSES,
+                  },
+                  { label: '현장 메모', value: customerForm.siteMemo, onChange: (value) => setCustomerForm({ ...customerForm, siteMemo: value }), textarea: true },
                 ]}
-                buttonLabel={pendingConsultationForCustomer ? '고객 저장 + 현장 등록' : editingCustomerId ? '고객 수정 저장' : '고객 저장'}
+                buttonLabel={pendingConsultationForCustomer ? '고객 저장 + 현장 등록' : editingCustomerId ? '고객 수정 저장' : '고객 저장 + 현장 등록'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  const savedCustomer = await saveOfficeRecord('customer', customerForm, editingCustomerId || undefined);
+                  const { siteTitle, siteStatus, siteMemo, ...customerData } = customerForm;
+                  const savedCustomer = await saveOfficeRecord('customer', customerData, editingCustomerId || undefined);
                   if (!savedCustomer) return;
 
-                  if (pendingConsultationForCustomer) {
-                    await saveOfficeRecord('project', {
-                      title: `${customerForm.name || pendingConsultationForCustomer.name || '고객'} 현장`,
-                      description: customerForm.memo || pendingConsultationForCustomer.message || '',
-                      siteType: customerForm.siteType || pendingConsultationForCustomer.propertyType || pendingConsultationForCustomer.siteType || '',
-                      location: customerForm.address || pendingConsultationForCustomer.fullAddress || pendingConsultationForCustomer.address || '',
-                      isVisible: false,
-                      featured: false,
+                  const shouldCreateSite = Boolean(pendingConsultationForCustomer || siteTitle.trim() || (!editingCustomerId && (customerForm.address || customerForm.name)));
+                  if (shouldCreateSite) {
+                    await saveOfficeRecord('site', {
+                      title: siteTitle.trim() || `${customerForm.name || pendingConsultationForCustomer?.name || '고객'} 현장`,
+                      customerName: customerForm.name || pendingConsultationForCustomer?.name || '',
+                      customerPhone: customerForm.phone || pendingConsultationForCustomer?.phone || '',
+                      customerId: savedCustomer._id,
+                      consultationId: pendingConsultationForCustomer?._id || '',
+                      siteType: customerForm.siteType || pendingConsultationForCustomer?.propertyType || pendingConsultationForCustomer?.siteType || '',
+                      address: customerForm.address || pendingConsultationForCustomer?.fullAddress || pendingConsultationForCustomer?.address || '',
+                      status: siteStatus || customerForm.status || '상담중',
+                      memo: siteMemo || customerForm.memo || pendingConsultationForCustomer?.message || '',
                     });
+                  }
+
+                  if (pendingConsultationForCustomer) {
                     await saveOfficeRecord('consultation', { status: '완료' }, pendingConsultationForCustomer._id);
-                    setStatus('고객과 비공개 현장을 등록하고 상담을 완료했습니다.');
+                    setStatus('고객과 현장을 등록하고 상담을 완료했습니다.');
+                  } else if (shouldCreateSite) {
+                    setStatus('고객과 현장을 함께 등록했습니다.');
                   }
                   resetCustomerForm();
                 }}
@@ -1827,6 +1895,68 @@ export default function ManagerPage() {
                   action: (
                     <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
                       <button onClick={() => editCustomer(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                        수정
+                      </button>
+                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        삭제
+                      </button>
+                    </div>
+                  ),
+                }))}
+              />
+            </Panel>
+          </div>
+        )}
+
+        {activeTab === 'sites' && (
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+            <Panel title={editingSiteId ? '현장 수정' : '현장 등록'}>
+              <div ref={siteFormRef}>
+                <OfficeForm
+                  fields={[
+                    { label: '현장명', value: siteForm.title, onChange: (value) => setSiteForm({ ...siteForm, title: value }) },
+                    { label: '고객명', value: siteForm.customerName, onChange: (value) => setSiteForm({ ...siteForm, customerName: value }) },
+                    { label: '연락처', value: siteForm.customerPhone, onChange: (value) => setSiteForm({ ...siteForm, customerPhone: formatPhoneNumber(value) }) },
+                    {
+                      label: '현장 종류',
+                      value: siteForm.siteType,
+                      onChange: (value) => setSiteForm({ ...siteForm, siteType: value }),
+                      options: ['아파트', '주택', '상가', '오피스', '기타'],
+                    },
+                    { label: '주소', value: siteForm.address, onChange: (value) => setSiteForm({ ...siteForm, address: value }) },
+                    {
+                      label: '상태',
+                      value: siteForm.status,
+                      onChange: (value) => setSiteForm({ ...siteForm, status: value }),
+                      options: SITE_STATUSES,
+                    },
+                    { label: '메모', value: siteForm.memo, onChange: (value) => setSiteForm({ ...siteForm, memo: value }), textarea: true },
+                  ]}
+                  buttonLabel={editingSiteId ? '현장 수정 저장' : '현장 저장'}
+                  disabled={savingOffice}
+                  onSubmit={async () => {
+                    await saveOfficeRecord('site', siteForm, editingSiteId || undefined);
+                    resetSiteForm();
+                  }}
+                  secondaryLabel={editingSiteId ? '수정 취소' : undefined}
+                  onSecondary={resetSiteForm}
+                />
+              </div>
+            </Panel>
+            <Panel title="현장 목록">
+              <RecordList
+                empty="등록된 현장이 없습니다."
+                items={officeData.sites.map((item) => ({
+                  key: item._id,
+                  title: `${item.title || '현장명 없음'} · ${item.customerName || '고객명 없음'}`,
+                  meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '상태 없음'}`,
+                  body: item.memo,
+                  action: (
+                    <div className="flex flex-wrap items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                      <span className={`inline-flex min-w-20 justify-center rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(item.status || '상담중')}`}>
+                        {item.status || '상담중'}
+                      </span>
+                      <button onClick={() => editSite(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
                       <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
@@ -3538,6 +3668,16 @@ function imageObjectPosition(value?: string, x?: number, y?: number) {
   };
 
   return positions[value || 'center'] || positions.center;
+}
+
+function statusBadgeClass(status: string) {
+  if (status.includes('완료')) return 'bg-[#e8f5ed] text-[#277a46]';
+  if (status.includes('계약')) return 'bg-[#edf8fb] text-[#14798a]';
+  if (status.includes('견적')) return 'bg-[#fff3d6] text-[#8a6215]';
+  if (status.includes('시공')) return 'bg-[#efeafa] text-[#6341a3]';
+  if (status.includes('보류')) return 'bg-[#f1f3f5] text-[#5f6b73]';
+  if (status.includes('신규')) return 'bg-[#fcecec] text-[#b24a4a]';
+  return 'bg-[#eef6ff] text-[#286da8]';
 }
 
 function getProjectImageOptions(project?: ManagedProject): ProjectImageOption[] {
