@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
+  Bell,
   Boxes,
   Building2,
   Check,
+  ClipboardList,
   ExternalLink,
   FolderUp,
   Home,
@@ -13,6 +15,8 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  Mail,
+  MapPinned,
   MessageCircle,
   PackagePlus,
   Phone,
@@ -304,6 +308,7 @@ const homepagePreviewTargets = {
   consultationEmail: { key: 'consultationEmail', label: '상담문의 이메일', src: '/#footer' },
   kakaoUrl: { key: 'kakaoUrl', label: '카카오톡 상담 링크', src: '/#contact' },
   kakaoChannelManagerUrl: { key: 'kakaoChannelManagerUrl', label: '카카오 채널 관리 링크', src: '/#contact' },
+  naverPlaceUrl: { key: 'naverPlaceUrl', label: '네이버 플레이스 예약 링크', src: '/#contact' },
   representativeName: { key: 'representativeName', label: '대표자명', src: '/#footer' },
   businessNumber: { key: 'businessNumber', label: '사업자등록번호', src: '/#footer' },
   companyStartYear: { key: 'companyStartYear', label: '회사 시작 연도', src: '/#footer' },
@@ -511,6 +516,7 @@ export default function ManagerPage() {
     consultationSurveyConfig: '',
     kakaoUrl: '',
     kakaoChannelManagerUrl: '',
+    naverPlaceUrl: '',
     heroImage: '',
     heroImage2: '',
     heroImage3: '',
@@ -878,6 +884,7 @@ export default function ManagerPage() {
         consultationSurveyConfig: savedSurveyConfig,
         kakaoUrl: settings.kakaoUrl || '',
         kakaoChannelManagerUrl: settings.kakaoChannelManagerUrl || '',
+        naverPlaceUrl: settings.naverPlaceUrl || '',
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
         heroImage3: settings.heroImage3 || '',
@@ -1726,6 +1733,12 @@ export default function ManagerPage() {
             </div>
           </header>
 
+        <ExternalChannelAlerts
+          kakaoUrl={homepageSettings.kakaoUrl}
+          naverPlaceUrl={homepageSettings.naverPlaceUrl}
+          refreshLabel={lastRefreshedAt ? `마지막 확인 ${lastRefreshedAt}` : '관리자 로그인 후 자동 확인'}
+        />
+
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
           <MetricCard title="고객" value={`${officeData.customers.length}명`} sub="등록 고객" />
@@ -2312,6 +2325,7 @@ export default function ManagerPage() {
                 <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
                 <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
                 <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
+                <SettingInput label="네이버 플레이스 예약 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
                 <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
                 <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
                 <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
@@ -2415,6 +2429,7 @@ export default function ManagerPage() {
                       <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
                       <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
                       <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
+                      <SettingInput label="네이버 플레이스 예약 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
                       <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
                       <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
                       <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
@@ -2781,6 +2796,77 @@ export default function ManagerPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function ExternalChannelAlerts({
+  kakaoUrl,
+  naverPlaceUrl,
+  refreshLabel,
+}: {
+  kakaoUrl?: string;
+  naverPlaceUrl?: string;
+  refreshLabel: string;
+}) {
+  const channels = [
+    {
+      title: '카카오 채널 상담',
+      description: '1:1 채팅이나 채널 상담 알림을 확인하고 바로 응대합니다.',
+      url: kakaoUrl || 'https://center-pf.kakao.com/',
+      icon: <MessageCircle size={20} />,
+      accent: 'bg-[#fee500] text-[#171512]',
+      button: '카카오 확인',
+    },
+    {
+      title: '네이버 플레이스 예약',
+      description: '네이버 예약, 톡톡, 플레이스 문의를 확인하는 바로가기입니다.',
+      url: naverPlaceUrl || 'https://new.smartplace.naver.com/',
+      icon: <MapPinned size={20} />,
+      accent: 'bg-[#03c75a] text-white',
+      button: '네이버 확인',
+    },
+  ];
+
+  return (
+    <section className="mb-4 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+        <div className="flex items-start gap-3">
+          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#edf8fb] text-[#38a9bd]">
+            <Bell size={20} />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold">외부 예약/채팅 알림 확인</h2>
+            <p className="mt-1 text-sm leading-6 text-[#60717d]">
+              카카오와 네이버에서 알림을 받으면 여기서 바로 이동해 처리합니다. 홈페이지 상담 요청은 {refreshLabel} 기준으로 자동 반영됩니다.
+            </p>
+          </div>
+        </div>
+        <span className="rounded-full bg-[#edf2f5] px-3 py-1 text-xs font-semibold text-[#4d5d66]">빠른 확인 링크</span>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        {channels.map((channel) => (
+          <a
+            key={channel.title}
+            href={channel.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group flex items-center justify-between gap-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 transition hover:-translate-y-0.5 hover:border-[#c6a25d] hover:bg-white hover:shadow-md"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${channel.accent}`}>{channel.icon}</span>
+              <span className="min-w-0">
+                <span className="block font-semibold">{channel.title}</span>
+                <span className="mt-1 block text-sm leading-5 text-[#60717d]">{channel.description}</span>
+              </span>
+            </span>
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white transition group-hover:bg-[#c6a25d] group-hover:text-[#171512]">
+              {channel.button}
+              <ExternalLink size={14} />
+            </span>
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
 

@@ -380,6 +380,13 @@ const siteSettings = defineType({
       group: 'location',
       description: '관리자 페이지에서 카카오 비즈니스 채널 관리자 화면으로 이동할 때 사용합니다.',
     }),
+    defineField({
+      name: 'naverPlaceUrl',
+      title: '네이버 플레이스 예약 링크',
+      type: 'url',
+      group: 'location',
+      description: '관리자 페이지에서 네이버 예약/문의 확인 버튼에 연결할 주소입니다.',
+    }),
   ],
   preview: {
     prepare() {
