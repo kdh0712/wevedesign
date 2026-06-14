@@ -46,7 +46,17 @@ type ManagerApiResponse = {
 };
 
 type OfficeType = 'consultation' | 'customer' | 'site' | 'sale' | 'inventory' | 'vendor' | 'project';
-type TabKey = 'dashboard' | 'consultations' | 'customers' | 'sites' | 'sales' | 'inventory' | 'vendors' | 'portfolio' | 'accounts';
+type TabKey =
+  | 'dashboard'
+  | 'consultations'
+  | 'customers'
+  | 'sites'
+  | 'estimates'
+  | 'sales'
+  | 'inventory'
+  | 'vendors'
+  | 'portfolio'
+  | 'accounts';
 
 type ManagerUser = {
   id: string;
@@ -138,6 +148,20 @@ type Site = {
   createdAt?: string;
 };
 
+type EstimateSummary = {
+  _id: string;
+  siteId?: string;
+  siteTitle?: string;
+  customerName?: string;
+  versionLabel?: string;
+  customerEstimateTotal?: number;
+  executionCostTotal?: number;
+  marginAmount?: number;
+  marginRate?: number;
+  updatedAt?: string;
+  createdAt?: string;
+};
+
 type Sale = {
   _id: string;
   customerName?: string;
@@ -226,6 +250,7 @@ type OfficeData = {
   consultations: Consultation[];
   customers: Customer[];
   sites: Site[];
+  estimates: EstimateSummary[];
   sales: Sale[];
   inventory: InventoryItem[];
   vendors: Vendor[];
@@ -269,6 +294,7 @@ const emptyOfficeData: OfficeData = {
   consultations: [],
   customers: [],
   sites: [],
+  estimates: [],
   sales: [],
   inventory: [],
   vendors: [],
@@ -435,6 +461,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'consultations', label: '상담 요청', icon: <Phone size={16} /> },
   { key: 'customers', label: '고객 관리', icon: <Users size={16} /> },
   { key: 'sites', label: '현장 관리', icon: <Home size={16} /> },
+  { key: 'estimates', label: '견적 작업', icon: <ClipboardList size={16} /> },
   { key: 'sales', label: '매출 관리', icon: <WalletCards size={16} /> },
   { key: 'inventory', label: '재고 관리', icon: <Boxes size={16} /> },
   { key: 'vendors', label: '협력업체', icon: <Building2 size={16} /> },
@@ -517,6 +544,8 @@ export default function ManagerPage() {
     kakaoUrl: '',
     kakaoChannelManagerUrl: '',
     naverPlaceUrl: '',
+    kakaoUnreadCount: '',
+    naverUnreadCount: '',
     heroImage: '',
     heroImage2: '',
     heroImage3: '',
@@ -828,6 +857,7 @@ export default function ManagerPage() {
         consultations: data.consultations || [],
         customers: data.customers || [],
         sites: data.sites || [],
+        estimates: data.estimates || [],
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
@@ -885,6 +915,8 @@ export default function ManagerPage() {
         kakaoUrl: settings.kakaoUrl || '',
         kakaoChannelManagerUrl: settings.kakaoChannelManagerUrl || '',
         naverPlaceUrl: settings.naverPlaceUrl || '',
+        kakaoUnreadCount: settings.kakaoUnreadCount || '',
+        naverUnreadCount: settings.naverUnreadCount || '',
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
         heroImage3: settings.heroImage3 || '',
@@ -920,6 +952,7 @@ export default function ManagerPage() {
         consultations: data.consultations || [],
         customers: data.customers || [],
         sites: data.sites || [],
+        estimates: data.estimates || [],
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
@@ -1326,6 +1359,32 @@ export default function ManagerPage() {
       setError(caught instanceof Error ? caught.message : '홈페이지 설정 저장 중 오류가 발생했습니다.');
     } finally {
       setSavingEmail(false);
+    }
+  };
+
+  const saveExternalAlertCount = async (field: 'kakaoUnreadCount' | 'naverUnreadCount', nextCount: number) => {
+    setError('');
+    const safeCount = String(Math.max(0, Math.floor(nextCount)));
+    const nextSettings = { ...homepageSettings, [field]: safeCount };
+    setHomepageSettings(nextSettings);
+
+    if (!requirePassword()) return;
+
+    try {
+      const response = await fetch('/api/manager/settings', {
+        method: 'PATCH',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ [field]: safeCount }),
+      });
+      const data = await readJsonResponse<ManagerApiResponse>(response);
+
+      if (!response.ok) throw new Error(data.error || '외부 알림 수 저장에 실패했습니다.');
+      setStatus('외부 예약/채팅 새 알림 수를 저장했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '외부 알림 수 저장 중 오류가 발생했습니다.');
     }
   };
 
@@ -1736,6 +1795,10 @@ export default function ManagerPage() {
         <ExternalChannelAlerts
           kakaoUrl={homepageSettings.kakaoUrl}
           naverPlaceUrl={homepageSettings.naverPlaceUrl}
+          kakaoCount={Number(homepageSettings.kakaoUnreadCount || 0)}
+          naverCount={Number(homepageSettings.naverUnreadCount || 0)}
+          onKakaoCountChange={(nextCount) => void saveExternalAlertCount('kakaoUnreadCount', nextCount)}
+          onNaverCountChange={(nextCount) => void saveExternalAlertCount('naverUnreadCount', nextCount)}
           refreshLabel={lastRefreshedAt ? `마지막 확인 ${lastRefreshedAt}` : '관리자 로그인 후 자동 확인'}
         />
 
@@ -1948,8 +2011,11 @@ export default function ManagerPage() {
                   buttonLabel={editingSiteId ? '현장 수정 저장' : '현장 저장'}
                   disabled={savingOffice}
                   onSubmit={async () => {
-                    await saveOfficeRecord('site', siteForm, editingSiteId || undefined);
+                    const savedSite = await saveOfficeRecord('site', siteForm, editingSiteId || undefined);
                     resetSiteForm();
+                    if (!editingSiteId && savedSite?._id) {
+                      window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(savedSite._id)}`;
+                    }
                   }}
                   secondaryLabel={editingSiteId ? '수정 취소' : undefined}
                   onSecondary={resetSiteForm}
@@ -1981,6 +2047,14 @@ export default function ManagerPage() {
               />
             </Panel>
           </div>
+        )}
+
+        {activeTab === 'estimates' && (
+          <EstimateSitesPanel
+            sites={officeData.sites}
+            estimates={officeData.estimates}
+            onCreateSite={() => setActiveTab('sites')}
+          />
         )}
 
         {activeTab === 'sales' && (
@@ -2802,10 +2876,18 @@ export default function ManagerPage() {
 function ExternalChannelAlerts({
   kakaoUrl,
   naverPlaceUrl,
+  kakaoCount,
+  naverCount,
+  onKakaoCountChange,
+  onNaverCountChange,
   refreshLabel,
 }: {
   kakaoUrl?: string;
   naverPlaceUrl?: string;
+  kakaoCount: number;
+  naverCount: number;
+  onKakaoCountChange: (nextCount: number) => void;
+  onNaverCountChange: (nextCount: number) => void;
   refreshLabel: string;
 }) {
   const channels = [
@@ -2816,6 +2898,8 @@ function ExternalChannelAlerts({
       icon: <MessageCircle size={20} />,
       accent: 'bg-[#fee500] text-[#171512]',
       button: '카카오 확인',
+      count: kakaoCount,
+      onCountChange: onKakaoCountChange,
     },
     {
       title: '네이버 플레이스 예약',
@@ -2824,6 +2908,8 @@ function ExternalChannelAlerts({
       icon: <MapPinned size={20} />,
       accent: 'bg-[#03c75a] text-white',
       button: '네이버 확인',
+      count: naverCount,
+      onCountChange: onNaverCountChange,
     },
   ];
 
@@ -2845,28 +2931,179 @@ function ExternalChannelAlerts({
       </div>
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         {channels.map((channel) => (
-          <a
+          <article
             key={channel.title}
-            href={channel.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex items-center justify-between gap-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 transition hover:-translate-y-0.5 hover:border-[#c6a25d] hover:bg-white hover:shadow-md"
+            className="group rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 transition hover:-translate-y-0.5 hover:border-[#c6a25d] hover:bg-white hover:shadow-md"
           >
-            <span className="flex min-w-0 items-center gap-3">
-              <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${channel.accent}`}>{channel.icon}</span>
-              <span className="min-w-0">
-                <span className="block font-semibold">{channel.title}</span>
-                <span className="mt-1 block text-sm leading-5 text-[#60717d]">{channel.description}</span>
+            <div className="flex items-start justify-between gap-4">
+              <span className="flex min-w-0 items-center gap-3">
+                <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${channel.accent}`}>{channel.icon}</span>
+                <span className="min-w-0">
+                  <span className="block font-semibold">{channel.title}</span>
+                  <span className="mt-1 block text-sm leading-5 text-[#60717d]">{channel.description}</span>
+                </span>
               </span>
-            </span>
-            <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white transition group-hover:bg-[#c6a25d] group-hover:text-[#171512]">
-              {channel.button}
-              <ExternalLink size={14} />
-            </span>
-          </a>
+              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${channel.count > 0 ? 'bg-[#ffe9e9] text-[#c33131]' : 'bg-[#e8f7ee] text-[#217346]'}`}>
+                새 알림 {channel.count}건
+              </span>
+            </div>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => channel.onCountChange(channel.count - 1)} className="h-9 w-9 rounded-md border border-[#d5dde2] bg-white text-lg font-semibold">
+                  -
+                </button>
+                <button type="button" onClick={() => channel.onCountChange(channel.count + 1)} className="h-9 w-9 rounded-md border border-[#d5dde2] bg-white text-lg font-semibold">
+                  +
+                </button>
+                <button type="button" onClick={() => channel.onCountChange(0)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold">
+                  확인 완료
+                </button>
+              </div>
+              <a
+                href={channel.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white transition group-hover:bg-[#c6a25d] group-hover:text-[#171512]"
+              >
+                {channel.button}
+                <ExternalLink size={14} />
+              </a>
+            </div>
+          </article>
         ))}
       </div>
     </section>
+  );
+}
+
+function EstimateSitesPanel({
+  sites,
+  estimates,
+  onCreateSite,
+}: {
+  sites: Site[];
+  estimates: EstimateSummary[];
+  onCreateSite: () => void;
+}) {
+  const [selectedSiteId, setSelectedSiteId] = useState(sites[0]?._id || '');
+  const selectedSite = sites.find((site) => site._id === selectedSiteId) || sites[0];
+  const selectedEstimate = selectedSite ? estimates.find((estimate) => estimate.siteId === selectedSite._id) : undefined;
+  const estimatedSiteCount = estimates.filter((estimate) => estimate.siteId).length;
+
+  useEffect(() => {
+    if (!selectedSiteId && sites[0]?._id) setSelectedSiteId(sites[0]._id);
+    if (selectedSiteId && !sites.some((site) => site._id === selectedSiteId)) setSelectedSiteId(sites[0]?._id || '');
+  }, [selectedSiteId, sites]);
+
+  const openEstimatePage = (site?: Site) => {
+    if (!site?._id) return;
+    window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(site._id)}`;
+  };
+
+  return (
+    <div className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
+      <Panel title="현장별 견적 작업">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm leading-6 text-[#60717d]">
+            현장을 먼저 선택한 뒤 요약을 확인하고, <b className="text-[#171512]">견적 수정하기</b>에서 상세 내역과 자재 단가, 공정 일정을 작업합니다.
+          </div>
+          <button
+            type="button"
+            onClick={onCreateSite}
+            className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2b2721]"
+          >
+            새 현장 등록
+          </button>
+        </div>
+
+        {sites.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[#cfd9df] bg-[#f7fafb] p-8 text-center">
+            <p className="text-lg font-semibold">아직 등록된 현장이 없습니다.</p>
+            <p className="mt-2 text-sm text-[#60717d]">현장을 먼저 등록하면 바로 견적 작업 화면으로 이어집니다.</p>
+            <button type="button" onClick={onCreateSite} className="mt-5 rounded-md bg-[#f1c76a] px-5 py-3 text-sm font-semibold">
+              현장 등록하기
+            </button>
+          </div>
+        ) : (
+          <div className="grid max-h-[680px] gap-3 overflow-y-auto pr-1">
+            {sites.map((site) => {
+              const estimate = estimates.find((item) => item.siteId === site._id);
+              const isActive = selectedSite?._id === site._id;
+
+              return (
+                <button
+                  key={site._id}
+                  type="button"
+                  onClick={() => setSelectedSiteId(site._id)}
+                  className={`rounded-lg border p-4 text-left transition ${
+                    isActive ? 'border-[#38bcd4] bg-[#edf8fb] shadow-sm' : 'border-[#d5dde2] bg-white hover:border-[#9fcbd4]'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-base font-semibold">{site.title || '현장명 없음'}</p>
+                      <p className="mt-1 text-sm text-[#60717d]">{[site.customerName, site.siteType, site.status].filter(Boolean).join(' · ') || '현장 정보 없음'}</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-bold ${estimate ? 'bg-[#e8f7ee] text-[#217346]' : 'bg-[#fff5d9] text-[#8b6420]'}`}>
+                      {estimate ? '견적 있음' : '미작성'}
+                    </span>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-[#60717d] sm:grid-cols-3">
+                    <span>견적 {formatMoney(Number(estimate?.customerEstimateTotal || 0))}</span>
+                    <span>원가 {formatMoney(Number(estimate?.executionCostTotal || 0))}</span>
+                    <span>마진 {Number(estimate?.marginRate || 0).toFixed(1)}%</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="견적 요약">
+        {selectedSite ? (
+          <div className="grid gap-5">
+            <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-5">
+              <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">SITE ESTIMATE</p>
+                  <h2 className="mt-2 text-3xl font-semibold tracking-normal">{selectedSite.title || '현장명 없음'}</h2>
+                  <p className="mt-2 text-sm leading-6 text-[#60717d]">
+                    {[selectedSite.customerName, selectedSite.customerPhone, selectedSite.address].filter(Boolean).join(' · ') || '현장 상세 정보가 아직 부족합니다.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openEstimatePage(selectedSite)}
+                  className="rounded-md bg-[#f1c76a] px-5 py-3 text-sm font-semibold text-[#171512] transition hover:bg-[#e5b94f]"
+                >
+                  견적 수정하기
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-4">
+              <MetricCard title="견적 금액" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} sub="고객에게 제안할 금액" />
+              <MetricCard title="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} sub="자재·공정 예상 비용" />
+              <MetricCard title="예상 마진" value={formatMoney(Number(selectedEstimate?.marginAmount || 0))} sub={`${Number(selectedEstimate?.marginRate || 0).toFixed(1)}%`} />
+              <MetricCard title="작성 현장" value={`${estimatedSiteCount}곳`} sub={`전체 현장 ${sites.length}곳`} />
+            </div>
+
+            <div className="rounded-lg border border-[#d5dde2] bg-white p-5">
+              <h3 className="text-lg font-semibold">작업 상태</h3>
+              <div className="mt-4 grid gap-3 text-sm text-[#4d5d66] md:grid-cols-2">
+                <p className="rounded-md bg-[#f7fafb] p-3">견적 버전: {selectedEstimate?.versionLabel || '아직 작성 전'}</p>
+                <p className="rounded-md bg-[#f7fafb] p-3">마지막 수정: {selectedEstimate?.updatedAt ? formatDate(selectedEstimate.updatedAt) : '기록 없음'}</p>
+                <p className="rounded-md bg-[#f7fafb] p-3">현장 상태: {selectedSite.status || '미정'}</p>
+                <p className="rounded-md bg-[#f7fafb] p-3">현장 메모: {selectedSite.memo || '메모 없음'}</p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-[#cfd9df] bg-[#f7fafb] p-8 text-center text-[#60717d]">현장을 선택하면 견적 요약이 표시됩니다.</div>
+        )}
+      </Panel>
+    </div>
   );
 }
 

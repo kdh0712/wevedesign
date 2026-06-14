@@ -387,6 +387,20 @@ const siteSettings = defineType({
       group: 'location',
       description: '관리자 페이지에서 네이버 예약/문의 확인 버튼에 연결할 주소입니다.',
     }),
+    defineField({
+      name: 'kakaoUnreadCount',
+      title: '카카오 새 알림 수',
+      type: 'string',
+      group: 'location',
+      description: '관리자 페이지 외부 예약/채팅 알림 카드에 표시됩니다.',
+    }),
+    defineField({
+      name: 'naverUnreadCount',
+      title: '네이버 새 알림 수',
+      type: 'string',
+      group: 'location',
+      description: '관리자 페이지 외부 예약/채팅 알림 카드에 표시됩니다.',
+    }),
   ],
   preview: {
     prepare() {
@@ -907,6 +921,62 @@ const officeVendor = defineType({
   },
 });
 
+const estimateMaterial = defineType({
+  name: 'estimateMaterial',
+  title: '견적 자재 단가',
+  type: 'document',
+  fields: [
+    defineField({ name: 'category', title: '카테고리', type: 'string' }),
+    defineField({ name: 'process', title: '공종', type: 'string' }),
+    defineField({ name: 'name', title: '품명', type: 'string' }),
+    defineField({ name: 'spec', title: '규격', type: 'string' }),
+    defineField({ name: 'unit', title: '단위', type: 'string' }),
+    defineField({ name: 'unitPrice', title: '단가', type: 'number' }),
+    defineField({ name: 'note', title: '비고', type: 'text', rows: 3 }),
+    defineField({ name: 'sourceSheet', title: '업로드 시트명', type: 'string' }),
+    defineField({ name: 'updatedAt', title: '수정일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'name', category: 'category', unitPrice: 'unitPrice' },
+    prepare({ title, category, unitPrice }) {
+      return {
+        title: title || '자재 단가',
+        subtitle: [category, unitPrice ? `${Number(unitPrice).toLocaleString('ko-KR')}원` : undefined].filter(Boolean).join(' · '),
+      };
+    },
+  },
+});
+
+const siteEstimate = defineType({
+  name: 'siteEstimate',
+  title: '현장별 견적 작업',
+  type: 'document',
+  fields: [
+    defineField({ name: 'siteId', title: '현장 ID', type: 'string' }),
+    defineField({ name: 'siteTitle', title: '현장명', type: 'string' }),
+    defineField({ name: 'customerName', title: '고객명', type: 'string' }),
+    defineField({ name: 'versionLabel', title: '견적 버전', type: 'string', initialValue: '기본 견적' }),
+    defineField({ name: 'linesJson', title: '견적 내역 JSON', type: 'text', rows: 10 }),
+    defineField({ name: 'scheduleJson', title: '공정 일정 JSON', type: 'text', rows: 8 }),
+    defineField({ name: 'customerEstimateTotal', title: '견적 금액', type: 'number' }),
+    defineField({ name: 'executionCostTotal', title: '실행 원가', type: 'number' }),
+    defineField({ name: 'marginAmount', title: '마진 금액', type: 'number' }),
+    defineField({ name: 'marginRate', title: '마진율', type: 'number' }),
+    defineField({ name: 'memo', title: '메모', type: 'text', rows: 5 }),
+    defineField({ name: 'createdAt', title: '생성일', type: 'datetime' }),
+    defineField({ name: 'updatedAt', title: '수정일', type: 'datetime' }),
+  ],
+  preview: {
+    select: { title: 'siteTitle', customerName: 'customerName', total: 'customerEstimateTotal' },
+    prepare({ title, customerName, total }) {
+      return {
+        title: title || '현장 견적',
+        subtitle: [customerName, total ? `${Number(total).toLocaleString('ko-KR')}원` : undefined].filter(Boolean).join(' · '),
+      };
+    },
+  },
+});
+
 const managerAccount = defineType({
   name: 'managerAccount',
   title: '관리자 계정',
@@ -938,6 +1008,7 @@ const managerAccount = defineType({
           { title: '상담 요청', value: 'consultations' },
           { title: '고객 관리', value: 'customers' },
           { title: '현장 관리', value: 'sites' },
+          { title: '견적 작업', value: 'estimates' },
           { title: '매출 관리', value: 'sales' },
           { title: '재고 관리', value: 'inventory' },
           { title: '협력업체', value: 'vendors' },
@@ -959,5 +1030,18 @@ const managerAccount = defineType({
 });
 
 export const schema: { types: SchemaTypeDefinition[] } = {
-  types: [siteSettings, category, project, officeConsultation, officeCustomer, officeSite, officeSale, officeInventoryItem, officeVendor, managerAccount],
+  types: [
+    siteSettings,
+    category,
+    project,
+    officeConsultation,
+    officeCustomer,
+    officeSite,
+    officeSale,
+    officeInventoryItem,
+    officeVendor,
+    estimateMaterial,
+    siteEstimate,
+    managerAccount,
+  ],
 };
