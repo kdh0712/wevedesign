@@ -49,7 +49,7 @@ const estimateQuery = `{
     _id, siteId, siteTitle, customerName, versionLabel, linesJson, scheduleJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
   },
-  "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...1000] {
+  "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
   }
 }`;
