@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, FileSpreadsheet, Plus, Printer, Save, Search, Trash2, UploadCloud } from 'lucide-react';
+import { ArrowLeft, CalendarDays, FileSpreadsheet, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 
 type Site = {
   _id: string;
@@ -76,6 +76,14 @@ type EstimateApiData = {
   importedCount?: number;
 };
 
+type MaterialPickerState = {
+  lineId: string;
+  step: 'category' | 'process' | 'material';
+  category: string;
+  process: string;
+  search: string;
+};
+
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
 
 const emptyLine = (): EstimateLine => ({
@@ -121,6 +129,7 @@ export default function EstimateWorkspacePage() {
   const [lineDbSearch, setLineDbSearch] = useState('');
   const [lineDbCategory, setLineDbCategory] = useState('');
   const [selectedLineId, setSelectedLineId] = useState('');
+  const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
   const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
   const [editingMaterial, setEditingMaterial] = useState<Material>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -322,6 +331,32 @@ export default function EstimateWorkspacePage() {
     setActiveTab('lines');
   };
 
+  const openMaterialPicker = (line: EstimateLine, step: MaterialPickerState['step'] = 'category') => {
+    setSelectedLineId(line.id);
+    setMaterialPicker({
+      lineId: line.id,
+      step,
+      category: line.category,
+      process: line.process,
+      search: '',
+    });
+  };
+
+  const choosePickerCategory = (category: string) => {
+    setMaterialPicker((current) => (current ? { ...current, step: 'process', category, process: '', search: '' } : current));
+  };
+
+  const choosePickerProcess = (process: string) => {
+    setMaterialPicker((current) => (current ? { ...current, step: 'material', process, search: '' } : current));
+  };
+
+  const choosePickerMaterial = (material: Material) => {
+    if (!materialPicker) return;
+    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? { ...line, ...materialToLine(material) } : line)));
+    setMaterialPicker(null);
+    setActiveTab('lines');
+  };
+
   const updateLine = (id: string, updates: Partial<EstimateLine>) => {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
   };
@@ -368,25 +403,28 @@ export default function EstimateWorkspacePage() {
           .no-print { display: none !important; }
         }
       `}</style>
-      <header className="no-print sticky top-0 z-10 border-b border-[#d5dde2] bg-white/95 px-5 py-4 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+      <header className="no-print sticky top-0 z-20 border-b border-[#d5dde2] bg-white/95 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-[1680px] flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-4">
             <button type="button" onClick={() => (window.location.href = '/manager-weve-7519')} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
               <ArrowLeft size={16} />
               관리자 현장 목록으로
             </button>
-            <p className="mt-4 text-sm font-bold uppercase tracking-[0.22em] text-[#38a9bd]">WEVE ESTIMATE</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-normal md:text-4xl">현장별 견적 작업</h1>
+            <div className="h-8 w-px bg-[#d5dde2]" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">WEVE ESTIMATE</p>
+              <h1 className="text-xl font-semibold tracking-normal md:text-2xl">현장별 견적 작업</h1>
+            </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select value={selectedSiteId} onChange={(event) => setSelectedSiteId(event.target.value)} className="min-w-64 rounded-md border border-[#d5dde2] bg-white px-4 py-3 font-semibold outline-none focus:border-[#38a9bd]">
+            <select value={selectedSiteId} onChange={(event) => setSelectedSiteId(event.target.value)} className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd]">
               {sites.map((site) => (
                 <option key={site._id} value={site._id}>
                   {site.title || '현장명 없음'} · {site.customerName || '고객명 없음'}
                 </option>
               ))}
             </select>
-            <button type="button" onClick={saveEstimate} disabled={isSaving} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-3 font-semibold disabled:opacity-60">
+            <button type="button" onClick={saveEstimate} disabled={isSaving} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-2.5 font-semibold disabled:opacity-60">
               <Save size={17} />
               저장
             </button>
@@ -394,38 +432,34 @@ export default function EstimateWorkspacePage() {
         </div>
       </header>
 
-      <section className="mx-auto grid max-w-7xl gap-5 px-5 py-6">
+      <section className="mx-auto grid max-w-[1680px] gap-4 px-4 py-4">
         {(status || error) && (
           <div className={`no-print rounded-lg border p-4 text-sm font-semibold ${error ? 'border-red-200 bg-red-50 text-red-600' : 'border-[#cde8d6] bg-[#f0fbf4] text-[#2f7d45]'}`}>
             {error || status}
           </div>
         )}
 
-        <div className="grid gap-4 lg:grid-cols-4">
-          <SummaryCard title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} sub="고객 제안 금액" />
-          <SummaryCard title="실행 원가" value={formatMoney(totals.executionCostTotal)} sub="자재·공정 원가" />
-          <SummaryCard title="예상 마진" value={formatMoney(totals.marginAmount)} sub={`${totals.marginRate.toFixed(1)}%`} />
-          <SummaryCard title="내역 수" value={`${lines.filter((line) => line.name).length}개`} sub="견적 항목" />
-        </div>
-
-        <section className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">SITE</p>
-              <h2 className="mt-1 text-3xl font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
-              <p className="mt-2 text-sm leading-6 text-[#60717d]">
+        <section className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
+          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1.35fr)_minmax(260px,0.85fr)_repeat(4,minmax(132px,0.45fr))]">
+            <div className="rounded-md bg-[#f7fafb] px-4 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
+              <h2 className="mt-1 truncate text-xl font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
+              <p className="mt-1 truncate text-sm text-[#60717d]">
                 {[selectedSite?.customerName, selectedSite?.customerPhone, selectedSite?.address].filter(Boolean).join(' · ') || '현장 정보가 없습니다.'}
               </p>
             </div>
-            <div className="grid gap-2 md:min-w-96">
-              <label className="text-sm font-semibold text-[#4d5d66]">견적 버전</label>
-              <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} className="rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]" />
-              <textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="현장 메모" rows={3} className="rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]" />
+            <div className="grid grid-cols-2 gap-2 rounded-md bg-[#f7fafb] p-3 md:grid-cols-[0.95fr_1.05fr]">
+              <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} aria-label="견적 버전" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+              <input value={memo} onChange={(event) => setMemo(event.target.value)} aria-label="현장 메모" placeholder="현장 메모" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
             </div>
+            <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
+            <CompactMetric title="실행 원가" value={formatMoney(totals.executionCostTotal)} />
+            <CompactMetric title="예상 마진" value={formatMoney(totals.marginAmount)} tone={totals.marginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.marginRate.toFixed(1)}%`} />
+            <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
           </div>
         </section>
 
-        <nav className="no-print flex gap-2 overflow-x-auto">
+        <nav className="no-print flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
           {[
             { key: 'lines' as const, label: '견적 내역', Icon: FileSpreadsheet },
             { key: 'materials' as const, label: '자재 단가', Icon: Search },
@@ -436,7 +470,7 @@ export default function EstimateWorkspacePage() {
               key={key}
               type="button"
               onClick={() => setActiveTab(key)}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-4 py-3 text-sm font-semibold ${activeTab === key ? 'bg-[#171512] text-white' : 'bg-white text-[#4d5d66]'}`}
+              className={`inline-flex shrink-0 items-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold ${activeTab === key ? 'bg-[#171512] text-white' : 'bg-[#f7fafb] text-[#4d5d66] hover:bg-[#edf2f5]'}`}
             >
               <Icon size={16} />
               {label}
@@ -445,25 +479,25 @@ export default function EstimateWorkspacePage() {
         </nav>
 
         {activeTab === 'lines' && (
-          <section className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-            <aside className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+          <section className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
+            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">GLOBAL DB</p>
-                  <h2 className="mt-1 text-xl font-semibold">자재 단가 DB</h2>
-                  <p className="mt-2 text-sm leading-6 text-[#60717d]">한 번 업로드한 단가는 모든 현장에서 공통으로 불러옵니다.</p>
+                  <h2 className="mt-1 text-lg font-semibold">자재 단가 DB</h2>
+                  <p className="mt-1 text-xs leading-5 text-[#60717d]">검색 후 선택한 견적 행에 바로 적용합니다.</p>
                 </div>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{materials.length}개</span>
               </div>
 
-              <div className="mt-5 grid gap-3">
-                <select value={lineDbCategory} onChange={(event) => setLineDbCategory(event.target.value)} className="rounded-md border border-[#d5dde2] px-3 py-3 text-sm outline-none focus:border-[#38a9bd]">
+              <div className="mt-4 grid gap-2">
+                <select value={lineDbCategory} onChange={(event) => setLineDbCategory(event.target.value)} className="rounded-md border border-[#d5dde2] px-3 py-2.5 text-sm outline-none focus:border-[#38a9bd]">
                   <option value="">전체 카테고리</option>
                   {materialCategories.map((category) => (
                     <option key={category} value={category}>{category}</option>
                   ))}
                 </select>
-                <input value={lineDbSearch} onChange={(event) => setLineDbSearch(event.target.value)} placeholder="공정, 품명, 규격 검색" className="rounded-md border border-[#d5dde2] px-4 py-3 text-sm outline-none focus:border-[#38a9bd]" />
+                <input value={lineDbSearch} onChange={(event) => setLineDbSearch(event.target.value)} placeholder="공정, 품명, 규격 검색" className="rounded-md border border-[#d5dde2] px-4 py-2.5 text-sm outline-none focus:border-[#38a9bd]" />
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -479,7 +513,7 @@ export default function EstimateWorkspacePage() {
                 ))}
               </div>
 
-              <div className="mt-4 max-h-[640px] overflow-y-auto pr-1">
+              <div className="mt-4 max-h-[calc(100vh-380px)] min-h-[360px] overflow-y-auto pr-1">
                 {lineDbMaterials.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-6 text-center text-sm text-[#60717d]">
                     자재 단가 DB가 비어 있습니다. `자재 단가` 탭에서 엑셀을 먼저 업로드해주세요.
@@ -510,12 +544,12 @@ export default function EstimateWorkspacePage() {
               </div>
             </aside>
 
-            <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+            <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">견적 내역</h2>
                   <p className="mt-1 text-sm text-[#60717d]">
-                    행을 선택한 뒤 왼쪽 DB에서 `선택 행 적용`을 누르면 분류, 공정, 품명, 규격, 단가가 자동 입력됩니다.
+                    분류·공종·품명을 누르면 단계별 선택창이 열리고, DB의 단가 정보가 자동 입력됩니다.
                   </p>
                 </div>
                 <button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
@@ -524,9 +558,9 @@ export default function EstimateWorkspacePage() {
                 </button>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="min-w-[1320px] w-full border-collapse text-sm">
-                  <thead className="bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
+              <div className="max-h-[calc(100vh-340px)] min-h-[430px] overflow-auto rounded-lg border border-[#edf2f5]">
+                <table className="w-full min-w-[1320px] border-collapse text-sm">
+                  <thead className="sticky top-0 z-10 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
                     <tr>
                       {['선택', '공간', '분류', '공종', '품명', '규격', '단위', '수량', '견적단가', '실행단가', '견적금액', '원가', '마진', '비고', ''].map((header) => (
                         <th key={header} className="border-b border-[#d5dde2] px-3 py-3">{header}</th>
@@ -548,9 +582,15 @@ export default function EstimateWorkspacePage() {
                             </button>
                           </td>
                           <td className="px-2 py-2"><CellSelect value={line.space} options={defaultSpaces} onChange={(value) => updateLine(line.id, { space: value })} /></td>
-                          <td className="px-2 py-2"><CellInput value={line.category} listId="estimate-categories" onChange={(value) => updateLine(line.id, { category: value })} /></td>
-                          <td className="px-2 py-2"><CellInput value={line.process} listId="estimate-processes" onChange={(value) => updateLine(line.id, { process: value })} /></td>
-                          <td className="px-2 py-2"><CellInput value={line.name} listId="estimate-material-names" onChange={(value) => updateLine(line.id, { name: value })} /></td>
+                          <td className="px-2 py-2">
+                            <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />
+                          </td>
+                          <td className="px-2 py-2">
+                            <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />
+                          </td>
+                          <td className="px-2 py-2">
+                            <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                          </td>
                           <td className="px-2 py-2"><CellInput value={line.spec} onChange={(value) => updateLine(line.id, { spec: value })} /></td>
                           <td className="px-2 py-2"><CellInput value={line.unit} onChange={(value) => updateLine(line.id, { unit: value })} /></td>
                           <td className="px-2 py-2"><CellNumber value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} /></td>
@@ -714,7 +754,32 @@ export default function EstimateWorkspacePage() {
           </section>
         )}
       </section>
+
+      {materialPicker && (
+        <MaterialPickerModal
+          state={materialPicker}
+          materials={materials}
+          onChange={setMaterialPicker}
+          onChooseCategory={choosePickerCategory}
+          onChooseProcess={choosePickerProcess}
+          onChooseMaterial={choosePickerMaterial}
+          onClose={() => setMaterialPicker(null)}
+        />
+      )}
     </main>
+  );
+}
+
+function CompactMetric({ title, value, sub, tone = 'default' }: { title: string; value: string; sub?: string; tone?: 'default' | 'positive' | 'negative' }) {
+  const toneClass = tone === 'positive' ? 'text-[#217346]' : tone === 'negative' ? 'text-red-600' : 'text-[#171512]';
+  return (
+    <section className="rounded-md border border-[#d5dde2] bg-white px-4 py-3">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#60717d]">{title}</p>
+      <div className="mt-1 flex items-end justify-between gap-2">
+        <p className={`truncate text-2xl font-semibold ${toneClass}`}>{value}</p>
+        {sub && <p className="pb-1 text-xs font-semibold text-[#60717d]">{sub}</p>}
+      </div>
+    </section>
   );
 }
 
@@ -726,6 +791,178 @@ function SummaryCard({ title, value, sub }: { title: string; value: string; sub:
       <p className="mt-2 text-sm text-[#60717d]">{sub}</p>
     </section>
   );
+}
+
+function PickerCell({ value, placeholder, onClick }: { value: string; placeholder: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full min-w-32 rounded-md border px-3 py-2 text-left text-sm outline-none transition hover:border-[#38a9bd] hover:bg-[#edf8fb] ${
+        value ? 'border-[#d5dde2] bg-white text-[#171512]' : 'border-dashed border-[#c7d4dc] bg-[#f7fafb] text-[#60717d]'
+      }`}
+    >
+      <span className="block truncate">{value || placeholder}</span>
+    </button>
+  );
+}
+
+function MaterialPickerModal({
+  state,
+  materials,
+  onChange,
+  onChooseCategory,
+  onChooseProcess,
+  onChooseMaterial,
+  onClose,
+}: {
+  state: MaterialPickerState;
+  materials: Material[];
+  onChange: (state: MaterialPickerState | null) => void;
+  onChooseCategory: (category: string) => void;
+  onChooseProcess: (process: string) => void;
+  onChooseMaterial: (material: Material) => void;
+  onClose: () => void;
+}) {
+  const keyword = state.search.trim().toLowerCase();
+  const categoryGroups = countBy(materials, (item) => item.category || '미분류')
+    .filter((item) => !keyword || item.label.toLowerCase().includes(keyword))
+    .sort((a, b) => a.label.localeCompare(b.label, 'ko-KR'));
+  const processSource = materials.filter((item) => (item.category || '미분류') === state.category);
+  const processGroups = countBy(processSource, (item) => item.process || item.category || '기타 공정')
+    .filter((item) => !keyword || item.label.toLowerCase().includes(keyword))
+    .sort((a, b) => a.label.localeCompare(b.label, 'ko-KR'));
+  const materialResults = materials
+    .filter((item) => {
+      const category = item.category || '미분류';
+      const process = item.process || item.category || '기타 공정';
+      const haystack = [item.category, item.process, item.name, item.spec, item.unit, item.note].join(' ').toLowerCase();
+      return category === state.category && process === state.process && (!keyword || haystack.includes(keyword));
+    })
+    .slice(0, 160);
+
+  const stepLabel = state.step === 'category' ? '분류 선택' : state.step === 'process' ? '공종 선택' : '품명 선택';
+
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
+      <section className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">MATERIAL DB</p>
+            <h2 className="mt-1 text-2xl font-semibold">{stepLabel}</h2>
+            <p className="mt-1 text-sm text-[#60717d]">분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="grid gap-4 border-b border-[#edf2f5] p-4 lg:grid-cols-[1fr_280px]">
+          <div className="flex flex-wrap gap-2">
+            <StepButton label="1 분류" active={state.step === 'category'} enabled onClick={() => onChange({ ...state, step: 'category', search: '' })} />
+            <StepButton label="2 공종" active={state.step === 'process'} enabled={Boolean(state.category)} onClick={() => state.category && onChange({ ...state, step: 'process', search: '' })} />
+            <StepButton label="3 품명" active={state.step === 'material'} enabled={Boolean(state.category && state.process)} onClick={() => state.category && state.process && onChange({ ...state, step: 'material', search: '' })} />
+          </div>
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#60717d]" size={16} />
+            <input
+              value={state.search}
+              onChange={(event) => onChange({ ...state, search: event.target.value })}
+              placeholder={`${stepLabel} 검색`}
+              className="w-full rounded-md border border-[#d5dde2] py-2.5 pl-9 pr-3 text-sm outline-none focus:border-[#38a9bd]"
+            />
+          </label>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto p-5">
+          {state.step === 'category' && (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {categoryGroups.map((group) => (
+                <button key={group.label} type="button" onClick={() => onChooseCategory(group.label)} className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 text-left transition hover:-translate-y-0.5 hover:border-[#38a9bd] hover:shadow-md">
+                  <span className="block text-lg font-semibold">{group.label}</span>
+                  <span className="mt-2 inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#60717d]">{group.count}개 품목</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {state.step === 'process' && (
+            <div>
+              <div className="mb-4 rounded-lg bg-[#f7fafb] px-4 py-3 text-sm text-[#60717d]">
+                선택 분류 <b className="text-[#171512]">{state.category}</b>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {processGroups.map((group) => (
+                  <button key={group.label} type="button" onClick={() => onChooseProcess(group.label)} className="rounded-lg border border-[#d5dde2] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#38a9bd] hover:shadow-md">
+                    <span className="block text-lg font-semibold">{group.label}</span>
+                    <span className="mt-2 inline-flex rounded-full bg-[#edf8fb] px-2.5 py-1 text-xs font-bold text-[#267d8c]">{group.count}개 품목</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {state.step === 'material' && (
+            <div>
+              <div className="mb-4 flex flex-wrap gap-2 rounded-lg bg-[#f7fafb] px-4 py-3 text-sm text-[#60717d]">
+                <span>분류 <b className="text-[#171512]">{state.category}</b></span>
+                <span>·</span>
+                <span>공종 <b className="text-[#171512]">{state.process}</b></span>
+              </div>
+              <div className="grid gap-2">
+                {materialResults.map((material) => (
+                  <button
+                    key={material._id || `${material.category}-${material.process}-${material.name}-${material.spec}`}
+                    type="button"
+                    onClick={() => onChooseMaterial(material)}
+                    className="grid gap-2 rounded-lg border border-[#d5dde2] bg-white p-4 text-left transition hover:border-[#38a9bd] hover:bg-[#edf8fb] md:grid-cols-[1.2fr_1fr_90px_130px]"
+                  >
+                    <span>
+                      <b className="block truncate">{material.name || '품명 없음'}</b>
+                      <small className="mt-1 block text-[#60717d]">{material.note || material.sourceSheet || ''}</small>
+                    </span>
+                    <span className="text-sm text-[#4d5d66]">{material.spec || '규격 없음'}</span>
+                    <span className="text-sm text-[#4d5d66]">{material.unit || '-'}</span>
+                    <span className="font-semibold md:text-right">{formatMoney(Number(material.unitPrice || 0))}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {((state.step === 'category' && categoryGroups.length === 0) || (state.step === 'process' && processGroups.length === 0) || (state.step === 'material' && materialResults.length === 0)) && (
+            <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-10 text-center text-sm text-[#60717d]">
+              검색 결과가 없습니다. 자재 단가 DB에 해당 항목이 있는지 확인해주세요.
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function StepButton({ label, active, enabled, onClick }: { label: string; active: boolean; enabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={!enabled}
+      onClick={onClick}
+      className={`rounded-full px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+        active ? 'bg-[#171512] text-white' : 'bg-[#edf2f5] text-[#4d5d66] hover:bg-[#d5dde2]'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function countBy<T>(items: T[], getLabel: (item: T) => string) {
+  const map = new Map<string, number>();
+  items.forEach((item) => {
+    const label = getLabel(item);
+    map.set(label, (map.get(label) || 0) + 1);
+  });
+  return Array.from(map.entries()).map(([label, count]) => ({ label, count }));
 }
 
 function CellInput({ value, listId, onChange }: { value: string; listId?: string; onChange: (value: string) => void }) {
