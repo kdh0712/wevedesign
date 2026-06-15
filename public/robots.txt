@@ -5,4 +5,5 @@ User-agent: Yeti
 Allow: /
 
 Sitemap: https://www.wevedesign.co.kr/sitemap.xml
+RSS: https://www.wevedesign.co.kr/rss.xml
 Host: https://www.wevedesign.co.kr
