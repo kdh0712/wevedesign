@@ -3722,7 +3722,7 @@ function MultiPopupSettingsBoard({
         </div>
       </div>
 
-      <div className="grid xl:grid-cols-[250px_minmax(0,1fr)_410px]">
+      <div className="grid xl:grid-cols-[220px_minmax(0,1fr)] 2xl:grid-cols-[240px_minmax(0,1fr)_390px]">
         <aside className="grid content-start gap-2 border-b border-[#d5dde2] bg-[#fbfcfd] p-4 xl:border-b-0 xl:border-r">
           {popups.map((popup, index) => (
             <button
@@ -3742,13 +3742,13 @@ function MultiPopupSettingsBoard({
           ))}
         </aside>
 
-        <div className="grid content-start gap-5 p-5">
+        <div className="grid min-w-0 content-start gap-5 p-5">
           <label className="inline-flex w-fit items-center gap-3 rounded-full border border-[#d5dde2] bg-white px-4 py-2 text-sm font-bold text-[#26343b]">
             <input type="checkbox" checked={selected.enabled === 'true'} onChange={(event) => updateSelected({ enabled: event.target.checked ? 'true' : 'false' })} />
             {selected.enabled === 'true' ? '선택 팝업 노출 중' : '선택 팝업 숨김'}
           </label>
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
               레이아웃
               <select value={selectedLayout} onChange={(event) => updateSelected({ layout: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
@@ -3777,13 +3777,13 @@ function MultiPopupSettingsBoard({
             </label>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2">
             <SettingInput label="팝업 너비(px)" value={selected.width || '520'} onChange={(value) => updateSelected({ width: onlyNumber(value).slice(0, 3) })} placeholder="예: 520" />
             <SettingInput label="노출 시작일" value={selected.startDate || ''} onChange={(value) => updateSelected({ startDate: value })} placeholder="예: 2026-06-15" />
             <SettingInput label="노출 종료일" value={selected.endDate || ''} onChange={(value) => updateSelected({ endDate: value })} placeholder="예: 2026-06-30" />
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+          <div className="grid gap-4 2xl:grid-cols-[260px_minmax(0,1fr)]">
             <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3">
               {selectedImage ? (
                 <img src={selectedImage} alt="팝업 이미지" className={`aspect-[4/3] w-full rounded-md bg-white ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />
@@ -3796,7 +3796,7 @@ function MultiPopupSettingsBoard({
                 <input type="file" accept="image/*" className="sr-only" disabled={saving} onChange={(event) => onImageUpload(selected._key || '', event.target.files?.[0])} />
               </label>
             </div>
-            <div className="grid gap-3">
+            <div className="grid min-w-0 gap-3">
               <SettingInput label="팝업 제목" value={selected.title || ''} onChange={(value) => updateSelected({ title: value })} placeholder="예: WEVE DESIGN 상담 안내" />
               <SettingInput label="팝업 내용" value={selected.body || ''} onChange={(value) => updateSelected({ body: value })} textarea placeholder="방문자에게 알릴 내용을 입력하세요." />
               <div className="grid gap-3 md:grid-cols-2">
@@ -3807,7 +3807,7 @@ function MultiPopupSettingsBoard({
           </div>
         </div>
 
-        <aside className="border-t border-[#d5dde2] bg-[#edf2f5] p-5 xl:border-l xl:border-t-0">
+        <aside className="border-t border-[#d5dde2] bg-[#edf2f5] p-5 xl:col-span-2 2xl:col-span-1 2xl:border-l 2xl:border-t-0">
           <div className="mb-3 flex items-center justify-between">
             <h4 className="font-semibold">팝업 미리보기</h4>
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${selected.enabled === 'true' ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#f1f3f5] text-[#5f6b73]'}`}>
