@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   BarChart3,
-  Bell,
   Boxes,
   Building2,
   Check,
@@ -16,7 +15,6 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MapPinned,
   MessageCircle,
   PackagePlus,
   Phone,
@@ -57,6 +55,8 @@ type TabKey =
   | 'vendors'
   | 'portfolio'
   | 'accounts';
+
+type HomepageTabKey = 'basic' | 'hero' | 'sections' | 'contact' | 'popup' | 'survey';
 
 type ManagerUser = {
   id: string;
@@ -302,7 +302,6 @@ const emptyOfficeData: OfficeData = {
   projects: [],
 };
 
-const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
 const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session';
 const OFFICE_REFRESH_SECONDS = 30;
 
@@ -334,7 +333,7 @@ const homepagePreviewTargets = {
   consultationEmail: { key: 'consultationEmail', label: '상담문의 이메일', src: '/#footer' },
   kakaoUrl: { key: 'kakaoUrl', label: '카카오톡 상담 링크', src: '/#contact' },
   kakaoChannelManagerUrl: { key: 'kakaoChannelManagerUrl', label: '카카오 채널 관리 링크', src: '/#contact' },
-  naverPlaceUrl: { key: 'naverPlaceUrl', label: '네이버 플레이스 예약 링크', src: '/#contact' },
+  naverPlaceUrl: { key: 'naverPlaceUrl', label: '네이버 플레이스 링크', src: '/#contact' },
   representativeName: { key: 'representativeName', label: '대표자명', src: '/#footer' },
   businessNumber: { key: 'businessNumber', label: '사업자등록번호', src: '/#footer' },
   companyStartYear: { key: 'companyStartYear', label: '회사 시작 연도', src: '/#footer' },
@@ -487,7 +486,7 @@ export default function ManagerPage() {
   });
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
-  const [homepageMode, setHomepageMode] = useState<'quick' | 'detail'>('quick');
+  const [homepageTab, setHomepageTab] = useState<HomepageTabKey>('basic');
   const [category, setCategory] = useState('');
   const [newCategory, setNewCategory] = useState('');
   const [uploadSiteType, setUploadSiteType] = useState('아파트');
@@ -561,6 +560,7 @@ export default function ManagerPage() {
     popupButtonLabel: '',
     popupButtonUrl: '',
     popupImage: '',
+    popups: [] as PopupItemDraft[],
   });
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectFilterCategoryId, setProjectFilterCategoryId] = useState('');
@@ -674,20 +674,7 @@ export default function ManagerPage() {
       }
     }
 
-    const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY);
-    if (savedPassword) {
-      const fallbackUser: ManagerUser = {
-        id: 'admin',
-        name: '총괄 관리자',
-        loginId: 'admin',
-        role: 'admin',
-        permissions: tabs.map((tab) => tab.key),
-      };
-      setPassword(savedPassword);
-      setCurrentUser(fallbackUser);
-      void loadOfficeData(savedPassword, { silent: true });
-      void loadAccounts(savedPassword);
-    }
+    window.localStorage.removeItem('weve-manager-password');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -734,7 +721,7 @@ export default function ManagerPage() {
 
   const requirePassword = (managerPassword = password) => {
     if (managerPassword) return true;
-    setError('관리 비밀번호를 먼저 입력해 주세요.');
+    setError('관리자 로그인을 먼저 진행해 주세요.');
     return false;
   };
 
@@ -757,7 +744,6 @@ export default function ManagerPage() {
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
       window.localStorage.setItem(MANAGER_SESSION_STORAGE_KEY, JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user }));
-      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, result.token);
       await loadOfficeData(result.token, { silent: true });
       if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
       setStatus('로그인했습니다.');
@@ -770,7 +756,7 @@ export default function ManagerPage() {
 
   const handleLogout = () => {
     window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
-    window.localStorage.removeItem(MANAGER_PASSWORD_STORAGE_KEY);
+    window.localStorage.removeItem('weve-manager-password');
     setPassword('');
     setFirebaseToken('');
     setLoginPassword('');
@@ -944,6 +930,7 @@ export default function ManagerPage() {
         popupButtonLabel: settings.popupButtonLabel || '',
         popupButtonUrl: settings.popupButtonUrl || '',
         popupImage: settings.popupImage || '',
+        popups: normalizePopupItems(settings),
       });
       setSurveyDraft(parsedSurveyConfig);
       setConsultationEmail(settings.consultationEmail || '');
@@ -951,12 +938,11 @@ export default function ManagerPage() {
       setPassword(managerPassword);
       setIsUnlocked(true);
       setLastRefreshedAt(formatTime(new Date()));
-      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, managerPassword);
       if (!options.silent) setStatus('업무 데이터를 불러왔습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
       if (caught instanceof Error && caught.message.includes('비밀번호')) {
-        window.localStorage.removeItem(MANAGER_PASSWORD_STORAGE_KEY);
+        window.localStorage.removeItem('weve-manager-password');
       }
     } finally {
       if (!options.silent) setLoadingOffice(false);
@@ -1386,32 +1372,6 @@ export default function ManagerPage() {
     }
   };
 
-  const saveExternalAlertCount = async (field: 'kakaoUnreadCount' | 'naverUnreadCount', nextCount: number) => {
-    setError('');
-    const safeCount = String(Math.max(0, Math.floor(nextCount)));
-    const nextSettings = { ...homepageSettings, [field]: safeCount };
-    setHomepageSettings(nextSettings);
-
-    if (!requirePassword()) return;
-
-    try {
-      const response = await fetch('/api/manager/settings', {
-        method: 'PATCH',
-        headers: {
-          ...authHeaders(),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ [field]: safeCount }),
-      });
-      const data = await readJsonResponse<ManagerApiResponse>(response);
-
-      if (!response.ok) throw new Error(data.error || '외부 알림 수 저장에 실패했습니다.');
-      setStatus('외부 예약/채팅 새 알림 수를 저장했습니다.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '외부 알림 수 저장 중 오류가 발생했습니다.');
-    }
-  };
-
   const uploadHomepageImage = async (field: 'heroImage' | 'heroImage2' | 'heroImage3' | 'popupImage', file?: File) => {
     setError('');
     setStatus('');
@@ -1434,6 +1394,38 @@ export default function ManagerPage() {
       if (!response.ok || !data.assetUrl) throw new Error(data.error || '이미지를 저장하지 못했습니다.');
       setHomepageSettings((current) => ({ ...current, [field]: data.assetUrl || '' }));
       setStatus('홈페이지 이미지를 저장했습니다.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '이미지 저장 중 오류가 발생했습니다.');
+    } finally {
+      setSavingEmail(false);
+    }
+  };
+
+  const uploadPopupItemImage = async (popupKey: string, file?: File) => {
+    setError('');
+    setStatus('');
+    if (!file) return;
+    if (!requirePassword()) return;
+
+    setSavingEmail(true);
+    try {
+      const formData = new FormData();
+      formData.append('field', 'popupUpload');
+      formData.append('file', file);
+
+      const response = await fetch('/api/manager/settings-image', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: formData,
+      });
+      const data = await readJsonResponse<{ assetUrl?: string; error?: string }>(response);
+
+      if (!response.ok || !data.assetUrl) throw new Error(data.error || '이미지를 저장하지 못했습니다.');
+      setHomepageSettings((current) => ({
+        ...current,
+        popups: normalizePopupItems(current).map((popup) => (popup._key === popupKey ? { ...popup, imageUrl: data.assetUrl || '', image: data.assetUrl || '' } : popup)),
+      }));
+      setStatus('팝업 이미지를 저장했습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '이미지 저장 중 오류가 발생했습니다.');
     } finally {
@@ -1730,7 +1722,7 @@ export default function ManagerPage() {
           </form>
         </div>
       )}
-      <div className={`flex min-h-screen ${!isUnlocked ? 'pointer-events-none select-none blur-[2px]' : ''}`}>
+      <div className={`min-h-screen ${!isUnlocked ? 'hidden' : 'flex'}`}>
         <aside className="hidden w-64 shrink-0 flex-col bg-[#273541] text-[#dfe8ed] lg:flex">
           <div className="border-b border-white/10 px-6 py-6">
             <div className="flex items-center gap-3">
@@ -1816,23 +1808,15 @@ export default function ManagerPage() {
             </div>
           </header>
 
-        <ExternalChannelAlerts
-          kakaoUrl={homepageSettings.kakaoUrl}
-          naverPlaceUrl={homepageSettings.naverPlaceUrl}
-          kakaoCount={Number(homepageSettings.kakaoUnreadCount || 0)}
-          naverCount={Number(homepageSettings.naverUnreadCount || 0)}
-          onKakaoCountChange={(nextCount) => void saveExternalAlertCount('kakaoUnreadCount', nextCount)}
-          onNaverCountChange={(nextCount) => void saveExternalAlertCount('naverUnreadCount', nextCount)}
-          refreshLabel={lastRefreshedAt ? `마지막 확인 ${lastRefreshedAt}` : '관리자 로그인 후 자동 확인'}
-        />
-
-        <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
-          <MetricCard title="고객" value={`${officeData.customers.length}명`} sub="등록 고객" />
-          <MetricCard title="현장" value={`${officeData.sites.length}곳`} sub="관리 현장" />
-          <MetricCard title="매출" value={formatMoney(salesTotal)} sub={`예상 이익 ${formatMoney(profitTotal)}`} />
-          <MetricCard title="재고" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
-        </div>
+        {activeTab === 'dashboard' && (
+          <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
+            <MetricCard title="고객" value={`${officeData.customers.length}명`} sub="등록 고객" />
+            <MetricCard title="현장" value={`${officeData.sites.length}곳`} sub="관리 현장" />
+            <MetricCard title="매출" value={formatMoney(salesTotal)} sub={`예상 이익 ${formatMoney(profitTotal)}`} />
+            <MetricCard title="재고" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
+          </div>
+        )}
 
         {activeTab === 'dashboard' && (
           <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
@@ -2393,152 +2377,134 @@ export default function ManagerPage() {
           <div className="grid gap-5">
             <div className="flex flex-wrap gap-2 rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
               {[
-                { key: 'quick', label: '간편 홈페이지 관리' },
-                { key: 'detail', label: '상세 홈페이지 수정' },
+                { key: 'basic', label: '기본 정보' },
+                { key: 'hero', label: '첫 화면' },
+                { key: 'sections', label: '섹션 문구' },
+                { key: 'contact', label: '상담/위치' },
+                { key: 'popup', label: '팝업 관리' },
+                { key: 'survey', label: '상담 설문' },
               ].map((item) => (
                 <button
                   key={item.key}
                   type="button"
-                  onClick={() => setHomepageMode(item.key as 'quick' | 'detail')}
+                  onClick={() => setHomepageTab(item.key as HomepageTabKey)}
                   className={`rounded-md px-4 py-2 text-sm font-semibold transition ${
-                    homepageMode === item.key ? 'bg-[#171512] text-white' : 'bg-[#f7fafb] text-[#4d5d66] hover:bg-[#edf2f5]'
+                    homepageTab === item.key ? 'bg-[#171512] text-white' : 'bg-[#f7fafb] text-[#4d5d66] hover:bg-[#edf2f5]'
                   }`}
                 >
                   {item.label}
                 </button>
               ))}
             </div>
-            {homepageMode === 'quick' && (
-            <Panel title="간편 홈페이지 관리">
-              <div className="grid gap-3 md:grid-cols-2">
-                <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
-                <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
-                <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
-                <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
-                <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
-                <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
-                <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
-                <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} placeholder="예: 전문 인테리어 상담을 시작합니다." {...previewFocus('locationTitle')} />
-                <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
-                <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
-                <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
-                <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
-                <SettingInput label="네이버 플레이스 예약 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
-                <SettingInput label="상담 영역 제목" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
-                <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
-                <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
-                <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
-              </div>
-              <PopupSettingsBoard
-                settings={homepageSettings}
-                saving={savingEmail}
-                onChange={(patch) => setHomepageSettings((current) => ({ ...current, ...patch }))}
-                onImageUpload={(file) => void uploadHomepageImage('popupImage', file)}
-              />
-              <div className="mt-5 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold">상담 설문 질문 수정</h3>
-                    <p className="mt-1 text-sm leading-6 text-[#60717d]">질문별 탭에서 문구와 선택지를 수정하고, 첫 질문 선택지별 다음 질문 묶음을 관리합니다.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openSurveyEditor}
-                    className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2d2822]"
-                  >
-                    상담 설문 편집
-                  </button>
-                </div>
-              </div>
-              <button
-                onClick={saveHomepageSettings}
-                disabled={savingEmail}
-                className="mt-4 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
-              >
-                {savingEmail ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
-                홈페이지 설정 저장
-              </button>
-            </Panel>
-            )}
-
-            {homepageMode === 'detail' && (
-              <Panel title="상세 홈페이지 수정">
+            <Panel title="홈페이지 관리">
                 <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_460px]">
                   <div className="grid gap-5">
-                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                    <h3 className="mb-3 font-semibold">첫 화면 배너</h3>
-                    <div className="grid gap-4 xl:grid-cols-3">
-                      {[
-                        ['heroImage', '배너 이미지 1'],
-                        ['heroImage2', '배너 이미지 2'],
-                        ['heroImage3', '배너 이미지 3'],
-                      ].map(([field, label]) => (
-                        <label key={field} className="grid gap-2 text-sm font-semibold text-[#4d5d66]">
-                          {label}
-                          <div className="overflow-hidden rounded-md border border-[#d5dde2] bg-white">
-                            {homepageSettings[field as 'heroImage'] ? (
-                              <img src={homepageSettings[field as 'heroImage']} alt={label} className="aspect-video w-full object-cover" />
-                            ) : (
-                              <div className="flex aspect-video items-center justify-center text-[#8aa0aa]">
-                                <ImageIcon size={28} />
+                    {homepageTab === 'basic' && (
+                      <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                        <h3 className="mb-3 font-semibold">기본 회사 정보</h3>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
+                          <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
+                          <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
+                          <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
+                          <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
+                          <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
+                          <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
+                        </div>
+                      </section>
+                    )}
+
+                    {homepageTab === 'hero' && (
+                      <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                        <h3 className="mb-3 font-semibold">첫 화면 배너</h3>
+                        <div className="grid gap-4 xl:grid-cols-3">
+                          {[
+                            ['heroImage', '배너 이미지 1'],
+                            ['heroImage2', '배너 이미지 2'],
+                            ['heroImage3', '배너 이미지 3'],
+                          ].map(([field, label]) => (
+                            <label key={field} className="grid gap-2 text-sm font-semibold text-[#4d5d66]">
+                              {label}
+                              <div className="overflow-hidden rounded-md border border-[#d5dde2] bg-white">
+                                {homepageSettings[field as 'heroImage'] ? (
+                                  <img src={homepageSettings[field as 'heroImage']} alt={label} className="aspect-video w-full object-cover" />
+                                ) : (
+                                  <div className="flex aspect-video items-center justify-center text-[#8aa0aa]">
+                                    <ImageIcon size={28} />
+                                  </div>
+                                )}
                               </div>
-                            )}
+                              <input type="file" accept="image/*" onChange={(event) => void uploadHomepageImage(field as 'heroImage' | 'heroImage2' | 'heroImage3', event.target.files?.[0])} className="text-sm" />
+                            </label>
+                          ))}
+                        </div>
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <SettingInput label="배너 작은 문구" value={homepageSettings.heroLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroLabel: value })} {...previewFocus('heroLabel')} />
+                          <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
+                          <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
+                          <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
+                          <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
+                        </div>
+                      </section>
+                    )}
+
+                    {homepageTab === 'sections' && (
+                      <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                        <h3 className="mb-3 font-semibold">섹션 문구</h3>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} {...previewFocus('statementLabel')} />
+                          <SettingInput label="브랜드 큰 문구" value={homepageSettings.statementTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementTitle: value })} textarea {...previewFocus('statementTitle')} />
+                          <SettingInput label="브랜드 설명" value={homepageSettings.statementBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementBody: value })} textarea {...previewFocus('statementBody')} />
+                          <SettingInput label="Project 섹션 제목" value={homepageSettings.projectSectionTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectSectionTitle: value })} {...previewFocus('projectSectionTitle')} />
+                          <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} {...previewFocus('projectButtonLabel')} />
+                          <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} {...previewFocus('portfolioTitle')} />
+                          <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} {...previewFocus('aboutLabel')} />
+                          <SettingInput label="소개 큰 문구" value={homepageSettings.aboutTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutTitle: value })} textarea {...previewFocus('aboutTitle')} />
+                          <SettingInput label="소개 설명" value={homepageSettings.aboutBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutBody: value })} textarea {...previewFocus('aboutBody')} />
+                          <SettingInput label="진행 과정 작은 문구" value={homepageSettings.processLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, processLabel: value })} {...previewFocus('processLabel')} />
+                          <SettingInput label="진행 과정 큰 문구" value={homepageSettings.processTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, processTitle: value })} textarea {...previewFocus('processTitle')} />
+                        </div>
+                      </section>
+                    )}
+
+                    {homepageTab === 'contact' && (
+                      <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                        <h3 className="mb-3 font-semibold">상담/위치</h3>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <SettingInput label="위치 작은 문구" value={homepageSettings.locationLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationLabel: value })} {...previewFocus('locationLabel')} />
+                          <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} {...previewFocus('locationTitle')} />
+                          <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} {...previewFocus('contactLabel')} />
+                          <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
+                          <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
+                          <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
+                          <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
+                          <SettingInput label="네이버 플레이스 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
+                        </div>
+                      </section>
+                    )}
+
+                    {homepageTab === 'popup' && (
+                      <MultiPopupSettingsBoard
+                        settings={homepageSettings}
+                        saving={savingEmail}
+                        onChange={(patch) => setHomepageSettings((current) => ({ ...current, ...patch }))}
+                        onImageUpload={(popupKey, file) => void uploadPopupItemImage(popupKey, file)}
+                      />
+                    )}
+
+                    {homepageTab === 'survey' && (
+                      <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold">상담 설문 질문 수정</h3>
+                            <p className="mt-1 text-sm leading-6 text-[#60717d]">질문별 탭에서 문구와 선택지를 수정하고, 첫 질문 선택지별 다음 질문 묶음을 관리합니다.</p>
                           </div>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) => void uploadHomepageImage(field as 'heroImage' | 'heroImage2' | 'heroImage3', event.target.files?.[0])}
-                            className="text-sm"
-                          />
-                        </label>
-                      ))}
-                    </div>
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      <SettingInput label="배너 작은 문구" value={homepageSettings.heroLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroLabel: value })} {...previewFocus('heroLabel')} />
-                      <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
-                      <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
-                      <SettingInput label="메인 버튼 문구" value={homepageSettings.primaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, primaryButtonLabel: value })} {...previewFocus('primaryButtonLabel')} />
-                      <SettingInput label="보조 버튼 문구" value={homepageSettings.secondaryButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, secondaryButtonLabel: value })} {...previewFocus('secondaryButtonLabel')} />
-                    </div>
-                    </section>
-
-                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                    <h3 className="mb-3 font-semibold">중간 문구와 Project 영역</h3>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <SettingInput label="브랜드 작은 문구" value={homepageSettings.statementLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementLabel: value })} {...previewFocus('statementLabel')} />
-                      <SettingInput label="브랜드 큰 문구" value={homepageSettings.statementTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementTitle: value })} textarea {...previewFocus('statementTitle')} />
-                      <SettingInput label="브랜드 설명" value={homepageSettings.statementBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, statementBody: value })} textarea {...previewFocus('statementBody')} />
-                      <SettingInput label="Project 섹션 제목" value={homepageSettings.projectSectionTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectSectionTitle: value })} {...previewFocus('projectSectionTitle')} />
-                      <SettingInput label="Project 버튼 문구" value={homepageSettings.projectButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, projectButtonLabel: value })} {...previewFocus('projectButtonLabel')} />
-                      <SettingInput label="Project 목록 페이지 제목" value={homepageSettings.portfolioTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, portfolioTitle: value })} {...previewFocus('portfolioTitle')} />
-                    </div>
-                    </section>
-
-                    <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                    <h3 className="mb-3 font-semibold">소개, 위치, 상담, 회사 정보</h3>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <SettingInput label="소개 작은 문구" value={homepageSettings.aboutLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutLabel: value })} {...previewFocus('aboutLabel')} />
-                      <SettingInput label="소개 큰 문구" value={homepageSettings.aboutTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutTitle: value })} textarea {...previewFocus('aboutTitle')} />
-                      <SettingInput label="소개 설명" value={homepageSettings.aboutBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, aboutBody: value })} textarea {...previewFocus('aboutBody')} />
-                      <SettingInput label="진행 과정 작은 문구" value={homepageSettings.processLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, processLabel: value })} {...previewFocus('processLabel')} />
-                      <SettingInput label="진행 과정 큰 문구" value={homepageSettings.processTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, processTitle: value })} textarea {...previewFocus('processTitle')} />
-                      <SettingInput label="위치 작은 문구" value={homepageSettings.locationLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationLabel: value })} {...previewFocus('locationLabel')} />
-                      <SettingInput label="오시는 길 큰 문구" value={homepageSettings.locationTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, locationTitle: value })} {...previewFocus('locationTitle')} />
-                      <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
-                      <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
-                      <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
-                      <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} {...previewFocus('contactLabel')} />
-                      <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
-                      <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
-                      <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
-                      <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
-                      <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
-                      <SettingInput label="네이버 플레이스 예약 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
-                      <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
-                      <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
-                      <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
-                    </div>
-                    </section>
+                          <button type="button" onClick={openSurveyEditor} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2d2822]">
+                            상담 설문 편집
+                          </button>
+                        </div>
+                      </section>
+                    )}
                   </div>
                   <HomepageLivePreview activeTarget={activePreviewTarget} />
                 </div>
@@ -2548,10 +2514,9 @@ export default function ManagerPage() {
                   className="mt-5 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
                 >
                   {savingEmail ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
-                  상세 홈페이지 설정 저장
+                  홈페이지 설정 저장
                 </button>
               </Panel>
-            )}
 
             <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
               <Panel title="현장 폴더 한번에 업로드">
@@ -2900,109 +2865,6 @@ export default function ManagerPage() {
         </section>
       </div>
     </main>
-  );
-}
-
-function ExternalChannelAlerts({
-  kakaoUrl,
-  naverPlaceUrl,
-  kakaoCount,
-  naverCount,
-  onKakaoCountChange,
-  onNaverCountChange,
-  refreshLabel,
-}: {
-  kakaoUrl?: string;
-  naverPlaceUrl?: string;
-  kakaoCount: number;
-  naverCount: number;
-  onKakaoCountChange: (nextCount: number) => void;
-  onNaverCountChange: (nextCount: number) => void;
-  refreshLabel: string;
-}) {
-  const channels = [
-    {
-      title: '카카오 채널 상담',
-      description: '1:1 채팅이나 채널 상담 알림을 확인하고 바로 응대합니다.',
-      url: kakaoUrl || 'https://center-pf.kakao.com/',
-      icon: <MessageCircle size={20} />,
-      accent: 'bg-[#fee500] text-[#171512]',
-      button: '카카오 확인',
-      count: kakaoCount,
-      onCountChange: onKakaoCountChange,
-    },
-    {
-      title: '네이버 플레이스 예약',
-      description: '네이버 예약, 톡톡, 플레이스 문의를 확인하는 바로가기입니다.',
-      url: naverPlaceUrl || 'https://new.smartplace.naver.com/',
-      icon: <MapPinned size={20} />,
-      accent: 'bg-[#03c75a] text-white',
-      button: '네이버 확인',
-      count: naverCount,
-      onCountChange: onNaverCountChange,
-    },
-  ];
-
-  return (
-    <section className="mb-4 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
-      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-        <div className="flex items-start gap-3">
-          <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#edf8fb] text-[#38a9bd]">
-            <Bell size={20} />
-          </span>
-          <div>
-            <h2 className="text-lg font-semibold">외부 예약/채팅 알림 확인</h2>
-            <p className="mt-1 text-sm leading-6 text-[#60717d]">
-              카카오와 네이버에서 알림을 받으면 여기서 바로 이동해 처리합니다. 홈페이지 상담 요청은 {refreshLabel} 기준으로 자동 반영됩니다.
-            </p>
-          </div>
-        </div>
-        <span className="rounded-full bg-[#edf2f5] px-3 py-1 text-xs font-semibold text-[#4d5d66]">빠른 확인 링크</span>
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {channels.map((channel) => (
-          <article
-            key={channel.title}
-            className="group rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 transition hover:-translate-y-0.5 hover:border-[#c6a25d] hover:bg-white hover:shadow-md"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <span className="flex min-w-0 items-center gap-3">
-                <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md ${channel.accent}`}>{channel.icon}</span>
-                <span className="min-w-0">
-                  <span className="block font-semibold">{channel.title}</span>
-                  <span className="mt-1 block text-sm leading-5 text-[#60717d]">{channel.description}</span>
-                </span>
-              </span>
-              <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${channel.count > 0 ? 'bg-[#ffe9e9] text-[#c33131]' : 'bg-[#e8f7ee] text-[#217346]'}`}>
-                새 알림 {channel.count}건
-              </span>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => channel.onCountChange(channel.count - 1)} className="h-9 w-9 rounded-md border border-[#d5dde2] bg-white text-lg font-semibold">
-                  -
-                </button>
-                <button type="button" onClick={() => channel.onCountChange(channel.count + 1)} className="h-9 w-9 rounded-md border border-[#d5dde2] bg-white text-lg font-semibold">
-                  +
-                </button>
-                <button type="button" onClick={() => channel.onCountChange(0)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold">
-                  확인 완료
-                </button>
-              </div>
-              <a
-                href={channel.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex shrink-0 items-center gap-1 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white transition group-hover:bg-[#c6a25d] group-hover:text-[#171512]"
-              >
-                {channel.button}
-                <ExternalLink size={14} />
-              </a>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -3702,6 +3564,303 @@ function HomepageLivePreview({ activeTarget }: { activeTarget: PreviewTarget | n
   );
 }
 
+type PopupItemDraft = {
+  _key?: string;
+  enabled?: string;
+  layout?: string;
+  position?: string;
+  width?: string;
+  imageFit?: string;
+  startDate?: string;
+  endDate?: string;
+  title?: string;
+  body?: string;
+  buttonLabel?: string;
+  buttonUrl?: string;
+  image?: string;
+  imageUrl?: string;
+};
+
+type PopupCollectionDraft = {
+  popups?: PopupItemDraft[];
+  popupEnabled?: string;
+  popupLayout?: string;
+  popupPosition?: string;
+  popupWidth?: string;
+  popupImageFit?: string;
+  popupStartDate?: string;
+  popupEndDate?: string;
+  popupTitle?: string;
+  popupBody?: string;
+  popupButtonLabel?: string;
+  popupButtonUrl?: string;
+  popupImage?: string;
+};
+
+function createPopupItem(index = 1): PopupItemDraft {
+  return {
+    _key: `popup-${Date.now()}-${index}`,
+    enabled: 'false',
+    layout: 'imageTop',
+    position: 'center',
+    width: '520',
+    imageFit: 'cover',
+    startDate: '',
+    endDate: '',
+    title: `팝업 ${index}`,
+    body: '',
+    buttonLabel: '',
+    buttonUrl: '',
+    imageUrl: '',
+  };
+}
+
+function normalizePopupItems(settings: PopupCollectionDraft): PopupItemDraft[] {
+  const source =
+    Array.isArray(settings.popups) && settings.popups.length > 0
+      ? settings.popups
+      : settings.popupEnabled === 'true' || settings.popupTitle || settings.popupBody || settings.popupImage
+        ? [
+            {
+              _key: 'popup-main',
+              enabled: settings.popupEnabled || 'false',
+              layout: settings.popupLayout || 'imageTop',
+              position: settings.popupPosition || 'center',
+              width: settings.popupWidth || '520',
+              imageFit: settings.popupImageFit || 'cover',
+              startDate: settings.popupStartDate || '',
+              endDate: settings.popupEndDate || '',
+              title: settings.popupTitle || '',
+              body: settings.popupBody || '',
+              buttonLabel: settings.popupButtonLabel || '',
+              buttonUrl: settings.popupButtonUrl || '',
+              image: settings.popupImage || '',
+              imageUrl: settings.popupImage || '',
+            },
+          ]
+        : [{ ...createPopupItem(1), _key: 'popup-default', title: '팝업 1' }];
+
+  return source.map((item, index) => ({
+    _key: item._key || `popup-${index + 1}`,
+    enabled: item.enabled || 'false',
+    layout: item.layout || 'imageTop',
+    position: item.position || 'center',
+    width: item.width || '520',
+    imageFit: item.imageFit || 'cover',
+    startDate: item.startDate || '',
+    endDate: item.endDate || '',
+    title: item.title || '',
+    body: item.body || '',
+    buttonLabel: item.buttonLabel || '',
+    buttonUrl: item.buttonUrl || '',
+    image: item.image || item.imageUrl || '',
+    imageUrl: item.imageUrl || item.image || '',
+  }));
+}
+
+function MultiPopupSettingsBoard({
+  settings,
+  saving,
+  onChange,
+  onImageUpload,
+}: {
+  settings: PopupCollectionDraft;
+  saving: boolean;
+  onChange: (patch: Partial<PopupCollectionDraft>) => void;
+  onImageUpload: (popupKey: string, file?: File) => void;
+}) {
+  const popups = normalizePopupItems(settings);
+  const [selectedKey, setSelectedKey] = useState(popups[0]?._key || 'popup-default');
+  const selected = popups.find((popup) => popup._key === selectedKey) || popups[0] || { ...createPopupItem(1), _key: 'popup-default' };
+  const selectedImage = selected?.imageUrl || selected?.image || '';
+  const selectedLayout = selected?.layout || 'imageTop';
+  const width = Math.min(760, Math.max(320, Number(selected?.width || 520) || 520));
+  const hasContent = Boolean(selected?.title || selected?.body || selectedImage);
+
+  useEffect(() => {
+    if (!popups.some((popup) => popup._key === selectedKey)) {
+      setSelectedKey(popups[0]?._key || 'popup-default');
+    }
+  }, [popups, selectedKey]);
+
+  const replacePopups = (nextPopups: PopupItemDraft[]) => onChange({ popups: nextPopups });
+  const updateSelected = (patch: Partial<PopupItemDraft>) => {
+    replacePopups(popups.map((popup) => (popup._key === selected._key ? { ...popup, ...patch } : popup)));
+  };
+  const addPopup = () => {
+    const nextPopup = createPopupItem(popups.length + 1);
+    replacePopups([...popups, nextPopup]);
+    setSelectedKey(nextPopup._key || '');
+  };
+  const deleteSelected = () => {
+    if (popups.length <= 1) {
+      replacePopups([{ ...createPopupItem(1), _key: selected._key || 'popup-default', title: '팝업 1' }]);
+      return;
+    }
+    const nextPopups = popups.filter((popup) => popup._key !== selected._key);
+    replacePopups(nextPopups);
+    setSelectedKey(nextPopups[0]?._key || '');
+  };
+
+  return (
+    <section className="overflow-hidden rounded-lg border border-[#d5dde2] bg-white">
+      <div className="border-b border-[#d5dde2] bg-[#f7fafb] px-5 py-4">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">POPUP MANAGER</p>
+            <h3 className="mt-1 text-xl font-semibold">홈페이지 팝업 설정</h3>
+            <p className="mt-1 text-sm leading-6 text-[#60717d]">여러 팝업을 동시에 운영하고, 이미지형/텍스트형/분할형 레이아웃을 항목별로 지정합니다.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={addPopup} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+              팝업 추가
+            </button>
+            <button type="button" onClick={deleteSelected} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold text-[#4d5d66]">
+              선택 삭제
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid xl:grid-cols-[250px_minmax(0,1fr)_410px]">
+        <aside className="grid content-start gap-2 border-b border-[#d5dde2] bg-[#fbfcfd] p-4 xl:border-b-0 xl:border-r">
+          {popups.map((popup, index) => (
+            <button
+              key={popup._key}
+              type="button"
+              onClick={() => setSelectedKey(popup._key || '')}
+              className={`rounded-md border px-3 py-3 text-left transition ${popup._key === selected._key ? 'border-[#38a9bd] bg-white shadow-sm' : 'border-[#d5dde2] bg-[#f7fafb] hover:bg-white'}`}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-bold">{popup.title || `팝업 ${index + 1}`}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${popup.enabled === 'true' ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#edf2f5] text-[#60717d]'}`}>
+                  {popup.enabled === 'true' ? '노출' : '숨김'}
+                </span>
+              </span>
+              <span className="mt-1 block text-xs text-[#60717d]">{popup.layout === 'imageOnly' ? '이미지형' : popup.layout === 'split' ? '분할형' : popup.layout === 'textOnly' ? '텍스트형' : '이미지 상단형'}</span>
+            </button>
+          ))}
+        </aside>
+
+        <div className="grid content-start gap-5 p-5">
+          <label className="inline-flex w-fit items-center gap-3 rounded-full border border-[#d5dde2] bg-white px-4 py-2 text-sm font-bold text-[#26343b]">
+            <input type="checkbox" checked={selected.enabled === 'true'} onChange={(event) => updateSelected({ enabled: event.target.checked ? 'true' : 'false' })} />
+            {selected.enabled === 'true' ? '선택 팝업 노출 중' : '선택 팝업 숨김'}
+          </label>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              레이아웃
+              <select value={selectedLayout} onChange={(event) => updateSelected({ layout: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="imageTop">이미지 상단형</option>
+                <option value="imageOnly">이미지로만 채우기</option>
+                <option value="split">좌우 분할형</option>
+                <option value="textOnly">글 중심형</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              위치
+              <select value={selected.position || 'center'} onChange={(event) => updateSelected({ position: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="center">중앙</option>
+                <option value="topLeft">좌측 상단</option>
+                <option value="topRight">우측 상단</option>
+                <option value="bottomLeft">좌측 하단</option>
+                <option value="bottomRight">우측 하단</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              이미지 표시
+              <select value={selected.imageFit || 'cover'} onChange={(event) => updateSelected({ imageFit: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="cover">영역 채우기</option>
+                <option value="contain">전체 보이기</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <SettingInput label="팝업 너비(px)" value={selected.width || '520'} onChange={(value) => updateSelected({ width: onlyNumber(value).slice(0, 3) })} placeholder="예: 520" />
+            <SettingInput label="노출 시작일" value={selected.startDate || ''} onChange={(value) => updateSelected({ startDate: value })} placeholder="예: 2026-06-15" />
+            <SettingInput label="노출 종료일" value={selected.endDate || ''} onChange={(value) => updateSelected({ endDate: value })} placeholder="예: 2026-06-30" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+            <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3">
+              {selectedImage ? (
+                <img src={selectedImage} alt="팝업 이미지" className={`aspect-[4/3] w-full rounded-md bg-white ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />
+              ) : (
+                <div className="flex aspect-[4/3] items-center justify-center rounded-md bg-white text-sm font-semibold text-[#60717d]">이미지 없음</div>
+              )}
+              <label className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white">
+                <UploadCloud size={16} />
+                이미지 업로드
+                <input type="file" accept="image/*" className="sr-only" disabled={saving} onChange={(event) => onImageUpload(selected._key || '', event.target.files?.[0])} />
+              </label>
+            </div>
+            <div className="grid gap-3">
+              <SettingInput label="팝업 제목" value={selected.title || ''} onChange={(value) => updateSelected({ title: value })} placeholder="예: WEVE DESIGN 상담 안내" />
+              <SettingInput label="팝업 내용" value={selected.body || ''} onChange={(value) => updateSelected({ body: value })} textarea placeholder="방문자에게 알릴 내용을 입력하세요." />
+              <div className="grid gap-3 md:grid-cols-2">
+                <SettingInput label="버튼 문구" value={selected.buttonLabel || ''} onChange={(value) => updateSelected({ buttonLabel: value })} placeholder="예: 상담 신청하기" />
+                <SettingInput label="버튼 링크" value={selected.buttonUrl || ''} onChange={(value) => updateSelected({ buttonUrl: value })} placeholder="예: #contact 또는 https://..." />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside className="border-t border-[#d5dde2] bg-[#edf2f5] p-5 xl:border-l xl:border-t-0">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="font-semibold">팝업 미리보기</h4>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${selected.enabled === 'true' ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#f1f3f5] text-[#5f6b73]'}`}>
+              {selected.enabled === 'true' ? '노출' : '숨김'}
+            </span>
+          </div>
+          <div className="relative min-h-[430px] overflow-hidden rounded-lg bg-[#171512]/15 p-5">
+            <div className={`absolute max-h-[390px] overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl ${popupPreviewPositionClass(selected.position || 'center')}`} style={{ width: `${Math.min(width, 360)}px` }}>
+              {selectedLayout === 'imageOnly' ? (
+                selectedImage ? (
+                  <img src={selectedImage} alt="" className={`max-h-[320px] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />
+                ) : (
+                  <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+                )
+              ) : selectedLayout === 'split' ? (
+                <div className="grid grid-cols-2">
+                  {selectedImage && <img src={selectedImage} alt="" className={`h-full min-h-[180px] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
+                  <PopupItemPreviewText popup={selected} compact />
+                </div>
+              ) : (
+                <>
+                  {selectedLayout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
+                  <PopupItemPreviewText popup={selected} centered={selectedLayout === 'textOnly'} />
+                </>
+              )}
+              <div className="flex items-center justify-between border-t border-[#eadfcd] bg-[#fffaf0] px-4 py-2 text-xs font-semibold text-[#625d54]">
+                <span>오늘 하루 보지 않기</span>
+                <span>닫기</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs leading-5 text-[#60717d]">
+            <p className="rounded-md bg-white px-3 py-2">1. 팝업별 노출 여부와 기간을 따로 설정할 수 있습니다.</p>
+            <p className="rounded-md bg-white px-3 py-2">2. 이미지로만 채우기는 안내 이미지 자체가 완성된 경우 사용합니다.</p>
+            <p className={`rounded-md px-3 py-2 ${hasContent ? 'bg-white' : 'bg-[#fff0f0] text-[#b24a4a]'}`}>3. 제목, 내용 또는 이미지를 입력해야 방문자가 내용을 확인할 수 있습니다.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function PopupItemPreviewText({ popup, centered = false, compact = false }: { popup: PopupItemDraft; centered?: boolean; compact?: boolean }) {
+  return (
+    <div className={`grid gap-2 ${compact ? 'p-4' : 'p-5'} ${centered ? 'text-center' : ''}`}>
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8f6f43]">WEVE DESIGN</p>
+      <p className={`${compact ? 'text-lg' : 'text-xl'} font-semibold leading-tight`}>{popup.title || '팝업 제목'}</p>
+      <p className="line-clamp-4 whitespace-pre-line text-sm leading-6 text-[#514c43]">{popup.body || '팝업 내용을 입력하면 이 영역에 표시됩니다.'}</p>
+      {popup.buttonLabel && <span className={`mt-1 inline-flex rounded-md bg-[#f1c76a] px-3 py-2 text-xs font-bold ${centered ? 'mx-auto' : 'self-start'}`}>{popup.buttonLabel}</span>}
+    </div>
+  );
+}
+
 type PopupSettingsDraft = {
   popupEnabled?: string;
   popupLayout?: string;
@@ -3830,7 +3989,7 @@ function PopupSettingsBoard({
                 </>
               )}
               <div className="flex items-center justify-between border-t border-[#eadfcd] bg-[#fffaf0] px-4 py-2 text-xs font-semibold text-[#625d54]">
-                <span>□ 오늘 하루 안보기</span>
+                <span>□ 오늘 하루 보지 않기</span>
                 <span>닫기</span>
               </div>
             </div>

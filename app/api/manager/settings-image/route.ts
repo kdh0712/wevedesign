@@ -3,7 +3,7 @@ import { assertManager, managerClient } from '../_utils';
 
 export const runtime = 'nodejs';
 
-const imageFields = new Set(['heroImage', 'heroImage2', 'heroImage3', 'popupImage']);
+const imageFields = new Set(['heroImage', 'heroImage2', 'heroImage3', 'popupImage', 'popupUpload']);
 
 export async function POST(request: Request) {
   const authError = assertManager(request);
@@ -33,6 +33,10 @@ export async function POST(request: Request) {
       filename: file.name,
       contentType: file.type,
     });
+
+    if (field === 'popupUpload') {
+      return NextResponse.json({ assetUrl: asset.url });
+    }
 
     const settings = await managerClient
       .patch('siteSettings')

@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupPosition, popupWidth, popupImageFit, popupStartDate, popupEndDate, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
+      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupPosition, popupWidth, popupImageFit, popupStartDate, popupEndDate, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, popups[]{"_key": _key, enabled, layout, position, width, imageFit, startDate, endDate, title, body, buttonLabel, buttonUrl, imageUrl, "image": coalesce(image.asset->url, imageUrl)}, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -22,8 +22,8 @@ export async function PATCH(request: Request) {
   if (authError) return authError;
 
   try {
-    const body = (await request.json()) as Record<string, string | undefined>;
-    const updates: Record<string, string> = {};
+    const body = (await request.json()) as Record<string, unknown>;
+    const updates: Record<string, unknown> = {};
 
     const allowedFields = [
       'consultationEmail',
@@ -92,7 +92,29 @@ export async function PATCH(request: Request) {
       }
     }
 
-    if (updates.consultationEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.consultationEmail)) {
+    if (Array.isArray(body.popups)) {
+      updates.popups = body.popups.map((popup, index) => {
+        const item = popup && typeof popup === 'object' ? (popup as Record<string, unknown>) : {};
+        return {
+          _type: 'object',
+          _key: String(item._key || `popup-${Date.now()}-${index}`).replace(/[^a-zA-Z0-9_-]/g, ''),
+          enabled: String(item.enabled || 'false').trim(),
+          layout: String(item.layout || 'imageTop').trim(),
+          position: String(item.position || 'center').trim(),
+          width: String(item.width || '520').trim(),
+          imageFit: String(item.imageFit || 'cover').trim(),
+          startDate: String(item.startDate || '').trim(),
+          endDate: String(item.endDate || '').trim(),
+          title: String(item.title || '').trim(),
+          body: String(item.body || '').trim(),
+          buttonLabel: String(item.buttonLabel || '').trim(),
+          buttonUrl: String(item.buttonUrl || '').trim(),
+          imageUrl: String(item.imageUrl || item.image || '').trim(),
+        };
+      });
+    }
+
+    if (typeof updates.consultationEmail === 'string' && updates.consultationEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(updates.consultationEmail)) {
       return NextResponse.json({ error: '올바른 이메일 주소를 입력해주세요.' }, { status: 400 });
     }
 

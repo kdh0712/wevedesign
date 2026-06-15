@@ -122,6 +122,22 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
   popupBody,
   popupButtonLabel,
   popupButtonUrl,
+  popups[]{
+    "_key": _key,
+    enabled,
+    layout,
+    position,
+    width,
+    imageFit,
+    startDate,
+    endDate,
+    title,
+    body,
+    buttonLabel,
+    buttonUrl,
+    imageUrl,
+    "image": coalesce(image.asset->url, imageUrl)
+  },
   "popupImage": popupImage.asset->url
 }`;
 

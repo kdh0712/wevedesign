@@ -64,6 +64,23 @@ type Project = {
   gallery?: GalleryImage[];
 };
 
+type HomepagePopupItem = {
+  _key?: string;
+  enabled?: string;
+  layout?: string;
+  position?: string;
+  width?: string;
+  imageFit?: string;
+  startDate?: string;
+  endDate?: string;
+  title?: string;
+  body?: string;
+  buttonLabel?: string;
+  buttonUrl?: string;
+  image?: string;
+  imageUrl?: string;
+};
+
 type SiteSettings = {
   heroImage?: string;
   heroImage2?: string;
@@ -133,6 +150,7 @@ type SiteSettings = {
   popupButtonLabel?: string;
   popupButtonUrl?: string;
   popupImage?: string;
+  popups?: HomepagePopupItem[];
 };
 
 type DaumPostcodeData = {
@@ -261,6 +279,7 @@ const defaultSettings: Required<SiteSettings> = {
   popupButtonLabel: '',
   popupButtonUrl: '',
   popupImage: '',
+  popups: [],
 };
 
 const fallbackHeroSlides = [
@@ -619,7 +638,7 @@ export default function WeveDesignLanding() {
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
-  const [isHomepagePopupVisible, setIsHomepagePopupVisible] = useState(false);
+  const [hiddenHomepagePopupKeys, setHiddenHomepagePopupKeys] = useState<string[]>([]);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [showTopButton, setShowTopButton] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
@@ -661,6 +680,11 @@ export default function WeveDesignLanding() {
   const activeHero = heroSlides[activeHeroIndex] || heroSlides[0];
   const naverMapClientId = process.env.NEXT_PUBLIC_NAVER_MAP_CLIENT_ID || '';
   const consultationSurveyConfig = useMemo(() => parseConsultationSurveyConfig(settings), [settings]);
+  const homepagePopups = useMemo(() => normalizeHomepagePopups(settings), [settings]);
+  const visibleHomepagePopups = useMemo(
+    () => homepagePopups.filter((popup) => popup.enabled === 'true' && isPopupWithinDateRange(popup.startDate, popup.endDate) && !hiddenHomepagePopupKeys.includes(popup._key || '')),
+    [homepagePopups, hiddenHomepagePopupKeys],
+  );
   const consultationSteps = useMemo<ConsultationStep[]>(() => {
     const selectedAreaGroup =
       consultationSurveyConfig.areaGroups.find((group) => group.propertyOptions.includes(formData.propertyType)) ||
@@ -774,15 +798,14 @@ export default function WeveDesignLanding() {
   }, []);
 
   useEffect(() => {
-    if (settings.popupEnabled !== 'true' || !isPopupWithinDateRange(settings.popupStartDate, settings.popupEndDate)) {
-      setIsHomepagePopupVisible(false);
-      return;
-    }
-
     const todayKey = new Date().toLocaleDateString('sv-SE');
-    const hiddenKey = `weve-popup-hidden-${todayKey}`;
-    setIsHomepagePopupVisible(window.localStorage.getItem(hiddenKey) !== 'true');
-  }, [settings.popupEnabled, settings.popupTitle, settings.popupBody, settings.popupImage, settings.popupStartDate, settings.popupEndDate]);
+    const hiddenKeys = homepagePopups
+      .filter((popup) => window.localStorage.getItem(`weve-popup-hidden-${todayKey}-${popup._key}`) === 'true')
+      .map((popup) => popup._key || '')
+      .filter(Boolean);
+
+    setHiddenHomepagePopupKeys(hiddenKeys);
+  }, [homepagePopups]);
 
   useEffect(() => {
     if (!naverMapClientId && viewMode === 'main') {
@@ -1198,12 +1221,12 @@ export default function WeveDesignLanding() {
     }
   };
 
-  const closeHomepagePopup = (hideToday = false) => {
+  const closeHomepagePopup = (popupKey: string, hideToday = false) => {
     if (hideToday) {
       const todayKey = new Date().toLocaleDateString('sv-SE');
-      window.localStorage.setItem(`weve-popup-hidden-${todayKey}`, 'true');
+      window.localStorage.setItem(`weve-popup-hidden-${todayKey}-${popupKey}`, 'true');
     }
-    setIsHomepagePopupVisible(false);
+    setHiddenHomepagePopupKeys((current) => (current.includes(popupKey) ? current : [...current, popupKey]));
   };
 
   if (viewMode === 'portfolio') {
@@ -1220,7 +1243,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
           onMenuClick={() => setMobileNavOpen((value) => !value)}
         />
-        <HomepagePopup settings={settings} visible={isHomepagePopupVisible} onClose={closeHomepagePopup} />
+        <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} />
 
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
@@ -1326,7 +1349,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
         onMenuClick={() => setMobileNavOpen((value) => !value)}
       />
-      <HomepagePopup settings={settings} visible={isHomepagePopupVisible} onClose={closeHomepagePopup} />
+      <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} />
 
       <main>
         <section id="home" className="relative min-h-screen overflow-hidden">
@@ -2047,6 +2070,151 @@ export default function WeveDesignLanding() {
   );
 }
 
+function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopupItem>[] {
+  const source =
+    Array.isArray(settings.popups) && settings.popups.length > 0
+      ? settings.popups
+      : settings.popupEnabled === 'true' || settings.popupTitle || settings.popupBody || settings.popupImage
+        ? [
+            {
+              _key: 'popup-main',
+              enabled: settings.popupEnabled || 'false',
+              layout: settings.popupLayout || 'imageTop',
+              position: settings.popupPosition || 'center',
+              width: settings.popupWidth || '520',
+              imageFit: settings.popupImageFit || 'cover',
+              startDate: settings.popupStartDate || '',
+              endDate: settings.popupEndDate || '',
+              title: settings.popupTitle || '',
+              body: settings.popupBody || '',
+              buttonLabel: settings.popupButtonLabel || '',
+              buttonUrl: settings.popupButtonUrl || '',
+              image: settings.popupImage || '',
+              imageUrl: settings.popupImage || '',
+            },
+          ]
+        : [];
+
+  return source.map((popup, index) => ({
+    _key: popup._key || `popup-${index + 1}`,
+    enabled: popup.enabled || 'false',
+    layout: popup.layout || 'imageTop',
+    position: popup.position || 'center',
+    width: popup.width || '520',
+    imageFit: popup.imageFit || 'cover',
+    startDate: popup.startDate || '',
+    endDate: popup.endDate || '',
+    title: popup.title || '',
+    body: popup.body || '',
+    buttonLabel: popup.buttonLabel || '',
+    buttonUrl: popup.buttonUrl || '',
+    image: popup.image || popup.imageUrl || '',
+    imageUrl: popup.imageUrl || popup.image || '',
+  }));
+}
+
+function HomepagePopupWindows({
+  popups,
+  onClose,
+}: {
+  popups: Required<HomepagePopupItem>[];
+  onClose: (popupKey: string, hideToday?: boolean) => void;
+}) {
+  if (popups.length === 0) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[90]">
+      {popups.map((popup, index) => (
+        <HomepagePopupWindow key={popup._key} popup={popup} index={index} onClose={onClose} />
+      ))}
+    </div>
+  );
+}
+
+function HomepagePopupWindow({
+  popup,
+  index,
+  onClose,
+}: {
+  popup: Required<HomepagePopupItem>;
+  index: number;
+  onClose: (popupKey: string, hideToday?: boolean) => void;
+}) {
+  const [hideToday, setHideToday] = useState(false);
+  const layout = popup.layout || 'imageTop';
+  const image = popup.imageUrl || popup.image || '';
+  const hasImage = Boolean(image);
+  const title = popup.title || 'WEVE DESIGN';
+  const body = popup.body || '';
+  const buttonLabel = popup.buttonLabel || '';
+  const buttonUrl = popup.buttonUrl || '';
+  const width = Math.min(760, Math.max(320, Number(popup.width || 520) || 520));
+  const imageFitClass = popup.imageFit === 'contain' ? 'object-contain' : 'object-cover';
+
+  const handleButtonClick = () => {
+    if (!buttonUrl) return;
+    onClose(popup._key, hideToday);
+    if (buttonUrl.startsWith('#')) {
+      window.setTimeout(() => document.querySelector(buttonUrl)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+      return;
+    }
+    window.open(buttonUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
+
+  return (
+    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, width)}>
+      <div className="relative max-h-[calc(100vh-36px)] w-full overflow-y-auto rounded-lg bg-[#fffdf8] shadow-[0_18px_60px_rgba(23,21,18,0.28)] ring-1 ring-[#eadfcd]" style={{ maxWidth: `${layout === 'split' ? Math.max(width, 720) : width}px` }}>
+        <button
+          type="button"
+          onClick={() => onClose(popup._key, hideToday)}
+          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-white/90 text-[#171512] shadow-sm transition hover:bg-[#f1c76a]"
+          aria-label="팝업 닫기"
+        >
+          <X size={20} />
+        </button>
+
+        {layout === 'imageOnly' ? (
+          hasImage ? <div className="bg-[#ded7cc]">{imageNode}</div> : <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+        ) : layout === 'split' ? (
+          <div className="grid md:grid-cols-[0.92fr_1fr]">
+            {hasImage && <div className="min-h-[260px] bg-[#ded7cc]">{imageNode}</div>}
+            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} />
+          </div>
+        ) : (
+          <>
+            {layout !== 'textOnly' && hasImage && <div className="aspect-[16/10] bg-[#ded7cc]">{imageNode}</div>}
+            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} centered={layout === 'textOnly'} />
+          </>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd] bg-[#fffaf0] px-5 py-3">
+          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
+            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
+            오늘 하루 보지 않기
+          </label>
+          <button type="button" onClick={() => onClose(popup._key, hideToday)} className="text-sm font-bold text-[#8f6f43] hover:text-[#171512]">
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function popupWindowStyle(position: string, index: number, width: number): React.CSSProperties {
+  const offset = index * 22;
+  const maxWidth = Math.min(width, 760);
+  const base: React.CSSProperties = { width: `min(${maxWidth}px, calc(100vw - 32px))` };
+
+  if (position === 'topLeft') return { ...base, left: 24 + offset, top: 96 + offset };
+  if (position === 'topRight') return { ...base, right: 24 + offset, top: 96 + offset };
+  if (position === 'bottomLeft') return { ...base, left: 24 + offset, bottom: 24 + offset };
+  if (position === 'bottomRight') return { ...base, right: 24 + offset, bottom: 24 + offset };
+  return { ...base, left: '50%', top: '50%', transform: `translate(-50%, calc(-50% + ${offset}px))` };
+}
+
 function HomepagePopup({
   settings,
   visible,
@@ -2110,7 +2278,7 @@ function HomepagePopup({
         <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd] bg-[#fffaf0] px-5 py-3">
           <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
             <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
-            오늘 하루 안보기
+            오늘 하루 보지 않기
           </label>
           <button type="button" onClick={() => onClose(hideToday)} className="text-sm font-bold text-[#8f6f43] hover:text-[#171512]">
             닫기

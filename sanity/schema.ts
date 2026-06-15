@@ -203,6 +203,44 @@ const siteSettings = defineType({
     defineField({ name: 'popupButtonLabel', title: '팝업 버튼 문구', type: 'string', group: 'popup' }),
     defineField({ name: 'popupButtonUrl', title: '팝업 버튼 링크', type: 'url', group: 'popup' }),
     defineField({
+      name: 'popups',
+      title: '팝업 목록',
+      type: 'array',
+      group: 'popup',
+      of: [
+        {
+          type: 'object',
+          fields: [
+            defineField({ name: 'enabled', title: '노출 여부', type: 'string', initialValue: 'false' }),
+            defineField({ name: 'layout', title: '레이아웃', type: 'string', initialValue: 'imageTop' }),
+            defineField({ name: 'position', title: '위치', type: 'string', initialValue: 'center' }),
+            defineField({ name: 'width', title: '너비(px)', type: 'string', initialValue: '520' }),
+            defineField({ name: 'imageFit', title: '이미지 표시', type: 'string', initialValue: 'cover' }),
+            defineField({ name: 'startDate', title: '노출 시작일', type: 'date' }),
+            defineField({ name: 'endDate', title: '노출 종료일', type: 'date' }),
+            defineField({ name: 'imageUrl', title: '이미지 URL', type: 'url' }),
+            defineField({ name: 'title', title: '제목', type: 'string' }),
+            defineField({ name: 'body', title: '내용', type: 'text', rows: 5 }),
+            defineField({ name: 'buttonLabel', title: '버튼 문구', type: 'string' }),
+            defineField({ name: 'buttonUrl', title: '버튼 링크', type: 'url' }),
+          ],
+          preview: {
+            select: {
+              title: 'title',
+              enabled: 'enabled',
+              layout: 'layout',
+            },
+            prepare({ title, enabled, layout }) {
+              return {
+                title: title || '팝업',
+                subtitle: `${enabled === 'true' ? '노출' : '숨김'} · ${layout || 'imageTop'}`,
+              };
+            },
+          },
+        },
+      ],
+    }),
+    defineField({
       name: 'primaryButtonLabel',
       title: '첫 번째 버튼 문구',
       type: 'string',
