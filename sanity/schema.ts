@@ -35,6 +35,7 @@ const siteSettings = defineType({
     { name: 'hero', title: '메인 첫 화면', default: true },
     { name: 'sections', title: '중간 섹션 문구' },
     { name: 'location', title: '오시는 길 / 상담' },
+    { name: 'popup', title: '홈페이지 팝업' },
   ],
   fields: [
     defineField({
@@ -125,6 +126,44 @@ const siteSettings = defineType({
       rows: 3,
       group: 'hero',
     }),
+    defineField({
+      name: 'popupEnabled',
+      title: '팝업 사용',
+      type: 'string',
+      initialValue: 'false',
+      group: 'popup',
+      options: {
+        list: [
+          { title: '사용 안 함', value: 'false' },
+          { title: '사용', value: 'true' },
+        ],
+      },
+    }),
+    defineField({
+      name: 'popupLayout',
+      title: '팝업 레이아웃',
+      type: 'string',
+      initialValue: 'imageTop',
+      group: 'popup',
+      options: {
+        list: [
+          { title: '이미지 상단형', value: 'imageTop' },
+          { title: '좌우 분할형', value: 'split' },
+          { title: '글 중심형', value: 'textOnly' },
+        ],
+      },
+    }),
+    defineField({
+      name: 'popupImage',
+      title: '팝업 이미지',
+      type: 'image',
+      group: 'popup',
+      options: { hotspot: true },
+    }),
+    defineField({ name: 'popupTitle', title: '팝업 제목', type: 'string', group: 'popup' }),
+    defineField({ name: 'popupBody', title: '팝업 내용', type: 'text', rows: 5, group: 'popup' }),
+    defineField({ name: 'popupButtonLabel', title: '팝업 버튼 문구', type: 'string', group: 'popup' }),
+    defineField({ name: 'popupButtonUrl', title: '팝업 버튼 링크', type: 'url', group: 'popup' }),
     defineField({
       name: 'primaryButtonLabel',
       title: '첫 번째 버튼 문구',

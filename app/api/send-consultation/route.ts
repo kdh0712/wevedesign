@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
-import { isPhoneVerified } from '../phone-verification/store';
 
 type ConsultationPayload = {
   name?: string;
@@ -18,7 +17,6 @@ type ConsultationPayload = {
   detailAddress?: string;
   message?: string;
   privacyAgreed?: boolean;
-  phoneVerificationToken?: string;
 };
 
 const escapeHtml = (value: string) =>
@@ -87,10 +85,6 @@ export async function POST(request: Request) {
       !privacyAgreed
     ) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
-    }
-
-    if (!isPhoneVerified(phone, payload.phoneVerificationToken)) {
-      return NextResponse.json({ error: '휴대폰 인증을 완료해 주세요.' }, { status: 400 });
     }
 
     if (!process.env.SANITY_WRITE_TOKEN) {

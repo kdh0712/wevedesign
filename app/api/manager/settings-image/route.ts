@@ -3,7 +3,7 @@ import { assertManager, managerClient } from '../_utils';
 
 export const runtime = 'nodejs';
 
-const imageFields = new Set(['heroImage', 'heroImage2', 'heroImage3']);
+const imageFields = new Set(['heroImage', 'heroImage2', 'heroImage3', 'popupImage']);
 
 export async function POST(request: Request) {
   const authError = assertManager(request);

@@ -110,7 +110,14 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
   businessNumber,
   companyStartYear,
   kakaoUrl,
-  kakaoChannelManagerUrl
+  kakaoChannelManagerUrl,
+  popupEnabled,
+  popupLayout,
+  popupTitle,
+  popupBody,
+  popupButtonLabel,
+  popupButtonUrl,
+  "popupImage": popupImage.asset->url
 }`;
 
 export async function GET() {

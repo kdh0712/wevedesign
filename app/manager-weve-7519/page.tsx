@@ -549,6 +549,13 @@ export default function ManagerPage() {
     heroImage: '',
     heroImage2: '',
     heroImage3: '',
+    popupEnabled: 'false',
+    popupLayout: 'imageTop',
+    popupTitle: '',
+    popupBody: '',
+    popupButtonLabel: '',
+    popupButtonUrl: '',
+    popupImage: '',
   });
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [projectFilterCategoryId, setProjectFilterCategoryId] = useState('');
@@ -920,6 +927,13 @@ export default function ManagerPage() {
         heroImage: settings.heroImage || '',
         heroImage2: settings.heroImage2 || '',
         heroImage3: settings.heroImage3 || '',
+        popupEnabled: settings.popupEnabled || 'false',
+        popupLayout: settings.popupLayout || 'imageTop',
+        popupTitle: settings.popupTitle || '',
+        popupBody: settings.popupBody || '',
+        popupButtonLabel: settings.popupButtonLabel || '',
+        popupButtonUrl: settings.popupButtonUrl || '',
+        popupImage: settings.popupImage || '',
       });
       setSurveyDraft(parsedSurveyConfig);
       setConsultationEmail(settings.consultationEmail || '');
@@ -1388,7 +1402,7 @@ export default function ManagerPage() {
     }
   };
 
-  const uploadHomepageImage = async (field: 'heroImage' | 'heroImage2' | 'heroImage3', file?: File) => {
+  const uploadHomepageImage = async (field: 'heroImage' | 'heroImage2' | 'heroImage3' | 'popupImage', file?: File) => {
     setError('');
     setStatus('');
     if (!file) return;
@@ -2404,6 +2418,58 @@ export default function ManagerPage() {
                 <SettingInput label="첫 화면 큰 문구" value={homepageSettings.heroTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroTitle: value })} textarea {...previewFocus('heroTitle')} />
                 <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
                 <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
+              </div>
+              <div className="mt-5 grid gap-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                  <div>
+                    <h3 className="font-semibold">홈페이지 팝업 관리</h3>
+                    <p className="mt-1 text-sm leading-6 text-[#60717d]">이미지와 문구를 넣어 홈페이지 첫 진입 시 보여줄 팝업을 설정합니다.</p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#4d5d66]">
+                    <input
+                      type="checkbox"
+                      checked={homepageSettings.popupEnabled === 'true'}
+                      onChange={(event) => setHomepageSettings({ ...homepageSettings, popupEnabled: event.target.checked ? 'true' : 'false' })}
+                    />
+                    팝업 사용
+                  </label>
+                </div>
+                <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+                  <div className="rounded-md border border-[#d5dde2] bg-white p-3">
+                    {homepageSettings.popupImage ? (
+                      <img src={homepageSettings.popupImage} alt="팝업 이미지" className="aspect-[4/3] w-full rounded-md object-cover" />
+                    ) : (
+                      <div className="flex aspect-[4/3] items-center justify-center rounded-md bg-[#edf2f5] text-sm font-semibold text-[#60717d]">
+                        팝업 이미지 없음
+                      </div>
+                    )}
+                    <label className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white">
+                      <UploadCloud size={16} />
+                      팝업 이미지 업로드
+                      <input type="file" accept="image/*" className="sr-only" onChange={(event) => void uploadHomepageImage('popupImage', event.target.files?.[0])} />
+                    </label>
+                  </div>
+                  <div className="grid gap-3">
+                    <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                      팝업 레이아웃
+                      <select
+                        value={homepageSettings.popupLayout}
+                        onChange={(event) => setHomepageSettings({ ...homepageSettings, popupLayout: event.target.value })}
+                        className="rounded-md border border-[#d5dde2] bg-white px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
+                      >
+                        <option value="imageTop">이미지 상단형</option>
+                        <option value="split">좌우 분할형</option>
+                        <option value="textOnly">글 중심형</option>
+                      </select>
+                    </label>
+                    <SettingInput label="팝업 제목" value={homepageSettings.popupTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupTitle: value })} placeholder="예: WEVE DESIGN 상담 안내" />
+                    <SettingInput label="팝업 내용" value={homepageSettings.popupBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupBody: value })} textarea placeholder="방문자에게 알릴 내용을 입력하세요." />
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <SettingInput label="팝업 버튼 문구" value={homepageSettings.popupButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupButtonLabel: value })} placeholder="예: 상담 신청하기" />
+                      <SettingInput label="팝업 버튼 링크" value={homepageSettings.popupButtonUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupButtonUrl: value })} placeholder="예: #contact 또는 https://..." />
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="mt-5 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">

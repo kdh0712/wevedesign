@@ -121,6 +121,13 @@ type SiteSettings = {
   consultationSurveyConfig?: string;
   kakaoUrl?: string;
   kakaoChannelManagerUrl?: string;
+  popupEnabled?: string;
+  popupLayout?: string;
+  popupTitle?: string;
+  popupBody?: string;
+  popupButtonLabel?: string;
+  popupButtonUrl?: string;
+  popupImage?: string;
 };
 
 type DaumPostcodeData = {
@@ -237,6 +244,13 @@ const defaultSettings: Required<SiteSettings> = {
   consultationSurveyConfig: '',
   kakaoUrl: 'https://pf.kakao.com/_xxxx',
   kakaoChannelManagerUrl: '',
+  popupEnabled: 'false',
+  popupLayout: 'imageTop',
+  popupTitle: '',
+  popupBody: '',
+  popupButtonLabel: '',
+  popupButtonUrl: '',
+  popupImage: '',
 };
 
 const fallbackHeroSlides = [
@@ -593,14 +607,9 @@ export default function WeveDesignLanding() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitStatus, setSubmitStatus] = useState('');
   const [submitErrorMessage, setSubmitErrorMessage] = useState('');
-  const [phoneVerificationCode, setPhoneVerificationCode] = useState('');
-  const [phoneVerificationToken, setPhoneVerificationToken] = useState('');
-  const [phoneVerificationChallenge, setPhoneVerificationChallenge] = useState('');
-  const [phoneVerificationStatus, setPhoneVerificationStatus] = useState<'idle' | 'sent' | 'verified' | 'error'>('idle');
-  const [phoneVerificationMessage, setPhoneVerificationMessage] = useState('');
-  const [isSendingVerification, setIsSendingVerification] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
+  const [isHomepagePopupVisible, setIsHomepagePopupVisible] = useState(false);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [showTopButton, setShowTopButton] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
@@ -753,6 +762,17 @@ export default function WeveDesignLanding() {
 
     fetchData();
   }, []);
+
+  useEffect(() => {
+    if (settings.popupEnabled !== 'true') {
+      setIsHomepagePopupVisible(false);
+      return;
+    }
+
+    const todayKey = new Date().toLocaleDateString('sv-SE');
+    const hiddenKey = `weve-popup-hidden-${todayKey}`;
+    setIsHomepagePopupVisible(window.localStorage.getItem(hiddenKey) !== 'true');
+  }, [settings.popupEnabled, settings.popupTitle, settings.popupBody, settings.popupImage]);
 
   useEffect(() => {
     if (!naverMapClientId && viewMode === 'main') {
@@ -1032,14 +1052,6 @@ export default function WeveDesignLanding() {
           ? formatPhoneNumber(value)
           : value;
 
-    if (name === 'phone') {
-      setPhoneVerificationStatus('idle');
-      setPhoneVerificationCode('');
-      setPhoneVerificationToken('');
-      setPhoneVerificationChallenge('');
-      setPhoneVerificationMessage('');
-    }
-
     setFormData((current) => ({ ...current, [name]: nextValue }));
     resetSubmitMessage();
   };
@@ -1115,48 +1127,6 @@ export default function WeveDesignLanding() {
     }).open();
   };
 
-  const requestPhoneVerification = async () => {
-    setSubmitStatus('');
-    setPhoneVerificationMessage('');
-    setIsSendingVerification(true);
-    try {
-      const response = await fetch('/api/phone-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', phone: formData.phone }),
-      });
-      const data = (await response.json().catch(() => null)) as { error?: string; message?: string; challenge?: string } | null;
-      if (!response.ok) throw new Error(data?.error || '인증번호 요청에 실패했습니다.');
-      setPhoneVerificationStatus('sent');
-      setPhoneVerificationChallenge(data?.challenge || '');
-      setPhoneVerificationMessage(data?.message || '인증번호를 발송했습니다.');
-    } catch (caught) {
-      setPhoneVerificationStatus('error');
-      setPhoneVerificationMessage(caught instanceof Error ? caught.message : '인증번호 요청 중 오류가 발생했습니다.');
-    } finally {
-      setIsSendingVerification(false);
-    }
-  };
-
-  const confirmPhoneVerification = async () => {
-    setPhoneVerificationMessage('');
-    try {
-      const response = await fetch('/api/phone-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'verify', phone: formData.phone, code: phoneVerificationCode, challenge: phoneVerificationChallenge }),
-      });
-      const data = (await response.json().catch(() => null)) as { error?: string; verified?: boolean; token?: string } | null;
-      if (!response.ok || !data?.verified) throw new Error(data?.error || '인증번호 확인에 실패했습니다.');
-      setPhoneVerificationStatus('verified');
-      setPhoneVerificationToken(data.token || '');
-      setPhoneVerificationMessage('휴대폰 인증이 완료되었습니다.');
-    } catch (caught) {
-      setPhoneVerificationStatus('error');
-      setPhoneVerificationMessage(caught instanceof Error ? caught.message : '인증번호 확인 중 오류가 발생했습니다.');
-    }
-  };
-
   const handleSubmit = async () => {
     const payload = {
       name: formData.name.trim(),
@@ -1173,7 +1143,6 @@ export default function WeveDesignLanding() {
       privacyAgreed: formData.privacyAgreed,
       address: formData.address.trim(),
       message: formData.message.trim(),
-      phoneVerificationToken,
     };
 
     if (
@@ -1184,8 +1153,9 @@ export default function WeveDesignLanding() {
       !payload.reason ||
       !payload.budget ||
       !payload.timeline ||
-      phoneVerificationStatus !== 'verified' ||
-      !phoneVerificationToken
+      !payload.address ||
+      !payload.detailAddress ||
+      !payload.privacyAgreed
     ) {
       setSubmitStatus('missing');
       return;
@@ -1203,11 +1173,6 @@ export default function WeveDesignLanding() {
         setIsSubmitted(true);
         setConsultationStep(0);
         setFormData(initialConsultationData);
-        setPhoneVerificationCode('');
-        setPhoneVerificationToken('');
-        setPhoneVerificationChallenge('');
-        setPhoneVerificationStatus('idle');
-        setPhoneVerificationMessage('');
         setSubmitStatus('');
         setSubmitErrorMessage('');
       } else {
@@ -1221,6 +1186,14 @@ export default function WeveDesignLanding() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const closeHomepagePopup = (hideToday = false) => {
+    if (hideToday) {
+      const todayKey = new Date().toLocaleDateString('sv-SE');
+      window.localStorage.setItem(`weve-popup-hidden-${todayKey}`, 'true');
+    }
+    setIsHomepagePopupVisible(false);
   };
 
   if (viewMode === 'portfolio') {
@@ -1237,6 +1210,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
           onMenuClick={() => setMobileNavOpen((value) => !value)}
         />
+        <HomepagePopup settings={settings} visible={isHomepagePopupVisible} onClose={closeHomepagePopup} />
 
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
@@ -1331,7 +1305,7 @@ export default function WeveDesignLanding() {
         </a>
       </div>
 
-        <Header
+      <Header
           mobileNavOpen={mobileNavOpen}
           activeSection={activeSection}
           phone={settings.phone || defaultSettings.phone}
@@ -1342,6 +1316,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
         onMenuClick={() => setMobileNavOpen((value) => !value)}
       />
+      <HomepagePopup settings={settings} visible={isHomepagePopupVisible} onClose={closeHomepagePopup} />
 
       <main>
         <section id="home" className="relative min-h-screen overflow-hidden">
@@ -1896,40 +1871,6 @@ export default function WeveDesignLanding() {
                           placeholder="숫자만 입력"
                         />
                       </label>
-                      <div className="grid gap-3 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
-                        <div className="flex flex-col gap-3 sm:flex-row">
-                          <button
-                            type="button"
-                            onClick={requestPhoneVerification}
-                            disabled={isSendingVerification || !formData.phone || phoneVerificationStatus === 'verified'}
-                            className="inline-flex min-h-12 items-center justify-center rounded-md bg-[#171512] px-4 text-sm font-semibold text-white disabled:opacity-45"
-                          >
-                            {isSendingVerification ? '요청 중...' : phoneVerificationStatus === 'verified' ? '인증 완료' : '인증번호 요청'}
-                          </button>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={phoneVerificationCode}
-                            onChange={(event) => setPhoneVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                            disabled={phoneVerificationStatus === 'verified'}
-                            className="min-h-12 flex-1 border border-[#d8d1c5] bg-white px-4 font-medium outline-none transition focus:border-[#171512] disabled:bg-[#f7f7f7]"
-                            placeholder="6자리 인증번호"
-                          />
-                          <button
-                            type="button"
-                            onClick={confirmPhoneVerification}
-                            disabled={phoneVerificationStatus === 'verified' || phoneVerificationCode.length !== 6}
-                            className="inline-flex min-h-12 items-center justify-center rounded-md border border-[#171512] bg-white px-4 text-sm font-semibold disabled:opacity-45"
-                          >
-                            확인
-                          </button>
-                        </div>
-                        {phoneVerificationMessage && (
-                          <p className={`text-sm font-semibold ${phoneVerificationStatus === 'verified' ? 'text-[#2f7d45]' : phoneVerificationStatus === 'error' ? 'text-red-600' : 'text-[#8f6f43]'}`}>
-                            {phoneVerificationMessage}
-                          </p>
-                        )}
-                      </div>
                       <div className="grid gap-3">
                         <span className="font-semibold">시공 주소 <span className="text-red-500">*</span></span>
                         <p className="text-sm text-[#8b8276]">우편번호 검색으로 주소를 찾은 뒤 상세 주소를 입력해주세요.</p>
@@ -2092,6 +2033,111 @@ export default function WeveDesignLanding() {
       </footer>
 
       {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProjectId(null)} />}
+    </div>
+  );
+}
+
+function HomepagePopup({
+  settings,
+  visible,
+  onClose,
+}: {
+  settings: SiteSettings;
+  visible: boolean;
+  onClose: (hideToday?: boolean) => void;
+}) {
+  const [hideToday, setHideToday] = useState(false);
+  if (!visible) return null;
+
+  const layout = settings.popupLayout || 'imageTop';
+  const hasImage = Boolean(settings.popupImage);
+  const title = settings.popupTitle || 'WEVE DESIGN';
+  const body = settings.popupBody || '';
+  const buttonLabel = settings.popupButtonLabel || '';
+  const buttonUrl = settings.popupButtonUrl || '';
+
+  const handleButtonClick = () => {
+    if (!buttonUrl) return;
+    onClose(hideToday);
+    if (buttonUrl.startsWith('#')) {
+      window.setTimeout(() => document.querySelector(buttonUrl)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+      return;
+    }
+    window.open(buttonUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const image = hasImage ? (
+    <img src={optimizedImage(settings.popupImage || '', 900, 86)} alt={title} className="h-full w-full object-cover" />
+  ) : null;
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#171512]/58 px-4 py-6 backdrop-blur-sm">
+      <div className={`relative w-full overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl ${layout === 'split' ? 'max-w-3xl' : 'max-w-lg'}`}>
+        <button
+          type="button"
+          onClick={() => onClose(hideToday)}
+          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-white/90 text-[#171512] shadow-sm transition hover:bg-[#f1c76a]"
+          aria-label="팝업 닫기"
+        >
+          <X size={20} />
+        </button>
+
+        {layout === 'split' ? (
+          <div className="grid md:grid-cols-[0.92fr_1fr]">
+            {hasImage && <div className="min-h-[260px] bg-[#ded7cc]">{image}</div>}
+            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} />
+          </div>
+        ) : (
+          <>
+            {layout !== 'textOnly' && hasImage && <div className="aspect-[16/10] bg-[#ded7cc]">{image}</div>}
+            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} centered={layout === 'textOnly'} />
+          </>
+        )}
+
+        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd] bg-[#fffaf0] px-5 py-3">
+          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
+            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
+            오늘 하루 안보기
+          </label>
+          <button type="button" onClick={() => onClose(hideToday)} className="text-sm font-bold text-[#8f6f43] hover:text-[#171512]">
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PopupContent({
+  title,
+  body,
+  buttonLabel,
+  buttonUrl,
+  onButtonClick,
+  centered = false,
+}: {
+  title: string;
+  body: string;
+  buttonLabel: string;
+  buttonUrl: string;
+  onButtonClick: () => void;
+  centered?: boolean;
+}) {
+  return (
+    <div className={`grid gap-4 px-6 py-7 md:px-8 md:py-8 ${centered ? 'text-center' : ''}`}>
+      <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8f6f43]">WEVE DESIGN</p>
+      <h2 className="text-2xl font-semibold leading-tight md:text-3xl">{title}</h2>
+      {body && <p className="whitespace-pre-line text-base leading-7 text-[#514c43]">{body}</p>}
+      {buttonLabel && buttonUrl && (
+        <button
+          type="button"
+          onClick={onButtonClick}
+          className={`hover-shine mt-1 inline-flex items-center justify-center gap-2 rounded-md bg-[#f1c76a] px-5 py-3 text-sm font-bold text-[#171512] shadow-[0_12px_26px_rgba(191,143,51,0.2)] transition hover:-translate-y-0.5 ${centered ? 'mx-auto' : 'self-start'}`}
+        >
+          {buttonLabel}
+          <ArrowUpRight size={16} />
+        </button>
+      )}
     </div>
   );
 }
