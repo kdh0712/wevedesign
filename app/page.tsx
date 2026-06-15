@@ -2169,7 +2169,7 @@ function HomepagePopupWindow({
         <button
           type="button"
           onClick={() => onClose(popup._key, hideToday)}
-          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-white/90 text-[#171512] shadow-sm transition hover:bg-[#f1c76a]"
+          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-transparent text-[#171512] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)] transition hover:text-[#8f6f43]"
           aria-label="팝업 닫기"
         >
           <X size={20} />
@@ -2257,7 +2257,7 @@ function HomepagePopup({
         <button
           type="button"
           onClick={() => onClose(hideToday)}
-          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-white/90 text-[#171512] shadow-sm transition hover:bg-[#f1c76a]"
+          className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-md bg-transparent text-[#171512] drop-shadow-[0_1px_2px_rgba(255,255,255,0.9)] transition hover:text-[#8f6f43]"
           aria-label="팝업 닫기"
         >
           <X size={20} />
