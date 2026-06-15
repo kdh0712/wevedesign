@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+User-agent: Yeti
+Allow: /
+
+Sitemap: https://www.wevedesign.co.kr/sitemap.xml
+Host: https://www.wevedesign.co.kr
