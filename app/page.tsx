@@ -123,6 +123,11 @@ type SiteSettings = {
   kakaoChannelManagerUrl?: string;
   popupEnabled?: string;
   popupLayout?: string;
+  popupPosition?: string;
+  popupWidth?: string;
+  popupImageFit?: string;
+  popupStartDate?: string;
+  popupEndDate?: string;
   popupTitle?: string;
   popupBody?: string;
   popupButtonLabel?: string;
@@ -246,6 +251,11 @@ const defaultSettings: Required<SiteSettings> = {
   kakaoChannelManagerUrl: '',
   popupEnabled: 'false',
   popupLayout: 'imageTop',
+  popupPosition: 'center',
+  popupWidth: '520',
+  popupImageFit: 'cover',
+  popupStartDate: '',
+  popupEndDate: '',
   popupTitle: '',
   popupBody: '',
   popupButtonLabel: '',
@@ -764,7 +774,7 @@ export default function WeveDesignLanding() {
   }, []);
 
   useEffect(() => {
-    if (settings.popupEnabled !== 'true') {
+    if (settings.popupEnabled !== 'true' || !isPopupWithinDateRange(settings.popupStartDate, settings.popupEndDate)) {
       setIsHomepagePopupVisible(false);
       return;
     }
@@ -772,7 +782,7 @@ export default function WeveDesignLanding() {
     const todayKey = new Date().toLocaleDateString('sv-SE');
     const hiddenKey = `weve-popup-hidden-${todayKey}`;
     setIsHomepagePopupVisible(window.localStorage.getItem(hiddenKey) !== 'true');
-  }, [settings.popupEnabled, settings.popupTitle, settings.popupBody, settings.popupImage]);
+  }, [settings.popupEnabled, settings.popupTitle, settings.popupBody, settings.popupImage, settings.popupStartDate, settings.popupEndDate]);
 
   useEffect(() => {
     if (!naverMapClientId && viewMode === 'main') {
@@ -2055,6 +2065,9 @@ function HomepagePopup({
   const body = settings.popupBody || '';
   const buttonLabel = settings.popupButtonLabel || '';
   const buttonUrl = settings.popupButtonUrl || '';
+  const width = Math.min(760, Math.max(320, Number(settings.popupWidth || 520) || 520));
+  const positionClass = popupPositionClass(settings.popupPosition || 'center');
+  const imageFitClass = settings.popupImageFit === 'contain' ? 'object-contain' : 'object-cover';
 
   const handleButtonClick = () => {
     if (!buttonUrl) return;
@@ -2067,12 +2080,12 @@ function HomepagePopup({
   };
 
   const image = hasImage ? (
-    <img src={optimizedImage(settings.popupImage || '', 900, 86)} alt={title} className="h-full w-full object-cover" />
+    <img src={optimizedImage(settings.popupImage || '', 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} />
   ) : null;
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#171512]/58 px-4 py-6 backdrop-blur-sm">
-      <div className={`relative w-full overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl ${layout === 'split' ? 'max-w-3xl' : 'max-w-lg'}`}>
+    <div className={`fixed inset-0 z-[90] bg-[#171512]/58 px-4 py-6 backdrop-blur-sm ${positionClass}`}>
+      <div className="relative max-h-[calc(100vh-48px)] w-full overflow-y-auto rounded-lg bg-[#fffdf8] shadow-2xl" style={{ maxWidth: `${layout === 'split' ? Math.max(width, 720) : width}px` }}>
         <button
           type="button"
           onClick={() => onClose(hideToday)}
@@ -2106,6 +2119,24 @@ function HomepagePopup({
       </div>
     </div>
   );
+}
+
+function isPopupWithinDateRange(start?: string, end?: string) {
+  const today = new Date().toLocaleDateString('sv-SE');
+  if (start && today < start) return false;
+  if (end && today > end) return false;
+  return true;
+}
+
+function popupPositionClass(value: string) {
+  const positions: Record<string, string> = {
+    topLeft: 'flex items-start justify-start',
+    topRight: 'flex items-start justify-end',
+    bottomLeft: 'flex items-end justify-start',
+    bottomRight: 'flex items-end justify-end',
+    center: 'flex items-center justify-center',
+  };
+  return positions[value] || positions.center;
 }
 
 function PopupContent({

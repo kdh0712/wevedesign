@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
+      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupPosition, popupWidth, popupImageFit, popupStartDate, popupEndDate, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -75,6 +75,11 @@ export async function PATCH(request: Request) {
       'naverUnreadCount',
       'popupEnabled',
       'popupLayout',
+      'popupPosition',
+      'popupWidth',
+      'popupImageFit',
+      'popupStartDate',
+      'popupEndDate',
       'popupTitle',
       'popupBody',
       'popupButtonLabel',

@@ -551,6 +551,11 @@ export default function ManagerPage() {
     heroImage3: '',
     popupEnabled: 'false',
     popupLayout: 'imageTop',
+    popupPosition: 'center',
+    popupWidth: '520',
+    popupImageFit: 'cover',
+    popupStartDate: '',
+    popupEndDate: '',
     popupTitle: '',
     popupBody: '',
     popupButtonLabel: '',
@@ -929,6 +934,11 @@ export default function ManagerPage() {
         heroImage3: settings.heroImage3 || '',
         popupEnabled: settings.popupEnabled || 'false',
         popupLayout: settings.popupLayout || 'imageTop',
+        popupPosition: settings.popupPosition || 'center',
+        popupWidth: settings.popupWidth || '520',
+        popupImageFit: settings.popupImageFit || 'cover',
+        popupStartDate: settings.popupStartDate || '',
+        popupEndDate: settings.popupEndDate || '',
         popupTitle: settings.popupTitle || '',
         popupBody: settings.popupBody || '',
         popupButtonLabel: settings.popupButtonLabel || '',
@@ -2419,58 +2429,12 @@ export default function ManagerPage() {
                 <SettingInput label="첫 화면 설명" value={homepageSettings.heroDescription} onChange={(value) => setHomepageSettings({ ...homepageSettings, heroDescription: value })} textarea {...previewFocus('heroDescription')} />
                 <SettingInput label="상담 영역 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
               </div>
-              <div className="mt-5 grid gap-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-                  <div>
-                    <h3 className="font-semibold">홈페이지 팝업 관리</h3>
-                    <p className="mt-1 text-sm leading-6 text-[#60717d]">이미지와 문구를 넣어 홈페이지 첫 진입 시 보여줄 팝업을 설정합니다.</p>
-                  </div>
-                  <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#4d5d66]">
-                    <input
-                      type="checkbox"
-                      checked={homepageSettings.popupEnabled === 'true'}
-                      onChange={(event) => setHomepageSettings({ ...homepageSettings, popupEnabled: event.target.checked ? 'true' : 'false' })}
-                    />
-                    팝업 사용
-                  </label>
-                </div>
-                <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
-                  <div className="rounded-md border border-[#d5dde2] bg-white p-3">
-                    {homepageSettings.popupImage ? (
-                      <img src={homepageSettings.popupImage} alt="팝업 이미지" className="aspect-[4/3] w-full rounded-md object-cover" />
-                    ) : (
-                      <div className="flex aspect-[4/3] items-center justify-center rounded-md bg-[#edf2f5] text-sm font-semibold text-[#60717d]">
-                        팝업 이미지 없음
-                      </div>
-                    )}
-                    <label className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white">
-                      <UploadCloud size={16} />
-                      팝업 이미지 업로드
-                      <input type="file" accept="image/*" className="sr-only" onChange={(event) => void uploadHomepageImage('popupImage', event.target.files?.[0])} />
-                    </label>
-                  </div>
-                  <div className="grid gap-3">
-                    <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                      팝업 레이아웃
-                      <select
-                        value={homepageSettings.popupLayout}
-                        onChange={(event) => setHomepageSettings({ ...homepageSettings, popupLayout: event.target.value })}
-                        className="rounded-md border border-[#d5dde2] bg-white px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                      >
-                        <option value="imageTop">이미지 상단형</option>
-                        <option value="split">좌우 분할형</option>
-                        <option value="textOnly">글 중심형</option>
-                      </select>
-                    </label>
-                    <SettingInput label="팝업 제목" value={homepageSettings.popupTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupTitle: value })} placeholder="예: WEVE DESIGN 상담 안내" />
-                    <SettingInput label="팝업 내용" value={homepageSettings.popupBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupBody: value })} textarea placeholder="방문자에게 알릴 내용을 입력하세요." />
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <SettingInput label="팝업 버튼 문구" value={homepageSettings.popupButtonLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupButtonLabel: value })} placeholder="예: 상담 신청하기" />
-                      <SettingInput label="팝업 버튼 링크" value={homepageSettings.popupButtonUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, popupButtonUrl: value })} placeholder="예: #contact 또는 https://..." />
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <PopupSettingsBoard
+                settings={homepageSettings}
+                saving={savingEmail}
+                onChange={(patch) => setHomepageSettings((current) => ({ ...current, ...patch }))}
+                onImageUpload={(file) => void uploadHomepageImage('popupImage', file)}
+              />
               <div className="mt-5 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -3736,6 +3700,172 @@ function HomepageLivePreview({ activeTarget }: { activeTarget: PreviewTarget | n
       <iframe ref={iframeRef} title="WEVE DESIGN 홈페이지 미리보기" src={previewSrc} onLoad={highlightActiveTarget} className="h-[640px] w-full rounded-md border border-[#d5dde2] bg-white" />
     </aside>
   );
+}
+
+type PopupSettingsDraft = {
+  popupEnabled?: string;
+  popupLayout?: string;
+  popupPosition?: string;
+  popupWidth?: string;
+  popupImageFit?: string;
+  popupStartDate?: string;
+  popupEndDate?: string;
+  popupTitle?: string;
+  popupBody?: string;
+  popupButtonLabel?: string;
+  popupButtonUrl?: string;
+  popupImage?: string;
+};
+
+function PopupSettingsBoard({
+  settings,
+  saving,
+  onChange,
+  onImageUpload,
+}: {
+  settings: PopupSettingsDraft;
+  saving: boolean;
+  onChange: (patch: Partial<PopupSettingsDraft>) => void;
+  onImageUpload: (file?: File) => void;
+}) {
+  const width = Math.min(760, Math.max(320, Number(settings.popupWidth || 520) || 520));
+  const layout = settings.popupLayout || 'imageTop';
+  const enabled = settings.popupEnabled === 'true';
+  const hasContent = Boolean(settings.popupTitle || settings.popupBody || settings.popupImage);
+
+  return (
+    <section className="mt-5 overflow-hidden rounded-lg border border-[#d5dde2] bg-white">
+      <div className="border-b border-[#d5dde2] bg-[#f7fafb] px-5 py-4">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">POPUP MANAGER</p>
+            <h3 className="mt-1 text-xl font-semibold">홈페이지 팝업 설정</h3>
+            <p className="mt-1 text-sm leading-6 text-[#60717d]">노출 여부, 기간, 위치, 크기, 레이아웃과 콘텐츠를 한 화면에서 관리합니다.</p>
+          </div>
+          <label className="inline-flex items-center gap-3 rounded-full border border-[#d5dde2] bg-white px-4 py-2 text-sm font-bold text-[#26343b]">
+            <input type="checkbox" checked={enabled} onChange={(event) => onChange({ popupEnabled: event.target.checked ? 'true' : 'false' })} />
+            {enabled ? '팝업 노출 중' : '팝업 숨김'}
+          </label>
+        </div>
+      </div>
+
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div className="grid gap-5 p-5">
+          <div className="grid gap-4 lg:grid-cols-3">
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              레이아웃
+              <select value={layout} onChange={(event) => onChange({ popupLayout: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="imageTop">이미지 상단형</option>
+                <option value="split">좌우 분할형</option>
+                <option value="textOnly">글 중심형</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              위치
+              <select value={settings.popupPosition || 'center'} onChange={(event) => onChange({ popupPosition: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="center">중앙</option>
+                <option value="topLeft">좌측 상단</option>
+                <option value="topRight">우측 상단</option>
+                <option value="bottomLeft">좌측 하단</option>
+                <option value="bottomRight">우측 하단</option>
+              </select>
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+              이미지 표시
+              <select value={settings.popupImageFit || 'cover'} onChange={(event) => onChange({ popupImageFit: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+                <option value="cover">영역 채우기</option>
+                <option value="contain">전체 보이기</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <SettingInput label="팝업 너비(px)" value={settings.popupWidth || '520'} onChange={(value) => onChange({ popupWidth: onlyNumber(value).slice(0, 3) })} placeholder="예: 520" />
+            <SettingInput label="노출 시작일" value={settings.popupStartDate || ''} onChange={(value) => onChange({ popupStartDate: value })} placeholder="예: 2026-06-15" />
+            <SettingInput label="노출 종료일" value={settings.popupEndDate || ''} onChange={(value) => onChange({ popupEndDate: value })} placeholder="예: 2026-06-30" />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+            <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3">
+              {settings.popupImage ? (
+                <img src={settings.popupImage} alt="팝업 이미지" className={`aspect-[4/3] w-full rounded-md bg-white ${settings.popupImageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />
+              ) : (
+                <div className="flex aspect-[4/3] items-center justify-center rounded-md bg-white text-sm font-semibold text-[#60717d]">이미지 없음</div>
+              )}
+              <label className="mt-3 inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white">
+                <UploadCloud size={16} />
+                이미지 업로드
+                <input type="file" accept="image/*" className="sr-only" disabled={saving} onChange={(event) => onImageUpload(event.target.files?.[0])} />
+              </label>
+            </div>
+            <div className="grid gap-3">
+              <SettingInput label="팝업 제목" value={settings.popupTitle || ''} onChange={(value) => onChange({ popupTitle: value })} placeholder="예: WEVE DESIGN 상담 안내" />
+              <SettingInput label="팝업 내용" value={settings.popupBody || ''} onChange={(value) => onChange({ popupBody: value })} textarea placeholder="방문자에게 알릴 내용을 입력하세요." />
+              <div className="grid gap-3 md:grid-cols-2">
+                <SettingInput label="버튼 문구" value={settings.popupButtonLabel || ''} onChange={(value) => onChange({ popupButtonLabel: value })} placeholder="예: 상담 신청하기" />
+                <SettingInput label="버튼 링크" value={settings.popupButtonUrl || ''} onChange={(value) => onChange({ popupButtonUrl: value })} placeholder="예: #contact 또는 https://..." />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside className="border-t border-[#d5dde2] bg-[#edf2f5] p-5 xl:border-l xl:border-t-0">
+          <div className="mb-3 flex items-center justify-between">
+            <h4 className="font-semibold">팝업 미리보기</h4>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${enabled ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#f1f3f5] text-[#5f6b73]'}`}>
+              {enabled ? '노출' : '숨김'}
+            </span>
+          </div>
+          <div className="relative min-h-[430px] overflow-hidden rounded-lg bg-[#171512]/55 p-5">
+            <div className={`absolute max-h-[390px] overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl ${popupPreviewPositionClass(settings.popupPosition || 'center')}`} style={{ width: `${Math.min(width, 360)}px` }}>
+              {layout === 'split' ? (
+                <div className="grid grid-cols-2">
+                  {settings.popupImage && <img src={settings.popupImage} alt="" className={`h-full min-h-[180px] w-full bg-[#ded7cc] ${settings.popupImageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
+                  <PopupPreviewText settings={settings} compact />
+                </div>
+              ) : (
+                <>
+                  {layout !== 'textOnly' && settings.popupImage && <img src={settings.popupImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${settings.popupImageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
+                  <PopupPreviewText settings={settings} centered={layout === 'textOnly'} />
+                </>
+              )}
+              <div className="flex items-center justify-between border-t border-[#eadfcd] bg-[#fffaf0] px-4 py-2 text-xs font-semibold text-[#625d54]">
+                <span>□ 오늘 하루 안보기</span>
+                <span>닫기</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs leading-5 text-[#60717d]">
+            <p className="rounded-md bg-white px-3 py-2">1. 팝업 사용을 켜야 홈페이지에 노출됩니다.</p>
+            <p className="rounded-md bg-white px-3 py-2">2. 시작일/종료일을 비워두면 기간 제한 없이 노출됩니다.</p>
+            <p className={`rounded-md px-3 py-2 ${hasContent ? 'bg-white' : 'bg-[#fff0f0] text-[#b24a4a]'}`}>3. 제목, 내용 또는 이미지를 입력해야 방문자가 내용을 확인할 수 있습니다.</p>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function PopupPreviewText({ settings, centered = false, compact = false }: { settings: PopupSettingsDraft; centered?: boolean; compact?: boolean }) {
+  return (
+    <div className={`grid gap-2 ${compact ? 'p-4' : 'p-5'} ${centered ? 'text-center' : ''}`}>
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#8f6f43]">WEVE DESIGN</p>
+      <p className={`${compact ? 'text-lg' : 'text-xl'} font-semibold leading-tight`}>{settings.popupTitle || '팝업 제목'}</p>
+      <p className="line-clamp-4 whitespace-pre-line text-sm leading-6 text-[#514c43]">{settings.popupBody || '팝업 내용을 입력하면 이 영역에 표시됩니다.'}</p>
+      {settings.popupButtonLabel && <span className={`mt-1 inline-flex rounded-md bg-[#f1c76a] px-3 py-2 text-xs font-bold ${centered ? 'mx-auto' : 'self-start'}`}>{settings.popupButtonLabel}</span>}
+    </div>
+  );
+}
+
+function popupPreviewPositionClass(value: string) {
+  const positions: Record<string, string> = {
+    topLeft: 'left-5 top-5',
+    topRight: 'right-5 top-5',
+    bottomLeft: 'bottom-5 left-5',
+    bottomRight: 'bottom-5 right-5',
+    center: 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+  };
+  return positions[value] || positions.center;
 }
 
 function SettingInput({

@@ -154,6 +154,44 @@ const siteSettings = defineType({
       },
     }),
     defineField({
+      name: 'popupPosition',
+      title: '팝업 위치',
+      type: 'string',
+      initialValue: 'center',
+      group: 'popup',
+      options: {
+        list: [
+          { title: '중앙', value: 'center' },
+          { title: '좌측 상단', value: 'topLeft' },
+          { title: '우측 상단', value: 'topRight' },
+          { title: '좌측 하단', value: 'bottomLeft' },
+          { title: '우측 하단', value: 'bottomRight' },
+        ],
+      },
+    }),
+    defineField({
+      name: 'popupWidth',
+      title: '팝업 너비(px)',
+      type: 'string',
+      initialValue: '520',
+      group: 'popup',
+    }),
+    defineField({
+      name: 'popupImageFit',
+      title: '이미지 표시 방식',
+      type: 'string',
+      initialValue: 'cover',
+      group: 'popup',
+      options: {
+        list: [
+          { title: '영역 채우기', value: 'cover' },
+          { title: '전체 보이기', value: 'contain' },
+        ],
+      },
+    }),
+    defineField({ name: 'popupStartDate', title: '노출 시작일', type: 'date', group: 'popup' }),
+    defineField({ name: 'popupEndDate', title: '노출 종료일', type: 'date', group: 'popup' }),
+    defineField({
       name: 'popupImage',
       title: '팝업 이미지',
       type: 'image',
