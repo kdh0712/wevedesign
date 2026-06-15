@@ -4,6 +4,7 @@ import './globals.css';
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.wevedesign.co.kr';
 const naverVerification = process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION || 'e036b6d500ea7274d9f7163e322558fbc2addb26';
+const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || 'DwNuLGyu0wMNO0zLDMbHPXq78BWLEABnHFHrzykffKM';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -27,6 +28,7 @@ export const metadata: Metadata = {
   },
   verification: naverVerification
     ? {
+        google: googleVerification,
         other: {
           'naver-site-verification': naverVerification,
         },
