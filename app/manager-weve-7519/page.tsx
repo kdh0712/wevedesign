@@ -3761,6 +3761,7 @@ function MultiPopupSettingsBoard({
   const selected = popups.find((popup) => popup._key === selectedKey) || popups[0] || { ...createPopupItem(1), _key: 'popup-default' };
   const selectedImage = selected?.imageUrl || selected?.image || '';
   const selectedLayout = selected?.layout || 'imageTop';
+  const globalPosition = settings.popupPosition || selected.position || 'center';
   const selectedElements = normalizePopupCanvasElements(selected.elements);
   const selectedElement = selectedElements.find((element) => element._key === selectedElementKey) || selectedElements[0];
   const width = Math.min(760, Math.max(320, Number(selected?.width || 520) || 520));
@@ -3782,6 +3783,9 @@ function MultiPopupSettingsBoard({
   const replacePopups = (nextPopups: PopupItemDraft[]) => onChange({ popups: nextPopups });
   const updateSelected = (patch: Partial<PopupItemDraft>) => {
     replacePopups(popups.map((popup) => (popup._key === selected._key ? { ...popup, ...patch } : popup)));
+  };
+  const updateGlobalPosition = (position: string) => {
+    onChange({ popupPosition: position, popups: popups.map((popup) => ({ ...popup, position })) });
   };
   const replaceSelectedElements = (nextElements: PopupCanvasElementDraft[]) => {
     updateSelected({ elements: nextElements });
@@ -3808,6 +3812,23 @@ function MultiPopupSettingsBoard({
 
     setSelectedElementKey(elementKey);
     replaceSelectedElements(selectedElements.map((element) => (element._key === elementKey ? { ...element, x: String(x), y: String(y) } : element)));
+  };
+  const resizeElementFromPointer = (event: React.PointerEvent<HTMLDivElement>, elementKey: string) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pointerX = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100));
+    const pointerY = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100));
+
+    setSelectedElementKey(elementKey);
+    replaceSelectedElements(
+      selectedElements.map((element) => {
+        if (element._key !== elementKey) return element;
+        const centerX = Number(element.x || 50);
+        const centerY = Number(element.y || 50);
+        const nextWidth = Math.round(Math.min(100, Math.max(4, (pointerX - centerX) * 2)));
+        const nextHeight = Math.round(Math.min(100, Math.max(4, (pointerY - centerY) * 2)));
+        return { ...element, width: String(nextWidth), height: String(nextHeight) };
+      }),
+    );
   };
   const addPopup = () => {
     const nextPopup = createPopupItem(popups.length + 1);
@@ -3881,8 +3902,8 @@ function MultiPopupSettingsBoard({
               </select>
             </label>
             <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-              위치
-              <select value={selected.position || 'center'} onChange={(event) => updateSelected({ position: event.target.value })} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
+              전체 팝업 위치
+              <select value={globalPosition} onChange={(event) => updateGlobalPosition(event.target.value)} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]">
                 <option value="center">중앙</option>
                 <option value="topLeft">좌측 상단</option>
                 <option value="topRight">우측 상단</option>
@@ -3956,6 +3977,7 @@ function MultiPopupSettingsBoard({
                 selectedElementKey={selectedElementKey}
                 onSelectElement={setSelectedElementKey}
                 onMoveElement={moveElementFromPointer}
+                onResizeElement={resizeElementFromPointer}
               />
 
               <div className="grid content-start gap-3">
@@ -3990,6 +4012,9 @@ function MultiPopupSettingsBoard({
                       </label>
                     )}
                     <SettingInput label="문구" value={selectedElement.label || ''} onChange={(value) => updateSelectedElement({ label: value })} placeholder="예: 상담 신청" />
+                    <button type="button" onClick={() => updateSelectedElement({ label: '' })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                      문구 비우기
+                    </button>
                     <SettingInput label="링크" value={selectedElement.url || ''} onChange={(value) => updateSelectedElement({ url: value })} placeholder="예: #contact, __close 또는 https://..." />
                     {selectedElement.type === 'image' && (
                       <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
@@ -4065,15 +4090,20 @@ function PopupCanvasPreview({
   selectedElementKey,
   onSelectElement,
   onMoveElement,
+  onResizeElement,
 }: {
   popup: PopupItemDraft;
   selectedElementKey: string;
   onSelectElement: (key: string) => void;
   onMoveElement: (event: React.PointerEvent<HTMLDivElement>, elementKey: string) => void;
+  onResizeElement: (event: React.PointerEvent<HTMLDivElement>, elementKey: string) => void;
 }) {
+  const [resizingElementKey, setResizingElementKey] = useState('');
   const selectedImage = popup.imageUrl || popup.image || '';
   const elements = normalizePopupCanvasElements(popup.elements);
   const layout = popup.layout || 'imageTop';
+  const previewWidth = Math.min(760, Math.max(320, Number(popup.width || 520) || 520));
+  const renderedWidth = layout === 'split' ? Math.max(previewWidth, 720) : previewWidth;
 
   return (
     <div className="rounded-lg border border-[#d5dde2] bg-[#edf2f5] p-4">
@@ -4083,75 +4113,103 @@ function PopupCanvasPreview({
           {popup.enabled === 'true' ? '노출' : '숨김'}
         </span>
       </div>
-      <div className="mx-auto max-w-[720px] rounded-lg bg-[#171512]/15 p-4">
-        <div className="relative overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl">
-          {layout === 'imageOnly' ? (
-            selectedImage ? (
-              <img src={selectedImage} alt="" className={`w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'max-h-[520px] object-contain' : 'object-cover'}`} draggable={false} />
+      <div className="mx-auto overflow-x-auto rounded-lg bg-[#171512]/15 p-4">
+        <div className="relative mx-auto overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl" style={{ width: `${renderedWidth}px`, maxWidth: '100%' }}>
+          <div className="relative">
+            {layout === 'imageOnly' ? (
+              selectedImage ? (
+                <img src={selectedImage} alt="" className={`w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'max-h-[520px] object-contain' : 'object-cover'}`} draggable={false} />
+              ) : (
+                <div className="flex aspect-[4/3] items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+              )
+            ) : layout === 'split' ? (
+              <div className="grid grid-cols-2">
+                {selectedImage && <img src={selectedImage} alt="" className={`h-full min-h-[220px] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
+                <PopupItemPreviewText popup={popup} compact />
+              </div>
             ) : (
-              <div className="flex aspect-[4/3] items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
-            )
-          ) : layout === 'split' ? (
-            <div className="grid grid-cols-2">
-              {selectedImage && <img src={selectedImage} alt="" className={`h-full min-h-[220px] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
-              <PopupItemPreviewText popup={popup} compact />
+              <>
+                {layout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
+                <PopupItemPreviewText popup={popup} centered={layout === 'textOnly'} />
+              </>
+            )}
+
+            <div
+              className="absolute inset-0 z-[8]"
+              onPointerDown={(event) => {
+                const resizeTarget = event.target instanceof HTMLElement ? event.target.closest('[data-popup-resize-key]') : null;
+                if (resizeTarget instanceof HTMLElement) {
+                  const elementKey = resizeTarget.dataset.popupResizeKey || '';
+                  if (!elementKey) return;
+                  event.preventDefault();
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  setResizingElementKey(elementKey);
+                  onSelectElement(elementKey);
+                  onResizeElement(event, elementKey);
+                  return;
+                }
+
+                const target = event.target instanceof HTMLElement ? event.target.closest('[data-popup-element-key]') : null;
+                const elementKey = target instanceof HTMLElement ? target.dataset.popupElementKey || '' : selectedElementKey;
+                if (!elementKey) return;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                onMoveElement(event, elementKey);
+              }}
+              onPointerMove={(event) => {
+                if (event.buttons !== 1) return;
+                if (resizingElementKey) {
+                  onResizeElement(event, resizingElementKey);
+                  return;
+                }
+                if (!selectedElementKey) return;
+                onMoveElement(event, selectedElementKey);
+              }}
+              onPointerUp={() => setResizingElementKey('')}
+              onPointerCancel={() => setResizingElementKey('')}
+            >
+              {elements.map((element, index) => {
+                const isActive = element._key === selectedElementKey;
+                const style: React.CSSProperties = {
+                  left: `${Number(element.x || 50)}%`,
+                  top: `${Number(element.y || 50)}%`,
+                  width: `${Number(element.width || 28)}%`,
+                  height: `${Number(element.height || 12)}%`,
+                  transform: 'translate(-50%, -50%)',
+                  background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
+                  color: element.color || '#171512',
+                  borderColor: element.borderColor || 'rgba(255,255,255,0.45)',
+                  borderRadius: `${Number(element.borderRadius || 8)}px`,
+                  fontSize: `${Number(element.fontSize || 14)}px`,
+                  opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,
+                };
+
+                return (
+                  <button
+                    key={element._key || index}
+                    type="button"
+                    onClick={() => onSelectElement(element._key || '')}
+                    data-popup-element-key={element._key || ''}
+                    className={`absolute flex items-center justify-center overflow-hidden border px-3 text-center font-bold shadow-[0_10px_24px_rgba(23,21,18,0.16)] ${isActive ? 'border-[#38bcd4] ring-2 ring-[#38bcd4]/35' : 'border-white/50'}`}
+                    style={style}
+                  >
+                    {element.type === 'image' && element.src ? (
+                      <img src={element.src} alt={element.label || ''} className="h-full w-full object-contain" draggable={false} />
+                    ) : (
+                      <span className="line-clamp-2">{element.label || (element.type === 'button' ? '상담 신청' : '')}</span>
+                    )}
+                    {isActive && (
+                      <span
+                        data-popup-resize-key={element._key || ''}
+                        className="absolute bottom-0 right-0 h-4 w-4 cursor-nwse-resize rounded-tl-md border-l border-t border-white/80 bg-[#38bcd4] shadow-[0_2px_8px_rgba(23,21,18,0.25)]"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
-          ) : (
-            <>
-              {layout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
-              <PopupItemPreviewText popup={popup} centered={layout === 'textOnly'} />
-            </>
-          )}
-
-          <div
-            className="absolute inset-0 z-[8]"
-            onPointerDown={(event) => {
-              const target = event.target instanceof HTMLElement ? event.target.closest('[data-popup-element-key]') : null;
-              const elementKey = target instanceof HTMLElement ? target.dataset.popupElementKey || '' : selectedElementKey;
-              if (!elementKey) return;
-              event.currentTarget.setPointerCapture(event.pointerId);
-              onMoveElement(event, elementKey);
-            }}
-            onPointerMove={(event) => {
-              if (event.buttons !== 1 || !selectedElementKey) return;
-              onMoveElement(event, selectedElementKey);
-            }}
-          >
-            {elements.map((element, index) => {
-              const isActive = element._key === selectedElementKey;
-              const style: React.CSSProperties = {
-                left: `${Number(element.x || 50)}%`,
-                top: `${Number(element.y || 50)}%`,
-                width: `${Number(element.width || 28)}%`,
-                height: `${Number(element.height || 12)}%`,
-                transform: 'translate(-50%, -50%)',
-                background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
-                color: element.color || '#171512',
-                borderColor: element.borderColor || 'rgba(255,255,255,0.45)',
-                borderRadius: `${Number(element.borderRadius || 8)}px`,
-                fontSize: `${Number(element.fontSize || 14)}px`,
-                opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,
-              };
-
-              return (
-                <button
-                  key={element._key || index}
-                  type="button"
-                  onClick={() => onSelectElement(element._key || '')}
-                  data-popup-element-key={element._key || ''}
-                  className={`absolute flex items-center justify-center overflow-hidden border px-3 text-center font-bold shadow-[0_10px_24px_rgba(23,21,18,0.16)] ${isActive ? 'border-[#38bcd4] ring-2 ring-[#38bcd4]/35' : 'border-white/50'}`}
-                  style={style}
-                >
-                  {element.type === 'image' && element.src ? (
-                    <img src={element.src} alt={element.label || ''} className="h-full w-full object-contain" draggable={false} />
-                  ) : (
-                    <span className="line-clamp-2">{element.label || (element.type === 'button' ? '상담 신청' : '')}</span>
-                  )}
-                </button>
-              );
-            })}
           </div>
-          <div className="relative z-10 flex items-center justify-between border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs font-semibold text-[#625d54] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+          <div className="relative z-10 flex items-center justify-between border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-1.5 text-xs font-semibold text-[#625d54] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
             <span>오늘 하루 보지 않기</span>
             <span>닫기</span>
           </div>
@@ -4159,7 +4217,8 @@ function PopupCanvasPreview({
       </div>
       <div className="mt-4 grid gap-2 text-xs leading-5 text-[#60717d]">
         <p className="rounded-md bg-white px-3 py-2">1. 요소를 마우스로 드래그해 위치를 지정합니다.</p>
-        <p className="rounded-md bg-white px-3 py-2">2. 링크에 #contact를 넣으면 팝업 클릭 시 상담 영역으로 이동합니다.</p>
+        <p className="rounded-md bg-white px-3 py-2">2. 선택한 요소의 우하단 파란 핸들을 드래그하면 크기를 조정합니다.</p>
+        <p className="rounded-md bg-white px-3 py-2">3. 링크에 #contact를 넣으면 팝업 클릭 시 상담 영역으로 이동합니다.</p>
       </div>
     </div>
   );

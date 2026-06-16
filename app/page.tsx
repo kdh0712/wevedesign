@@ -2118,7 +2118,7 @@ function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopup
     _key: popup._key || `popup-${index + 1}`,
     enabled: popup.enabled || 'false',
     layout: popup.layout || 'imageTop',
-    position: popup.position || 'center',
+    position: settings.popupPosition || popup.position || 'center',
     width: popup.width || '520',
     imageFit: popup.imageFit || 'cover',
     startDate: popup.startDate || '',
@@ -2145,7 +2145,7 @@ function HomepagePopupWindows({
   return (
     <div className="pointer-events-none fixed inset-0 z-[90]">
       {popups.map((popup, index) => (
-        <HomepagePopupWindow key={popup._key} popup={popup} index={index} onClose={onClose} />
+        <HomepagePopupWindow key={popup._key} popup={popup} index={index} total={popups.length} onClose={onClose} />
       ))}
     </div>
   );
@@ -2154,10 +2154,12 @@ function HomepagePopupWindows({
 function HomepagePopupWindow({
   popup,
   index,
+  total,
   onClose,
 }: {
   popup: Required<HomepagePopupItem>;
   index: number;
+  total: number;
   onClose: (popupKey: string, hideToday?: boolean) => void;
 }) {
   const [hideToday, setHideToday] = useState(false);
@@ -2195,7 +2197,7 @@ function HomepagePopupWindow({
   const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
 
   return (
-    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, width)}>
+    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, width, total)}>
       <div className="relative max-h-[calc(100vh-36px)] w-full overflow-y-auto rounded-lg bg-[#fffdf8] shadow-[0_18px_60px_rgba(23,21,18,0.28)] ring-1 ring-[#eadfcd]" style={{ maxWidth: `${layout === 'split' ? Math.max(width, 720) : width}px` }}>
         <button
           type="button"
@@ -2223,12 +2225,12 @@ function HomepagePopupWindow({
           <PopupCanvasElements elements={popup.elements} onElementClick={handleElementClick} />
         </div>
 
-        <div className="relative z-10 flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
-          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
-            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
+        <div className="relative z-10 flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+          <label className="inline-flex items-center gap-2 font-semibold text-[#625d54]">
+            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} className="h-3.5 w-3.5" />
             오늘 하루 보지 않기
           </label>
-          <button type="button" onClick={() => onClose(popup._key, hideToday)} className="text-sm font-bold text-[#8f6f43] hover:text-[#171512]">
+          <button type="button" onClick={() => onClose(popup._key, hideToday)} className="font-bold text-[#8f6f43] hover:text-[#171512]">
             닫기
           </button>
         </div>
@@ -2237,16 +2239,17 @@ function HomepagePopupWindow({
   );
 }
 
-function popupWindowStyle(position: string, index: number, width: number): React.CSSProperties {
-  const offset = index * 22;
+function popupWindowStyle(position: string, index: number, width: number, total = 1): React.CSSProperties {
   const maxWidth = Math.min(width, 760);
   const base: React.CSSProperties = { width: `min(${maxWidth}px, calc(100vw - 32px))` };
+  const offset = index * maxWidth;
 
-  if (position === 'topLeft') return { ...base, left: 24 + offset, top: 96 + offset };
-  if (position === 'topRight') return { ...base, right: 24 + offset, top: 96 + offset };
-  if (position === 'bottomLeft') return { ...base, left: 24 + offset, bottom: 24 + offset };
-  if (position === 'bottomRight') return { ...base, right: 24 + offset, bottom: 24 + offset };
-  return { ...base, left: '50%', top: '50%', transform: `translate(-50%, calc(-50% + ${offset}px))` };
+  if (position === 'topLeft') return { ...base, left: 24 + offset, top: 96 };
+  if (position === 'topRight') return { ...base, right: 24 + offset, top: 96 };
+  if (position === 'bottomLeft') return { ...base, left: 24 + offset, bottom: 24 };
+  if (position === 'bottomRight') return { ...base, right: 24 + offset, bottom: 24 };
+  const centeredOffset = (index - (total - 1) / 2) * maxWidth;
+  return { ...base, left: '50%', top: '50%', transform: `translate(calc(-50% + ${centeredOffset}px), -50%)` };
 }
 
 function PopupCanvasElements({
@@ -2357,12 +2360,12 @@ function HomepagePopup({
           </>
         )}
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
-          <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
-            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
+        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+          <label className="inline-flex items-center gap-2 font-semibold text-[#625d54]">
+            <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} className="h-3.5 w-3.5" />
             오늘 하루 보지 않기
           </label>
-          <button type="button" onClick={() => onClose(hideToday)} className="text-sm font-bold text-[#8f6f43] hover:text-[#171512]">
+          <button type="button" onClick={() => onClose(hideToday)} className="font-bold text-[#8f6f43] hover:text-[#171512]">
             닫기
           </button>
         </div>
