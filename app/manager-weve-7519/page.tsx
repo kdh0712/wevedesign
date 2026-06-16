@@ -4118,9 +4118,11 @@ function PopupCanvasPreview({
           <div className="relative">
             {layout === 'imageOnly' ? (
               selectedImage ? (
-                <img src={selectedImage} alt="" className={`w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'max-h-[520px] object-contain' : 'object-cover'}`} draggable={false} />
+                <div className="aspect-video bg-[#ded7cc]">
+                  <img src={selectedImage} alt="" className={`h-full w-full ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />
+                </div>
               ) : (
-                <div className="flex aspect-[4/3] items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+                <div className="flex aspect-video items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
               )
             ) : layout === 'split' ? (
               <div className="grid grid-cols-2">
@@ -4129,7 +4131,7 @@ function PopupCanvasPreview({
               </div>
             ) : (
               <>
-                {layout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
+                {layout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-video w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
                 <PopupItemPreviewText popup={popup} centered={layout === 'textOnly'} />
               </>
             )}

@@ -2142,7 +2142,7 @@ function HomepagePopupWindows({
 }) {
   if (popups.length === 0) return null;
   const sharedWidth = Math.max(...popups.map((popup) => popupRenderedWidth(popup)));
-  const sharedHeight = popups.length > 1 ? Math.min(560, Math.max(320, Math.round(sharedWidth * 0.72))) : undefined;
+  const sharedHeight = Math.min(520, Math.max(300, Math.round((sharedWidth * 9) / 16 + 30)));
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[90]">
@@ -2226,7 +2226,7 @@ function HomepagePopupWindow({
             </div>
           ) : (
             <>
-              {layout !== 'textOnly' && hasImage && <div className="aspect-[16/10] bg-[#ded7cc]">{imageNode}</div>}
+              {layout !== 'textOnly' && hasImage && <div className="aspect-video bg-[#ded7cc]">{imageNode}</div>}
               <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} centered={layout === 'textOnly'} />
             </>
           )}
