@@ -56,7 +56,7 @@ type TabKey =
   | 'portfolio'
   | 'accounts';
 
-type HomepageTabKey = 'basic' | 'hero' | 'sections' | 'contact' | 'popup' | 'survey';
+type HomepageTabKey = 'basic' | 'hero' | 'sections' | 'contact' | 'popup' | 'projects' | 'survey';
 
 type ManagerUser = {
   id: string;
@@ -1401,7 +1401,7 @@ export default function ManagerPage() {
     }
   };
 
-  const uploadPopupItemImage = async (popupKey: string, file?: File) => {
+  const uploadPopupItemImage = async (popupKey: string, file?: File, elementKey?: string) => {
     setError('');
     setStatus('');
     if (!file) return;
@@ -1423,7 +1423,16 @@ export default function ManagerPage() {
       if (!response.ok || !data.assetUrl) throw new Error(data.error || '이미지를 저장하지 못했습니다.');
       setHomepageSettings((current) => ({
         ...current,
-        popups: normalizePopupItems(current).map((popup) => (popup._key === popupKey ? { ...popup, imageUrl: data.assetUrl || '', image: data.assetUrl || '' } : popup)),
+        popups: normalizePopupItems(current).map((popup) =>
+          popup._key === popupKey
+            ? elementKey
+              ? {
+                  ...popup,
+                  elements: normalizePopupCanvasElements(popup.elements).map((element) => (element._key === elementKey ? { ...element, src: data.assetUrl || '' } : element)),
+                }
+              : { ...popup, imageUrl: data.assetUrl || '', image: data.assetUrl || '' }
+            : popup,
+        ),
       }));
       setStatus('팝업 이미지를 저장했습니다.');
     } catch (caught) {
@@ -2382,6 +2391,7 @@ export default function ManagerPage() {
                 { key: 'sections', label: '섹션 문구' },
                 { key: 'contact', label: '상담/위치' },
                 { key: 'popup', label: '팝업 관리' },
+                { key: 'projects', label: 'Project 관리' },
                 { key: 'survey', label: '상담 설문' },
               ].map((item) => (
                 <button
@@ -2397,7 +2407,7 @@ export default function ManagerPage() {
               ))}
             </div>
             <Panel title="홈페이지 관리">
-                <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_460px]">
+                <div className={`grid gap-5 ${homepageTab === 'popup' || homepageTab === 'projects' ? '' : '2xl:grid-cols-[minmax(0,1fr)_460px]'}`}>
                   <div className="grid gap-5">
                     {homepageTab === 'basic' && (
                       <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
@@ -2488,7 +2498,7 @@ export default function ManagerPage() {
                         settings={homepageSettings}
                         saving={savingEmail}
                         onChange={(patch) => setHomepageSettings((current) => ({ ...current, ...patch }))}
-                        onImageUpload={(popupKey, file) => void uploadPopupItemImage(popupKey, file)}
+                        onImageUpload={(popupKey, file, elementKey) => void uploadPopupItemImage(popupKey, file, elementKey)}
                       />
                     )}
 
@@ -2506,7 +2516,7 @@ export default function ManagerPage() {
                       </section>
                     )}
                   </div>
-                  <HomepageLivePreview activeTarget={activePreviewTarget} />
+                  {homepageTab !== 'popup' && homepageTab !== 'projects' && <HomepageLivePreview activeTarget={activePreviewTarget} />}
                 </div>
                 <button
                   onClick={saveHomepageSettings}
@@ -2518,6 +2528,7 @@ export default function ManagerPage() {
                 </button>
               </Panel>
 
+            {homepageTab === 'projects' && (
             <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
               <Panel title="현장 폴더 한번에 업로드">
                 <p className="mb-4 leading-7 text-[#60717d]">
@@ -2812,6 +2823,7 @@ export default function ManagerPage() {
                 </div>
               </Panel>
             </div>
+            )}
           </div>
         )}
 
@@ -3579,6 +3591,24 @@ type PopupItemDraft = {
   buttonUrl?: string;
   image?: string;
   imageUrl?: string;
+  elements?: PopupCanvasElementDraft[];
+};
+
+type PopupCanvasElementDraft = {
+  _key?: string;
+  type?: 'button' | 'box' | 'image';
+  label?: string;
+  url?: string;
+  src?: string;
+  x?: string;
+  y?: string;
+  width?: string;
+  height?: string;
+  background?: string;
+  color?: string;
+  borderRadius?: string;
+  fontSize?: string;
+  opacity?: string;
 };
 
 type PopupCollectionDraft = {
@@ -3612,7 +3642,47 @@ function createPopupItem(index = 1): PopupItemDraft {
     buttonLabel: '',
     buttonUrl: '',
     imageUrl: '',
+    elements: [],
   };
+}
+
+function createPopupCanvasElement(type: 'button' | 'box' | 'image', index = 1): PopupCanvasElementDraft {
+  return {
+    _key: `popup-element-${Date.now()}-${index}`,
+    type,
+    label: type === 'image' ? '' : type === 'button' ? '상담 신청' : '링크 상자',
+    url: type === 'button' ? '#contact' : '',
+    src: '',
+    x: '50',
+    y: '50',
+    width: type === 'button' ? '34' : '28',
+    height: type === 'button' ? '12' : '16',
+    background: type === 'button' ? '#f1c76a' : 'rgba(255,255,255,0.82)',
+    color: '#171512',
+    borderRadius: type === 'button' ? '10' : '6',
+    fontSize: type === 'button' ? '14' : '13',
+    opacity: '100',
+  };
+}
+
+function normalizePopupCanvasElements(elements?: PopupCanvasElementDraft[]): PopupCanvasElementDraft[] {
+  if (!Array.isArray(elements)) return [];
+  return elements.map((element, index) => ({
+    _key: element._key || `popup-element-${index + 1}`,
+    type: element.type || 'button',
+    label: element.label || '',
+    url: element.url || '',
+    src: element.src || '',
+    x: String(element.x || '50'),
+    y: String(element.y || '50'),
+    width: String(element.width || '28'),
+    height: String(element.height || '12'),
+    background: element.background || '#f1c76a',
+    color: element.color || '#171512',
+    borderRadius: String(element.borderRadius || '8'),
+    fontSize: String(element.fontSize || '14'),
+    opacity: String(element.opacity || '100'),
+  }));
 }
 
 function normalizePopupItems(settings: PopupCollectionDraft): PopupItemDraft[] {
@@ -3655,6 +3725,7 @@ function normalizePopupItems(settings: PopupCollectionDraft): PopupItemDraft[] {
     buttonUrl: item.buttonUrl || '',
     image: item.image || item.imageUrl || '',
     imageUrl: item.imageUrl || item.image || '',
+    elements: normalizePopupCanvasElements(item.elements),
   }));
 }
 
@@ -3667,15 +3738,18 @@ function MultiPopupSettingsBoard({
   settings: PopupCollectionDraft;
   saving: boolean;
   onChange: (patch: Partial<PopupCollectionDraft>) => void;
-  onImageUpload: (popupKey: string, file?: File) => void;
+  onImageUpload: (popupKey: string, file?: File, elementKey?: string) => void;
 }) {
   const popups = normalizePopupItems(settings);
   const [selectedKey, setSelectedKey] = useState(popups[0]?._key || 'popup-default');
+  const [selectedElementKey, setSelectedElementKey] = useState('');
   const selected = popups.find((popup) => popup._key === selectedKey) || popups[0] || { ...createPopupItem(1), _key: 'popup-default' };
   const selectedImage = selected?.imageUrl || selected?.image || '';
   const selectedLayout = selected?.layout || 'imageTop';
+  const selectedElements = normalizePopupCanvasElements(selected.elements);
+  const selectedElement = selectedElements.find((element) => element._key === selectedElementKey) || selectedElements[0];
   const width = Math.min(760, Math.max(320, Number(selected?.width || 520) || 520));
-  const hasContent = Boolean(selected?.title || selected?.body || selectedImage);
+  const hasContent = Boolean(selected?.title || selected?.body || selectedImage || selectedElements.length > 0);
 
   useEffect(() => {
     if (!popups.some((popup) => popup._key === selectedKey)) {
@@ -3683,9 +3757,42 @@ function MultiPopupSettingsBoard({
     }
   }, [popups, selectedKey]);
 
+  useEffect(() => {
+    if (selectedElements.length > 0 && !selectedElements.some((element) => element._key === selectedElementKey)) {
+      setSelectedElementKey(selectedElements[0]._key || '');
+    }
+    if (selectedElements.length === 0 && selectedElementKey) setSelectedElementKey('');
+  }, [selectedElements, selectedElementKey]);
+
   const replacePopups = (nextPopups: PopupItemDraft[]) => onChange({ popups: nextPopups });
   const updateSelected = (patch: Partial<PopupItemDraft>) => {
     replacePopups(popups.map((popup) => (popup._key === selected._key ? { ...popup, ...patch } : popup)));
+  };
+  const replaceSelectedElements = (nextElements: PopupCanvasElementDraft[]) => {
+    updateSelected({ elements: nextElements });
+  };
+  const updateSelectedElement = (patch: Partial<PopupCanvasElementDraft>) => {
+    if (!selectedElement) return;
+    replaceSelectedElements(selectedElements.map((element) => (element._key === selectedElement._key ? { ...element, ...patch } : element)));
+  };
+  const addElement = (type: 'button' | 'box' | 'image') => {
+    const nextElement = createPopupCanvasElement(type, selectedElements.length + 1);
+    replaceSelectedElements([...selectedElements, nextElement]);
+    setSelectedElementKey(nextElement._key || '');
+  };
+  const deleteSelectedElement = () => {
+    if (!selectedElement) return;
+    const nextElements = selectedElements.filter((element) => element._key !== selectedElement._key);
+    replaceSelectedElements(nextElements);
+    setSelectedElementKey(nextElements[0]?._key || '');
+  };
+  const moveElementFromPointer = (event: React.PointerEvent<HTMLDivElement>, elementKey: string) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = Math.round(Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)));
+    const y = Math.round(Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100)));
+
+    setSelectedElementKey(elementKey);
+    replaceSelectedElements(selectedElements.map((element) => (element._key === elementKey ? { ...element, x: String(x), y: String(y) } : element)));
   };
   const addPopup = () => {
     const nextPopup = createPopupItem(popups.length + 1);
@@ -3722,7 +3829,7 @@ function MultiPopupSettingsBoard({
         </div>
       </div>
 
-      <div className="grid xl:grid-cols-[220px_minmax(0,1fr)] 2xl:grid-cols-[240px_minmax(0,1fr)_390px]">
+      <div className="grid xl:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="grid content-start gap-2 border-b border-[#d5dde2] bg-[#fbfcfd] p-4 xl:border-b-0 xl:border-r">
           {popups.map((popup, index) => (
             <button
@@ -3805,46 +3912,88 @@ function MultiPopupSettingsBoard({
               </div>
             </div>
           </div>
-        </div>
 
-        <aside className="border-t border-[#d5dde2] bg-[#edf2f5] p-5 xl:col-span-2 2xl:col-span-1 2xl:border-l 2xl:border-t-0">
-          <div className="mb-3 flex items-center justify-between">
-            <h4 className="font-semibold">팝업 미리보기</h4>
-            <span className={`rounded-full px-3 py-1 text-xs font-bold ${selected.enabled === 'true' ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#f1f3f5] text-[#5f6b73]'}`}>
-              {selected.enabled === 'true' ? '노출' : '숨김'}
-            </span>
-          </div>
-          <div className="relative min-h-[430px] overflow-hidden rounded-lg bg-[#171512]/15 p-5">
-            <div className={`absolute max-h-[390px] overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl ${popupPreviewPositionClass(selected.position || 'center')}`} style={{ width: `${Math.min(width, 360)}px` }}>
-              {selectedLayout === 'imageOnly' ? (
-                selectedImage ? (
-                  <img src={selectedImage} alt="" className={`max-h-[320px] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />
+          <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="font-semibold">링크/이미지 요소 배치</h4>
+                <p className="mt-1 text-xs leading-5 text-[#60717d]">상담신청 버튼, 링크 상자, 이미지를 추가한 뒤 아래 캔버스에서 마우스로 위치를 조정합니다.</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => addElement('button')} className="rounded-md bg-[#f1c76a] px-3 py-2 text-xs font-bold text-[#171512]">
+                  상담 버튼 추가
+                </button>
+                <button type="button" onClick={() => addElement('box')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                  링크 상자 추가
+                </button>
+                <button type="button" onClick={() => addElement('image')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                  이미지 추가
+                </button>
+                <button type="button" onClick={deleteSelectedElement} disabled={!selectedElement} className="rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-bold text-red-600 disabled:opacity-40">
+                  요소 삭제
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+              <PopupCanvasPreview
+                popup={selected}
+                selectedElementKey={selectedElementKey}
+                onSelectElement={setSelectedElementKey}
+                onMoveElement={moveElementFromPointer}
+              />
+
+              <div className="grid content-start gap-3">
+                {selectedElement ? (
+                  <>
+                    <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                      요소 타입
+                      <select value={selectedElement.type || 'button'} onChange={(event) => updateSelectedElement({ type: event.target.value as 'button' | 'box' | 'image' })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 font-normal outline-none focus:border-[#38a9bd]">
+                        <option value="button">버튼</option>
+                        <option value="box">링크 상자</option>
+                        <option value="image">이미지</option>
+                      </select>
+                    </label>
+                    <SettingInput label="문구" value={selectedElement.label || ''} onChange={(value) => updateSelectedElement({ label: value })} placeholder="예: 상담 신청" />
+                    <SettingInput label="링크" value={selectedElement.url || ''} onChange={(value) => updateSelectedElement({ url: value })} placeholder="예: #contact 또는 https://..." />
+                    {selectedElement.type === 'image' && (
+                      <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                        요소 이미지
+                        <div className="overflow-hidden rounded-md border border-[#d5dde2] bg-white">
+                          {selectedElement.src ? <img src={selectedElement.src} alt="" className="aspect-video w-full object-contain" /> : <div className="flex aspect-video items-center justify-center text-xs text-[#60717d]">이미지 없음</div>}
+                        </div>
+                        <span className="inline-flex cursor-pointer justify-center rounded-md bg-[#171512] px-3 py-2 text-xs font-bold text-white">
+                          이미지 업로드
+                          <input type="file" accept="image/*" className="sr-only" disabled={saving} onChange={(event) => onImageUpload(selected._key || '', event.target.files?.[0], selectedElement._key)} />
+                        </span>
+                      </label>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <SettingInput label="X 위치" value={selectedElement.x || '50'} onChange={(value) => updateSelectedElement({ x: onlyNumber(value).slice(0, 3) })} />
+                      <SettingInput label="Y 위치" value={selectedElement.y || '50'} onChange={(value) => updateSelectedElement({ y: onlyNumber(value).slice(0, 3) })} />
+                      <SettingInput label="너비(%)" value={selectedElement.width || '28'} onChange={(value) => updateSelectedElement({ width: onlyNumber(value).slice(0, 3) })} />
+                      <SettingInput label="높이(%)" value={selectedElement.height || '12'} onChange={(value) => updateSelectedElement({ height: onlyNumber(value).slice(0, 3) })} />
+                      <SettingInput label="둥근 정도" value={selectedElement.borderRadius || '8'} onChange={(value) => updateSelectedElement({ borderRadius: onlyNumber(value).slice(0, 2) })} />
+                      <SettingInput label="글자 크기" value={selectedElement.fontSize || '14'} onChange={(value) => updateSelectedElement({ fontSize: onlyNumber(value).slice(0, 2) })} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                        배경
+                        <input type="color" value={colorInputValue(selectedElement.background || '#f1c76a')} onChange={(event) => updateSelectedElement({ background: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white p-1" />
+                      </label>
+                      <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                        글자색
+                        <input type="color" value={colorInputValue(selectedElement.color || '#171512')} onChange={(event) => updateSelectedElement({ color: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white p-1" />
+                      </label>
+                    </div>
+                  </>
                 ) : (
-                  <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
-                )
-              ) : selectedLayout === 'split' ? (
-                <div className="grid grid-cols-2">
-                  {selectedImage && <img src={selectedImage} alt="" className={`h-full min-h-[180px] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
-                  <PopupItemPreviewText popup={selected} compact />
-                </div>
-              ) : (
-                <>
-                  {selectedLayout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${selected.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} />}
-                  <PopupItemPreviewText popup={selected} centered={selectedLayout === 'textOnly'} />
-                </>
-              )}
-              <div className="flex items-center justify-between border-t border-[#eadfcd] bg-[#fffaf0] px-4 py-2 text-xs font-semibold text-[#625d54]">
-                <span>오늘 하루 보지 않기</span>
-                <span>닫기</span>
+                  <p className="rounded-md bg-white px-3 py-4 text-sm font-semibold text-[#60717d]">요소를 추가하면 위치와 디자인을 편집할 수 있습니다.</p>
+                )}
               </div>
             </div>
           </div>
-          <div className="mt-4 grid gap-2 text-xs leading-5 text-[#60717d]">
-            <p className="rounded-md bg-white px-3 py-2">1. 팝업별 노출 여부와 기간을 따로 설정할 수 있습니다.</p>
-            <p className="rounded-md bg-white px-3 py-2">2. 이미지로만 채우기는 안내 이미지 자체가 완성된 경우 사용합니다.</p>
-            <p className={`rounded-md px-3 py-2 ${hasContent ? 'bg-white' : 'bg-[#fff0f0] text-[#b24a4a]'}`}>3. 제목, 내용 또는 이미지를 입력해야 방문자가 내용을 확인할 수 있습니다.</p>
-          </div>
-        </aside>
+        </div>
       </div>
     </section>
   );
@@ -3859,6 +4008,115 @@ function PopupItemPreviewText({ popup, centered = false, compact = false }: { po
       {popup.buttonLabel && <span className={`mt-1 inline-flex rounded-md bg-[#f1c76a] px-3 py-2 text-xs font-bold ${centered ? 'mx-auto' : 'self-start'}`}>{popup.buttonLabel}</span>}
     </div>
   );
+}
+
+function PopupCanvasPreview({
+  popup,
+  selectedElementKey,
+  onSelectElement,
+  onMoveElement,
+}: {
+  popup: PopupItemDraft;
+  selectedElementKey: string;
+  onSelectElement: (key: string) => void;
+  onMoveElement: (event: React.PointerEvent<HTMLDivElement>, elementKey: string) => void;
+}) {
+  const selectedImage = popup.imageUrl || popup.image || '';
+  const elements = normalizePopupCanvasElements(popup.elements);
+  const layout = popup.layout || 'imageTop';
+
+  return (
+    <div className="rounded-lg border border-[#d5dde2] bg-[#edf2f5] p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="font-semibold">팝업 미리보기</h4>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold ${popup.enabled === 'true' ? 'bg-[#e8f5ed] text-[#277a46]' : 'bg-[#f1f3f5] text-[#5f6b73]'}`}>
+          {popup.enabled === 'true' ? '노출' : '숨김'}
+        </span>
+      </div>
+      <div className="mx-auto max-w-[720px] rounded-lg bg-[#171512]/15 p-4">
+        <div className="relative overflow-hidden rounded-lg bg-[#fffdf8] shadow-2xl">
+          {layout === 'imageOnly' ? (
+            selectedImage ? (
+              <img src={selectedImage} alt="" className={`w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'max-h-[520px] object-contain' : 'object-cover'}`} draggable={false} />
+            ) : (
+              <div className="flex aspect-[4/3] items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+            )
+          ) : layout === 'split' ? (
+            <div className="grid grid-cols-2">
+              {selectedImage && <img src={selectedImage} alt="" className={`h-full min-h-[220px] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
+              <PopupItemPreviewText popup={popup} compact />
+            </div>
+          ) : (
+            <>
+              {layout !== 'textOnly' && selectedImage && <img src={selectedImage} alt="" className={`aspect-[16/10] w-full bg-[#ded7cc] ${popup.imageFit === 'contain' ? 'object-contain' : 'object-cover'}`} draggable={false} />}
+              <PopupItemPreviewText popup={popup} centered={layout === 'textOnly'} />
+            </>
+          )}
+
+          <div
+            className="absolute inset-0 z-[8]"
+            onPointerDown={(event) => {
+              const target = event.target instanceof HTMLElement ? event.target.closest('[data-popup-element-key]') : null;
+              const elementKey = target instanceof HTMLElement ? target.dataset.popupElementKey || '' : selectedElementKey;
+              if (!elementKey) return;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              onMoveElement(event, elementKey);
+            }}
+            onPointerMove={(event) => {
+              if (event.buttons !== 1 || !selectedElementKey) return;
+              onMoveElement(event, selectedElementKey);
+            }}
+          >
+            {elements.map((element, index) => {
+              const isActive = element._key === selectedElementKey;
+              const style: React.CSSProperties = {
+                left: `${Number(element.x || 50)}%`,
+                top: `${Number(element.y || 50)}%`,
+                width: `${Number(element.width || 28)}%`,
+                height: `${Number(element.height || 12)}%`,
+                transform: 'translate(-50%, -50%)',
+                background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
+                color: element.color || '#171512',
+                borderRadius: `${Number(element.borderRadius || 8)}px`,
+                fontSize: `${Number(element.fontSize || 14)}px`,
+                opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,
+              };
+
+              return (
+                <button
+                  key={element._key || index}
+                  type="button"
+                  onClick={() => onSelectElement(element._key || '')}
+                  data-popup-element-key={element._key || ''}
+                  className={`absolute flex items-center justify-center overflow-hidden border px-3 text-center font-bold shadow-[0_10px_24px_rgba(23,21,18,0.16)] ${isActive ? 'border-[#38bcd4] ring-2 ring-[#38bcd4]/35' : 'border-white/50'}`}
+                  style={style}
+                >
+                  {element.type === 'image' && element.src ? (
+                    <img src={element.src} alt={element.label || ''} className="h-full w-full object-contain" draggable={false} />
+                  ) : (
+                    <span className="line-clamp-2">{element.label || (element.type === 'button' ? '상담 신청' : '')}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="relative z-10 flex items-center justify-between border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs font-semibold text-[#625d54] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+            <span>오늘 하루 보지 않기</span>
+            <span>닫기</span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-2 text-xs leading-5 text-[#60717d]">
+        <p className="rounded-md bg-white px-3 py-2">1. 요소를 마우스로 드래그해 위치를 지정합니다.</p>
+        <p className="rounded-md bg-white px-3 py-2">2. 링크에 #contact를 넣으면 팝업 클릭 시 상담 영역으로 이동합니다.</p>
+      </div>
+    </div>
+  );
+}
+
+function colorInputValue(value: string) {
+  const trimmed = value.trim();
+  return /^#[0-9a-fA-F]{6}$/.test(trimmed) ? trimmed : '#f1c76a';
 }
 
 type PopupSettingsDraft = {
@@ -3988,7 +4246,7 @@ function PopupSettingsBoard({
                   <PopupPreviewText settings={settings} centered={layout === 'textOnly'} />
                 </>
               )}
-              <div className="flex items-center justify-between border-t border-[#eadfcd] bg-[#fffaf0] px-4 py-2 text-xs font-semibold text-[#625d54]">
+              <div className="flex items-center justify-between border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs font-semibold text-[#625d54] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
                 <span>□ 오늘 하루 보지 않기</span>
                 <span>닫기</span>
               </div>

@@ -79,6 +79,24 @@ type HomepagePopupItem = {
   buttonUrl?: string;
   image?: string;
   imageUrl?: string;
+  elements?: PopupCanvasElement[];
+};
+
+type PopupCanvasElement = {
+  _key?: string;
+  type?: 'button' | 'box' | 'image';
+  label?: string;
+  url?: string;
+  src?: string;
+  x?: string;
+  y?: string;
+  width?: string;
+  height?: string;
+  background?: string;
+  color?: string;
+  borderRadius?: string;
+  fontSize?: string;
+  opacity?: string;
 };
 
 type SiteSettings = {
@@ -2110,6 +2128,7 @@ function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopup
     buttonUrl: popup.buttonUrl || '',
     image: popup.image || popup.imageUrl || '',
     imageUrl: popup.imageUrl || popup.image || '',
+    elements: Array.isArray(popup.elements) ? popup.elements : [],
   }));
 }
 
@@ -2161,6 +2180,16 @@ function HomepagePopupWindow({
     window.open(buttonUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleElementClick = (url?: string) => {
+    if (!url) return;
+    onClose(popup._key, hideToday);
+    if (url.startsWith('#')) {
+      window.setTimeout(() => document.querySelector(url)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
 
   return (
@@ -2175,21 +2204,24 @@ function HomepagePopupWindow({
           <X size={20} />
         </button>
 
-        {layout === 'imageOnly' ? (
-          hasImage ? <div className="bg-[#ded7cc]">{imageNode}</div> : <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
-        ) : layout === 'split' ? (
-          <div className="grid md:grid-cols-[0.92fr_1fr]">
-            {hasImage && <div className="min-h-[260px] bg-[#ded7cc]">{imageNode}</div>}
-            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} />
-          </div>
-        ) : (
-          <>
-            {layout !== 'textOnly' && hasImage && <div className="aspect-[16/10] bg-[#ded7cc]">{imageNode}</div>}
-            <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} centered={layout === 'textOnly'} />
-          </>
-        )}
+        <div className="relative">
+          {layout === 'imageOnly' ? (
+            hasImage ? <div className="bg-[#ded7cc]">{imageNode}</div> : <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+          ) : layout === 'split' ? (
+            <div className="grid md:grid-cols-[0.92fr_1fr]">
+              {hasImage && <div className="min-h-[260px] bg-[#ded7cc]">{imageNode}</div>}
+              <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} />
+            </div>
+          ) : (
+            <>
+              {layout !== 'textOnly' && hasImage && <div className="aspect-[16/10] bg-[#ded7cc]">{imageNode}</div>}
+              <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} centered={layout === 'textOnly'} />
+            </>
+          )}
+          <PopupCanvasElements elements={popup.elements} onElementClick={handleElementClick} />
+        </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd] bg-[#fffaf0] px-5 py-3">
+        <div className="relative z-10 flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
           <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
             <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
             오늘 하루 보지 않기
@@ -2213,6 +2245,53 @@ function popupWindowStyle(position: string, index: number, width: number): React
   if (position === 'bottomLeft') return { ...base, left: 24 + offset, bottom: 24 + offset };
   if (position === 'bottomRight') return { ...base, right: 24 + offset, bottom: 24 + offset };
   return { ...base, left: '50%', top: '50%', transform: `translate(-50%, calc(-50% + ${offset}px))` };
+}
+
+function PopupCanvasElements({
+  elements,
+  onElementClick,
+}: {
+  elements?: PopupCanvasElement[];
+  onElementClick: (url?: string) => void;
+}) {
+  if (!elements?.length) return null;
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[8]">
+      {elements.map((element, index) => {
+        const style: React.CSSProperties = {
+          left: `${Number(element.x || 50)}%`,
+          top: `${Number(element.y || 50)}%`,
+          width: `${Number(element.width || 28)}%`,
+          height: `${Number(element.height || 12)}%`,
+          transform: 'translate(-50%, -50%)',
+          background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
+          color: element.color || '#171512',
+          borderRadius: `${Number(element.borderRadius || 8)}px`,
+          fontSize: `${Number(element.fontSize || 14)}px`,
+          opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,
+        };
+        const clickable = Boolean(element.url);
+
+        return (
+          <button
+            key={element._key || index}
+            type="button"
+            onClick={() => onElementClick(element.url)}
+            disabled={!clickable}
+            className={`pointer-events-auto absolute flex items-center justify-center overflow-hidden border border-white/45 px-3 text-center font-bold shadow-[0_10px_24px_rgba(23,21,18,0.16)] ${clickable ? 'cursor-pointer transition hover:shadow-[0_14px_30px_rgba(23,21,18,0.22)]' : 'cursor-default'}`}
+            style={style}
+          >
+            {element.type === 'image' && element.src ? (
+              <img src={optimizedImage(element.src, 700, 86)} alt={element.label || '팝업 이미지 요소'} className="h-full w-full object-contain" />
+            ) : (
+              <span className="line-clamp-2">{element.label || (element.type === 'button' ? '상담 신청' : '')}</span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function HomepagePopup({
@@ -2275,7 +2354,7 @@ function HomepagePopup({
           </>
         )}
 
-        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd] bg-[#fffaf0] px-5 py-3">
+        <div className="flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
           <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#625d54]">
             <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} />
             오늘 하루 보지 않기

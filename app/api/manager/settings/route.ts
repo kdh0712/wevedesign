@@ -9,7 +9,7 @@ export async function GET(request: Request) {
 
   try {
     const settings = await managerClient.fetch(
-      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupPosition, popupWidth, popupImageFit, popupStartDate, popupEndDate, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, popups[]{"_key": _key, enabled, layout, position, width, imageFit, startDate, endDate, title, body, buttonLabel, buttonUrl, imageUrl, "image": coalesce(image.asset->url, imageUrl)}, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
+      'coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail, representativeName, businessNumber, companyStartYear, phone, address, lotAddress, locationLabel, locationTitle, heroLabel, heroTitle, heroDescription, primaryButtonLabel, secondaryButtonLabel, statementLabel, statementTitle, statementBody, projectSectionTitle, projectButtonLabel, portfolioTitle, aboutLabel, aboutTitle, aboutBody, processLabel, processTitle, contactLabel, contactTitle, contactBody, consultationPropertyQuestion, consultationPropertyOptions, consultationAreaQuestion, consultationAreaOptions, consultationStatusQuestion, consultationStatusOptions, consultationReasonQuestion, consultationReasonOptions, consultationBudgetQuestion, consultationBudgetOptions, consultationTimelineQuestion, consultationTimelineOptions, consultationPrivacyText, consultationSurveyConfig, kakaoUrl, kakaoChannelManagerUrl, naverPlaceUrl, kakaoUnreadCount, naverUnreadCount, popupEnabled, popupLayout, popupPosition, popupWidth, popupImageFit, popupStartDate, popupEndDate, popupTitle, popupBody, popupButtonLabel, popupButtonUrl, popups[]{"_key": _key, enabled, layout, position, width, imageFit, startDate, endDate, title, body, buttonLabel, buttonUrl, imageUrl, "image": coalesce(image.asset->url, imageUrl), elements[]{"_key": _key, type, label, url, src, x, y, width, height, background, color, borderRadius, fontSize, opacity}}, "heroImage": heroImage.asset->url, "heroImage2": heroImage2.asset->url, "heroImage3": heroImage3.asset->url, "popupImage": popupImage.asset->url}',
     );
     return NextResponse.json({ settings: settings || null });
   } catch (error) {
@@ -110,6 +110,28 @@ export async function PATCH(request: Request) {
           buttonLabel: String(item.buttonLabel || '').trim(),
           buttonUrl: String(item.buttonUrl || '').trim(),
           imageUrl: String(item.imageUrl || item.image || '').trim(),
+          elements: Array.isArray(item.elements)
+            ? item.elements.map((element, elementIndex) => {
+                const entry = element && typeof element === 'object' ? (element as Record<string, unknown>) : {};
+                return {
+                  _type: 'object',
+                  _key: String(entry._key || `popup-element-${index}-${elementIndex}-${Date.now()}`).replace(/[^a-zA-Z0-9_-]/g, ''),
+                  type: String(entry.type || 'button').trim(),
+                  label: String(entry.label || '').trim(),
+                  url: String(entry.url || '').trim(),
+                  src: String(entry.src || '').trim(),
+                  x: String(entry.x || '50').trim(),
+                  y: String(entry.y || '50').trim(),
+                  width: String(entry.width || '28').trim(),
+                  height: String(entry.height || '12').trim(),
+                  background: String(entry.background || '#f1c76a').trim(),
+                  color: String(entry.color || '#171512').trim(),
+                  borderRadius: String(entry.borderRadius || '8').trim(),
+                  fontSize: String(entry.fontSize || '14').trim(),
+                  opacity: String(entry.opacity || '100').trim(),
+                };
+              })
+            : [],
         };
       });
     }

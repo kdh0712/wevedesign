@@ -136,7 +136,23 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
     buttonLabel,
     buttonUrl,
     imageUrl,
-    "image": coalesce(image.asset->url, imageUrl)
+    "image": coalesce(image.asset->url, imageUrl),
+    elements[]{
+      "_key": _key,
+      type,
+      label,
+      url,
+      src,
+      x,
+      y,
+      width,
+      height,
+      background,
+      color,
+      borderRadius,
+      fontSize,
+      opacity
+    }
   },
   "popupImage": popupImage.asset->url
 }`;

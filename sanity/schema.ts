@@ -223,6 +223,31 @@ const siteSettings = defineType({
             defineField({ name: 'body', title: '내용', type: 'text', rows: 5 }),
             defineField({ name: 'buttonLabel', title: '버튼 문구', type: 'string' }),
             defineField({ name: 'buttonUrl', title: '버튼 링크', type: 'url' }),
+            defineField({
+              name: 'elements',
+              title: '배치 요소',
+              type: 'array',
+              of: [
+                {
+                  type: 'object',
+                  fields: [
+                    defineField({ name: 'type', title: '타입', type: 'string' }),
+                    defineField({ name: 'label', title: '문구', type: 'string' }),
+                    defineField({ name: 'url', title: '링크', type: 'string' }),
+                    defineField({ name: 'src', title: '이미지 URL', type: 'url' }),
+                    defineField({ name: 'x', title: 'X 위치(%)', type: 'string' }),
+                    defineField({ name: 'y', title: 'Y 위치(%)', type: 'string' }),
+                    defineField({ name: 'width', title: '너비(%)', type: 'string' }),
+                    defineField({ name: 'height', title: '높이(%)', type: 'string' }),
+                    defineField({ name: 'background', title: '배경색', type: 'string' }),
+                    defineField({ name: 'color', title: '글자색', type: 'string' }),
+                    defineField({ name: 'borderRadius', title: '둥근 정도', type: 'string' }),
+                    defineField({ name: 'fontSize', title: '글자 크기', type: 'string' }),
+                    defineField({ name: 'opacity', title: '투명도', type: 'string' }),
+                  ],
+                },
+              ],
+            }),
           ],
           preview: {
             select: {
