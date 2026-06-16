@@ -3606,6 +3606,7 @@ type PopupCanvasElementDraft = {
   height?: string;
   background?: string;
   color?: string;
+  borderColor?: string;
   borderRadius?: string;
   fontSize?: string;
   opacity?: string;
@@ -3659,6 +3660,7 @@ function createPopupCanvasElement(type: 'button' | 'box' | 'image', index = 1): 
     height: type === 'button' ? '12' : '16',
     background: type === 'button' ? '#f1c76a' : 'rgba(255,255,255,0.82)',
     color: '#171512',
+    borderColor: type === 'box' ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.45)',
     borderRadius: type === 'button' ? '10' : '6',
     fontSize: type === 'button' ? '14' : '13',
     opacity: '100',
@@ -3679,10 +3681,23 @@ function normalizePopupCanvasElements(elements?: PopupCanvasElementDraft[]): Pop
     height: String(element.height || '12'),
     background: element.background || '#f1c76a',
     color: element.color || '#171512',
+    borderColor: element.borderColor || 'rgba(255,255,255,0.45)',
     borderRadius: String(element.borderRadius || '8'),
     fontSize: String(element.fontSize || '14'),
     opacity: String(element.opacity || '100'),
   }));
+}
+
+const popupElementLinkPresets = [
+  { value: '', label: '직접 입력', text: '', url: '' },
+  { value: 'portfolio', label: '포트폴리오 페이지 이동', text: '포트폴리오 보기', url: '#portfolio-preview' },
+  { value: 'browse', label: '홈페이지 둘러보기(닫기)', text: '홈페이지 둘러보기', url: '__close' },
+  { value: 'contact', label: '상담신청하기', text: '상담 신청하기', url: '#contact' },
+];
+
+function popupElementPresetValue(element?: PopupCanvasElementDraft) {
+  if (!element?.url) return '';
+  return popupElementLinkPresets.find((preset) => preset.url === element.url)?.value || '';
 }
 
 function normalizePopupItems(settings: PopupCollectionDraft): PopupItemDraft[] {
@@ -3954,8 +3969,28 @@ function MultiPopupSettingsBoard({
                         <option value="image">이미지</option>
                       </select>
                     </label>
+                    {selectedElement.type !== 'image' && (
+                      <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                        기본 동작
+                        <select
+                          value={popupElementPresetValue(selectedElement)}
+                          onChange={(event) => {
+                            const preset = popupElementLinkPresets.find((item) => item.value === event.target.value);
+                            if (!preset || !preset.value) return;
+                            updateSelectedElement({ label: preset.text, url: preset.url });
+                          }}
+                          className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 font-normal outline-none focus:border-[#38a9bd]"
+                        >
+                          {popupElementLinkPresets.map((preset) => (
+                            <option key={preset.value || 'custom'} value={preset.value}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <SettingInput label="문구" value={selectedElement.label || ''} onChange={(value) => updateSelectedElement({ label: value })} placeholder="예: 상담 신청" />
-                    <SettingInput label="링크" value={selectedElement.url || ''} onChange={(value) => updateSelectedElement({ url: value })} placeholder="예: #contact 또는 https://..." />
+                    <SettingInput label="링크" value={selectedElement.url || ''} onChange={(value) => updateSelectedElement({ url: value })} placeholder="예: #contact, __close 또는 https://..." />
                     {selectedElement.type === 'image' && (
                       <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
                         요소 이미지
@@ -3985,6 +4020,21 @@ function MultiPopupSettingsBoard({
                         글자색
                         <input type="color" value={colorInputValue(selectedElement.color || '#171512')} onChange={(event) => updateSelectedElement({ color: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white p-1" />
                       </label>
+                      <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                        테두리
+                        <input type="color" value={colorInputValue(selectedElement.borderColor || '#ffffff')} onChange={(event) => updateSelectedElement({ borderColor: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white p-1" />
+                      </label>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => updateSelectedElement({ background: 'transparent' })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                        채우기 투명
+                      </button>
+                      <button type="button" onClick={() => updateSelectedElement({ borderColor: 'transparent' })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                        테두리 투명
+                      </button>
+                      <button type="button" onClick={() => updateSelectedElement({ background: 'rgba(255,255,255,0.82)', borderColor: 'rgba(255,255,255,0.72)' })} className="col-span-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#4d5d66]">
+                        링크 상자 반투명 기본값
+                      </button>
                     </div>
                   </>
                 ) : (
@@ -4077,6 +4127,7 @@ function PopupCanvasPreview({
                 transform: 'translate(-50%, -50%)',
                 background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
                 color: element.color || '#171512',
+                borderColor: element.borderColor || 'rgba(255,255,255,0.45)',
                 borderRadius: `${Number(element.borderRadius || 8)}px`,
                 fontSize: `${Number(element.fontSize || 14)}px`,
                 opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,

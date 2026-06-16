@@ -241,6 +241,7 @@ const siteSettings = defineType({
                     defineField({ name: 'height', title: '높이(%)', type: 'string' }),
                     defineField({ name: 'background', title: '배경색', type: 'string' }),
                     defineField({ name: 'color', title: '글자색', type: 'string' }),
+                    defineField({ name: 'borderColor', title: '테두리색', type: 'string' }),
                     defineField({ name: 'borderRadius', title: '둥근 정도', type: 'string' }),
                     defineField({ name: 'fontSize', title: '글자 크기', type: 'string' }),
                     defineField({ name: 'opacity', title: '투명도', type: 'string' }),

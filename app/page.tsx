@@ -94,6 +94,7 @@ type PopupCanvasElement = {
   height?: string;
   background?: string;
   color?: string;
+  borderColor?: string;
   borderRadius?: string;
   fontSize?: string;
   opacity?: string;
@@ -2183,6 +2184,7 @@ function HomepagePopupWindow({
   const handleElementClick = (url?: string) => {
     if (!url) return;
     onClose(popup._key, hideToday);
+    if (url === '__close') return;
     if (url.startsWith('#')) {
       window.setTimeout(() => document.querySelector(url)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
       return;
@@ -2267,6 +2269,7 @@ function PopupCanvasElements({
           transform: 'translate(-50%, -50%)',
           background: element.type === 'image' ? 'transparent' : element.background || '#f1c76a',
           color: element.color || '#171512',
+          borderColor: element.borderColor || 'rgba(255,255,255,0.45)',
           borderRadius: `${Number(element.borderRadius || 8)}px`,
           fontSize: `${Number(element.fontSize || 14)}px`,
           opacity: Math.max(0, Math.min(100, Number(element.opacity || 100))) / 100,

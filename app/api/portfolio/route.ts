@@ -149,6 +149,7 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
       height,
       background,
       color,
+      borderColor,
       borderRadius,
       fontSize,
       opacity
