@@ -2141,11 +2141,13 @@ function HomepagePopupWindows({
   onClose: (popupKey: string, hideToday?: boolean) => void;
 }) {
   if (popups.length === 0) return null;
+  const sharedWidth = Math.max(...popups.map((popup) => popupRenderedWidth(popup)));
+  const sharedHeight = popups.length > 1 ? Math.min(560, Math.max(320, Math.round(sharedWidth * 0.72))) : undefined;
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[90]">
       {popups.map((popup, index) => (
-        <HomepagePopupWindow key={popup._key} popup={popup} index={index} total={popups.length} onClose={onClose} />
+        <HomepagePopupWindow key={popup._key} popup={popup} index={index} total={popups.length} sharedWidth={sharedWidth} sharedHeight={sharedHeight} onClose={onClose} />
       ))}
     </div>
   );
@@ -2155,11 +2157,15 @@ function HomepagePopupWindow({
   popup,
   index,
   total,
+  sharedWidth,
+  sharedHeight,
   onClose,
 }: {
   popup: Required<HomepagePopupItem>;
   index: number;
   total: number;
+  sharedWidth: number;
+  sharedHeight?: number;
   onClose: (popupKey: string, hideToday?: boolean) => void;
 }) {
   const [hideToday, setHideToday] = useState(false);
@@ -2170,7 +2176,6 @@ function HomepagePopupWindow({
   const body = popup.body || '';
   const buttonLabel = popup.buttonLabel || '';
   const buttonUrl = popup.buttonUrl || '';
-  const width = Math.min(760, Math.max(320, Number(popup.width || 520) || 520));
   const imageFitClass = popup.imageFit === 'contain' ? 'object-contain' : 'object-cover';
 
   const handleButtonClick = () => {
@@ -2197,8 +2202,11 @@ function HomepagePopupWindow({
   const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
 
   return (
-    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, width, total)}>
-      <div className="relative max-h-[calc(100vh-36px)] w-full overflow-y-auto rounded-lg bg-[#fffdf8] shadow-[0_18px_60px_rgba(23,21,18,0.28)] ring-1 ring-[#eadfcd]" style={{ maxWidth: `${layout === 'split' ? Math.max(width, 720) : width}px` }}>
+    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, sharedWidth, total)}>
+      <div
+        className="relative flex max-h-[calc(100vh-36px)] w-full flex-col overflow-hidden rounded-lg bg-[#fffdf8] shadow-[0_18px_60px_rgba(23,21,18,0.28)] ring-1 ring-[#eadfcd]"
+        style={{ height: sharedHeight ? `min(${sharedHeight}px, calc(100vh - 36px))` : undefined }}
+      >
         <button
           type="button"
           onClick={() => onClose(popup._key, hideToday)}
@@ -2208,11 +2216,11 @@ function HomepagePopupWindow({
           <X size={20} />
         </button>
 
-        <div className="relative">
+        <div className="relative min-h-0 flex-1">
           {layout === 'imageOnly' ? (
-            hasImage ? <div className="bg-[#ded7cc]">{imageNode}</div> : <div className="flex aspect-square items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
+            hasImage ? <div className="h-full bg-[#ded7cc]">{imageNode}</div> : <div className="flex h-full min-h-[260px] items-center justify-center bg-[#ded7cc] text-sm font-bold text-[#625d54]">이미지 없음</div>
           ) : layout === 'split' ? (
-            <div className="grid md:grid-cols-[0.92fr_1fr]">
+            <div className="grid h-full md:grid-cols-[0.92fr_1fr]">
               {hasImage && <div className="min-h-[260px] bg-[#ded7cc]">{imageNode}</div>}
               <PopupContent title={title} body={body} buttonLabel={buttonLabel} buttonUrl={buttonUrl} onButtonClick={handleButtonClick} />
             </div>
@@ -2225,7 +2233,7 @@ function HomepagePopupWindow({
           <PopupCanvasElements elements={popup.elements} onElementClick={handleElementClick} />
         </div>
 
-        <div className="relative z-10 flex items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-2 text-xs shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
+        <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-t border-[#eadfcd]/80 bg-[linear-gradient(135deg,#fffaf0_0%,#f8ead0_46%,#f3d89d_100%)] px-4 py-1.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.65)]">
           <label className="inline-flex items-center gap-2 font-semibold text-[#625d54]">
             <input type="checkbox" checked={hideToday} onChange={(event) => setHideToday(event.target.checked)} className="h-3.5 w-3.5" />
             오늘 하루 보지 않기
@@ -2237,6 +2245,11 @@ function HomepagePopupWindow({
       </div>
     </div>
   );
+}
+
+function popupRenderedWidth(popup: Required<HomepagePopupItem>) {
+  const width = Math.min(760, Math.max(320, Number(popup.width || 520) || 520));
+  return popup.layout === 'split' ? Math.max(width, 720) : width;
 }
 
 function popupWindowStyle(position: string, index: number, width: number, total = 1): React.CSSProperties {
