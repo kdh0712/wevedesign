@@ -7,16 +7,19 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
+  BookOpen,
   Camera,
   Check,
   ChevronRight,
   Home,
+  Instagram,
   MapPin,
   Menu,
   MessageCircle,
   Phone,
   Ruler,
   Search,
+  Share2,
   ShieldCheck,
   Sparkles,
   X,
@@ -132,6 +135,8 @@ type SiteSettings = {
     lng?: number;
   };
   phone?: string;
+  safePhone?: string;
+  companyPhone?: string;
   mapLat?: number;
   mapLng?: number;
   contactLabel?: string;
@@ -157,6 +162,8 @@ type SiteSettings = {
   consultationSurveyConfig?: string;
   kakaoUrl?: string;
   kakaoChannelManagerUrl?: string;
+  instagramUrl?: string;
+  blogUrl?: string;
   popupEnabled?: string;
   popupLayout?: string;
   popupPosition?: string;
@@ -259,7 +266,9 @@ const defaultSettings: Required<SiteSettings> = {
     lat: 37.38104,
     lng: 126.97482,
   },
-  phone: '010-6346-3882',
+  phone: '0507-1381-0489',
+  safePhone: '0507-1381-0489',
+  companyPhone: '031-381-0489',
   mapLat: 37.38104,
   mapLng: 126.97482,
   contactLabel: 'Consultation',
@@ -284,8 +293,10 @@ const defaultSettings: Required<SiteSettings> = {
   consultationPrivacyText:
     '수집 항목: 이름, 연락처, 시공 주소, 상담 설문 답변, 요청사항\n수집 목적: 인테리어 상담, 실측 및 견적 안내, 고객 문의 응대\n보유 기간: 상담 완료 후 1년 또는 고객 삭제 요청 시까지\n제공받는 자: WEVE DESIGN 상담 및 시공 담당자\n동의를 거부할 권리가 있으나, 동의하지 않을 경우 상담 신청이 제한될 수 있습니다.',
   consultationSurveyConfig: '',
-  kakaoUrl: 'https://pf.kakao.com/_xxxx',
+  kakaoUrl: '',
   kakaoChannelManagerUrl: '',
+  instagramUrl: '',
+  blogUrl: '',
   popupEnabled: 'false',
   popupLayout: 'imageTop',
   popupPosition: 'center',
@@ -660,6 +671,7 @@ export default function WeveDesignLanding() {
   const [hiddenHomepagePopupKeys, setHiddenHomepagePopupKeys] = useState<string[]>([]);
   const [isHeaderScrolled, setIsHeaderScrolled] = useState(false);
   const [showTopButton, setShowTopButton] = useState(false);
+  const [socialMenuOpen, setSocialMenuOpen] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
   const [methodProgress, setMethodProgress] = useState(0);
@@ -886,6 +898,13 @@ export default function WeveDesignLanding() {
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
   const roadAddress = settings.address || defaultSettings.address;
   const lotAddress = settings.lotAddress || defaultSettings.lotAddress;
+  const safePhone = settings.safePhone || defaultSettings.safePhone;
+  const companyPhone = settings.companyPhone || defaultSettings.companyPhone;
+  const socialLinks = [
+    { key: 'kakao', label: '카카오톡', href: settings.kakaoUrl, icon: MessageCircle, className: 'bg-[#FEE500] text-[#3c1e1e]' },
+    { key: 'instagram', label: '인스타그램', href: settings.instagramUrl, icon: Instagram, className: 'bg-gradient-to-br from-[#f58529] via-[#dd2a7b] to-[#515bd4] text-white' },
+    { key: 'blog', label: '블로그', href: settings.blogUrl, icon: BookOpen, className: 'bg-[#03C75A] text-white' },
+  ].filter((link) => link.href);
   const mapSearchAddress = lotAddress || roadAddress;
   const pickedMapLocation = settings.mapLocation?.lat && settings.mapLocation?.lng ? settings.mapLocation : defaultSettings.mapLocation;
   const selectedConstructionModel =
@@ -1262,7 +1281,7 @@ export default function WeveDesignLanding() {
         <Header
           mobileNavOpen={mobileNavOpen}
           activeSection={activeSection}
-          phone={settings.phone || defaultSettings.phone}
+          phone={safePhone}
           overlay={false}
           scrolled={isHeaderScrolled}
           onLogoClick={handleLogoClick}
@@ -1343,7 +1362,30 @@ export default function WeveDesignLanding() {
       )}
       <Script strategy="afterInteractive" src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" />
 
-      <div className="fixed bottom-5 right-5 z-40 flex items-center gap-2">
+      <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+        {socialLinks.length > 0 && socialMenuOpen && (
+          <div className="grid gap-2 rounded-2xl border border-[#eadfcd] bg-white/95 p-2 shadow-[0_18px_48px_rgba(23,21,18,0.18)] backdrop-blur">
+            {socialLinks.map((link) => {
+              const Icon = link.icon;
+              return (
+                <a
+                  key={link.key}
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-bold text-[#171512] transition hover:bg-[#fff7df]"
+                  onClick={() => setSocialMenuOpen(false)}
+                >
+                  <span className={`inline-flex h-10 w-10 items-center justify-center rounded-full shadow-sm ${link.className}`}>
+                    <Icon size={20} />
+                  </span>
+                  <span className="min-w-[74px] pr-2">{link.label}</span>
+                </a>
+              );
+            })}
+          </div>
+        )}
+        <div className="flex items-center gap-2">
         {showTopButton && (
           <button
             type="button"
@@ -1354,21 +1396,24 @@ export default function WeveDesignLanding() {
             <ArrowUp size={20} />
           </button>
         )}
-        <a
-          href={settings.kakaoUrl || defaultSettings.kakaoUrl}
-          target="_blank"
-          rel="noreferrer"
-          aria-label="카카오톡 상담"
-          className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#FEE500] text-[#3c1e1e] shadow-xl transition hover:scale-105"
-        >
-          <MessageCircle size={24} />
-        </a>
+        {socialLinks.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSocialMenuOpen((value) => !value)}
+            aria-expanded={socialMenuOpen}
+            aria-label="SNS 링크 열기"
+            className="hover-shine inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#171512] text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-[#2d2922]"
+          >
+            {socialMenuOpen ? <X size={22} /> : <Share2 size={22} />}
+          </button>
+        )}
+        </div>
       </div>
 
       <Header
           mobileNavOpen={mobileNavOpen}
           activeSection={activeSection}
-          phone={settings.phone || defaultSettings.phone}
+          phone={safePhone}
           overlay={viewMode === 'main'}
           scrolled={isHeaderScrolled}
           onLogoClick={handleLogoClick}
@@ -1754,7 +1799,7 @@ export default function WeveDesignLanding() {
                 </p>
                 <p className="flex gap-3">
                   <Phone className="mt-1 shrink-0 text-[#8f6f43]" size={20} />
-                  <span data-preview-target="phone">{settings.phone || defaultSettings.phone}</span>
+                  <span data-preview-target="safePhone">{safePhone}</span>
                 </p>
               </div>
               <p className="mt-10 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
@@ -2078,7 +2123,7 @@ export default function WeveDesignLanding() {
             <p>
               <span data-preview-target="representativeName">대표 {settings.representativeName || defaultSettings.representativeName}</span>
               {' | '}
-              <span data-preview-target="phone">연락처 {settings.phone || defaultSettings.phone}</span>
+              <span data-preview-target="companyPhone">연락처 {companyPhone}</span>
             </p>
             {(settings.businessNumber || defaultSettings.businessNumber) && (
               <p data-preview-target="businessNumber">사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>

@@ -21,7 +21,9 @@ const siteSettings = defineType({
     portfolioTitle: 'Project를 둘러보세요.',
     representativeName: '김동호',
     companyStartYear: '2026',
-    phone: '010-6346-3882',
+    phone: '0507-1381-0489',
+    safePhone: '0507-1381-0489',
+    companyPhone: '031-381-0489',
     address: '경기도 의왕시 오리나무1길 12, 1층',
     lotAddress: '경기도 의왕시 내손동 810-3',
     mapLocation: {
@@ -425,6 +427,20 @@ const siteSettings = defineType({
       description: '상단 전화번호, 오시는 길, 푸터에 보입니다.',
     }),
     defineField({
+      name: 'safePhone',
+      title: '상단 안심번호',
+      type: 'string',
+      group: 'location',
+      description: '홈페이지 상단 헤더와 오시는 길 연락처에 표시됩니다. 예: 0507-1381-0489',
+    }),
+    defineField({
+      name: 'companyPhone',
+      title: '하단 회사 전화번호',
+      type: 'string',
+      group: 'location',
+      description: '홈페이지 하단 회사 정보에 표시됩니다. 예: 031-381-0489',
+    }),
+    defineField({
       name: 'representativeName',
       title: '대표자명',
       type: 'string',
@@ -520,6 +536,18 @@ const siteSettings = defineType({
       type: 'url',
       group: 'location',
       description: '관리자 페이지에서 카카오 비즈니스 채널 관리자 화면으로 이동할 때 사용합니다.',
+    }),
+    defineField({
+      name: 'instagramUrl',
+      title: '인스타그램 링크',
+      type: 'url',
+      group: 'location',
+    }),
+    defineField({
+      name: 'blogUrl',
+      title: '블로그 링크',
+      type: 'url',
+      group: 'location',
     }),
     defineField({
       name: 'naverPlaceUrl',

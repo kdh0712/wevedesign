@@ -327,12 +327,16 @@ const homepagePreviewTargets = {
   address: { key: 'address', label: '도로명 주소', src: '/#location' },
   lotAddress: { key: 'lotAddress', label: '지번 주소', src: '/#location' },
   phone: { key: 'phone', label: '대표 연락처', src: '/#location' },
+  safePhone: { key: 'safePhone', label: '상단 안심번호', src: '/#location' },
+  companyPhone: { key: 'companyPhone', label: '하단 회사 전화번호', src: '/#footer' },
   contactLabel: { key: 'contactLabel', label: '상담 작은 문구', src: '/#contact' },
   contactTitle: { key: 'contactTitle', label: '상담 큰 문구', src: '/#contact' },
   contactBody: { key: 'contactBody', label: '상담 설명', src: '/#contact' },
   consultationEmail: { key: 'consultationEmail', label: '상담문의 이메일', src: '/#footer' },
   kakaoUrl: { key: 'kakaoUrl', label: '카카오톡 상담 링크', src: '/#contact' },
   kakaoChannelManagerUrl: { key: 'kakaoChannelManagerUrl', label: '카카오 채널 관리 링크', src: '/#contact' },
+  instagramUrl: { key: 'instagramUrl', label: '인스타그램 링크', src: '/#contact' },
+  blogUrl: { key: 'blogUrl', label: '블로그 링크', src: '/#contact' },
   naverPlaceUrl: { key: 'naverPlaceUrl', label: '네이버 플레이스 링크', src: '/#contact' },
   representativeName: { key: 'representativeName', label: '대표자명', src: '/#footer' },
   businessNumber: { key: 'businessNumber', label: '사업자등록번호', src: '/#footer' },
@@ -503,6 +507,8 @@ export default function ManagerPage() {
     businessNumber: '',
     companyStartYear: '',
     phone: '',
+    safePhone: '0507-1381-0489',
+    companyPhone: '031-381-0489',
     address: '',
     lotAddress: '',
     locationLabel: '',
@@ -542,6 +548,8 @@ export default function ManagerPage() {
     consultationSurveyConfig: '',
     kakaoUrl: '',
     kakaoChannelManagerUrl: '',
+    instagramUrl: '',
+    blogUrl: '',
     naverPlaceUrl: '',
     kakaoUnreadCount: '',
     naverUnreadCount: '',
@@ -873,6 +881,8 @@ export default function ManagerPage() {
         businessNumber: settings.businessNumber || '',
         companyStartYear: settings.companyStartYear || '',
         phone: settings.phone || '',
+        safePhone: settings.safePhone || '0507-1381-0489',
+        companyPhone: settings.companyPhone || '031-381-0489',
         address: settings.address || '',
         lotAddress: settings.lotAddress || '',
         locationLabel: settings.locationLabel || '',
@@ -912,6 +922,8 @@ export default function ManagerPage() {
         consultationSurveyConfig: savedSurveyConfig,
         kakaoUrl: settings.kakaoUrl || '',
         kakaoChannelManagerUrl: settings.kakaoChannelManagerUrl || '',
+        instagramUrl: settings.instagramUrl || '',
+        blogUrl: settings.blogUrl || '',
         naverPlaceUrl: settings.naverPlaceUrl || '',
         kakaoUnreadCount: settings.kakaoUnreadCount || '',
         naverUnreadCount: settings.naverUnreadCount || '',
@@ -2417,7 +2429,8 @@ export default function ManagerPage() {
                           <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
                           <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
                           <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
-                          <SettingInput label="대표 연락처" value={homepageSettings.phone} onChange={(value) => setHomepageSettings({ ...homepageSettings, phone: formatPhoneNumber(value) })} {...previewFocus('phone')} />
+                          <SettingInput label="상단 안심번호" value={homepageSettings.safePhone} onChange={(value) => setHomepageSettings({ ...homepageSettings, safePhone: formatPhoneNumber(value) })} placeholder="0507-1381-0489" {...previewFocus('safePhone')} />
+                          <SettingInput label="하단 회사 전화번호" value={homepageSettings.companyPhone} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyPhone: formatPhoneNumber(value) })} placeholder="031-381-0489" {...previewFocus('companyPhone')} />
                           <SettingInput label="도로명 주소" value={homepageSettings.address} onChange={(value) => setHomepageSettings({ ...homepageSettings, address: value })} {...previewFocus('address')} />
                           <SettingInput label="지번 주소" value={homepageSettings.lotAddress} onChange={(value) => setHomepageSettings({ ...homepageSettings, lotAddress: value })} {...previewFocus('lotAddress')} />
                         </div>
@@ -2488,6 +2501,8 @@ export default function ManagerPage() {
                           <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
                           <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
                           <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
+                          <SettingInput label="인스타그램 링크" value={homepageSettings.instagramUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, instagramUrl: value })} placeholder="예: https://instagram.com/..." {...previewFocus('instagramUrl')} />
+                          <SettingInput label="블로그 링크" value={homepageSettings.blogUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, blogUrl: value })} placeholder="예: https://blog.naver.com/..." {...previewFocus('blogUrl')} />
                           <SettingInput label="네이버 플레이스 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
                         </div>
                       </section>
@@ -4764,9 +4779,24 @@ function getProjectImageOptions(project?: ManagedProject): ProjectImageOption[] 
 }
 
 function formatPhoneNumber(value: string) {
-  const digits = value.replace(/\D/g, '').slice(0, 11);
+  const rawDigits = value.replace(/\D/g, '');
+  const maxLength = rawDigits.startsWith('050') ? 12 : 11;
+  const digits = rawDigits.slice(0, maxLength);
+
+  if (digits.startsWith('02')) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    if (digits.length <= 10) return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
+  }
+
+  if (digits.startsWith('050')) {
+    if (digits.length <= 4) return digits;
+    if (digits.length <= 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8)}`;
+  }
 
   if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }

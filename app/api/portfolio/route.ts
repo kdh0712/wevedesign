@@ -86,6 +86,8 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
     lng
   },
   phone,
+  safePhone,
+  companyPhone,
   mapLat,
   mapLng,
   contactLabel,
@@ -111,6 +113,8 @@ const settingsQuery = `coalesce(*[_id == "siteSettings"][0], *[_type == "siteSet
   companyStartYear,
   kakaoUrl,
   kakaoChannelManagerUrl,
+  instagramUrl,
+  blogUrl,
   popupEnabled,
   popupLayout,
   popupPosition,
