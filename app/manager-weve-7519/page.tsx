@@ -3690,13 +3690,14 @@ function normalizePopupCanvasElements(elements?: PopupCanvasElementDraft[]): Pop
 
 const popupElementLinkPresets = [
   { value: '', label: '직접 입력', text: '', url: '' },
-  { value: 'portfolio', label: '포트폴리오 페이지 이동', text: '포트폴리오 보기', url: '#portfolio-preview' },
+  { value: 'portfolio', label: '포트폴리오 페이지 이동', text: '포트폴리오 보기', url: 'portfolio' },
   { value: 'browse', label: '홈페이지 둘러보기(닫기)', text: '홈페이지 둘러보기', url: '__close' },
   { value: 'contact', label: '상담신청하기', text: '상담 신청하기', url: '#contact' },
 ];
 
 function popupElementPresetValue(element?: PopupCanvasElementDraft) {
   if (!element?.url) return '';
+  if (element.url === '#portfolio-preview') return 'portfolio';
   return popupElementLinkPresets.find((preset) => preset.url === element.url)?.value || '';
 }
 

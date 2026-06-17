@@ -1247,6 +1247,14 @@ export default function WeveDesignLanding() {
     }
     setHiddenHomepagePopupKeys((current) => (current.includes(popupKey) ? current : [...current, popupKey]));
   };
+  const closeAllHomepagePopups = (hideToday = false) => {
+    const popupKeys = homepagePopups.map((popup) => popup._key || '').filter(Boolean);
+    if (hideToday) {
+      const todayKey = new Date().toLocaleDateString('sv-SE');
+      popupKeys.forEach((popupKey) => window.localStorage.setItem(`weve-popup-hidden-${todayKey}-${popupKey}`, 'true'));
+    }
+    setHiddenHomepagePopupKeys((current) => Array.from(new Set([...current, ...popupKeys])));
+  };
 
   if (viewMode === 'portfolio') {
     return (
@@ -1262,7 +1270,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
           onMenuClick={() => setMobileNavOpen((value) => !value)}
         />
-        <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} />
+        <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} onCloseAll={closeAllHomepagePopups} onPortfolioClick={showPortfolio} onContactClick={() => scrollToSection('contact')} />
 
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
@@ -1368,7 +1376,7 @@ export default function WeveDesignLanding() {
           onSectionClick={scrollToSection}
         onMenuClick={() => setMobileNavOpen((value) => !value)}
       />
-      <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} />
+      <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} onCloseAll={closeAllHomepagePopups} onPortfolioClick={showPortfolio} onContactClick={() => scrollToSection('contact')} />
 
       <main>
         <section id="home" className="relative min-h-screen overflow-hidden">
@@ -1391,15 +1399,15 @@ export default function WeveDesignLanding() {
             <div className="absolute inset-x-0 bottom-0 h-52 bg-gradient-to-t from-[#17120d]/42 to-transparent" />
           </div>
 
-          <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-[1600px] items-center px-5 pb-16 pt-28 sm:px-8 md:px-10 lg:px-12 xl:px-16">
+          <div className="relative z-10 mx-auto flex min-h-[100svh] max-w-[1600px] items-center px-5 pb-14 pt-24 sm:px-8 md:px-10 md:pb-16 md:pt-28 lg:px-12 xl:px-16">
             <div className="fade-up w-full max-w-[680px]">
-              <p data-preview-target="heroLabel" className="mb-4 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:text-base">
+              <p data-preview-target="heroLabel" className="mb-3 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:mb-4 md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 data-preview-target="heroTitle" className="hero-title max-w-[660px] text-[2.65rem] font-semibold leading-[1.08] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] lg:text-[4.55rem]">
+              <h1 data-preview-target="heroTitle" className="hero-title max-w-[660px] text-[2.18rem] font-semibold leading-[1.12] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] md:leading-[1.08] lg:text-[4.55rem]">
                 {settings.heroTitle || activeHero.title}
               </h1>
-              <div className="hero-ornament my-4 flex max-w-[430px] items-center gap-3 sm:max-w-[470px]" aria-hidden="true">
+              <div className="hero-ornament my-3 flex max-w-[360px] items-center gap-3 sm:max-w-[470px] md:my-4" aria-hidden="true">
                 <span className="hero-ornament-line" />
                 <svg className="hero-ornament-mark" viewBox="0 0 92 20" fill="none">
                   <path d="M8 10h24c5.2 0 7.6-6 14-6s8.8 6 14 6h24" />
@@ -1408,10 +1416,10 @@ export default function WeveDesignLanding() {
                 </svg>
                 <span className="hero-ornament-line" />
               </div>
-              <p data-preview-target="heroDescription" className="max-w-[610px] text-sm leading-7 text-white/90 md:text-base">
+              <p data-preview-target="heroDescription" className="max-w-[610px] text-sm leading-6 text-white/90 md:text-base md:leading-7">
                 {settings.heroDescription || defaultSettings.heroDescription}
               </p>
-              <div className="mt-5 flex max-w-[700px] flex-wrap gap-x-3 gap-y-2 text-xs font-semibold text-white/90">
+              <div className="mt-4 flex max-w-[700px] flex-wrap gap-x-2 gap-y-1.5 text-[11px] font-semibold leading-5 text-white/90 md:mt-5 md:gap-x-3 md:gap-y-2 md:text-xs">
                 {serviceLines.map((service, index) => (
                   <span key={service} className="inline-flex items-center gap-3">
                     <span>{service}</span>
@@ -2136,18 +2144,46 @@ function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopup
 function HomepagePopupWindows({
   popups,
   onClose,
+  onCloseAll,
+  onPortfolioClick,
+  onContactClick,
 }: {
   popups: Required<HomepagePopupItem>[];
   onClose: (popupKey: string, hideToday?: boolean) => void;
+  onCloseAll: (hideToday?: boolean) => void;
+  onPortfolioClick: () => void;
+  onContactClick: () => void;
 }) {
+  const [isMobilePopupLayout, setIsMobilePopupLayout] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobilePopupLayout(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
   if (popups.length === 0) return null;
   const sharedWidth = Math.max(...popups.map((popup) => popupRenderedWidth(popup)));
-  const sharedHeight = Math.min(520, Math.max(300, Math.round((sharedWidth * 9) / 16 + 30)));
+  const displayWidth = isMobilePopupLayout ? Math.min(sharedWidth, 420) : sharedWidth;
+  const sharedHeight = Math.min(isMobilePopupLayout ? 420 : 520, Math.max(isMobilePopupLayout ? 250 : 300, Math.round((displayWidth * 9) / 16 + 30)));
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-[90]">
+    <div className={`pointer-events-none fixed inset-0 z-[90] ${isMobilePopupLayout ? 'grid content-start justify-items-center overflow-y-auto px-3 py-16' : ''}`}>
       {popups.map((popup, index) => (
-        <HomepagePopupWindow key={popup._key} popup={popup} index={index} total={popups.length} sharedWidth={sharedWidth} sharedHeight={sharedHeight} onClose={onClose} />
+        <HomepagePopupWindow
+          key={popup._key}
+          popup={popup}
+          index={index}
+          total={popups.length}
+          sharedWidth={displayWidth}
+          sharedHeight={sharedHeight}
+          isMobileLayout={isMobilePopupLayout}
+          onClose={onClose}
+          onCloseAll={onCloseAll}
+          onPortfolioClick={onPortfolioClick}
+          onContactClick={onContactClick}
+        />
       ))}
     </div>
   );
@@ -2159,14 +2195,22 @@ function HomepagePopupWindow({
   total,
   sharedWidth,
   sharedHeight,
+  isMobileLayout,
   onClose,
+  onCloseAll,
+  onPortfolioClick,
+  onContactClick,
 }: {
   popup: Required<HomepagePopupItem>;
   index: number;
   total: number;
   sharedWidth: number;
   sharedHeight?: number;
+  isMobileLayout: boolean;
   onClose: (popupKey: string, hideToday?: boolean) => void;
+  onCloseAll: (hideToday?: boolean) => void;
+  onPortfolioClick: () => void;
+  onContactClick: () => void;
 }) {
   const [hideToday, setHideToday] = useState(false);
   const layout = popup.layout || 'imageTop';
@@ -2178,20 +2222,22 @@ function HomepagePopupWindow({
   const buttonUrl = popup.buttonUrl || '';
   const imageFitClass = popup.imageFit === 'contain' ? 'object-contain' : 'object-cover';
 
-  const handleButtonClick = () => {
-    if (!buttonUrl) return;
-    onClose(popup._key, hideToday);
-    if (buttonUrl.startsWith('#')) {
-      window.setTimeout(() => document.querySelector(buttonUrl)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  const handlePopupLink = (url?: string) => {
+    if (!url) return;
+    if (url === '__close') {
+      onClose(popup._key, hideToday);
       return;
     }
-    window.open(buttonUrl, '_blank', 'noopener,noreferrer');
-  };
 
-  const handleElementClick = (url?: string) => {
-    if (!url) return;
-    onClose(popup._key, hideToday);
-    if (url === '__close') return;
+    onCloseAll(hideToday);
+    if (url === '#portfolio-preview' || url === '/portfolio' || url === 'portfolio') {
+      onPortfolioClick();
+      return;
+    }
+    if (url === '#contact') {
+      onContactClick();
+      return;
+    }
     if (url.startsWith('#')) {
       window.setTimeout(() => document.querySelector(url)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
       return;
@@ -2199,10 +2245,18 @@ function HomepagePopupWindow({
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
+  const handleButtonClick = () => {
+    handlePopupLink(buttonUrl);
+  };
+
+  const handleElementClick = (url?: string) => {
+    handlePopupLink(url);
+  };
+
   const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
 
   return (
-    <div className="pointer-events-auto fixed max-w-[calc(100vw-32px)]" style={popupWindowStyle(popup.position, index, sharedWidth, total)}>
+    <div className={`pointer-events-auto max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-32px)] ${isMobileLayout ? 'relative mx-auto' : 'fixed'}`} style={popupWindowStyle(popup.position, index, sharedWidth, total, isMobileLayout)}>
       <div
         className="relative flex max-h-[calc(100vh-36px)] w-full flex-col overflow-hidden rounded-lg bg-[#fffdf8] shadow-[0_18px_60px_rgba(23,21,18,0.28)] ring-1 ring-[#eadfcd]"
         style={{ height: sharedHeight ? `min(${sharedHeight}px, calc(100vh - 36px))` : undefined }}
@@ -2252,9 +2306,10 @@ function popupRenderedWidth(popup: Required<HomepagePopupItem>) {
   return popup.layout === 'split' ? Math.max(width, 720) : width;
 }
 
-function popupWindowStyle(position: string, index: number, width: number, total = 1): React.CSSProperties {
+function popupWindowStyle(position: string, index: number, width: number, total = 1, isMobile = false): React.CSSProperties {
   const maxWidth = Math.min(width, 760);
-  const base: React.CSSProperties = { width: `min(${maxWidth}px, calc(100vw - 32px))` };
+  const base: React.CSSProperties = { width: `min(${maxWidth}px, calc(100vw - ${isMobile ? 24 : 32}px))` };
+  if (isMobile) return base;
   const offset = index * maxWidth;
 
   if (position === 'topLeft') return { ...base, left: 24 + offset, top: 96 };
