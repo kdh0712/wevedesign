@@ -7,13 +7,13 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.wevedesign.co.k
 const naverVerification = process.env.NEXT_PUBLIC_NAVER_SITE_VERIFICATION || 'e036b6d500ea7274d9f7163e322558fbc2addb26';
 const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || 'DwNuLGyu0wMNO0zLDMbHPXq78BWLEABnHFHrzykffKM';
 const naverAnalyticsId = process.env.NEXT_PUBLIC_NAVER_ANALYTICS_ID || '151969fd25c7b30';
-const siteTitle = 'WEVE DESIGN 위브디자인 | 의왕·안양 인테리어 리모델링';
+const siteTitle = '위브디자인 WEVE DESIGN | 의왕·안양 인테리어 리모델링';
 const siteDescription = '위브디자인은 의왕, 안양, 군포, 과천과 경기 남부 지역의 아파트·주거·상업 공간 인테리어 리모델링을 진행하는 전문 스튜디오입니다.';
 const localBusinessJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'HomeAndConstructionBusiness',
-  name: 'WEVE DESIGN 위브디자인',
-  alternateName: ['위브디자인', 'WEVE 인테리어 디자인'],
+  name: '위브디자인 WEVE DESIGN',
+  alternateName: ['위브디자인', 'WEVE DESIGN', 'WEVE 인테리어 디자인'],
   url: siteUrl,
   image: `${siteUrl}/main-bg.webp`,
   description: siteDescription,
@@ -31,7 +31,7 @@ const localBusinessJsonLd = {
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  applicationName: 'WEVE DESIGN',
+  applicationName: '위브디자인 WEVE DESIGN',
   title: siteTitle,
   description: siteDescription,
   keywords: ['위브디자인', 'WEVE DESIGN', '의왕 인테리어', '안양 인테리어', '군포 인테리어', '과천 인테리어', '인테리어 리모델링', '아파트 리모델링', '상가 인테리어'],
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     title: siteTitle,
     description: siteDescription,
     url: siteUrl,
-    siteName: 'WEVE DESIGN',
+    siteName: '위브디자인',
     images: ['/main-bg.webp'],
     locale: 'ko_KR',
     type: 'website',
