@@ -24,6 +24,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { projectPath } from '@/app/lib/seo-utils';
 
 type Category = {
   title: string;
@@ -1566,6 +1567,20 @@ export default function WeveDesignLanding() {
                   준비 중인 Project가 없습니다.
                 </div>
               )}
+              {featuredProjects.length > 0 && (
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {featuredProjects.slice(0, 6).map((project) => (
+                    <a
+                      key={`detail-link-${project.id}`}
+                      href={projectPath(project)}
+                      className="inline-flex items-center gap-2 rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]"
+                    >
+                      {project.title} 상세 페이지
+                      <ArrowUpRight size={14} />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -1585,6 +1600,17 @@ export default function WeveDesignLanding() {
               <p data-preview-target="aboutBody" className="mt-7 text-lg leading-8 text-[#625d54]">
                 {settings.aboutBody || defaultSettings.aboutBody}
               </p>
+              <p className="mt-5 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-8 text-[#625d54]">
+                위브디자인은 의왕과 안양 생활권을 중심으로 아파트, 주거 공간, 상업 공간 인테리어 리모델링을 상담하고 현장 중심으로 관리합니다.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <a href="/uiwang-interior" className="rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]">
+                  의왕 인테리어
+                </a>
+                <a href="/anyang-interior" className="rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]">
+                  안양 인테리어
+                </a>
+              </div>
               <div className="mt-10 grid gap-4">
                 {strengths.map((item) => {
                   const Icon = item.icon;
