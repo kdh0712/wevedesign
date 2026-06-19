@@ -61,10 +61,10 @@ export const metadata: Metadata = {
     : undefined,
   icons: {
     icon: [
-      { url: '/favicon.ico?v=weve-5', sizes: 'any' },
-      { url: '/icon.png?v=weve-5', type: 'image/png', sizes: '512x512' },
+      { url: '/favicon.ico?v=weve-6', sizes: 'any' },
+      { url: '/icon.png?v=weve-6', type: 'image/png', sizes: '512x512' },
     ],
-    apple: [{ url: '/apple-icon.png?v=weve-5', type: 'image/png', sizes: '180x180' }],
+    apple: [{ url: '/apple-icon.png?v=weve-6', type: 'image/png', sizes: '180x180' }],
   },
 };
 
