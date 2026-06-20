@@ -15,6 +15,7 @@ const localBusinessJsonLd = {
   name: '위브디자인 WEVE DESIGN',
   alternateName: ['위브디자인', 'WEVE DESIGN', 'WEVE 인테리어 디자인'],
   url: siteUrl,
+  logo: `${siteUrl}/weve-symbol.png`,
   image: `${siteUrl}/main-bg.webp`,
   description: siteDescription,
   telephone: '0507-1381-0489',
@@ -61,10 +62,10 @@ export const metadata: Metadata = {
     : undefined,
   icons: {
     icon: [
-      { url: '/favicon.ico?v=weve-6', sizes: 'any' },
-      { url: '/icon.png?v=weve-6', type: 'image/png', sizes: '512x512' },
+      { url: '/favicon.ico?v=weve-7', sizes: 'any' },
+      { url: '/icon.png?v=weve-7', type: 'image/png', sizes: '512x512' },
     ],
-    apple: [{ url: '/apple-icon.png?v=weve-6', type: 'image/png', sizes: '180x180' }],
+    apple: [{ url: '/apple-icon.png?v=weve-7', type: 'image/png', sizes: '180x180' }],
   },
 };
 

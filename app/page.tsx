@@ -10,6 +10,7 @@ import {
   BookOpen,
   Camera,
   Check,
+  ChevronLeft,
   ChevronRight,
   Home,
   Instagram,
@@ -3014,34 +3015,31 @@ function ProjectImageSlider({
           className="block h-full w-full object-contain"
           loading="lazy"
         />
-        <span className="absolute left-4 top-4 rounded-full bg-white/90 px-3 py-1 text-xs font-bold text-[#171512] backdrop-blur">
-          {activeImage.roomType || group.roomType}
-        </span>
         {canSlide && (
           <>
             <button
               type="button"
               onClick={goPrevious}
-              className="absolute left-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#171512] shadow-lg transition hover:bg-white"
+              className="absolute inset-y-0 left-0 inline-flex w-16 items-center justify-start pl-3 text-[#171512] transition hover:bg-gradient-to-r hover:from-white/35 hover:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#171512] md:w-20 md:pl-5"
               aria-label="이전 사진"
             >
-              <ArrowLeft size={18} />
+              <ChevronLeft size={38} strokeWidth={1.35} />
             </button>
             <button
               type="button"
               onClick={goNext}
-              className="absolute right-4 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-white/90 text-[#171512] shadow-lg transition hover:bg-white"
+              className="absolute inset-y-0 right-0 inline-flex w-16 items-center justify-end pr-3 text-[#171512] transition hover:bg-gradient-to-l hover:from-white/35 hover:to-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#171512] md:w-20 md:pr-5"
               aria-label="다음 사진"
             >
-              <ArrowRight size={18} />
+              <ChevronRight size={38} strokeWidth={1.35} />
             </button>
-            <div className="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full bg-white/88 px-3 py-2 shadow-sm backdrop-blur">
+            <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2 px-2 py-2 md:bottom-4">
               {group.images.map((image, index) => (
                 <button
                   key={`${image.url}-${index}`}
                   type="button"
                   onClick={() => setActiveIndex(index)}
-                  className={`h-2.5 rounded-full transition-all ${activeIndex === index ? 'w-6 bg-[#171512]' : 'w-2.5 bg-[#b8ad9b] hover:bg-[#8f6f43]'}`}
+                  className={`h-2 w-2 rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.35)] transition-colors ${activeIndex === index ? 'bg-[#171512]' : 'bg-[#9d968c] hover:bg-[#625d54]'}`}
                   aria-label={`${index + 1}번째 사진 보기`}
                 />
               ))}
