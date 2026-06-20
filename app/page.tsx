@@ -46,7 +46,7 @@ type GalleryGroup = {
   images?: GalleryImage[];
 };
 
-type Project = {
+export type Project = {
   id: string;
   title: string;
   category?: string;
@@ -652,10 +652,35 @@ const imageObjectPosition = (value?: string, x?: number, y?: number) => {
   return positions[value || 'center'] || positions.center;
 };
 
-export default function WeveDesignLanding() {
-  const [viewMode, setViewMode] = useState<'main' | 'portfolio'>('main');
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [projects, setProjects] = useState<Project[]>([]);
+type LandingSection = 'home' | 'statement' | 'portfolio-preview' | 'about' | 'work-method' | 'process' | 'location' | 'contact';
+
+type WeveDesignLandingProps = {
+  initialProject?: Project;
+  initialSection?: LandingSection;
+  initialViewMode?: 'main' | 'portfolio';
+};
+
+const sectionPaths: Record<LandingSection, string> = {
+  home: '/',
+  statement: '/introduction',
+  'portfolio-preview': '/projects',
+  about: '/about',
+  'work-method': '/work-method',
+  process: '/process',
+  location: '/location',
+  contact: '/consultation',
+};
+
+export default function WeveDesignLanding({
+  initialProject,
+  initialSection = 'home',
+  initialViewMode = 'main',
+}: WeveDesignLandingProps = {}) {
+  const [viewMode, setViewMode] = useState<'main' | 'portfolio'>(initialViewMode);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProject?.id || null);
+  const [projects, setProjects] = useState<Project[]>(initialProject ? [initialProject] : []);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+  const [sectionNavigationReady, setSectionNavigationReady] = useState(initialSection === 'home' || initialViewMode === 'portfolio');
   const [categories, setCategories] = useState<Category[]>([]);
   const [filter, setFilter] = useState('all');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -818,15 +843,42 @@ export default function WeveDesignLanding() {
         };
 
         if (!response.ok) throw new Error(data.error || 'Portfolio request failed.');
-        setProjects(data.projects || []);
+        setProjects(data.projects || (initialProject ? [initialProject] : []));
         setCategories(data.categories || []);
         setSettings({ ...defaultSettings, ...(data.settings || {}) });
       } catch (error) {
         console.warn('포트폴리오 데이터를 불러오지 못했습니다.', error);
+      } finally {
+        setIsDataLoaded(true);
       }
     };
 
     fetchData();
+  }, [initialProject]);
+
+  useEffect(() => {
+    if (initialViewMode !== 'main' || initialSection === 'home' || !isDataLoaded) return;
+
+    const timer = window.setTimeout(() => {
+      document.getElementById(initialSection)?.scrollIntoView({ block: 'start' });
+      window.setTimeout(() => setSectionNavigationReady(true), 120);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [initialSection, initialViewMode, isDataLoaded]);
+
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      const projectId = event.state?.projectId;
+      if (projectId) {
+        setSelectedProjectId(projectId);
+      } else if (!window.location.pathname.startsWith('/portfolio/')) {
+        setSelectedProjectId(null);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   useEffect(() => {
@@ -850,28 +902,34 @@ export default function WeveDesignLanding() {
       setActiveSection('portfolio');
       return;
     }
+    if (!sectionNavigationReady) return;
 
-    const sectionIds = ['home', 'about', 'portfolio-preview', 'location', 'contact'];
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    const sectionIds: LandingSection[] = ['home', 'statement', 'portfolio-preview', 'about', 'work-method', 'process', 'location', 'contact'];
+    const updateActiveSection = () => {
+      const marker = window.innerHeight * 0.38;
+      let id: LandingSection = 'home';
 
-        if (!visible) return;
-        const id = visible.target.id;
-        setActiveSection(id === 'portfolio-preview' ? 'portfolio' : (id as typeof activeSection));
-      },
-      { rootMargin: '-35% 0px -45% 0px', threshold: [0.15, 0.35, 0.55] },
-    );
+      for (const sectionId of sectionIds) {
+        const section = document.getElementById(sectionId);
+        if (section && section.getBoundingClientRect().top <= marker) id = sectionId;
+      }
 
-    sectionIds.forEach((id) => {
-      const section = document.getElementById(id);
-      if (section) observer.observe(section);
-    });
+        setActiveSection(id === 'portfolio-preview' ? 'portfolio' : id === 'statement' || id === 'work-method' || id === 'process' ? 'about' : (id as typeof activeSection));
+        const nextPath = sectionPaths[id];
+        if (!selectedProjectId && window.location.pathname !== nextPath) {
+          window.history.replaceState(null, '', nextPath);
+        }
+    };
 
-    return () => observer.disconnect();
-  }, [viewMode]);
+    updateActiveSection();
+    window.addEventListener('scroll', updateActiveSection, { passive: true });
+    window.addEventListener('resize', updateActiveSection);
+
+    return () => {
+      window.removeEventListener('scroll', updateActiveSection);
+      window.removeEventListener('resize', updateActiveSection);
+    };
+  }, [sectionNavigationReady, selectedProjectId, viewMode]);
 
   const filteredProjects = useMemo(() => {
     if (filter === 'all') return projects;
@@ -897,6 +955,16 @@ export default function WeveDesignLanding() {
   );
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const openProject = (project: Project) => {
+    setSelectedProjectId(project.id);
+    window.history.pushState({ projectId: project.id }, '', projectPath(project));
+  };
+  const closeProject = () => {
+    setSelectedProjectId(null);
+    const currentSection = activeSection === 'portfolio' ? 'portfolio-preview' : activeSection;
+    const fallbackPath = viewMode === 'portfolio' ? '/portfolio' : sectionPaths[currentSection];
+    window.history.pushState(null, '', fallbackPath);
+  };
   const roadAddress = settings.address || defaultSettings.address;
   const lotAddress = settings.lotAddress || defaultSettings.lotAddress;
   const safePhone = settings.safePhone || defaultSettings.safePhone;
@@ -921,6 +989,7 @@ export default function WeveDesignLanding() {
     setFilter('all');
     setMobileNavOpen(false);
     setActiveSection('home');
+    window.history.pushState(null, '', '/');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -929,6 +998,7 @@ export default function WeveDesignLanding() {
     setSelectedProjectId(null);
     setMobileNavOpen(false);
     setActiveSection('portfolio');
+    window.history.pushState(null, '', '/portfolio');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -941,6 +1011,7 @@ export default function WeveDesignLanding() {
     setSelectedProjectId(null);
     setMobileNavOpen(false);
     setActiveSection(sectionId);
+    window.history.pushState(null, '', sectionPaths[sectionId]);
 
     window.setTimeout(() => {
       document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1335,7 +1406,7 @@ export default function WeveDesignLanding() {
 
             <section className="mt-16 grid gap-x-7 gap-y-12 md:grid-cols-2 lg:grid-cols-3">
               {filteredProjects.map((project) => (
-                <PortfolioGalleryCard key={project.id} project={project} onClick={() => setSelectedProjectId(project.id)} />
+                <PortfolioGalleryCard key={project.id} project={project} onClick={() => openProject(project)} />
               ))}
               {filteredProjects.length === 0 && (
                 <div className="col-span-full border border-dashed border-[#cfc6b8] bg-white p-10 text-center text-[#625d54]">
@@ -1346,7 +1417,7 @@ export default function WeveDesignLanding() {
           </div>
         </main>
 
-        {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProjectId(null)} />}
+        {selectedProject && <ProjectModal project={selectedProject} onClose={closeProject} />}
       </div>
     );
   }
@@ -1557,7 +1628,7 @@ export default function WeveDesignLanding() {
                   <div key={`${project.id}-${index}`} className="w-[280px] shrink-0 sm:w-[340px] lg:w-[390px]">
                     <ProjectCard
                       project={project}
-                      onClick={() => setSelectedProjectId(project.id)}
+                      onClick={() => openProject(project)}
                     />
                   </div>
                 ))}
@@ -1565,20 +1636,6 @@ export default function WeveDesignLanding() {
               {featuredProjects.length === 0 && (
                 <div className="border border-dashed border-[#cfc6b8] bg-white p-10 text-[#625d54]">
                   준비 중인 Project가 없습니다.
-                </div>
-              )}
-              {featuredProjects.length > 0 && (
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {featuredProjects.slice(0, 6).map((project) => (
-                    <a
-                      key={`detail-link-${project.id}`}
-                      href={projectPath(project)}
-                      className="inline-flex items-center gap-2 rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]"
-                    >
-                      {project.title} 상세 페이지
-                      <ArrowUpRight size={14} />
-                    </a>
-                  ))}
                 </div>
               )}
             </div>
@@ -1603,14 +1660,6 @@ export default function WeveDesignLanding() {
               <p className="mt-5 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-8 text-[#625d54]">
                 위브디자인은 의왕과 안양 생활권을 중심으로 아파트, 주거 공간, 상업 공간 인테리어 리모델링을 상담하고 현장 중심으로 관리합니다.
               </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <a href="/uiwang-interior" className="rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]">
-                  의왕 인테리어
-                </a>
-                <a href="/anyang-interior" className="rounded-full border border-[#e4d7c4] bg-white px-4 py-2 text-sm font-bold text-[#625d54] transition hover:border-[#8f6f43] hover:text-[#171512]">
-                  안양 인테리어
-                </a>
-              </div>
               <div className="mt-10 grid gap-4">
                 {strengths.map((item) => {
                   const Icon = item.icon;
@@ -2163,7 +2212,7 @@ export default function WeveDesignLanding() {
         </div>
       </footer>
 
-      {selectedProject && <ProjectModal project={selectedProject} onClose={() => setSelectedProjectId(null)} />}
+      {selectedProject && <ProjectModal project={selectedProject} onClose={closeProject} />}
     </div>
   );
 }

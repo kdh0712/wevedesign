@@ -1,10 +1,11 @@
 import type { MetadataRoute } from 'next';
 import { getProjects } from '@/app/lib/portfolio-data';
-import { localLandingPages, projectPath, siteUrl } from '@/app/lib/seo-utils';
+import { projectPath, siteUrl } from '@/app/lib/seo-utils';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const projects = await getProjects();
+  const sectionPaths = ['/introduction', '/projects', '/about', '/work-method', '/process', '/location', '/consultation', '/portfolio'];
 
   return [
     {
@@ -13,11 +14,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'weekly',
       priority: 1,
     },
-    ...localLandingPages.map((page) => ({
-      url: `${siteUrl}/${page.slug}`,
+    ...sectionPaths.map((path) => ({
+      url: `${siteUrl}${path}`,
       lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 0.9,
+      changeFrequency: 'monthly' as const,
+      priority: path === '/portfolio' || path === '/consultation' ? 0.85 : 0.7,
     })),
     ...(projects || []).map((project) => ({
       url: `${siteUrl}${projectPath(project)}`,
