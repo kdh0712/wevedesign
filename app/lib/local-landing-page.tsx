@@ -148,7 +148,16 @@ export async function LocalLandingPage({ config }: { config: LocalLandingConfig 
           <div className="mt-10 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {representativeProjects.map((project) => (
               <a key={project.id} href={projectPath(project)} className="group overflow-hidden rounded-lg border border-[#eadfcd] bg-[#fffdf8] transition hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(57,46,31,0.12)]">
-                {project.mainImage && <img src={`${project.mainImage}?w=900&q=82&fit=max&auto=format`} alt={project.mainImageAlt || project.title} className="aspect-[16/10] w-full object-cover" />}
+                {project.mainImage && (
+                  <img
+                    src={`${project.mainImage}?w=900&q=82&fit=max&auto=format`}
+                    width={900}
+                    height={563}
+                    alt={project.mainImageAlt || project.title}
+                    className="aspect-[16/10] w-full object-cover"
+                    loading="lazy"
+                  />
+                )}
                 <div className="p-5">
                   <p className="text-sm font-bold text-[#8f6f43]">{project.categoryTitle || '인테리어'}</p>
                   <h3 className="mt-2 text-xl font-semibold">{project.title}</h3>

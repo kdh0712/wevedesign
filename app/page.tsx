@@ -26,6 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectPath } from '@/app/lib/seo-utils';
+import { homepageFaqItems, siteUrl } from '@/app/lib/site-content';
 
 type Category = {
   title: string;
@@ -617,6 +618,11 @@ const optimizedImage = (src: string | undefined, width: number, quality = 88) =>
   return `${src}${separator}auto=format&w=${width}&q=${quality}&fit=max`;
 };
 
+const responsiveImageSrcSet = (src: string | undefined, widths: number[], quality = 82) => {
+  if (!src?.includes('cdn.sanity.io')) return undefined;
+  return widths.map((width) => `${optimizedImage(src, width, quality)} ${width}w`).join(', ');
+};
+
 const mixRgb = (from: [number, number, number], to: [number, number, number], progress: number) => {
   const ratio = clamp(progress);
   const [r, g, b] = from.map((channel, index) => Math.round(channel + (to[index] - channel) * ratio));
@@ -672,6 +678,17 @@ const sectionPaths: Record<LandingSection, string> = {
   contact: '/consultation',
 };
 
+const sectionBreadcrumbNames: Record<LandingSection, string> = {
+  home: '위브디자인',
+  statement: '위브디자인 소개',
+  'portfolio-preview': '프로젝트',
+  about: '회사 소개',
+  'work-method': '공사 방식',
+  process: '진행 절차',
+  location: '오시는 길',
+  contact: '상담 신청',
+};
+
 export default function WeveDesignLanding({
   initialProject,
   initialSection = 'home',
@@ -701,6 +718,8 @@ export default function WeveDesignLanding({
   const [showTopButton, setShowTopButton] = useState(false);
   const [socialMenuOpen, setSocialMenuOpen] = useState(false);
   const [mapStatus, setMapStatus] = useState('');
+  const [shouldLoadMap, setShouldLoadMap] = useState(false);
+  const [shouldLoadConsultationTools, setShouldLoadConsultationTools] = useState(false);
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
   const [methodProgress, setMethodProgress] = useState(0);
   const entrySourceRef = useRef('');
@@ -753,6 +772,32 @@ export default function WeveDesignLanding({
     return [consultationSurveyConfig.propertyStep, ...(selectedAreaGroup.steps || []).slice(0, 3), ...consultationSurveyConfig.commonSteps];
   }, [consultationSurveyConfig, formData.propertyType]);
   const consultationTotalSteps = consultationSteps.length + 1;
+  const homepageFaqJsonLd = useMemo(
+    () => ({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: homepageFaqItems.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: { '@type': 'Answer', text: item.answer },
+      })),
+    }),
+    [],
+  );
+  const breadcrumbJsonLd = useMemo(() => {
+    if (initialProject) return null;
+    const routeName = initialViewMode === 'portfolio' ? '포트폴리오' : sectionBreadcrumbNames[initialSection];
+    const routePath = initialViewMode === 'portfolio' ? '/portfolio' : sectionPaths[initialSection];
+    const itemListElement = [
+      { '@type': 'ListItem', position: 1, name: '위브디자인', item: siteUrl },
+    ];
+
+    if (routePath !== '/') {
+      itemListElement.push({ '@type': 'ListItem', position: 2, name: routeName, item: `${siteUrl}${routePath}` });
+    }
+
+    return { '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement };
+  }, [initialProject, initialSection, initialViewMode]);
 
   useEffect(() => {
     entrySourceRef.current = new URLSearchParams(window.location.search).get('source') || '';
@@ -867,7 +912,8 @@ export default function WeveDesignLanding({
     if (initialViewMode !== 'main' || initialSection === 'home' || !isDataLoaded) return;
 
     const timer = window.setTimeout(() => {
-      document.getElementById(initialSection)?.scrollIntoView({ block: 'start' });
+      const section = document.getElementById(initialSection);
+      if (section) window.scrollTo({ top: Math.max(0, section.offsetTop - 72), behavior: 'auto' });
       window.setTimeout(() => setSectionNavigationReady(true), 120);
     }, 120);
 
@@ -887,6 +933,42 @@ export default function WeveDesignLanding({
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (viewMode !== 'main') return;
+
+    const mapElement = document.getElementById('location');
+    const consultationElement = document.getElementById('contact');
+    const observers: IntersectionObserver[] = [];
+
+    if (mapElement && !shouldLoadMap) {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry.isIntersecting) return;
+          setShouldLoadMap(true);
+          observer.disconnect();
+        },
+        { rootMargin: '500px 0px' },
+      );
+      observer.observe(mapElement);
+      observers.push(observer);
+    }
+
+    if (consultationElement && !shouldLoadConsultationTools) {
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (!entry.isIntersecting) return;
+          setShouldLoadConsultationTools(true);
+          observer.disconnect();
+        },
+        { rootMargin: '600px 0px' },
+      );
+      observer.observe(consultationElement);
+      observers.push(observer);
+    }
+
+    return () => observers.forEach((observer) => observer.disconnect());
+  }, [shouldLoadConsultationTools, shouldLoadMap, viewMode]);
 
   useEffect(() => {
     const todayKey = new Date().toLocaleDateString('sv-SE');
@@ -1112,7 +1194,7 @@ export default function WeveDesignLanding({
       });
       const marker = new window.naver!.maps.Marker({ position: location, map, title: 'WEVE DESIGN', cursor: 'pointer' });
       const infoWindow = new window.naver!.maps.InfoWindow({
-        content: `<div style="padding:14px 16px 16px; min-width:250px; line-height:1.5; color:#222; background:#fff;"><div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;"><img src="/weve-mark.png" alt="" style="width:22px; height:22px; object-fit:contain; border-radius:50%;"/><strong style="display:block;">WEVE DESIGN</strong></div><span style="display:block; font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><div style="margin-top:12px;"><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; padding:5px 8px; border-radius:6px; background:#171512; color:#fff; font-size:11px; line-height:1.2; font-weight:700; text-decoration:none; white-space:nowrap;">네이버 지도 길찾기</a></div></div>`,
+        content: `<div style="padding:14px 16px 16px; min-width:250px; line-height:1.5; color:#222; background:#fff;"><div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;"><img src="/weve-mark.webp" alt="" width="22" height="22" style="width:22px; height:22px; object-fit:contain;"/><strong style="display:block;">WEVE DESIGN</strong></div><span style="display:block; font-size:13px;">도로명: ${roadAddress}<br/>지번: ${lotAddress}<br/>인테리어 리모델링 상담</span><div style="margin-top:12px;"><a href="${directionsUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-flex; align-items:center; padding:5px 8px; border-radius:6px; background:#171512; color:#fff; font-size:11px; line-height:1.2; font-weight:700; text-decoration:none; white-space:nowrap;">네이버 지도 길찾기</a></div></div>`,
       });
 
       window.naver!.maps.Event.addListener(marker, 'click', () => {
@@ -1377,9 +1459,14 @@ export default function WeveDesignLanding({
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
             <img
-              src={optimizedImage(settings.heroImage || defaultSettings.heroImage, 2200, 82)}
+              src={optimizedImage(settings.heroImage || defaultSettings.heroImage, 1800, 80)}
+              srcSet={responsiveImageSrcSet(settings.heroImage || defaultSettings.heroImage, [640, 960, 1400, 1800], 78)}
+              sizes="100vw"
+              width={1800}
+              height={1125}
               alt={settings.heroImageAlt || defaultSettings.heroImageAlt}
               className="absolute inset-0 h-full w-full object-cover"
+              fetchPriority="high"
             />
             <div className="absolute inset-0 bg-[#171512]/60" />
             <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#171512]/65 to-transparent" />
@@ -1435,7 +1522,9 @@ export default function WeveDesignLanding({
 
   return (
     <div className="min-h-screen bg-[#fffdf8] text-[#171512]">
-      {naverMapClientId && (
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(homepageFaqJsonLd) }} />
+      {breadcrumbJsonLd && <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />}
+      {naverMapClientId && shouldLoadMap && (
         <Script
           strategy="afterInteractive"
           src={`https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(naverMapClientId)}&submodules=geocoder`}
@@ -1443,9 +1532,11 @@ export default function WeveDesignLanding({
           onError={() => setMapStatus('네이버 지도 API를 불러오지 못했습니다. API 키와 허용 도메인을 확인해주세요.')}
         />
       )}
-      <Script strategy="afterInteractive" src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" />
+      {shouldLoadConsultationTools && (
+        <Script strategy="afterInteractive" src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" />
+      )}
 
-      <div className={`fixed bottom-5 right-5 z-40 flex-col items-end gap-2 ${isDirectConsultation ? 'hidden sm:flex' : 'flex'}`}>
+      <div className={`fixed bottom-5 right-5 z-40 flex-col items-end gap-2 ${isDirectConsultation || activeSection === 'contact' ? 'hidden md:flex' : 'flex'}`}>
         {socialLinks.length > 0 && socialMenuOpen && (
           <div className="grid gap-2 rounded-2xl border border-[#eadfcd] bg-white/95 p-2 shadow-[0_18px_48px_rgba(23,21,18,0.18)] backdrop-blur">
             {socialLinks.map((link) => {
@@ -1511,18 +1602,18 @@ export default function WeveDesignLanding({
       <main>
         <section id="home" className="relative min-h-screen overflow-hidden">
           <div className="absolute inset-0">
-            {heroSlides.map((slide, index) => (
-              <img
-                key={slide.image}
-                src={optimizedImage(slide.image, 2200, 82)}
-                alt={slide.alt}
-                className={`absolute inset-0 h-full w-full object-cover transition-all duration-1000 ease-out ${
-                  index === activeHeroIndex ? 'hero-slide-active opacity-100' : 'scale-105 opacity-0'
-                }`}
-                loading={index === activeHeroIndex ? 'eager' : 'lazy'}
-                fetchPriority={index === activeHeroIndex ? 'high' : 'auto'}
-              />
-            ))}
+            <img
+              key={`${activeHero.image}-${activeHeroIndex}`}
+              src={optimizedImage(activeHero.image, 1800, 80)}
+              srcSet={responsiveImageSrcSet(activeHero.image, [640, 960, 1400, 1800], 78)}
+              sizes="100vw"
+              width={1800}
+              height={1125}
+              alt={activeHero.alt}
+              className="hero-slide-active absolute inset-0 h-full w-full object-cover"
+              loading="eager"
+              fetchPriority="high"
+            />
             <div className="absolute inset-0 bg-gradient-to-r from-[#18130d]/86 via-[#2a2118]/38 to-[#17120c]/10" />
             <div className="absolute inset-y-0 left-0 w-[64%] bg-gradient-to-r from-[#1d1710]/74 via-[#2b2117]/34 to-transparent" />
             <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#17120d]/74 to-transparent" />
@@ -1600,7 +1691,7 @@ export default function WeveDesignLanding({
         <section id="statement" className="scroll-reveal bg-white px-4 py-16 md:px-8 md:py-24">
           <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-12">
             <div className="image-reveal aspect-[16/10] overflow-hidden rounded-lg bg-[#eadfcd] lg:aspect-[16/11]">
-              <img src="/hero-kitchen-bright.webp" alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" loading="lazy" />
+              <img src="/hero-kitchen-bright.webp" width={1600} height={1000} alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p data-preview-target="statementLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.26em] text-[#8f6f43]">
@@ -1658,7 +1749,7 @@ export default function WeveDesignLanding({
         <section id="about" className="scroll-reveal bg-white px-4 py-16 md:px-8 md:py-24">
           <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-12">
             <div className="image-reveal aspect-[16/10] overflow-hidden bg-[#d8d1c5] lg:aspect-[4/5]">
-              <img src="/main-bg.webp" alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" loading="lazy" />
+              <img src="/main-bg.webp" width={1600} height={2000} alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p data-preview-target="aboutLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
@@ -1905,12 +1996,32 @@ export default function WeveDesignLanding({
           </div>
         </section>
 
+        <section id="faq" className="scroll-reveal bg-[#fffaf0] px-4 py-14 md:px-8 md:py-24">
+          <div className="mx-auto max-w-5xl">
+            <div className="grid gap-3 md:grid-cols-[0.45fr_1fr] md:items-end md:gap-8">
+              <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#8f6f43]">FAQ</p>
+              <h2 className="text-3xl font-semibold leading-tight md:text-5xl">자주 묻는 인테리어 상담 질문</h2>
+            </div>
+            <div className="mt-7 divide-y divide-[#ded4c4] border-y border-[#ded4c4] md:mt-10">
+              {homepageFaqItems.map((item) => (
+                <details key={item.question} className="group py-1">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold marker:content-none md:text-lg">
+                    <span>{item.question}</span>
+                    <span className="text-xl font-light text-[#8f6f43] transition group-open:rotate-45" aria-hidden="true">+</span>
+                  </summary>
+                  <p className="max-w-3xl pb-5 text-sm leading-7 text-[#625d54] md:text-base">{item.answer}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </section>
+
         <section
           id="contact"
-          className={`scroll-mt-[72px] bg-white px-4 md:px-8 ${isDirectConsultation ? 'min-h-[calc(100svh-72px)] py-7 md:py-14 lg:py-28' : 'scroll-reveal py-14 md:py-28'}`}
+          className={`min-h-[calc(100svh-72px)] scroll-mt-[72px] bg-white px-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))] md:px-8 md:pb-28 ${isDirectConsultation ? 'pt-7 md:pt-14 lg:pt-28' : 'scroll-reveal pt-10 md:pt-28'}`}
         >
           <div className={`mx-auto grid max-w-7xl lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-12 ${isDirectConsultation ? 'gap-0' : 'gap-8'}`}>
-            <div className={isDirectConsultation ? 'hidden lg:block' : ''}>
+            <div className="hidden lg:block">
               <p data-preview-target="contactLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.contactLabel || defaultSettings.contactLabel}
               </p>
@@ -2206,7 +2317,7 @@ export default function WeveDesignLanding({
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
           <div>
             <button onClick={handleLogoClick} className="inline-flex" aria-label="WEVE DESIGN 홈으로 이동">
-              <img src="/weve-mark.png" alt="WEVE DESIGN" className="brand-mark-on-dark h-16 w-auto" />
+              <img src="/weve-mark.webp" width={176} height={145} alt="WEVE DESIGN" className="brand-mark-on-dark h-16 w-auto" />
             </button>
             <p data-preview-target="heroDescription" className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
           </div>
@@ -2224,6 +2335,10 @@ export default function WeveDesignLanding({
             <p data-preview-target="companyStartYear" className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">
               © {settings.companyStartYear || defaultSettings.companyStartYear} WEVE DESIGN. All rights reserved.
             </p>
+            <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 text-xs">
+              <a href="/privacy" className="transition hover:text-white">개인정보처리방침</a>
+              <a href="/terms" className="transition hover:text-white">이용약관</a>
+            </div>
           </div>
         </div>
       </footer>
@@ -2309,7 +2424,7 @@ function HomepagePopupWindows({
   const sharedHeight = Math.min(isMobilePopupLayout ? 360 : 520, Math.max(isMobilePopupLayout ? 210 : 300, Math.round((displayWidth * 9) / 16 + 30)));
 
   return (
-    <div className={`pointer-events-none fixed inset-0 z-[90] ${isMobilePopupLayout ? 'grid content-start justify-items-center gap-2 overflow-y-auto px-3 pb-3 pt-[84px]' : ''}`}>
+    <div data-nosnippet className={`pointer-events-none fixed inset-0 z-[90] ${isMobilePopupLayout ? 'grid content-start justify-items-center gap-2 overflow-y-auto px-3 pb-3 pt-[84px]' : ''}`}>
       {popups.map((popup, index) => (
         <HomepagePopupWindow
           key={popup._key}
@@ -2393,7 +2508,17 @@ function HomepagePopupWindow({
     handlePopupLink(url);
   };
 
-  const imageNode = hasImage ? <img src={optimizedImage(image, 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} /> : null;
+  const imageNode = hasImage ? (
+    <img
+      src={optimizedImage(image, 720, 76)}
+      srcSet={responsiveImageSrcSet(image, [420, 720, 900], 76)}
+      sizes="(max-width: 767px) calc(100vw - 24px), 760px"
+      width={900}
+      height={506}
+      alt={title}
+      className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`}
+    />
+  ) : null;
 
   return (
     <div className={`pointer-events-auto max-w-[calc(100vw-24px)] md:max-w-[calc(100vw-32px)] ${isMobileLayout ? 'relative mx-auto' : 'fixed'}`} style={popupWindowStyle(popup.position, index, sharedWidth, total, isMobileLayout)}>
@@ -2497,7 +2622,7 @@ function PopupCanvasElements({
             style={style}
           >
             {element.type === 'image' && element.src ? (
-              <img src={optimizedImage(element.src, 700, 86)} alt={element.label || '팝업 이미지 요소'} className="h-full w-full object-contain" />
+              <img src={optimizedImage(element.src, 600, 78)} width={600} height={338} alt={element.label || '팝업 이미지 요소'} className="h-full w-full object-contain" />
             ) : (
               <span className="line-clamp-2">{element.label || (element.type === 'button' ? '상담 신청' : '')}</span>
             )}
@@ -2541,7 +2666,7 @@ function HomepagePopup({
   };
 
   const image = hasImage ? (
-    <img src={optimizedImage(settings.popupImage || '', 900, 86)} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} />
+    <img src={optimizedImage(settings.popupImage || '', 720, 76)} width={900} height={506} alt={title} className={`h-full w-full bg-[#ded7cc] ${imageFitClass}`} />
   ) : null;
 
   return (
@@ -2672,7 +2797,9 @@ function Header({
       <div className="mx-auto flex h-[72px] max-w-[1600px] items-center justify-between md:h-20">
         <button onClick={onLogoClick} className="inline-flex items-center" aria-label="WEVE DESIGN 홈으로 이동">
           <img
-            src="/weve-mark.png"
+            src="/weve-mark.webp"
+            width={176}
+            height={145}
             alt="WEVE DESIGN"
             className={`h-11 w-auto transition md:h-12 ${onDarkHeader ? 'brand-mark-on-dark' : ''}`}
           />
@@ -2782,9 +2909,14 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={optimizedImage(project.mainImage, 1400, 90)}
+            src={optimizedImage(project.mainImage, 900, 82)}
+            srcSet={responsiveImageSrcSet(project.mainImage, [480, 900, 1400], 82)}
+            sizes="(max-width: 767px) 100vw, 33vw"
+            width={1400}
+            height={1050}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-108"
+            loading="lazy"
             style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
           />
         ) : (
@@ -2836,9 +2968,14 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
-            src={optimizedImage(project.mainImage, 1400, 90)}
+            src={optimizedImage(project.mainImage, 900, 82)}
+            srcSet={responsiveImageSrcSet(project.mainImage, [480, 900, 1400], 82)}
+            sizes="(max-width: 767px) 78vw, 390px"
+            width={1400}
+            height={1050}
             alt={project.mainImageAlt || project.title}
             className="h-full w-full object-cover transition duration-700 group-hover:scale-105"
+            loading="lazy"
             style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
           />
         ) : (
@@ -2930,7 +3067,11 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <div className="min-w-0 overflow-hidden rounded-lg bg-[#ded7cc]">
               {project.mainImage ? (
                 <img
-                  src={optimizedImage(project.mainImage, 1500)}
+                  src={optimizedImage(project.mainImage, 1200, 84)}
+                  srcSet={responsiveImageSrcSet(project.mainImage, [640, 960, 1200], 84)}
+                  sizes="(max-width: 1023px) 100vw, 60vw"
+                  width={1500}
+                  height={844}
                   alt={project.mainImageAlt || project.title}
                   className="block aspect-video w-full object-cover"
                   style={{ objectPosition: imageObjectPosition(project.mainImagePosition, project.mainImagePositionX, project.mainImagePositionY) }}
@@ -2982,7 +3123,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <section>
               <h3 className="mb-4 text-xl font-semibold">시공 전 사진</h3>
               <div className="overflow-hidden rounded-lg bg-[#ded7cc]">
-                <img src={optimizedImage(project.beforeImage, 1500)} alt={`${project.title} 시공 전`} className="max-h-[72vh] w-full object-contain" loading="lazy" />
+                <img src={optimizedImage(project.beforeImage, 1200, 84)} width={1500} height={1000} alt={`${project.title} 시공 전`} className="max-h-[72vh] w-full object-contain" loading="lazy" />
               </div>
             </section>
           )}
@@ -3042,7 +3183,11 @@ function ProjectImageSlider({
     <figure className="overflow-hidden rounded-lg bg-white shadow-sm">
       <div className="relative flex aspect-[4/3] items-center justify-center bg-[#f6f1e8]">
         <img
-          src={optimizedImage(activeImage.url, 1400, 90)}
+          src={optimizedImage(activeImage.url, 1200, 84)}
+          srcSet={responsiveImageSrcSet(activeImage.url, [640, 960, 1200], 84)}
+          sizes="(max-width: 767px) 100vw, 1100px"
+          width={1400}
+          height={1050}
           alt={activeImage.alt || projectTitle}
           className="block h-full w-full object-contain"
           loading="lazy"

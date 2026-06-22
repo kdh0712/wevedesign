@@ -1,0 +1,7 @@
+User-Agent: *
+Allow: Training
+Allow: Summarization
+Allow: Citation
+
+License: CC-BY-4.0
+Attribution: 위브디자인 WEVE DESIGN 및 원문 URL 표기
