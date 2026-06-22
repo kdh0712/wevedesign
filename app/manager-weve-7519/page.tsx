@@ -474,6 +474,15 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'accounts', label: '계정 권한', icon: <KeyRound size={16} /> },
 ];
 
+const managerSections: Array<{ key: string; label: string; icon: React.ReactNode; tabs: TabKey[] }> = [
+  { key: 'dashboard', label: '업무 현황', icon: <BarChart3 size={17} />, tabs: ['dashboard'] },
+  { key: 'customer-work', label: '고객·현장', icon: <Users size={17} />, tabs: ['consultations', 'customers', 'sites', 'sales'] },
+  { key: 'estimate-work', label: '견적 관리', icon: <ClipboardList size={17} />, tabs: ['estimates'] },
+  { key: 'resources', label: '자재·협력업체', icon: <Boxes size={17} />, tabs: ['inventory', 'vendors'] },
+  { key: 'website', label: '홈페이지·채널', icon: <FolderUp size={17} />, tabs: ['portfolio', 'integrations'] },
+  { key: 'accounts', label: '계정 권한', icon: <KeyRound size={17} />, tabs: ['accounts'] },
+];
+
 export default function ManagerPage() {
   const [password, setPassword] = useState('');
   const [firebaseToken, setFirebaseToken] = useState('');
@@ -629,6 +638,23 @@ export default function ManagerPage() {
     if (currentUser.role === 'admin') return tabs;
     return tabs.filter((tab) => currentUser.permissions.includes(tab.key));
   }, [currentUser]);
+
+  const visibleSections = useMemo(() => {
+    const visibleKeys = new Set(visibleTabs.map((tab) => tab.key));
+    return managerSections
+      .map((section) => ({ ...section, tabs: section.tabs.filter((tab) => visibleKeys.has(tab)) }))
+      .filter((section) => section.tabs.length > 0);
+  }, [visibleTabs]);
+
+  const activeSection = useMemo(
+    () => visibleSections.find((section) => section.tabs.includes(activeTab)) || visibleSections[0],
+    [activeTab, visibleSections],
+  );
+
+  const activeSectionTabs = useMemo(
+    () => visibleTabs.filter((tab) => activeSection?.tabs.includes(tab.key)),
+    [activeSection, visibleTabs],
+  );
 
   const visibleAccounts = useMemo(() => {
     if (!currentUser) return accounts;
@@ -1744,16 +1770,16 @@ export default function ManagerPage() {
             <p className="mt-4 text-xs text-[#9fb1bd]">{currentUser?.name || '관리자'} · {currentUser?.role === 'admin' ? '총괄 관리자' : '실무 계정'}</p>
           </div>
           <nav className="grid gap-1 px-3 py-4">
-            {visibleTabs.map((tab) => (
+            {visibleSections.map((section) => (
               <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                key={section.key}
+                onClick={() => setActiveTab(section.tabs.includes(activeTab) ? activeTab : section.tabs[0])}
                 className={`flex items-center gap-3 rounded-md px-4 py-3 text-left text-sm font-semibold transition ${
-                  activeTab === tab.key ? 'bg-[#38bcd4] text-white' : 'text-[#dfe8ed] hover:bg-white/8 hover:text-white'
+                  section.tabs.includes(activeTab) ? 'bg-[#38bcd4] text-white' : 'text-[#dfe8ed] hover:bg-white/8 hover:text-white'
                 }`}
               >
-                {tab.icon}
-                {tab.label}
+                {section.icon}
+                {section.label}
               </button>
             ))}
           </nav>
@@ -1801,21 +1827,39 @@ export default function ManagerPage() {
             </div>
             <div className="mt-5 lg:hidden">
               <div className="flex gap-2 overflow-x-auto">
-                {visibleTabs.map((tab) => (
+                {visibleSections.map((section) => (
                   <button
-                    key={tab.key}
-                    onClick={() => setActiveTab(tab.key)}
+                    key={section.key}
+                    onClick={() => setActiveTab(section.tabs.includes(activeTab) ? activeTab : section.tabs[0])}
                     className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold ${
-                      activeTab === tab.key ? 'bg-[#171512] text-white' : 'bg-white text-[#4d5d66]'
+                      section.tabs.includes(activeTab) ? 'bg-[#171512] text-white' : 'bg-white text-[#4d5d66]'
                     }`}
                   >
-                    {tab.icon}
-                    {tab.label}
+                    {section.icon}
+                    {section.label}
                   </button>
                 ))}
               </div>
             </div>
           </header>
+
+          {activeSectionTabs.length > 1 && (
+            <nav className="mb-5 flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm" aria-label={`${activeSection?.label || '업무'} 세부 메뉴`}>
+              {activeSectionTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
+                    activeTab === tab.key ? 'bg-[#273541] text-white' : 'text-[#4d5d66] hover:bg-[#edf2f5] hover:text-[#171512]'
+                  }`}
+                >
+                  {tab.icon}
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          )}
 
         {activeTab === 'dashboard' && (
           <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -1922,8 +1966,18 @@ export default function ManagerPage() {
               )}
               <OfficeForm
                 fields={[
-                  { label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
+                  { group: '고객 정보', label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
                   { label: '연락처', value: customerForm.phone, onChange: (value) => setCustomerForm({ ...customerForm, phone: formatPhoneNumber(value) }) },
+                  { label: '고객 상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
+                  { label: '고객 메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
+                  {
+                    group: '현장 정보',
+                    label: '현장명',
+                    value: customerForm.siteTitle,
+                    onChange: (value) => setCustomerForm({ ...customerForm, siteTitle: value }),
+                    placeholder: '예: 평촌 어바인퍼스트 101동',
+                    required: !editingCustomerId,
+                  },
                   {
                     label: '현장 종류',
                     value: customerForm.siteType,
@@ -1931,9 +1985,6 @@ export default function ManagerPage() {
                     options: ['아파트', '주택', '상가', '오피스', '기타'],
                   },
                   { label: '주소', value: customerForm.address, onChange: (value) => setCustomerForm({ ...customerForm, address: value }) },
-                  { label: '상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
-                  { label: '메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
-                  { label: '현장명', value: customerForm.siteTitle, onChange: (value) => setCustomerForm({ ...customerForm, siteTitle: value }) },
                   {
                     label: '현장 상태',
                     value: customerForm.siteStatus,
@@ -1946,6 +1997,10 @@ export default function ManagerPage() {
                 disabled={savingOffice}
                 onSubmit={async () => {
                   const { siteTitle, siteStatus, siteMemo, ...customerData } = customerForm;
+                  if (!editingCustomerId && !siteTitle.trim()) {
+                    setError('고객과 함께 등록할 현장명을 직접 입력해 주세요.');
+                    return;
+                  }
                   const savedCustomer = await saveOfficeRecord('customer', customerData, editingCustomerId || undefined);
                   if (!savedCustomer) return;
 
@@ -4522,7 +4577,16 @@ function OfficeForm({
   onSubmit,
   onSecondary,
 }: {
-  fields: Array<{ label: string; value: string; textarea?: boolean; options?: string[]; onChange: (value: string) => void }>;
+  fields: Array<{
+    group?: string;
+    label: string;
+    value: string;
+    textarea?: boolean;
+    options?: string[];
+    placeholder?: string;
+    required?: boolean;
+    onChange: (value: string) => void;
+  }>;
   buttonLabel: string;
   secondaryLabel?: string;
   disabled: boolean;
@@ -4532,35 +4596,50 @@ function OfficeForm({
   return (
     <div className="grid gap-3">
       {fields.map((field) => (
-        <label key={field.label} className="grid gap-1 text-sm font-semibold text-[#4d473f]">
-          {field.label}
-          {field.options ? (
-            <select
-              value={field.value}
-              onChange={(event) => field.onChange(event.target.value)}
-              className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
-            >
-              {field.options.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : field.textarea ? (
-            <textarea
-              value={field.value}
-              onChange={(event) => field.onChange(event.target.value)}
-              rows={4}
-              className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
-            />
-          ) : (
-            <input
-              value={field.value}
-              onChange={(event) => field.onChange(event.target.value)}
-              className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
-            />
+        <div key={field.label} className="grid gap-2">
+          {field.group && (
+            <div className="mt-2 border-b border-[#e4ddd2] pb-2 text-xs font-bold uppercase text-[#267d8c]">
+              {field.group}
+            </div>
           )}
-        </label>
+          <label className="grid gap-1 text-sm font-semibold text-[#4d473f]">
+            <span>
+              {field.label}
+              {field.required && <span className="ml-1 text-red-500">필수</span>}
+            </span>
+            {field.options ? (
+              <select
+                value={field.value}
+                required={field.required}
+                onChange={(event) => field.onChange(event.target.value)}
+                className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
+              >
+                {field.options.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            ) : field.textarea ? (
+              <textarea
+                value={field.value}
+                required={field.required}
+                placeholder={field.placeholder}
+                onChange={(event) => field.onChange(event.target.value)}
+                rows={4}
+                className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
+              />
+            ) : (
+              <input
+                value={field.value}
+                required={field.required}
+                placeholder={field.placeholder}
+                onChange={(event) => field.onChange(event.target.value)}
+                className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
+              />
+            )}
+          </label>
+        </div>
       ))}
       <div className="mt-2 flex flex-col gap-2 sm:flex-row">
         <button onClick={onSubmit} disabled={disabled} className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60">
