@@ -100,6 +100,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
+      <head>
+        <meta property="article:published_time" content="2026-06-01T00:00:00+09:00" />
+        <meta property="article:modified_time" content={`${siteModifiedDate}T00:00:00+09:00`} />
+      </head>
       <body>
         <a href="#main-content" className="skip-link">본문으로 건너뛰기</a>
         <div id="main-content" tabIndex={-1}>{children}</div>

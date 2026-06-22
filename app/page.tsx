@@ -26,7 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectPath } from '@/app/lib/seo-utils';
-import { homepageFaqItems, siteUrl } from '@/app/lib/site-content';
+import { homepageFaqItems, siteModifiedDate, siteUrl } from '@/app/lib/site-content';
 
 type Category = {
   title: string;
@@ -1827,6 +1827,31 @@ export default function WeveDesignLanding({
                     <span className="mt-4 hidden text-sm leading-6 opacity-75 lg:block">{model.bestFor}</span>
                   </button>
                 ))}
+                <details className="col-span-2 overflow-hidden rounded-lg border border-[#d8cbb8] bg-white text-[#171512] lg:col-span-1">
+                  <summary className="cursor-pointer list-none px-4 py-4 marker:content-none lg:px-5">
+                    <h3 className="flex items-center justify-between gap-3 text-base font-semibold">
+                      CM 방식과 턴키 방식은 어떻게 다른가요?
+                      <span className="text-xl font-light text-[#8f6f43]" aria-hidden="true">+</span>
+                    </h3>
+                  </summary>
+                  <div className="overflow-x-auto border-t border-[#eadfcd]">
+                    <table className="w-full min-w-[340px] border-collapse text-left text-xs leading-5">
+                      <thead className="bg-[#fff7df]">
+                        <tr>
+                          <th className="p-3 font-semibold">비교 항목</th>
+                          <th className="p-3 font-semibold">CM 방식</th>
+                          <th className="p-3 font-semibold">턴키 방식</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#eee6da] text-[#625d54]">
+                        <tr><th className="p-3 font-semibold text-[#171512]">디자인</th><td className="p-3">고객 중심 결정</td><td className="p-3">위브디자인 제안</td></tr>
+                        <tr><th className="p-3 font-semibold text-[#171512]">현장 관리</th><td className="p-3">위브디자인 관리</td><td className="p-3">위브디자인 통합 관리</td></tr>
+                        <tr><th className="p-3 font-semibold text-[#171512]">예산 조정</th><td className="p-3">선택 범위가 넓음</td><td className="p-3">확정 범위 중심</td></tr>
+                        <tr><th className="p-3 font-semibold text-[#171512]">추천 대상</th><td className="p-3">원하는 디자인이 명확한 경우</td><td className="p-3">전체 과정을 맡기고 싶은 경우</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
               </div>
 
               <div className="overflow-hidden rounded-lg border border-white/12 bg-[#fffdf8] text-[#171512] shadow-[0_28px_80px_rgba(0,0,0,0.28)]">
@@ -1947,15 +1972,15 @@ export default function WeveDesignLanding({
                 {settings.processTitle || defaultSettings.processTitle}
               </h2>
             </div>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
+            <ol className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
               {processSteps.map((step) => (
-                <div key={step.number} className="motion-card border border-[#eadfcd] bg-white p-4 md:p-6">
+                <li key={step.number} className="motion-card border border-[#eadfcd] bg-white p-4 md:p-6">
                   <span className="text-sm font-bold text-[#8f6f43]">{step.number}</span>
                   <h3 className="mt-4 text-lg font-semibold md:mt-8 md:text-2xl">{step.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-[#625d54] md:mt-4 md:text-base md:leading-7">{step.body}</p>
-                </div>
+                </li>
               ))}
-            </div>
+            </ol>
           </div>
         </section>
 
@@ -2006,7 +2031,7 @@ export default function WeveDesignLanding({
               {homepageFaqItems.map((item) => (
                 <details key={item.question} className="group py-1">
                   <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold marker:content-none md:text-lg">
-                    <span>{item.question}</span>
+                    <h3 className="text-base font-semibold md:text-lg">{item.question}</h3>
                     <span className="text-xl font-light text-[#8f6f43] transition group-open:rotate-45" aria-hidden="true">+</span>
                   </summary>
                   <p className="max-w-3xl pb-5 text-sm leading-7 text-[#625d54] md:text-base">{item.answer}</p>
@@ -2322,16 +2347,22 @@ export default function WeveDesignLanding({
             <p data-preview-target="heroDescription" className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
           </div>
           <div className="space-y-2 text-sm">
+            <p className="pb-1 text-xs font-bold uppercase tracking-[0.16em] text-[#d4bd91]">사업자 정보</p>
             <p>
-              <span data-preview-target="representativeName">대표 {settings.representativeName || defaultSettings.representativeName}</span>
+              <span>상호 위브디자인</span>
               {' | '}
-              <span data-preview-target="companyPhone">연락처 {companyPhone}</span>
+              <span data-preview-target="representativeName">대표자 {settings.representativeName || defaultSettings.representativeName}</span>
             </p>
+            <p data-preview-target="companyPhone">대표전화 {companyPhone}</p>
             {(settings.businessNumber || defaultSettings.businessNumber) && (
               <p data-preview-target="businessNumber">사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
             )}
+            <p>통신판매: 홈페이지 내 온라인 판매 미운영</p>
             <p data-preview-target="address">도로명 {roadAddress}</p>
             <p data-preview-target="lotAddress">지번 {lotAddress}</p>
+            <p className="pt-2 text-xs text-[#81796d]">
+              <time dateTime={siteModifiedDate}>최종 수정 {siteModifiedDate.replace(/-/g, '.')}</time>
+            </p>
             <p data-preview-target="companyStartYear" className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">
               © {settings.companyStartYear || defaultSettings.companyStartYear} WEVE DESIGN. All rights reserved.
             </p>
