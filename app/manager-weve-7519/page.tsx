@@ -12,6 +12,7 @@ import {
   Home,
   Image as ImageIcon,
   KeyRound,
+  Link2,
   Loader2,
   LogOut,
   Mail,
@@ -54,6 +55,7 @@ type TabKey =
   | 'inventory'
   | 'vendors'
   | 'portfolio'
+  | 'integrations'
   | 'accounts';
 
 type HomepageTabKey = 'basic' | 'hero' | 'sections' | 'contact' | 'popup' | 'projects' | 'survey';
@@ -302,7 +304,6 @@ const emptyOfficeData: OfficeData = {
   projects: [],
 };
 
-const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session';
 const OFFICE_REFRESH_SECONDS = 30;
 
 const homepagePreviewTargets = {
@@ -469,6 +470,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'inventory', label: '재고 관리', icon: <Boxes size={16} /> },
   { key: 'vendors', label: '협력업체', icon: <Building2 size={16} /> },
   { key: 'portfolio', label: '홈페이지', icon: <FolderUp size={16} /> },
+  { key: 'integrations', label: '외부 채널', icon: <Link2 size={16} /> },
   { key: 'accounts', label: '계정 권한', icon: <KeyRound size={16} /> },
 ];
 
@@ -665,25 +667,8 @@ export default function ManagerPage() {
   );
 
   useEffect(() => {
-    const savedSession = window.localStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession) as { token?: string; firebaseToken?: string; user?: ManagerUser };
-        if (parsed.token && parsed.user) {
-          setPassword(parsed.token);
-          setFirebaseToken(parsed.firebaseToken || '');
-          setCurrentUser(parsed.user);
-          void loadOfficeData(parsed.token, { silent: true });
-          if (parsed.user.role === 'admin') void loadAccounts(parsed.token, parsed.firebaseToken || '');
-          return;
-        }
-      } catch {
-        window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
-      }
-    }
-
+    window.localStorage.removeItem('weve-manager-session');
     window.localStorage.removeItem('weve-manager-password');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -751,11 +736,14 @@ export default function ManagerPage() {
       setPassword(result.token);
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
-      window.localStorage.setItem(MANAGER_SESSION_STORAGE_KEY, JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user }));
       await loadOfficeData(result.token, { silent: true });
       if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
       setStatus('로그인했습니다.');
     } catch (caught) {
+      setPassword('');
+      setFirebaseToken('');
+      setCurrentUser(null);
+      setIsUnlocked(false);
       setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
     } finally {
       setLoadingOffice(false);
@@ -763,7 +751,7 @@ export default function ManagerPage() {
   };
 
   const handleLogout = () => {
-    window.localStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
+    window.localStorage.removeItem('weve-manager-session');
     window.localStorage.removeItem('weve-manager-password');
     setPassword('');
     setFirebaseToken('');
@@ -2350,45 +2338,90 @@ export default function ManagerPage() {
                 }))}
               />
             </Panel>
-            <Panel title="카카오 채널">
-              <div className="grid gap-3">
-                <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                  <div className="flex items-start gap-3">
-                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#ffe812] text-[#171512]">
-                      <MessageCircle size={20} />
-                    </span>
-                    <div>
-                      <p className="font-semibold">채팅 요청 확인</p>
-                      <p className="mt-1 text-sm leading-6 text-[#60717d]">
-                        카카오 비즈니스 채널에서 들어온 채팅은 채널 관리자 페이지에서 확인합니다. 링크를 저장하면 이곳에서 바로 열 수 있습니다.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {homepageSettings.kakaoChannelManagerUrl && (
-                      <a
-                        href={homepageSettings.kakaoChannelManagerUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
-                      >
-                        채널 관리 열기
-                        <ExternalLink size={15} />
-                      </a>
-                    )}
-                    {homepageSettings.kakaoUrl && (
-                      <a
-                        href={homepageSettings.kakaoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold"
-                      >
-                        고객 상담 링크
-                        <ExternalLink size={15} />
-                      </a>
-                    )}
-                  </div>
+          </div>
+        )}
+
+        {activeTab === 'integrations' && (
+          <div className="grid gap-5">
+            <Panel title="외부 채널 연결">
+              <div className="grid gap-5">
+                <div className="grid gap-3 md:grid-cols-2">
+                  <SettingInput
+                    label="카카오톡 고객 상담 링크"
+                    value={homepageSettings.kakaoUrl}
+                    onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })}
+                    placeholder="예: https://pf.kakao.com/_.../chat"
+                  />
+                  <SettingInput
+                    label="카카오 비즈니스 채널 관리 링크"
+                    value={homepageSettings.kakaoChannelManagerUrl}
+                    onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })}
+                    placeholder="예: https://center-pf.kakao.com/..."
+                  />
+                  <SettingInput
+                    label="네이버 플레이스 링크"
+                    value={homepageSettings.naverPlaceUrl}
+                    onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })}
+                    placeholder="예: https://naver.me/..."
+                  />
+                  <SettingInput
+                    label="네이버 블로그 링크"
+                    value={homepageSettings.blogUrl}
+                    onChange={(value) => setHomepageSettings({ ...homepageSettings, blogUrl: value })}
+                    placeholder="예: https://blog.naver.com/..."
+                  />
+                  <SettingInput
+                    label="인스타그램 링크"
+                    value={homepageSettings.instagramUrl}
+                    onChange={(value) => setHomepageSettings({ ...homepageSettings, instagramUrl: value })}
+                    placeholder="예: https://instagram.com/..."
+                  />
                 </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {[
+                    { label: '카카오 채널 관리', url: homepageSettings.kakaoChannelManagerUrl, tone: 'bg-[#ffe812] text-[#171512]', icon: <MessageCircle size={20} /> },
+                    { label: '카카오 고객 상담', url: homepageSettings.kakaoUrl, tone: 'bg-[#fff7cc] text-[#171512]', icon: <MessageCircle size={20} /> },
+                    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, tone: 'bg-[#03c75a] text-white', icon: <Link2 size={20} /> },
+                    { label: '네이버 블로그', url: homepageSettings.blogUrl, tone: 'bg-[#e9f8ef] text-[#087c3a]', icon: <Link2 size={20} /> },
+                    { label: '인스타그램', url: homepageSettings.instagramUrl, tone: 'bg-[#f7edf3] text-[#b42c70]', icon: <Link2 size={20} /> },
+                  ].map((channel) => (
+                    <div key={channel.label} className="flex items-center justify-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${channel.tone}`}>{channel.icon}</span>
+                        <div className="min-w-0">
+                          <p className="font-semibold">{channel.label}</p>
+                          <p className={`mt-1 text-xs font-semibold ${channel.url ? 'text-[#26853f]' : 'text-[#87949c]'}`}>
+                            {channel.url ? '연결됨' : '링크 미설정'}
+                          </p>
+                        </div>
+                      </div>
+                      {channel.url && (
+                        <a
+                          href={channel.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          aria-label={`${channel.label} 열기`}
+                          title={`${channel.label} 열기`}
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[#d5dde2] bg-white transition hover:border-[#38a9bd] hover:text-[#267d8c]"
+                        >
+                          <ExternalLink size={17} />
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm leading-6 text-[#60717d]">
+                  외부 채널의 문의·예약 건수는 각 서비스 관리자에서 확인합니다. 이 화면은 공식 고객 링크와 관리자 바로가기를 한 곳에서 관리합니다.
+                </div>
+                <button
+                  type="button"
+                  onClick={saveHomepageSettings}
+                  disabled={savingEmail}
+                  className="inline-flex w-fit items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white transition hover:bg-[#2d2822] disabled:opacity-60"
+                >
+                  {savingEmail ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                  외부 채널 저장
+                </button>
               </div>
             </Panel>
           </div>
@@ -2499,11 +2532,6 @@ export default function ManagerPage() {
                           <SettingInput label="상담 작은 문구" value={homepageSettings.contactLabel} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactLabel: value })} {...previewFocus('contactLabel')} />
                           <SettingInput label="상담 큰 문구" value={homepageSettings.contactTitle} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactTitle: value })} {...previewFocus('contactTitle')} />
                           <SettingInput label="상담 설명" value={homepageSettings.contactBody} onChange={(value) => setHomepageSettings({ ...homepageSettings, contactBody: value })} textarea {...previewFocus('contactBody')} />
-                          <SettingInput label="카카오톡 상담 링크" value={homepageSettings.kakaoUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })} {...previewFocus('kakaoUrl')} />
-                          <SettingInput label="카카오 채널 관리 링크" value={homepageSettings.kakaoChannelManagerUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })} placeholder="예: https://center-pf.kakao.com/..." {...previewFocus('kakaoChannelManagerUrl')} />
-                          <SettingInput label="인스타그램 링크" value={homepageSettings.instagramUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, instagramUrl: value })} placeholder="예: https://instagram.com/..." {...previewFocus('instagramUrl')} />
-                          <SettingInput label="블로그 링크" value={homepageSettings.blogUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, blogUrl: value })} placeholder="예: https://blog.naver.com/..." {...previewFocus('blogUrl')} />
-                          <SettingInput label="네이버 플레이스 링크" value={homepageSettings.naverPlaceUrl} onChange={(value) => setHomepageSettings({ ...homepageSettings, naverPlaceUrl: value })} {...previewFocus('naverPlaceUrl')} />
                         </div>
                       </section>
                     )}

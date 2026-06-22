@@ -21,7 +21,7 @@ type ManagerAccount = {
   isActive?: boolean;
 };
 
-const allPermissions = ['dashboard', 'consultations', 'customers', 'sites', 'sales', 'inventory', 'vendors', 'portfolio', 'accounts'];
+const allPermissions = ['dashboard', 'consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors', 'portfolio', 'integrations', 'accounts'];
 
 export async function POST(request: Request) {
   try {

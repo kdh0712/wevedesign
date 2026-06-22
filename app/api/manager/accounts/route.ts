@@ -13,7 +13,7 @@ import {
 
 export const runtime = 'nodejs';
 
-const allowedPermissions = new Set(['dashboard', 'consultations', 'customers', 'sites', 'sales', 'inventory', 'vendors', 'portfolio', 'accounts']);
+const allowedPermissions = new Set(['dashboard', 'consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors', 'portfolio', 'integrations', 'accounts']);
 
 const normalizePermissions = (value: unknown) => {
   if (Array.isArray(value)) {
