@@ -677,6 +677,7 @@ export default function WeveDesignLanding({
   initialSection = 'home',
   initialViewMode = 'main',
 }: WeveDesignLandingProps = {}) {
+  const isDirectConsultation = initialSection === 'contact';
   const [viewMode, setViewMode] = useState<'main' | 'portfolio'>(initialViewMode);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(initialProject?.id || null);
   const [projects, setProjects] = useState<Project[]>(initialProject ? [initialProject] : []);
@@ -702,6 +703,7 @@ export default function WeveDesignLanding({
   const [mapStatus, setMapStatus] = useState('');
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
   const [methodProgress, setMethodProgress] = useState(0);
+  const entrySourceRef = useRef('');
   const methodSectionRef = useRef<HTMLElement | null>(null);
   const heroSlides = useMemo(
     () => [
@@ -751,6 +753,10 @@ export default function WeveDesignLanding({
     return [consultationSurveyConfig.propertyStep, ...(selectedAreaGroup.steps || []).slice(0, 3), ...consultationSurveyConfig.commonSteps];
   }, [consultationSurveyConfig, formData.propertyType]);
   const consultationTotalSteps = consultationSteps.length + 1;
+
+  useEffect(() => {
+    entrySourceRef.current = new URLSearchParams(window.location.search).get('source') || '';
+  }, []);
 
   useEffect(() => {
     const today = new Intl.DateTimeFormat('en-CA', {
@@ -917,8 +923,12 @@ export default function WeveDesignLanding({
 
         setActiveSection(id === 'portfolio-preview' ? 'portfolio' : id === 'statement' || id === 'work-method' || id === 'process' ? 'about' : (id as typeof activeSection));
         const nextPath = sectionPaths[id];
-        if (!selectedProjectId && window.location.pathname !== nextPath) {
-          window.history.replaceState(null, '', nextPath);
+        const nextUrl = id === 'contact' && entrySourceRef.current
+          ? `${nextPath}?source=${encodeURIComponent(entrySourceRef.current)}`
+          : nextPath;
+        const currentUrl = `${window.location.pathname}${window.location.search}`;
+        if (!selectedProjectId && currentUrl !== nextUrl) {
+          window.history.replaceState(null, '', nextUrl);
         }
     };
 
@@ -1288,6 +1298,7 @@ export default function WeveDesignLanding({
       privacyAgreed: formData.privacyAgreed,
       address: formData.address.trim(),
       message: formData.message.trim(),
+      source: entrySourceRef.current,
     };
 
     if (
@@ -1434,7 +1445,7 @@ export default function WeveDesignLanding({
       )}
       <Script strategy="afterInteractive" src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js" />
 
-      <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-2">
+      <div className={`fixed bottom-5 right-5 z-40 flex-col items-end gap-2 ${isDirectConsultation ? 'hidden sm:flex' : 'flex'}`}>
         {socialLinks.length > 0 && socialMenuOpen && (
           <div className="grid gap-2 rounded-2xl border border-[#eadfcd] bg-white/95 p-2 shadow-[0_18px_48px_rgba(23,21,18,0.18)] backdrop-blur">
             {socialLinks.map((link) => {
@@ -1586,29 +1597,29 @@ export default function WeveDesignLanding({
           </div>
         </section>
 
-        <section id="statement" className="scroll-reveal bg-white px-5 py-24 md:px-8">
-          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-            <div className="image-reveal aspect-[16/11] overflow-hidden rounded-lg bg-[#eadfcd]">
+        <section id="statement" className="scroll-reveal bg-white px-4 py-16 md:px-8 md:py-24">
+          <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-12">
+            <div className="image-reveal aspect-[16/10] overflow-hidden rounded-lg bg-[#eadfcd] lg:aspect-[16/11]">
               <img src="/hero-kitchen-bright.webp" alt="WEVE DESIGN 밝은 주방 인테리어" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p data-preview-target="statementLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.26em] text-[#8f6f43]">
                 {settings.statementLabel || defaultSettings.statementLabel}
               </p>
-              <h2 data-preview-target="statementTitle" className="max-w-5xl text-4xl font-semibold leading-tight text-[#171512] md:text-6xl">
+              <h2 data-preview-target="statementTitle" className="max-w-5xl text-3xl font-semibold leading-tight text-[#171512] md:text-6xl">
                 {settings.statementTitle || defaultSettings.statementTitle}
               </h2>
-              <p data-preview-target="statementBody" className="mt-7 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="statementBody" className="mt-4 text-base leading-7 text-[#625d54] md:mt-7 md:text-lg md:leading-8">
                 {settings.statementBody || defaultSettings.statementBody}
               </p>
             </div>
           </div>
         </section>
 
-        <section id="portfolio-preview" className="scroll-reveal bg-[#fffaf0] px-5 py-24 md:px-8">
+        <section id="portfolio-preview" className="scroll-reveal bg-[#fffaf0] px-4 py-16 md:px-8 md:py-24">
           <div className="mx-auto max-w-7xl">
-            <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end">
-              <h2 data-preview-target="projectSectionTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
+            <div className="mb-7 flex flex-col justify-between gap-4 md:mb-10 md:flex-row md:items-end md:gap-6">
+              <h2 data-preview-target="projectSectionTitle" className="text-3xl font-semibold tracking-normal md:text-6xl">
                 {settings.projectSectionTitle || defaultSettings.projectSectionTitle}
               </h2>
               <button
@@ -1621,13 +1632,13 @@ export default function WeveDesignLanding({
               </button>
             </div>
 
-            <div className="project-marquee -mx-5 overflow-hidden px-5 pb-4 md:-mx-8 md:px-8">
+            <div className="project-marquee -mx-4 overflow-hidden px-4 pb-4 md:-mx-8 md:px-8">
               <div
                 className={`flex items-stretch gap-5 ${featuredProjects.length > 1 ? 'project-marquee-track' : ''}`}
                 style={{ '--project-marquee-duration': projectMarqueeDuration } as React.CSSProperties}
               >
                 {loopedFeaturedProjects.map((project, index) => (
-                  <div key={`${project.id}-${index}`} className="w-[280px] shrink-0 sm:w-[340px] lg:w-[390px]">
+                  <div key={`${project.id}-${index}`} className="w-[78vw] max-w-[320px] shrink-0 sm:w-[340px] sm:max-w-none lg:w-[390px]">
                     <ProjectCard
                       project={project}
                       onClick={() => openProject(project)}
@@ -1644,36 +1655,36 @@ export default function WeveDesignLanding({
           </div>
         </section>
 
-        <section id="about" className="scroll-reveal bg-white px-5 py-24 md:px-8">
-          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
-            <div className="image-reveal aspect-[4/5] overflow-hidden bg-[#d8d1c5]">
+        <section id="about" className="scroll-reveal bg-white px-4 py-16 md:px-8 md:py-24">
+          <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.95fr_1.05fr] lg:items-center lg:gap-12">
+            <div className="image-reveal aspect-[16/10] overflow-hidden bg-[#d8d1c5] lg:aspect-[4/5]">
               <img src="/main-bg.webp" alt="WEVE DESIGN 시공 공간" className="h-full w-full object-cover" loading="lazy" />
             </div>
             <div>
               <p data-preview-target="aboutLabel" className="mb-4 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.aboutLabel || defaultSettings.aboutLabel}
               </p>
-              <h2 data-preview-target="aboutTitle" className="text-4xl font-semibold leading-tight tracking-normal md:text-6xl">
+              <h2 data-preview-target="aboutTitle" className="text-3xl font-semibold leading-tight tracking-normal md:text-6xl">
                 {settings.aboutTitle || defaultSettings.aboutTitle}
               </h2>
-              <p data-preview-target="aboutBody" className="mt-7 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="aboutBody" className="mt-4 text-base leading-7 text-[#625d54] md:mt-7 md:text-lg md:leading-8">
                 {settings.aboutBody || defaultSettings.aboutBody}
               </p>
-              <p className="mt-5 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-8 text-[#625d54]">
+              <p className="mt-4 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-4 text-sm leading-6 text-[#625d54] md:mt-5 md:p-5 md:text-base md:leading-8">
                 위브디자인은 의왕과 안양 생활권을 중심으로 아파트, 주거 공간, 상업 공간 인테리어 리모델링을 상담하고 현장 중심으로 관리합니다.
               </p>
-              <div className="mt-10 grid gap-4">
+              <div className="mt-6 grid gap-3 md:mt-10 md:gap-4">
                 {strengths.map((item) => {
                   const Icon = item.icon;
                   return (
                     <div
                       key={item.title}
-                      className="motion-card grid gap-4 border border-[#eadfcd] bg-[#fffdf8] p-5 sm:grid-cols-[40px_1fr]"
+                      className="motion-card grid grid-cols-[32px_1fr] gap-3 border border-[#eadfcd] bg-[#fffdf8] p-4 sm:grid-cols-[40px_1fr] sm:gap-4 md:p-5"
                     >
-                      <Icon className="text-[#8f6f43]" size={26} />
+                      <Icon className="text-[#8f6f43]" size={22} />
                       <div>
-                        <h3 className="text-xl font-semibold">{item.title}</h3>
-                        <p className="mt-2 leading-7 text-[#625d54]">{item.body}</p>
+                        <h3 className="text-lg font-semibold md:text-xl">{item.title}</h3>
+                        <p className="mt-1 text-sm leading-6 text-[#625d54] md:mt-2 md:text-base md:leading-7">{item.body}</p>
                       </div>
                     </div>
                   );
@@ -1686,30 +1697,30 @@ export default function WeveDesignLanding({
         <section
           ref={methodSectionRef}
           id="work-method"
-          className="method-section scroll-reveal px-5 py-32 md:px-8"
+          className="method-section scroll-reveal px-4 py-16 md:px-8 md:py-32"
           style={{ backgroundColor: methodBackground, color: methodTextColor }}
         >
           <div className="mx-auto max-w-7xl">
-            <div className="grid gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-end">
+            <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-end lg:gap-10">
               <div>
                 <p className="mb-4 text-sm font-bold uppercase tracking-[0.28em] text-[#f1c76a]">WORK METHOD</p>
-                <h2 className="max-w-3xl text-4xl font-semibold leading-tight tracking-normal md:text-5xl xl:text-6xl">
+                <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-5xl xl:text-6xl">
                   우리 집에 맞는 공사 방식을 먼저 선택합니다.
                 </h2>
               </div>
-              <p className="method-muted max-w-2xl text-lg leading-9" style={{ color: methodMutedColor }}>
+              <p className="method-muted max-w-2xl text-base leading-7 md:text-lg md:leading-9" style={{ color: methodMutedColor }}>
                 원하는 디자인을 직접 가져오는지, 디자인 제안부터 사후 관리까지 맡기고 싶은지에 따라 진행 방식이 달라집니다.
                 두 방식을 비교한 뒤 상담에서 더 맞는 흐름을 정합니다.
               </p>
             </div>
 
-            <div className="mt-12 grid gap-8 lg:grid-cols-[360px_1fr]">
-              <div className="grid gap-3 self-start">
+            <div className="mt-8 grid gap-5 md:mt-12 lg:grid-cols-[360px_1fr] lg:gap-8">
+              <div className="grid grid-cols-2 gap-2 self-start lg:grid-cols-1 lg:gap-3">
                 {constructionModels.map((model) => (
                   <button
                     key={model.id}
                     onClick={() => setActiveConstructionModel(model.id)}
-                    className={`group rounded-lg border p-6 text-left transition ${
+                    className={`group rounded-lg border p-4 text-left transition lg:p-6 ${
                       selectedConstructionModel.id === model.id
                         ? 'border-[#f1c76a] bg-[#f1c76a] text-[#171512] shadow-[0_24px_70px_rgba(241,199,106,0.22)]'
                         : methodIsDark
@@ -1718,27 +1729,27 @@ export default function WeveDesignLanding({
                     }`}
                   >
                     <span className="text-xs font-bold uppercase tracking-[0.22em] opacity-70">{model.eyebrow}</span>
-                    <span className="mt-3 flex items-center justify-between gap-4 text-2xl font-semibold">
+                    <span className="mt-2 flex items-center justify-between gap-2 text-lg font-semibold lg:mt-3 lg:gap-4 lg:text-2xl">
                       {model.label}
                       <ArrowRight className="transition group-hover:translate-x-1" size={22} />
                     </span>
-                    <span className="mt-4 block text-sm leading-6 opacity-75">{model.bestFor}</span>
+                    <span className="mt-4 hidden text-sm leading-6 opacity-75 lg:block">{model.bestFor}</span>
                   </button>
                 ))}
               </div>
 
               <div className="overflow-hidden rounded-lg border border-white/12 bg-[#fffdf8] text-[#171512] shadow-[0_28px_80px_rgba(0,0,0,0.28)]">
-                <div className="grid gap-8 p-6 md:p-10">
+                <div className="grid gap-5 p-4 md:gap-8 md:p-10">
                   <div>
                     <p className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                       {selectedConstructionModel.eyebrow}
                     </p>
                     <div className="grid gap-8 xl:grid-cols-[1fr_0.48fr] xl:items-end">
                       <div>
-                        <h3 className="mt-4 max-w-4xl text-3xl font-semibold leading-[1.16] md:text-4xl xl:text-5xl">
+                        <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-[1.2] md:mt-4 md:text-4xl xl:text-5xl">
                           {selectedConstructionModel.title}
                         </h3>
-                        <p className="mt-6 max-w-4xl text-lg leading-9 text-[#625d54]">{selectedConstructionModel.summary}</p>
+                        <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:mt-6 md:text-lg md:leading-9">{selectedConstructionModel.summary}</p>
                       </div>
                       <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
                         <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">Key point</p>
@@ -1784,9 +1795,9 @@ export default function WeveDesignLanding({
                           단계별로 결정해야 할 내용과 WEVE가 관리하는 지점을 나누어 보여드립니다.
                         </p>
                       </div>
-                      <div className="mt-7 grid gap-4 lg:grid-cols-5">
+                      <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:mt-7 lg:grid lg:grid-cols-5 lg:gap-4 lg:overflow-visible lg:pb-0">
                         {selectedConstructionModel.workflow.map((step, index) => (
-                          <div key={step.title} className="relative">
+                          <div key={step.title} className="relative min-w-[78%] snap-start lg:min-w-0">
                             <div className="workflow-step h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
                               <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
                                 {String(index + 1).padStart(2, '0')}
@@ -1835,38 +1846,38 @@ export default function WeveDesignLanding({
           </div>
         </section>
 
-        <section id="process" className="scroll-reveal bg-[#fffaf0] px-5 py-24 md:px-8">
+        <section id="process" className="scroll-reveal bg-[#fffaf0] px-4 py-16 md:px-8 md:py-24">
           <div className="mx-auto max-w-7xl">
-            <div className="mb-12 grid gap-8 lg:grid-cols-[0.7fr_1.3fr] lg:items-end">
+            <div className="mb-8 grid gap-4 md:mb-12 lg:grid-cols-[0.7fr_1.3fr] lg:items-end lg:gap-8">
               <p data-preview-target="processLabel" className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.processLabel || defaultSettings.processLabel}
               </p>
-              <h2 data-preview-target="processTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
+              <h2 data-preview-target="processTitle" className="text-3xl font-semibold tracking-normal md:text-6xl">
                 {settings.processTitle || defaultSettings.processTitle}
               </h2>
             </div>
-            <div className="grid gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
               {processSteps.map((step) => (
-                <div key={step.number} className="motion-card border border-[#eadfcd] bg-white p-6">
+                <div key={step.number} className="motion-card border border-[#eadfcd] bg-white p-4 md:p-6">
                   <span className="text-sm font-bold text-[#8f6f43]">{step.number}</span>
-                  <h3 className="mt-8 text-2xl font-semibold">{step.title}</h3>
-                  <p className="mt-4 leading-7 text-[#625d54]">{step.body}</p>
+                  <h3 className="mt-4 text-lg font-semibold md:mt-8 md:text-2xl">{step.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-[#625d54] md:mt-4 md:text-base md:leading-7">{step.body}</p>
                 </div>
               ))}
             </div>
           </div>
         </section>
 
-        <section id="location" className="scroll-reveal bg-white px-5 py-24 md:px-8">
+        <section id="location" className="scroll-reveal bg-white px-4 py-16 md:px-8 md:py-24">
           <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[0.8fr_1.2fr]">
             <div>
               <p data-preview-target="locationLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.locationLabel || defaultSettings.locationLabel}
               </p>
-              <h2 data-preview-target="locationTitle" className="text-4xl font-semibold tracking-normal md:text-5xl">
+              <h2 data-preview-target="locationTitle" className="text-3xl font-semibold tracking-normal md:text-5xl">
                 {locationTitleText(settings.locationTitle || defaultSettings.locationTitle)}
               </h2>
-              <div className="mt-8 space-y-5 text-[#625d54]">
+              <div className="mt-6 space-y-4 text-sm text-[#625d54] md:mt-8 md:space-y-5 md:text-base">
                 <p className="flex gap-3">
                   <MapPin className="mt-1 shrink-0 text-[#8f6f43]" size={20} />
                   <span>
@@ -1879,12 +1890,12 @@ export default function WeveDesignLanding({
                   <span data-preview-target="safePhone">{safePhone}</span>
                 </p>
               </div>
-              <p className="mt-10 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-5 text-base leading-7 text-[#625d54]">
+              <p className="mt-6 rounded-md border border-[#eadfcd] bg-[#fffaf0] p-4 text-sm leading-6 text-[#625d54] md:mt-10 md:p-5 md:text-base md:leading-7">
                 방문 상담은 일정 확인이 필요하니 오시기 전에 연락 부탁드립니다.
               </p>
             </div>
             <div className="relative">
-              <div id="map" className="motion-card h-[440px] overflow-hidden rounded-lg border border-[#eadfcd] bg-[#f3ecdf]" />
+              <div id="map" className="motion-card h-[300px] overflow-hidden rounded-lg border border-[#eadfcd] bg-[#f3ecdf] md:h-[440px]" />
               {mapStatus && (
                 <div className="absolute bottom-4 left-4 right-4 rounded-md bg-white/92 px-4 py-3 text-sm font-semibold text-[#625d54] shadow-lg backdrop-blur">
                   {mapStatus}
@@ -1894,33 +1905,36 @@ export default function WeveDesignLanding({
           </div>
         </section>
 
-        <section id="contact" className="scroll-reveal bg-white px-5 py-20 md:px-8 md:py-28">
-          <div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[0.72fr_1.28fr] lg:items-start">
-            <div>
+        <section
+          id="contact"
+          className={`scroll-mt-[72px] bg-white px-4 md:px-8 ${isDirectConsultation ? 'min-h-[calc(100svh-72px)] py-7 md:py-14 lg:py-28' : 'scroll-reveal py-14 md:py-28'}`}
+        >
+          <div className={`mx-auto grid max-w-7xl lg:grid-cols-[0.72fr_1.28fr] lg:items-start lg:gap-12 ${isDirectConsultation ? 'gap-0' : 'gap-8'}`}>
+            <div className={isDirectConsultation ? 'hidden lg:block' : ''}>
               <p data-preview-target="contactLabel" className="mb-3 text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
                 {settings.contactLabel || defaultSettings.contactLabel}
               </p>
-              <h2 data-preview-target="contactTitle" className="text-4xl font-semibold tracking-normal md:text-6xl">
+              <h2 data-preview-target="contactTitle" className="text-3xl font-semibold tracking-normal md:text-6xl">
                 {settings.contactTitle || defaultSettings.contactTitle}
               </h2>
-              <p data-preview-target="contactBody" className="mt-6 text-lg leading-8 text-[#625d54]">
+              <p data-preview-target="contactBody" className="mt-4 text-base leading-7 text-[#625d54] md:mt-6 md:text-lg md:leading-8">
                 {settings.contactBody || defaultSettings.contactBody}
               </p>
-              <div className="mt-10 border-t border-[#eadfcd] pt-7">
-                <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#b08a4a]">Before Consultation</p>
-                <div className="mt-5 grid gap-3">
+              <div className="mt-7 border-t border-[#eadfcd] pt-5 md:mt-10 md:pt-7">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#b08a4a] md:text-sm md:tracking-[0.22em]">Before Consultation</p>
+                <div className="mt-4 grid grid-cols-3 gap-2 md:mt-5 md:grid-cols-1 md:gap-3">
                   {[
                     ['01', '시공 주소', '우편번호 검색으로 현장 위치를 정확히 남겨주세요.'],
                     ['02', '공간 상태', '현재 거주 여부와 공사 희망 시기를 알려주세요.'],
                     ['03', '예산 방향', '대략적인 예산만 선택해도 상담 중 조정할 수 있습니다.'],
                   ].map(([number, title, body]) => (
-                    <div key={number} className="group grid grid-cols-[42px_1fr] gap-4 border-b border-[#eee6da] py-4">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f8efd9] text-sm font-bold text-[#9a7335] transition group-hover:bg-[#171512] group-hover:text-white">
+                    <div key={number} className="group grid gap-2 rounded-md bg-[#fffaf0] p-3 md:grid-cols-[42px_1fr] md:gap-4 md:rounded-none md:border-b md:border-[#eee6da] md:bg-transparent md:px-0 md:py-4">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#f8efd9] text-xs font-bold text-[#9a7335] transition group-hover:bg-[#171512] group-hover:text-white md:h-10 md:w-10 md:text-sm">
                         {number}
                       </span>
                       <div>
-                        <p className="font-semibold text-[#171512]">{title}</p>
-                        <p className="mt-1 text-sm leading-6 text-[#625d54]">{body}</p>
+                        <p className="text-sm font-semibold text-[#171512] md:text-base">{title}</p>
+                        <p className="mt-1 hidden text-sm leading-6 text-[#625d54] md:block">{body}</p>
                       </div>
                     </div>
                   ))}
@@ -1928,7 +1942,7 @@ export default function WeveDesignLanding({
               </div>
             </div>
 
-            <div className="flex min-h-[560px] flex-col justify-between py-2 lg:py-6">
+            <div className="flex min-h-0 flex-col justify-between py-0 lg:min-h-[560px] lg:py-6">
               {isSubmitted ? (
                 <div className="motion-card flex min-h-[520px] flex-col items-center justify-center bg-[#fffdf8] p-8 text-center shadow-sm md:p-12">
                   <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-[#e9f7ed] text-[#2f8f50]">
@@ -1949,11 +1963,11 @@ export default function WeveDesignLanding({
               ) : consultationStep < consultationTotalSteps - 1 ? (
                 <>
                   <div>
-                    <p data-preview-target="contactLabel" className="text-base font-semibold text-[#8f6f43]">
+                    <p data-preview-target="contactLabel" className="text-xs font-semibold text-[#8f6f43] md:text-base">
                       인테리어 상담신청
                     </p>
-                    <div className="mt-4 flex items-end justify-between gap-4">
-                      <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
+                    <div className="mt-2 flex items-end justify-between gap-3 md:mt-4 md:gap-4">
+                      <h2 className="max-w-3xl text-[1.75rem] font-semibold leading-[1.22] tracking-normal sm:text-3xl md:text-4xl">
                         {currentConsultationStep.title}
                       </h2>
                       <span className="shrink-0 text-sm font-semibold text-[#8b8276]">{consultationStep + 1} / {consultationTotalSteps}</span>
@@ -1961,11 +1975,11 @@ export default function WeveDesignLanding({
                     {'description' in currentConsultationStep && currentConsultationStep.description && (
                       <p className="mt-3 text-sm leading-6 text-[#625d54]">{currentConsultationStep.description}</p>
                     )}
-                    <div className="mt-8 h-px w-full bg-[#ece6dc]">
+                    <div className="mt-5 h-px w-full bg-[#ece6dc] md:mt-8">
                       <div className="h-px bg-[#171512] transition-all duration-300" style={{ width: `${consultationProgress}%` }} />
                     </div>
 
-                    <div className="mt-12 grid gap-5 sm:grid-cols-2">
+                    <div className="mt-6 grid grid-cols-2 gap-3 md:mt-12 md:gap-5">
                       {currentConsultationStep.options.map((option) => {
                         const selected = formData[currentConsultationStep.key] === option;
 
@@ -1974,7 +1988,7 @@ export default function WeveDesignLanding({
                             key={option}
                             type="button"
                             onClick={() => selectConsultationOption(currentConsultationStep.key, option)}
-                            className={`min-h-[68px] rounded-full border px-5 text-base font-semibold transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(57,46,31,0.1)] ${
+                            className={`min-h-[56px] rounded-xl border px-3 py-2 text-sm font-semibold leading-5 transition hover:-translate-y-0.5 hover:shadow-[0_16px_40px_rgba(57,46,31,0.1)] sm:rounded-full md:min-h-[68px] md:px-5 md:text-base ${
                               selected
                                 ? 'border-[#2f64ff] bg-[#eef2ff] text-[#2f64ff]'
                                 : 'border-transparent bg-[#f6f6f6] text-[#171512] hover:border-[#d8d1c5] hover:bg-white'
@@ -1996,12 +2010,12 @@ export default function WeveDesignLanding({
                     {submitStatus === 'missing' && <p className="mt-5 text-sm font-semibold text-red-600">필수 항목을 선택해 주세요.</p>}
                   </div>
 
-                  <div className="mt-12 flex justify-center gap-3">
+                  <div className="mt-8 flex justify-center gap-2 md:mt-12 md:gap-3">
                     {consultationStep > 0 && (
                       <button
                         type="button"
                         onClick={goToPreviousConsultationStep}
-                        className="h-14 min-w-[130px] rounded-full border border-[#171512] px-8 font-semibold transition hover:bg-[#171512] hover:text-white"
+                        className="h-12 min-w-0 flex-1 rounded-full border border-[#171512] px-5 font-semibold transition hover:bg-[#171512] hover:text-white sm:max-w-[180px] md:h-14 md:min-w-[130px] md:flex-none md:px-8"
                       >
                         이전
                       </button>
@@ -2009,7 +2023,7 @@ export default function WeveDesignLanding({
                     <button
                       type="button"
                       onClick={goToNextConsultationStep}
-                      className="h-14 min-w-[220px] rounded-full bg-[#171512] px-10 font-semibold text-white transition hover:bg-[#2f2a23]"
+                      className="h-12 w-full max-w-[260px] rounded-full bg-[#171512] px-8 font-semibold text-white transition hover:bg-[#2f2a23] md:h-14 md:min-w-[220px] md:w-auto md:px-10"
                     >
                       다음
                     </button>
@@ -2019,16 +2033,16 @@ export default function WeveDesignLanding({
                 <>
                   <div>
                     <p className="text-base font-semibold text-[#8f6f43]">인테리어 상담신청</p>
-                    <div className="mt-5 rounded-none bg-[#eee1d5] px-6 py-7 md:px-10">
-                      <h2 className="text-2xl font-semibold">고객님의 소중한 정보는</h2>
+                    <div className="mt-3 bg-[#eee1d5] px-4 py-5 md:mt-5 md:px-10 md:py-7">
+                      <h2 className="text-xl font-semibold md:text-2xl">고객님의 소중한 정보는</h2>
                       <p className="mt-2 text-[#625d54]">오직 상담 목적으로만 활용됩니다.</p>
                     </div>
-                    <div className="mt-8 flex items-center gap-4">
+                    <div className="mt-5 flex items-center gap-4 md:mt-8">
                       <div className="h-px flex-1 bg-[#171512]" />
                       <span className="text-sm font-semibold text-[#8b8276]">{consultationTotalSteps} / {consultationTotalSteps}</span>
                     </div>
 
-                    <div className="mt-8 grid gap-6">
+                    <div className="mt-5 grid gap-4 md:mt-8 md:gap-6">
                       <label className="grid gap-2">
                         <span className="font-semibold">이름 <span className="text-red-500">*</span></span>
                         <input
@@ -2133,11 +2147,11 @@ export default function WeveDesignLanding({
                     )}
                   </div>
 
-                  <div className="mt-10 flex justify-center gap-3">
+                  <div className="mt-8 flex justify-center gap-2 md:mt-10 md:gap-3">
                     <button
                       type="button"
                       onClick={goToPreviousConsultationStep}
-                      className="h-14 min-w-[130px] rounded-full border border-[#171512] px-8 font-semibold transition hover:bg-[#171512] hover:text-white"
+                      className="h-12 min-w-0 flex-1 rounded-full border border-[#171512] px-5 font-semibold transition hover:bg-[#171512] hover:text-white md:h-14 md:min-w-[130px] md:flex-none md:px-8"
                     >
                       이전
                     </button>
@@ -2145,7 +2159,7 @@ export default function WeveDesignLanding({
                       type="button"
                       onClick={handleSubmit}
                       disabled={isSubmitting}
-                      className="h-14 min-w-[220px] rounded-full bg-[#171512] px-10 font-semibold text-white transition hover:bg-[#2f2a23] disabled:cursor-not-allowed disabled:bg-[#ececec] disabled:text-[#b8b0a3]"
+                      className="h-12 min-w-0 flex-[1.4] rounded-full bg-[#171512] px-6 font-semibold text-white transition hover:bg-[#2f2a23] disabled:cursor-not-allowed disabled:bg-[#ececec] disabled:text-[#b8b0a3] md:h-14 md:min-w-[220px] md:flex-none md:px-10"
                     >
                       {isSubmitting ? '전송 중...' : '상담신청'}
                     </button>
@@ -2188,7 +2202,7 @@ export default function WeveDesignLanding({
         </div>
       )}
 
-      <footer id="footer" className="bg-[#171512] px-5 py-16 text-[#b8b0a3] md:px-8">
+      <footer id="footer" className="bg-[#171512] px-4 py-10 text-[#b8b0a3] md:px-8 md:py-16">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
           <div>
             <button onClick={handleLogoClick} className="inline-flex" aria-label="WEVE DESIGN 홈으로 이동">
@@ -2277,21 +2291,25 @@ function HomepagePopupWindows({
   onContactClick: () => void;
 }) {
   const [isMobilePopupLayout, setIsMobilePopupLayout] = useState(false);
+  const [popupLayoutReady, setPopupLayoutReady] = useState(false);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
-    const update = () => setIsMobilePopupLayout(media.matches);
+    const update = () => {
+      setIsMobilePopupLayout(media.matches);
+      setPopupLayoutReady(true);
+    };
     update();
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
   }, []);
 
-  if (popups.length === 0) return null;
+  if (popups.length === 0 || !popupLayoutReady) return null;
   const sharedWidth = Math.max(...popups.map((popup) => popupRenderedWidth(popup)));
   const displayWidth = isMobilePopupLayout ? Math.min(sharedWidth, 420) : sharedWidth;
-  const sharedHeight = Math.min(isMobilePopupLayout ? 420 : 520, Math.max(isMobilePopupLayout ? 250 : 300, Math.round((displayWidth * 9) / 16 + 30)));
+  const sharedHeight = Math.min(isMobilePopupLayout ? 360 : 520, Math.max(isMobilePopupLayout ? 210 : 300, Math.round((displayWidth * 9) / 16 + 30)));
 
   return (
-    <div className={`pointer-events-none fixed inset-0 z-[90] ${isMobilePopupLayout ? 'grid content-start justify-items-center overflow-y-auto px-3 py-16' : ''}`}>
+    <div className={`pointer-events-none fixed inset-0 z-[90] ${isMobilePopupLayout ? 'grid content-start justify-items-center gap-2 overflow-y-auto px-3 pb-3 pt-[84px]' : ''}`}>
       {popups.map((popup, index) => (
         <HomepagePopupWindow
           key={popup._key}

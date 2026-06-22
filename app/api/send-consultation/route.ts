@@ -17,6 +17,14 @@ type ConsultationPayload = {
   detailAddress?: string;
   message?: string;
   privacyAgreed?: boolean;
+  source?: string;
+};
+
+const consultationSources: Record<string, string> = {
+  'kakao-channel': '카카오 채널',
+  'naver-place': '네이버 플레이스',
+  blog: '블로그',
+  instagram: '인스타그램',
 };
 
 const escapeHtml = (value: string) =>
@@ -69,6 +77,7 @@ export async function POST(request: Request) {
     const detailAddress = payload.detailAddress?.trim() || '';
     const message = payload.message?.trim() || '';
     const privacyAgreed = payload.privacyAgreed === true;
+    const source = consultationSources[payload.source?.trim() || ''] || '홈페이지 상담 신청';
     const fullAddress = [postcode ? `(${postcode})` : '', address, detailAddress].filter(Boolean).join(' ');
 
     if (
@@ -109,7 +118,7 @@ export async function POST(request: Request) {
       message,
       privacyAgreed,
       status: '신규',
-      source: '홈페이지 상담 신청',
+      source,
       createdAt: new Date().toISOString(),
     });
 
@@ -129,6 +138,7 @@ export async function POST(request: Request) {
           <table style="width:100%; max-width:720px; border-collapse:collapse; border-top:2px solid #171512;">
             ${fieldRow('이름', name)}
             ${fieldRow('연락처', phone)}
+            ${fieldRow('유입 경로', source)}
             ${fieldRow('시공 주소', fullAddress)}
             ${fieldRow('공간 종류', propertyType)}
             ${fieldRow('평수', areaRange)}
