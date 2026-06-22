@@ -292,6 +292,13 @@ type AccountApiResponse = {
   account?: ManagerAccount;
 };
 
+type KakaoSyncStatus = {
+  configured: boolean;
+  imported?: number;
+  checkedAt?: string;
+  error?: string;
+};
+
 const emptyOfficeData: OfficeData = {
   consultations: [],
   customers: [],
@@ -305,6 +312,8 @@ const emptyOfficeData: OfficeData = {
 };
 
 const OFFICE_REFRESH_SECONDS = 30;
+const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
+const MANAGER_SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
 
 const homepagePreviewTargets = {
   heroLabel: { key: 'heroLabel', label: '배너 작은 문구', src: '/#home' },
@@ -500,6 +509,7 @@ export default function ManagerPage() {
     isActive: true,
   });
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [homepageTab, setHomepageTab] = useState<HomepageTabKey>('basic');
   const [category, setCategory] = useState('');
@@ -604,6 +614,7 @@ export default function ManagerPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadingMainImage, setUploadingMainImage] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
+  const [kakaoSyncStatus, setKakaoSyncStatus] = useState<KakaoSyncStatus | null>(null);
   const [loadingOffice, setLoadingOffice] = useState(false);
   const [savingOffice, setSavingOffice] = useState(false);
   const [officeData, setOfficeData] = useState<OfficeData>(emptyOfficeData);
@@ -695,6 +706,49 @@ export default function ManagerPage() {
   useEffect(() => {
     window.localStorage.removeItem('weve-manager-session');
     window.localStorage.removeItem('weve-manager-password');
+    const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
+    if (!savedSession) return;
+
+    let cancelled = false;
+    const restoreSession = async () => {
+      setIsRestoringSession(true);
+      try {
+        const parsed = JSON.parse(savedSession) as {
+          token?: string;
+          firebaseToken?: string;
+          user?: ManagerUser;
+          savedAt?: number;
+        };
+        const isExpired = !parsed.savedAt || Date.now() - parsed.savedAt > MANAGER_SESSION_MAX_AGE_MS;
+        if (!parsed.token || !parsed.user || isExpired) throw new Error('저장된 로그인 세션이 만료되었습니다.');
+
+        setPassword(parsed.token);
+        setFirebaseToken(parsed.firebaseToken || '');
+        setCurrentUser(parsed.user);
+        setLoginId(parsed.user.loginId || 'admin');
+        await syncKakaoBizForm(parsed.token);
+        const loaded = await loadOfficeData(parsed.token, { silent: true });
+        if (!loaded) throw new Error('저장된 로그인 정보를 확인할 수 없습니다.');
+        if (!cancelled) setStatus('로그인 상태를 복원했습니다.');
+      } catch (caught) {
+        window.sessionStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
+        if (!cancelled) {
+          setPassword('');
+          setFirebaseToken('');
+          setCurrentUser(null);
+          setIsUnlocked(false);
+          setError(caught instanceof Error ? caught.message : '다시 로그인해 주세요.');
+        }
+      } finally {
+        if (!cancelled) setIsRestoringSession(false);
+      }
+    };
+
+    void restoreSession();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -744,6 +798,22 @@ export default function ManagerPage() {
     return false;
   };
 
+  const syncKakaoBizForm = async (managerPassword = password) => {
+    if (!managerPassword) return null;
+    try {
+      const response = await fetch('/api/integrations/kakao-bizform/sync', {
+        method: 'POST',
+        headers: { 'x-manager-password': managerPassword },
+      });
+      const data = await readJsonResponse<KakaoSyncStatus>(response);
+      setKakaoSyncStatus(data);
+      return response.ok ? data : null;
+    } catch {
+      setKakaoSyncStatus({ configured: true, error: '카카오 연동 서버에 연결하지 못했습니다.' });
+      return null;
+    }
+  };
+
   const handleLogin = async () => {
     setError('');
     setStatus('');
@@ -762,7 +832,13 @@ export default function ManagerPage() {
       setPassword(result.token);
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
-      await loadOfficeData(result.token, { silent: true });
+      await syncKakaoBizForm(result.token);
+      const loaded = await loadOfficeData(result.token, { silent: true });
+      if (!loaded) throw new Error('관리자 데이터를 불러오지 못했습니다. 다시 로그인해 주세요.');
+      window.sessionStorage.setItem(
+        MANAGER_SESSION_STORAGE_KEY,
+        JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user, savedAt: Date.now() }),
+      );
       if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
       setStatus('로그인했습니다.');
     } catch (caught) {
@@ -777,6 +853,7 @@ export default function ManagerPage() {
   };
 
   const handleLogout = () => {
+    window.sessionStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
     window.localStorage.removeItem('weve-manager-session');
     window.localStorage.removeItem('weve-manager-password');
     setPassword('');
@@ -860,7 +937,7 @@ export default function ManagerPage() {
       setError('');
       setStatus('');
     }
-    if (!requirePassword(managerPassword)) return;
+    if (!requirePassword(managerPassword)) return false;
 
     if (!options.silent) setLoadingOffice(true);
     try {
@@ -965,11 +1042,13 @@ export default function ManagerPage() {
       setIsUnlocked(true);
       setLastRefreshedAt(formatTime(new Date()));
       if (!options.silent) setStatus('업무 데이터를 불러왔습니다.');
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
       if (caught instanceof Error && caught.message.includes('비밀번호')) {
         window.localStorage.removeItem('weve-manager-password');
       }
+      return false;
     } finally {
       if (!options.silent) setLoadingOffice(false);
     }
@@ -979,6 +1058,7 @@ export default function ManagerPage() {
     if (!managerPassword) return;
 
     try {
+      await syncKakaoBizForm(managerPassword);
       const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword) });
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
@@ -1146,7 +1226,7 @@ export default function ManagerPage() {
       address: consultation.fullAddress || consultation.address || '',
       status: completeAfterSave ? '상담완료' : '상담중',
       memo: consultation.message || '',
-      siteTitle: `${consultation.name || '고객'} 현장`,
+      siteTitle: '',
       siteStatus: completeAfterSave ? '상담완료' : '상담중',
       siteMemo: consultation.message || '',
     });
@@ -1733,6 +1813,7 @@ export default function ManagerPage() {
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
                 autoFocus
+                disabled={isRestoringSession}
                 className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
               />
             </label>
@@ -1742,16 +1823,17 @@ export default function ManagerPage() {
                 type="password"
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
+                disabled={isRestoringSession}
                 className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
               />
             </label>
             <button
               type="submit"
-              disabled={loadingOffice}
+              disabled={loadingOffice || isRestoringSession}
               className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
-              {loadingOffice ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
-              로그인
+              {loadingOffice || isRestoringSession ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+              {isRestoringSession ? '로그인 확인 중' : '로그인'}
             </button>
             {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
           </form>
@@ -1879,7 +1961,7 @@ export default function ManagerPage() {
                 items={officeData.consultations.slice(0, 6).map((item) => ({
                   key: item._id,
                   title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                  meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'}`,
+                  meta: `${item.source || '직접 등록'} · ${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'}`,
                   body: item.message,
                   onClick: () => setSelectedConsultation(item),
                   action: (
@@ -1916,7 +1998,7 @@ export default function ManagerPage() {
               items={officeData.consultations.map((item) => ({
                 key: item._id,
                 title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                meta: `${item.propertyType || item.siteType || '공간 종류 없음'} · ${item.areaRange || '평수 미선택'} · ${item.budget || '예산 미선택'} · ${item.timeline || '일정 미선택'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
+                meta: `${item.source || '직접 등록'} · ${item.propertyType || item.siteType || '공간 종류 없음'} · ${item.areaRange || '평수 미선택'} · ${item.budget || '예산 미선택'} · ${item.timeline || '일정 미선택'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
                 body: item.message,
                 onClick: () => setSelectedConsultation(item),
                 action: (
@@ -2400,6 +2482,33 @@ export default function ManagerPage() {
           <div className="grid gap-5">
             <Panel title="외부 채널 연결">
               <div className="grid gap-5">
+                <div className="flex flex-col justify-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 sm:flex-row sm:items-center">
+                  <div className="flex items-start gap-3">
+                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[#ffe812] text-[#171512]">
+                      <MessageCircle size={20} />
+                    </span>
+                    <div>
+                      <p className="font-semibold">카카오 비즈니스폼+ 상담 동기화</p>
+                      <p className={`mt-1 text-sm font-semibold ${kakaoSyncStatus?.error ? 'text-red-600' : kakaoSyncStatus?.configured ? 'text-[#26853f]' : 'text-[#87949c]'}`}>
+                        {kakaoSyncStatus?.error
+                          ? kakaoSyncStatus.error
+                          : kakaoSyncStatus?.configured
+                            ? `연결됨 · 신규 ${kakaoSyncStatus.imported ?? 0}건 · 최근 조회 ${kakaoSyncStatus.checkedAt ? formatTime(new Date(kakaoSyncStatus.checkedAt)) : '완료'}`
+                            : '환경변수 설정 대기 중'}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-[#60717d]">관리자 접속 중 30초마다 신규 응답을 확인하며 applyId 기준으로 중복 등록을 방지합니다.</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void syncKakaoBizForm()}
+                    disabled={!password}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                  >
+                    <Check size={16} />
+                    지금 확인
+                  </button>
+                </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <SettingInput
                     label="카카오톡 고객 상담 링크"
@@ -2446,7 +2555,7 @@ export default function ManagerPage() {
                         <div className="min-w-0">
                           <p className="font-semibold">{channel.label}</p>
                           <p className={`mt-1 text-xs font-semibold ${channel.url ? 'text-[#26853f]' : 'text-[#87949c]'}`}>
-                            {channel.url ? '연결됨' : '링크 미설정'}
+                            {channel.url ? '바로가기 연결됨' : '링크 미설정'}
                           </p>
                         </div>
                       </div>
@@ -2466,7 +2575,7 @@ export default function ManagerPage() {
                   ))}
                 </div>
                 <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm leading-6 text-[#60717d]">
-                  외부 채널의 문의·예약 건수는 각 서비스 관리자에서 확인합니다. 이 화면은 공식 고객 링크와 관리자 바로가기를 한 곳에서 관리합니다.
+                  비즈니스폼+ 응답은 API로 상담 요청에 동기화됩니다. 카카오톡 채널의 1:1 채팅 내용과 읽지 않은 건수는 일반 채널 API가 제공하지 않아 상담톡 공식 연동이 별도로 필요합니다.
                 </div>
                 <button
                   type="button"
