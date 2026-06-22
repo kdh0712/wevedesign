@@ -956,6 +956,7 @@ export default function WeveDesignLanding({
   );
 
   const selectedProject = projects.find((project) => project.id === selectedProjectId);
+  const PageHeading = selectedProject ? 'h2' : 'h1';
   const openProject = (project: Project) => {
     setSelectedProjectId(project.id);
     window.history.pushState({ projectId: project.id }, '', projectPath(project));
@@ -1362,8 +1363,6 @@ export default function WeveDesignLanding({
           onSectionClick={scrollToSection}
           onMenuClick={() => setMobileNavOpen((value) => !value)}
         />
-        <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} onCloseAll={closeAllHomepagePopups} onPortfolioClick={showPortfolio} onContactClick={() => scrollToSection('contact')} />
-
         <main className="pb-24">
           <section className="relative flex min-h-[420px] items-center justify-center overflow-hidden px-5 pt-28 text-center text-white md:px-8">
             <img
@@ -1375,9 +1374,9 @@ export default function WeveDesignLanding({
             <div className="absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-[#171512]/65 to-transparent" />
             <div className="relative z-10 fade-up">
               <p className="mb-4 text-sm font-bold uppercase tracking-[0.35em] text-[#f1c76a]">WEVE PROJECT</p>
-              <h1 data-preview-target="portfolioTitle" className="text-5xl font-semibold leading-tight tracking-normal md:text-7xl">
+              <PageHeading data-preview-target="portfolioTitle" className="text-5xl font-semibold leading-tight tracking-normal md:text-7xl">
                 {settings.portfolioTitle || defaultSettings.portfolioTitle}
-              </h1>
+              </PageHeading>
               <button
                 onClick={handleLogoClick}
                 className="mx-auto mt-8 inline-flex items-center gap-2 text-sm font-semibold text-white/82 transition hover:text-white"
@@ -1494,7 +1493,9 @@ export default function WeveDesignLanding({
           onSectionClick={scrollToSection}
         onMenuClick={() => setMobileNavOpen((value) => !value)}
       />
-      <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} onCloseAll={closeAllHomepagePopups} onPortfolioClick={showPortfolio} onContactClick={() => scrollToSection('contact')} />
+      {initialSection === 'home' && !selectedProject && (
+        <HomepagePopupWindows popups={visibleHomepagePopups} onClose={closeHomepagePopup} onCloseAll={closeAllHomepagePopups} onPortfolioClick={showPortfolio} onContactClick={() => scrollToSection('contact')} />
+      )}
 
       <main>
         <section id="home" className="relative min-h-screen overflow-hidden">
@@ -1522,9 +1523,9 @@ export default function WeveDesignLanding({
               <p data-preview-target="heroLabel" className="mb-3 font-serif text-xs uppercase tracking-normal text-[#eed7a8] sm:text-sm md:mb-4 md:text-base">
                 {settings.heroLabel || activeHero.label}
               </p>
-              <h1 data-preview-target="heroTitle" className="hero-title max-w-[660px] text-[2.18rem] font-semibold leading-[1.12] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] md:leading-[1.08] lg:text-[4.55rem]">
+              <PageHeading data-preview-target="heroTitle" className="hero-title max-w-[660px] text-[2.18rem] font-semibold leading-[1.12] tracking-normal text-[#f4dfb8] sm:text-[3.25rem] md:text-[4.1rem] md:leading-[1.08] lg:text-[4.55rem]">
                 {settings.heroTitle || activeHero.title}
-              </h1>
+              </PageHeading>
               <div className="hero-ornament my-3 flex max-w-[360px] items-center gap-3 sm:max-w-[470px] md:my-4" aria-hidden="true">
                 <span className="hero-ornament-line" />
                 <svg className="hero-ornament-mark" viewBox="0 0 92 20" fill="none">
@@ -2752,8 +2753,14 @@ function FilterButton({
 }
 
 function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick: () => void }) {
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onClick();
+  };
+
   return (
-    <button onClick={onClick} className="gallery-card fade-up group block w-full text-left">
+    <a href={projectPath(project)} onClick={handleClick} className="gallery-card fade-up group block w-full text-left">
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
         {project.mainImage ? (
           <img
@@ -2791,14 +2798,21 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
           )}
         </div>
       </div>
-    </button>
+    </a>
   );
 }
 
 function ProjectCard({ project, onClick }: { project: Project; onClick: () => void }) {
+  const handleClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    onClick();
+  };
+
   return (
-    <button
-      onClick={onClick}
+    <a
+      href={projectPath(project)}
+      onClick={handleClick}
       className="project-card-3d motion-card fade-up group flex h-full w-full flex-col overflow-hidden rounded-lg bg-white text-left transition"
     >
       <div className="relative aspect-[4/3] overflow-hidden bg-[#ded7cc]">
@@ -2835,7 +2849,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
           )}
         </div>
       </div>
-    </button>
+    </a>
   );
 }
 
@@ -2882,7 +2896,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
             <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">
               {project.categoryTitle || 'Portfolio'}
             </p>
-            <h2 className="mt-1 text-2xl font-semibold">{project.title}</h2>
+            <h1 className="mt-1 text-2xl font-semibold">{project.title}</h1>
           </div>
           <button
             onClick={onClose}
