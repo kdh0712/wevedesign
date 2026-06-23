@@ -1,6 +1,6 @@
 export const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.wevedesign.co.kr';
 
-export const siteModifiedDate = '2026-06-22';
+export const siteModifiedDate = '2026-06-23';
 
 export const homepageFaqItems = [
   {

@@ -66,10 +66,17 @@ export async function LocalLandingPage({ config }: { config: LocalLandingConfig 
   };
   const localBusinessJsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'HomeAndConstructionBusiness',
+    '@type': ['Organization', 'LocalBusiness', 'HomeAndConstructionBusiness'],
+    '@id': `${siteUrl}/#organization`,
     name: '위브디자인 WEVE DESIGN',
-    url,
+    url: siteUrl,
     telephone: '0507-1381-0489',
+    founder: {
+      '@type': 'Person',
+      '@id': `${siteUrl}/#representative`,
+      name: '김현종',
+      jobTitle: '대표',
+    },
     address: {
       '@type': 'PostalAddress',
       streetAddress: '오리나무1길 12, 1층',

@@ -19,7 +19,7 @@ const siteSettings = defineType({
     projectSectionTitle: 'PROJECT',
     projectButtonLabel: '전체 Project',
     portfolioTitle: 'Project를 둘러보세요.',
-    representativeName: '김동호',
+    representativeName: '김현종',
     companyStartYear: '2026',
     phone: '0507-1381-0489',
     safePhone: '0507-1381-0489',
@@ -445,7 +445,7 @@ const siteSettings = defineType({
       title: '대표자명',
       type: 'string',
       group: 'location',
-      description: '홈페이지 맨 아래 회사 정보에 표시됩니다. 예: 김동호',
+      description: '홈페이지 맨 아래 회사 정보에 표시됩니다. 예: 김현종',
     }),
     defineField({
       name: 'businessNumber',

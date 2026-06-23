@@ -2623,7 +2623,7 @@ export default function ManagerPage() {
                         <h3 className="mb-3 font-semibold">기본 회사 정보</h3>
                         <div className="grid gap-3 md:grid-cols-2">
                           <SettingInput label="상담문의 이메일" value={homepageSettings.consultationEmail} onChange={(value) => setHomepageSettings({ ...homepageSettings, consultationEmail: value })} {...previewFocus('consultationEmail')} />
-                          <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김동호" {...previewFocus('representativeName')} />
+                          <SettingInput label="대표자명" value={homepageSettings.representativeName} onChange={(value) => setHomepageSettings({ ...homepageSettings, representativeName: value })} placeholder="예: 김현종" {...previewFocus('representativeName')} />
                           <SettingInput label="사업자등록번호" value={homepageSettings.businessNumber} onChange={(value) => setHomepageSettings({ ...homepageSettings, businessNumber: value })} placeholder="예: 123-45-67890" {...previewFocus('businessNumber')} />
                           <SettingInput label="회사 시작 연도" value={homepageSettings.companyStartYear} onChange={(value) => setHomepageSettings({ ...homepageSettings, companyStartYear: onlyNumber(value).slice(0, 4) })} placeholder="예: 2020" {...previewFocus('companyStartYear')} />
                           <SettingInput label="상단 안심번호" value={homepageSettings.safePhone} onChange={(value) => setHomepageSettings({ ...homepageSettings, safePhone: formatPhoneNumber(value) })} placeholder="0507-1381-0489" {...previewFocus('safePhone')} />

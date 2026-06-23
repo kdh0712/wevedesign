@@ -278,7 +278,7 @@ const defaultSettings: Required<SiteSettings> = {
   contactTitle: '공간 이야기를 남겨주세요.',
   contactBody: '이름, 연락처, 현장 주소, 원하는 시공 범위를 보내주시면 확인 후 연락드립니다.',
   consultationEmail: 'ehogh1@gmail.com',
-  representativeName: '김동호',
+  representativeName: '김현종',
   businessNumber: '',
   companyStartYear: '2026',
   consultationPropertyQuestion: '반갑습니다. 고객님! 인테리어가 필요한 공간은 어디인가요?',
@@ -1064,6 +1064,11 @@ export default function WeveDesignLanding({
   const lotAddress = settings.lotAddress || defaultSettings.lotAddress;
   const safePhone = settings.safePhone || defaultSettings.safePhone;
   const companyPhone = settings.companyPhone || defaultSettings.companyPhone;
+  const legacyRepresentativeName = String.fromCharCode(44608, 46041, 54840);
+  const representativeName =
+    settings.representativeName === legacyRepresentativeName
+      ? '김현종'
+      : settings.representativeName || defaultSettings.representativeName;
   const socialLinks = [
     { key: 'kakao', label: '카카오톡', href: settings.kakaoUrl, icon: MessageCircle, className: 'bg-[#FEE500] text-[#3c1e1e]' },
     { key: 'instagram', label: '인스타그램', href: settings.instagramUrl, icon: Instagram, className: 'bg-gradient-to-br from-[#f58529] via-[#dd2a7b] to-[#515bd4] text-white' },
@@ -2383,7 +2388,7 @@ export default function WeveDesignLanding({
               <p>
                 <span>상호 위브디자인</span>
                 {' | '}
-                <span data-preview-target="representativeName">대표자 {settings.representativeName || defaultSettings.representativeName}</span>
+                <span data-preview-target="representativeName">대표자 {representativeName}</span>
               </p>
               <p data-preview-target="companyPhone">대표전화 {companyPhone}</p>
               {(settings.businessNumber || defaultSettings.businessNumber) && (

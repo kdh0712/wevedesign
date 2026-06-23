@@ -87,7 +87,8 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
     dateModified: project.updatedAt,
     about: [project.categoryTitle, project.location, project.area && `${project.area}평`].filter(Boolean),
     provider: {
-      '@type': 'HomeAndConstructionBusiness',
+      '@type': ['Organization', 'LocalBusiness', 'HomeAndConstructionBusiness'],
+      '@id': `${siteUrl}/#organization`,
       name: '위브디자인 WEVE DESIGN',
       url: siteUrl,
       telephone: '0507-1381-0489',

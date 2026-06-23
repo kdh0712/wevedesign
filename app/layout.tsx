@@ -9,10 +9,18 @@ const googleVerification = process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || '
 const naverAnalyticsId = process.env.NEXT_PUBLIC_NAVER_ANALYTICS_ID || '151969fd25c7b30';
 const siteTitle = '위브디자인 WEVE DESIGN | 의왕·안양 인테리어 리모델링';
 const siteDescription = '위브디자인은 의왕, 안양, 군포, 과천과 경기 남부 지역의 아파트·주거·상업 공간 인테리어 리모델링을 진행하는 전문 스튜디오입니다.';
+const representativeJsonLd = {
+  '@type': 'Person',
+  '@id': `${siteUrl}/#representative`,
+  name: '김현종',
+  jobTitle: '대표',
+  worksFor: { '@id': `${siteUrl}/#organization` },
+};
 const localBusinessJsonLd = {
-  '@type': 'HomeAndConstructionBusiness',
+  '@type': ['Organization', 'LocalBusiness', 'HomeAndConstructionBusiness'],
   '@id': `${siteUrl}/#organization`,
   name: '위브디자인 WEVE DESIGN',
+  legalName: '위브디자인',
   alternateName: ['위브디자인', 'WEVE DESIGN', 'WEVE 인테리어 디자인'],
   url: siteUrl,
   logo: `${siteUrl}/weve-symbol.png`,
@@ -26,10 +34,19 @@ const localBusinessJsonLd = {
     addressRegion: '경기도',
     addressCountry: 'KR',
   },
+  contactPoint: {
+    '@type': 'ContactPoint',
+    '@id': `${siteUrl}/#contact-point`,
+    telephone: '031-381-0489',
+    contactType: 'customer service',
+    areaServed: 'KR',
+    availableLanguage: 'ko-KR',
+  },
   areaServed: ['의왕 인테리어', '안양 인테리어', '군포 인테리어', '과천 인테리어', '경기 남부 인테리어', '서울 인테리어'],
   serviceType: ['아파트 인테리어', '주거 공간 리모델링', '상업 공간 인테리어', '부분 시공', '현장 관리'],
   identifier: '138-05-48056',
-  founder: '김현종',
+  founder: { '@id': `${siteUrl}/#representative` },
+  employee: { '@id': `${siteUrl}/#representative` },
   foundingDate: '2006',
   dateModified: siteModifiedDate,
 };
@@ -46,9 +63,27 @@ const websiteJsonLd = {
   dateModified: siteModifiedDate,
 };
 
+const webpageJsonLd = {
+  '@type': 'WebPage',
+  '@id': `${siteUrl}/#webpage`,
+  url: siteUrl,
+  name: siteTitle,
+  description: siteDescription,
+  inLanguage: 'ko-KR',
+  isPartOf: { '@id': `${siteUrl}/#website` },
+  about: { '@id': `${siteUrl}/#organization` },
+  primaryImageOfPage: {
+    '@type': 'ImageObject',
+    '@id': `${siteUrl}/#primaryimage`,
+    url: `${siteUrl}/main-bg.webp`,
+  },
+  datePublished: '2026-06-01',
+  dateModified: siteModifiedDate,
+};
+
 const structuredDataJsonLd = {
   '@context': 'https://schema.org',
-  '@graph': [websiteJsonLd, localBusinessJsonLd],
+  '@graph': [websiteJsonLd, webpageJsonLd, localBusinessJsonLd, representativeJsonLd],
 };
 
 export const metadata: Metadata = {
