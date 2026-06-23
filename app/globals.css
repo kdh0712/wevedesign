@@ -296,8 +296,9 @@ img {
 
 .method-section {
   position: relative;
-  overflow: hidden;
+  overflow-x: clip;
   background:
+    linear-gradient(135deg, rgb(241 199 106 / 0.18), transparent 28%, transparent 72%, rgb(143 111 67 / 0.10)),
     linear-gradient(90deg, rgb(234 223 205 / 0.42) 1px, transparent 1px),
     linear-gradient(180deg, rgb(234 223 205 / 0.36) 1px, transparent 1px),
     #fffaf0;
@@ -315,14 +316,36 @@ img {
 }
 
 .method-sticky-panel {
+  position: relative;
+  overflow: hidden;
   box-shadow:
     0 1px 0 rgb(255 255 255 / 0.86) inset,
     0 24px 60px rgb(57 46 31 / 0.10);
 }
 
+.method-sticky-panel::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 4px;
+  content: "";
+  background: linear-gradient(90deg, #171512, #f1c76a 42%, #fff1c2);
+}
+
 .method-mode-button {
   position: relative;
+  min-width: 0;
   overflow: hidden;
+}
+
+.method-mode-button > * {
+  min-width: 0;
+}
+
+.method-mode-eyebrow {
+  display: block;
+  overflow-wrap: anywhere;
 }
 
 .method-mode-button::after {
@@ -343,6 +366,8 @@ img {
 .method-focus-card {
   position: relative;
   isolation: isolate;
+  background:
+    linear-gradient(135deg, rgb(255 250 240 / 0.98), #ffffff 34%, #ffffff 100%);
 }
 
 .method-focus-card::after {
@@ -359,6 +384,17 @@ img {
 
 .method-flow-card {
   box-shadow: 0 12px 28px rgb(57 46 31 / 0.055);
+}
+
+.method-flow-card::before {
+  position: absolute;
+  top: 0;
+  right: 12px;
+  left: 12px;
+  height: 3px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(241 199 106 / 0.9), transparent);
+  border-radius: 999px;
 }
 
 @keyframes method-scan {
@@ -458,6 +494,25 @@ img {
 .portfolio-scroll::-webkit-scrollbar-thumb {
   background: #e3bf68;
   border-radius: 999px;
+}
+
+@media (max-width: 640px) {
+  .method-section {
+    background-size: 32px 32px;
+  }
+
+  .method-section h2,
+  .method-section h3,
+  .method-section p,
+  .method-section button,
+  .method-section li {
+    overflow-wrap: anywhere;
+    word-break: keep-all;
+  }
+
+  .method-mode-eyebrow {
+    letter-spacing: 0.14em;
+  }
 }
 
 .skip-link {

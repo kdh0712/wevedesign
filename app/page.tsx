@@ -1762,10 +1762,10 @@ export default function WeveDesignLanding({
           className="method-section scroll-reveal px-4 py-16 text-[#171512] md:px-8 md:py-24"
         >
           <div className="mx-auto max-w-7xl">
-            <div className="grid gap-6 lg:grid-cols-[370px_minmax(0,1fr)] lg:gap-9">
-              <div className="method-sticky-panel rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur md:p-7 lg:sticky lg:top-28 lg:self-start">
+            <div className="grid min-w-0 gap-6 lg:grid-cols-[370px_minmax(0,1fr)] lg:gap-9">
+              <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur md:p-7 lg:sticky lg:top-28 lg:self-start">
                 <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
-                <h2 className="text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
+                <h2 className="text-[1.85rem] font-semibold leading-tight tracking-normal sm:text-3xl md:text-4xl">
                   공사 범위와 결정 방식에 맞춰 진행 흐름을 정합니다.
                 </h2>
                 <p className="mt-4 text-sm leading-7 text-[#625d54] md:text-base md:leading-8">
@@ -1779,13 +1779,13 @@ export default function WeveDesignLanding({
                       key={model.id}
                       type="button"
                       onClick={() => setActiveConstructionModel(model.id)}
-                      className={`method-mode-button group rounded-lg border p-4 text-left transition ${
+                      className={`method-mode-button group w-full max-w-full rounded-lg border p-4 text-left transition ${
                         selectedConstructionModel.id === model.id
                           ? 'border-[#d7a941] bg-[#f1c76a] text-[#171512] shadow-[0_16px_40px_rgba(191,143,51,0.20)]'
                           : 'border-[#eadfcd] bg-white text-[#171512] shadow-sm hover:border-[#d7a941] hover:bg-[#fffdf8]'
                       }`}
                     >
-                      <span className="text-xs font-bold uppercase tracking-[0.2em] opacity-65">{model.eyebrow}</span>
+                      <span className="method-mode-eyebrow text-xs font-bold uppercase tracking-[0.2em] opacity-65">{model.eyebrow}</span>
                       <span className="mt-2 flex items-center justify-between gap-3 text-lg font-semibold">
                         {model.label}
                         <ArrowRight className="transition group-hover:translate-x-1" size={20} />
@@ -1810,25 +1810,25 @@ export default function WeveDesignLanding({
                 </div>
               </div>
 
-              <div className="grid gap-5">
-                <div className="method-focus-card overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
-                  <div className="grid gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
-                    <div>
+              <div className="grid min-w-0 gap-5">
+                <div className="method-focus-card min-w-0 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
+                  <div className="grid min-w-0 gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start lg:gap-7">
+                    <div className="min-w-0">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
-                      <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight md:text-4xl">
+                      <h3 className="mt-3 max-w-4xl text-[1.65rem] font-semibold leading-tight sm:text-2xl md:text-4xl">
                         {selectedConstructionModel.title}
                       </h3>
                       <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
                         {selectedConstructionModel.summary}
                       </p>
                     </div>
-                    <aside className="grid gap-3">
-                      <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
+                    <aside className="grid content-start gap-3 self-start">
+                      <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
                         <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">추천 대상</p>
-                        <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
+                        <p className="mt-2 text-base font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
                       </div>
                       {selectedConstructionModel.id === 'cm' && (
-                        <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
+                        <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-4">
                           <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
                           <p className="mt-3 text-sm leading-6 text-[#625d54]">
                             고객이 디자인 선택과 일부 의사결정을 직접 가져가면, 턴키 방식보다 총 공사 금액을 조정할 여지가 있습니다.
