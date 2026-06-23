@@ -294,16 +294,83 @@ img {
   opacity: 1;
 }
 
+.method-section {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(90deg, rgb(234 223 205 / 0.42) 1px, transparent 1px),
+    linear-gradient(180deg, rgb(234 223 205 / 0.36) 1px, transparent 1px),
+    #fffaf0;
+  background-size: 44px 44px;
+}
+
 .method-section.scroll-reveal {
   opacity: 1;
   transform: none;
-  transition:
-    background-color 0.18s linear,
-    color 0.18s linear;
 }
 
-.method-muted {
-  transition: color 0.18s linear;
+.method-section > div {
+  position: relative;
+  z-index: 1;
+}
+
+.method-sticky-panel {
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.86) inset,
+    0 24px 60px rgb(57 46 31 / 0.10);
+}
+
+.method-mode-button {
+  position: relative;
+  overflow: hidden;
+}
+
+.method-mode-button::after {
+  position: absolute;
+  inset: auto 14px 12px;
+  height: 1px;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(143 111 67 / 0.55), transparent);
+  opacity: 0;
+  transition: opacity 0.22s ease;
+}
+
+.method-mode-button:hover::after {
+  opacity: 1;
+}
+
+.method-focus-card {
+  position: relative;
+  isolation: isolate;
+}
+
+.method-focus-card::after {
+  position: absolute;
+  top: 0;
+  left: -34%;
+  width: 34%;
+  height: 3px;
+  pointer-events: none;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(241 199 106 / 0.92), transparent);
+  animation: method-scan 5.2s ease-in-out infinite;
+}
+
+.method-flow-card {
+  box-shadow: 0 12px 28px rgb(57 46 31 / 0.055);
+}
+
+@keyframes method-scan {
+  0%,
+  18% {
+    left: -34%;
+  }
+
+  58%,
+  100% {
+    left: 100%;
+  }
 }
 
 .workflow-step {
@@ -449,6 +516,10 @@ img {
 
   .project-marquee-track {
     animation: none !important;
+  }
+
+  .method-focus-card::after {
+    opacity: 0.55;
   }
 }
 

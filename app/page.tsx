@@ -1759,134 +1759,150 @@ export default function WeveDesignLanding({
         <section
           ref={methodSectionRef}
           id="work-method"
-          className="method-section scroll-reveal bg-[#fffaf0] px-4 py-16 md:px-8 md:py-24"
+          className="method-section scroll-reveal px-4 py-16 text-[#171512] md:px-8 md:py-24"
         >
           <div className="mx-auto max-w-7xl">
-            <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-10">
-              <div>
+            <div className="grid gap-6 lg:grid-cols-[370px_minmax(0,1fr)] lg:gap-9">
+              <div className="method-sticky-panel rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur md:p-7 lg:sticky lg:top-28 lg:self-start">
                 <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
-                <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal text-[#171512] md:text-5xl">
+                <h2 className="text-3xl font-semibold leading-tight tracking-normal md:text-4xl">
                   공사 범위와 결정 방식에 맞춰 진행 흐름을 정합니다.
                 </h2>
-              </div>
-              <p className="max-w-3xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
-                디자인을 직접 준비하고 현장 관리를 맡길지, 디자인 제안부터 마감 이후 관리까지 한 흐름으로 맡길지에 따라
-                상담과 견적 방식이 달라집니다.
-              </p>
-            </div>
+                <p className="mt-4 text-sm leading-7 text-[#625d54] md:text-base md:leading-8">
+                  디자인을 직접 준비하고 현장 관리를 맡길지, 디자인 제안부터 마감 이후 관리까지 한 흐름으로 맡길지에 따라
+                  상담과 견적 방식이 달라집니다.
+                </p>
 
-            <div className="mt-8 grid gap-3 md:grid-cols-2 md:gap-4">
-                {constructionModels.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    onClick={() => setActiveConstructionModel(model.id)}
-                  className={`group rounded-lg border p-5 text-left transition md:p-6 ${
-                      selectedConstructionModel.id === model.id
-                      ? 'border-[#d7a941] bg-[#f1c76a] text-[#171512] shadow-[0_18px_45px_rgba(191,143,51,0.20)]'
-                      : 'border-[#eadfcd] bg-white text-[#171512] shadow-sm hover:border-[#d7a941] hover:bg-[#fffdf8]'
-                    }`}
-                  >
-                  <span className="text-xs font-bold uppercase tracking-[0.2em] opacity-65">{model.eyebrow}</span>
-                  <span className="mt-3 flex items-center justify-between gap-3 text-xl font-semibold md:text-2xl">
-                      {model.label}
-                      <ArrowRight className="transition group-hover:translate-x-1" size={22} />
-                    </span>
-                  <span className="mt-4 block text-sm leading-6 opacity-80">{model.bestFor}</span>
-                  </button>
-                ))}
-              </div>
+                <div className="mt-6 grid gap-3">
+                  {constructionModels.map((model) => (
+                    <button
+                      key={model.id}
+                      type="button"
+                      onClick={() => setActiveConstructionModel(model.id)}
+                      className={`method-mode-button group rounded-lg border p-4 text-left transition ${
+                        selectedConstructionModel.id === model.id
+                          ? 'border-[#d7a941] bg-[#f1c76a] text-[#171512] shadow-[0_16px_40px_rgba(191,143,51,0.20)]'
+                          : 'border-[#eadfcd] bg-white text-[#171512] shadow-sm hover:border-[#d7a941] hover:bg-[#fffdf8]'
+                      }`}
+                    >
+                      <span className="text-xs font-bold uppercase tracking-[0.2em] opacity-65">{model.eyebrow}</span>
+                      <span className="mt-2 flex items-center justify-between gap-3 text-lg font-semibold">
+                        {model.label}
+                        <ArrowRight className="transition group-hover:translate-x-1" size={20} />
+                      </span>
+                      <span className="mt-3 block text-sm leading-6 opacity-80">{model.bestFor}</span>
+                    </button>
+                  ))}
+                </div>
 
-            <div className="mt-5 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_18px_55px_rgba(55,46,31,0.08)]">
-              <div className="grid gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
-                <div>
-                  <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
-                  <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight md:text-4xl">
-                    {selectedConstructionModel.title}
-                  </h3>
-                  <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
-                    {selectedConstructionModel.summary}
-                  </p>
-                </div>
-                <aside className="grid gap-3">
-                  <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
-                    <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">추천 대상</p>
-                    <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
-                  </div>
-                  {selectedConstructionModel.id === 'cm' && (
-                    <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
-                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
-                      <p className="mt-3 text-sm leading-6 text-[#625d54]">
-                        고객이 디자인 선택과 일부 의사결정을 직접 가져가면, 턴키 방식보다 총 공사 금액을 조정할 여지가 있습니다.
-                      </p>
-                    </div>
-                  )}
-                </aside>
-              </div>
-
-              <div className="grid gap-4 border-t border-[#eadfcd] bg-[#fffdf8] p-5 md:grid-cols-3 md:p-8">
-                <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
-                  <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
-                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
-                    {selectedConstructionModel.customerRole.slice(0, 3).map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <Check className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="rounded-lg border border-[#dcebdd] bg-[#fbfffb] p-5">
-                  <p className="text-sm font-bold tracking-[0.18em] text-[#2f7d45]">장점</p>
-                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#405044]">
-                    {selectedConstructionModel.pros.slice(0, 3).map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <Check className="mt-1 shrink-0 text-[#2f7d45]" size={15} />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
-                  <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">확인할 점</p>
-                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
-                    {selectedConstructionModel.cons.map((item) => (
-                      <li key={item} className="flex gap-2">
-                        <Sparkles className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="border-t border-[#eadfcd] p-5 md:p-8">
-                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-                  <div>
-                    <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
-                    <h4 className="mt-2 text-2xl font-semibold">단계별 흐름</h4>
-                  </div>
-                  <p className="max-w-md text-sm leading-6 text-[#625d54]">
-                    단계별로 결정할 내용과 위브디자인이 관리하는 지점을 나누어 정리합니다.
-                  </p>
-                </div>
-                <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0">
-                  {selectedConstructionModel.workflow.map((step, index) => (
-                    <div key={step.title} className="relative min-w-[78%] snap-start lg:min-w-0">
-                      <div className="workflow-step h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
+                <div className="mt-6 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
+                  <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">상담에서 보는 기준</p>
+                  <div className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
+                    {['공간의 현재 상태', '예산과 일정의 우선순위', '직접 결정할 범위'].map((item, index) => (
+                      <div key={item} className="flex items-center gap-3">
+                        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-xs font-bold text-[#9a7335]">
                           {String(index + 1).padStart(2, '0')}
                         </span>
-                        <h5 className="mt-4 text-lg font-semibold">{step.title}</h5>
-                        <p className="mt-3 text-sm leading-6 text-[#625d54]">{step.body}</p>
+                        {item}
                       </div>
-                      {index < selectedConstructionModel.workflow.length - 1 && (
-                        <div className="workflow-arrow hidden lg:flex" aria-hidden="true">
-                          <ArrowRight size={18} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-5">
+                <div className="method-focus-card overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
+                  <div className="grid gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
+                    <div>
+                      <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
+                      <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight md:text-4xl">
+                        {selectedConstructionModel.title}
+                      </h3>
+                      <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
+                        {selectedConstructionModel.summary}
+                      </p>
+                    </div>
+                    <aside className="grid gap-3">
+                      <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
+                        <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">추천 대상</p>
+                        <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
+                      </div>
+                      {selectedConstructionModel.id === 'cm' && (
+                        <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
+                          <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
+                          <p className="mt-3 text-sm leading-6 text-[#625d54]">
+                            고객이 디자인 선택과 일부 의사결정을 직접 가져가면, 턴키 방식보다 총 공사 금액을 조정할 여지가 있습니다.
+                          </p>
                         </div>
                       )}
+                    </aside>
+                  </div>
+
+                  <div className="grid gap-4 border-t border-[#eadfcd] bg-[#fffdf8] p-5 md:grid-cols-3 md:p-8">
+                    <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
+                      <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
+                        {selectedConstructionModel.customerRole.slice(0, 3).map((item) => (
+                          <li key={item} className="flex gap-2">
+                            <Check className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  ))}
+                    <div className="rounded-lg border border-[#dcebdd] bg-[#fbfffb] p-5">
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#2f7d45]">장점</p>
+                      <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#405044]">
+                        {selectedConstructionModel.pros.slice(0, 3).map((item) => (
+                          <li key={item} className="flex gap-2">
+                            <Check className="mt-1 shrink-0 text-[#2f7d45]" size={15} />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">확인할 점</p>
+                      <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
+                        {selectedConstructionModel.cons.map((item) => (
+                          <li key={item} className="flex gap-2">
+                            <Sparkles className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-[#eadfcd] bg-white p-5 shadow-[0_18px_55px_rgba(57,46,31,0.07)] md:p-8">
+                  <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
+                    <div>
+                      <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
+                      <h4 className="mt-2 text-2xl font-semibold">단계별 흐름</h4>
+                    </div>
+                    <p className="max-w-md text-sm leading-6 text-[#625d54]">
+                      단계별로 결정할 내용과 위브디자인이 관리하는 지점을 나누어 정리합니다.
+                    </p>
+                  </div>
+                  <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0">
+                    {selectedConstructionModel.workflow.map((step, index) => (
+                      <div key={step.title} className="relative min-w-[78%] snap-start lg:min-w-0">
+                        <div className="workflow-step method-flow-card h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
+                            {String(index + 1).padStart(2, '0')}
+                          </span>
+                          <h5 className="mt-4 text-lg font-semibold">{step.title}</h5>
+                          <p className="mt-3 text-sm leading-6 text-[#625d54]">{step.body}</p>
+                        </div>
+                        {index < selectedConstructionModel.workflow.length - 1 && (
+                          <div className="workflow-arrow hidden lg:flex" aria-hidden="true">
+                            <ArrowRight size={18} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
