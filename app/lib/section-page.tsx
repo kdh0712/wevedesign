@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import WeveDesignLanding from '@/app/page';
 
-export type SectionKey = 'statement' | 'portfolio-preview' | 'about' | 'work-method' | 'process' | 'location' | 'contact';
+export type SectionKey = 'statement' | 'portfolio-preview' | 'about' | 'work-method' | 'process' | 'location' | 'faq' | 'contact';
 
 const sectionCopy: Record<SectionKey, { path: string; title: string; description: string }> = {
   statement: {
@@ -33,6 +33,11 @@ const sectionCopy: Record<SectionKey, { path: string; title: string; description
     path: '/location',
     title: '위브디자인 오시는 길',
     description: '위브디자인 사무실 위치와 연락처를 확인하세요.',
+  },
+  faq: {
+    path: '/faq',
+    title: '위브디자인 자주 묻는 질문',
+    description: '인테리어 상담 전 자주 묻는 예산, 일정, 공사 범위 질문을 확인하세요.',
   },
   contact: {
     path: '/consultation',

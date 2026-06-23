@@ -5,7 +5,7 @@ import { projectPath, siteUrl } from '@/app/lib/seo-utils';
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const projects = await getProjects();
-  const sectionPaths = ['/introduction', '/projects', '/about', '/work-method', '/process', '/location', '/consultation', '/portfolio', '/privacy', '/terms'];
+  const sectionPaths = ['/introduction', '/projects', '/about', '/work-method', '/process', '/location', '/faq', '/consultation', '/portfolio', '/privacy', '/terms'];
 
   return [
     {

@@ -10,6 +10,7 @@ import {
   BookOpen,
   Camera,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Home,
@@ -608,8 +609,6 @@ const constructionModels = [
   },
 ] as const;
 
-const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
-
 const optimizedImage = (src: string | undefined, width: number, quality = 88) => {
   if (!src) return '';
   if (!src.includes('cdn.sanity.io')) return src;
@@ -621,13 +620,6 @@ const optimizedImage = (src: string | undefined, width: number, quality = 88) =>
 const responsiveImageSrcSet = (src: string | undefined, widths: number[], quality = 82) => {
   if (!src?.includes('cdn.sanity.io')) return undefined;
   return widths.map((width) => `${optimizedImage(src, width, quality)} ${width}w`).join(', ');
-};
-
-const mixRgb = (from: [number, number, number], to: [number, number, number], progress: number) => {
-  const ratio = clamp(progress);
-  const [r, g, b] = from.map((channel, index) => Math.round(channel + (to[index] - channel) * ratio));
-
-  return `rgb(${r} ${g} ${b})`;
 };
 
 const formatPhoneNumber = (value: string) => {
@@ -659,7 +651,7 @@ const imageObjectPosition = (value?: string, x?: number, y?: number) => {
   return positions[value || 'center'] || positions.center;
 };
 
-type LandingSection = 'home' | 'statement' | 'portfolio-preview' | 'about' | 'work-method' | 'process' | 'location' | 'contact';
+type LandingSection = 'home' | 'statement' | 'portfolio-preview' | 'about' | 'work-method' | 'process' | 'location' | 'faq' | 'contact';
 
 type WeveDesignLandingProps = {
   initialProject?: Project;
@@ -675,6 +667,7 @@ const sectionPaths: Record<LandingSection, string> = {
   'work-method': '/work-method',
   process: '/process',
   location: '/location',
+  faq: '/faq',
   contact: '/consultation',
 };
 
@@ -686,6 +679,7 @@ const sectionBreadcrumbNames: Record<LandingSection, string> = {
   'work-method': '공사 방식',
   process: '진행 절차',
   location: '오시는 길',
+  faq: '자주 묻는 질문',
   contact: '상담 신청',
 };
 
@@ -721,8 +715,6 @@ export default function WeveDesignLanding({
   const [shouldLoadMap, setShouldLoadMap] = useState(false);
   const [shouldLoadConsultationTools, setShouldLoadConsultationTools] = useState(false);
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
-  const [activeGuideTab, setActiveGuideTab] = useState<'method' | 'faq'>('method');
-  const [methodProgress, setMethodProgress] = useState(0);
   const entrySourceRef = useRef('');
   const methodSectionRef = useRef<HTMLElement | null>(null);
   const heroSlides = useMemo(
@@ -863,28 +855,6 @@ export default function WeveDesignLanding({
   }, []);
 
   useEffect(() => {
-    const updateMethodProgress = () => {
-      const section = methodSectionRef.current;
-      if (!section) return;
-
-      const rect = section.getBoundingClientRect();
-      const viewport = window.innerHeight || 1;
-      const progress = clamp((viewport * 0.82 - rect.top) / (viewport * 0.72));
-
-      setMethodProgress(progress);
-    };
-
-    updateMethodProgress();
-    window.addEventListener('scroll', updateMethodProgress, { passive: true });
-    window.addEventListener('resize', updateMethodProgress);
-
-    return () => {
-      window.removeEventListener('scroll', updateMethodProgress);
-      window.removeEventListener('resize', updateMethodProgress);
-    };
-  }, []);
-
-  useEffect(() => {
     const fetchData = async () => {
       try {
         const response = await fetch('/api/portfolio', { cache: 'no-store' });
@@ -994,7 +964,7 @@ export default function WeveDesignLanding({
     }
     if (!sectionNavigationReady) return;
 
-    const sectionIds: LandingSection[] = ['home', 'statement', 'portfolio-preview', 'about', 'work-method', 'process', 'location', 'contact'];
+    const sectionIds: LandingSection[] = ['home', 'statement', 'portfolio-preview', 'about', 'work-method', 'process', 'location', 'faq', 'contact'];
     const updateActiveSection = () => {
       const marker = window.innerHeight * 0.38;
       let id: LandingSection = 'home';
@@ -1004,7 +974,7 @@ export default function WeveDesignLanding({
         if (section && section.getBoundingClientRect().top <= marker) id = sectionId;
       }
 
-        setActiveSection(id === 'portfolio-preview' ? 'portfolio' : id === 'statement' || id === 'work-method' || id === 'process' ? 'about' : (id as typeof activeSection));
+        setActiveSection(id === 'portfolio-preview' ? 'portfolio' : id === 'statement' || id === 'work-method' || id === 'process' || id === 'faq' ? 'about' : (id as typeof activeSection));
         const nextPath = sectionPaths[id];
         const nextUrl = id === 'contact' && entrySourceRef.current
           ? `${nextPath}?source=${encodeURIComponent(entrySourceRef.current)}`
@@ -1078,11 +1048,6 @@ export default function WeveDesignLanding({
   const pickedMapLocation = settings.mapLocation?.lat && settings.mapLocation?.lng ? settings.mapLocation : defaultSettings.mapLocation;
   const selectedConstructionModel =
     constructionModels.find((model) => model.id === activeConstructionModel) || constructionModels[0];
-  const methodBackground = mixRgb([255, 250, 240], [48, 43, 36], methodProgress);
-  const methodTextColor = mixRgb([23, 21, 18], [255, 255, 255], methodProgress);
-  const methodMutedColor = `rgb(${Math.round(98 + (255 - 98) * methodProgress)} ${Math.round(93 + (255 - 93) * methodProgress)} ${Math.round(84 + (255 - 84) * methodProgress)} / ${0.74 - methodProgress * 0.06})`;
-  const methodIsDark = methodProgress > 0.45;
-
   const handleLogoClick = () => {
     setViewMode('main');
     setSelectedProjectId(null);
@@ -1106,11 +1071,11 @@ export default function WeveDesignLanding({
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const scrollToSection = (sectionId: 'home' | 'about' | 'location' | 'contact') => {
+  const scrollToSection = (sectionId: 'home' | 'about' | 'work-method' | 'faq' | 'location' | 'contact') => {
     setViewMode('main');
     setSelectedProjectId(null);
     setMobileNavOpen(false);
-    setActiveSection(sectionId);
+    setActiveSection(sectionId === 'work-method' || sectionId === 'faq' ? 'about' : sectionId);
     window.history.pushState(null, '', sectionPaths[sectionId]);
 
     window.setTimeout(() => {
@@ -1794,224 +1759,137 @@ export default function WeveDesignLanding({
         <section
           ref={methodSectionRef}
           id="work-method"
-          className="method-section scroll-reveal px-4 py-16 md:px-8 md:py-32"
-          style={{ backgroundColor: methodBackground, color: methodTextColor }}
+          className="method-section scroll-reveal bg-[#fffaf0] px-4 py-16 md:px-8 md:py-24"
         >
           <div className="mx-auto max-w-7xl">
-            <div className="mb-8 inline-flex rounded-full border border-[#d8cbb8] bg-white/88 p-1 text-sm font-semibold text-[#625d54] shadow-[0_16px_45px_rgba(0,0,0,0.08)] backdrop-blur md:mb-12">
-              <button
-                type="button"
-                onClick={() => setActiveGuideTab('method')}
-                className={`rounded-full px-5 py-2.5 transition ${
-                  activeGuideTab === 'method'
-                    ? 'bg-[#171512] text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
-                    : 'hover:bg-[#fff7df] hover:text-[#171512]'
-                }`}
-              >
-                진행 방식
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveGuideTab('faq')}
-                className={`rounded-full px-5 py-2.5 transition ${
-                  activeGuideTab === 'faq'
-                    ? 'bg-[#171512] text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
-                    : 'hover:bg-[#fff7df] hover:text-[#171512]'
-                }`}
-              >
-                FAQ
-              </button>
+            <div className="grid gap-5 lg:grid-cols-[0.78fr_1.22fr] lg:items-end lg:gap-10">
+              <div>
+                <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
+                <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal text-[#171512] md:text-5xl">
+                  공사 범위와 결정 방식에 맞춰 진행 흐름을 정합니다.
+                </h2>
+              </div>
+              <p className="max-w-3xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
+                디자인을 직접 준비하고 현장 관리를 맡길지, 디자인 제안부터 마감 이후 관리까지 한 흐름으로 맡길지에 따라
+                상담과 견적 방식이 달라집니다.
+              </p>
             </div>
 
-            {activeGuideTab === 'method' ? (
-              <>
-                <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-end lg:gap-10">
-                  <div>
-                    <p className="mb-4 text-sm font-bold tracking-[0.26em] text-[#f1c76a]">진행 방식</p>
-                    <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-5xl xl:text-6xl">
-                      우리 집에 맞는 공사 방식을 먼저 선택합니다.
-                    </h2>
-                  </div>
-                  <p className="method-muted max-w-2xl text-base leading-7 md:text-lg md:leading-9" style={{ color: methodMutedColor }}>
-                    원하는 디자인을 직접 가져오는지, 디자인 제안부터 사후 관리까지 맡기고 싶은지에 따라 진행 방식이 달라집니다.
-                    두 방식을 비교한 뒤 상담에서 더 맞는 흐름을 정합니다.
-                  </p>
-                </div>
-
-                <div className="mt-8 grid gap-5 md:mt-12 lg:grid-cols-[360px_1fr] lg:gap-8">
-              <div className="grid grid-cols-2 gap-2 self-start lg:grid-cols-1 lg:gap-3">
+            <div className="mt-8 grid gap-3 md:grid-cols-2 md:gap-4">
                 {constructionModels.map((model) => (
                   <button
                     key={model.id}
+                    type="button"
                     onClick={() => setActiveConstructionModel(model.id)}
-                    className={`group rounded-lg border p-4 text-left transition lg:p-6 ${
+                  className={`group rounded-lg border p-5 text-left transition md:p-6 ${
                       selectedConstructionModel.id === model.id
-                        ? 'border-[#f1c76a] bg-[#f1c76a] text-[#171512] shadow-[0_24px_70px_rgba(241,199,106,0.22)]'
-                        : methodIsDark
-                          ? 'border-white/14 bg-white/[0.055] text-white hover:border-white/34 hover:bg-white/[0.085]'
-                          : 'border-[#d8cbb8] bg-white/80 text-[#171512] shadow-sm hover:border-[#8f6f43] hover:bg-white'
+                      ? 'border-[#d7a941] bg-[#f1c76a] text-[#171512] shadow-[0_18px_45px_rgba(191,143,51,0.20)]'
+                      : 'border-[#eadfcd] bg-white text-[#171512] shadow-sm hover:border-[#d7a941] hover:bg-[#fffdf8]'
                     }`}
                   >
-                    <span className="text-xs font-bold uppercase tracking-[0.22em] opacity-70">{model.eyebrow}</span>
-                    <span className="mt-2 flex items-center justify-between gap-2 text-lg font-semibold lg:mt-3 lg:gap-4 lg:text-2xl">
+                  <span className="text-xs font-bold uppercase tracking-[0.2em] opacity-65">{model.eyebrow}</span>
+                  <span className="mt-3 flex items-center justify-between gap-3 text-xl font-semibold md:text-2xl">
                       {model.label}
                       <ArrowRight className="transition group-hover:translate-x-1" size={22} />
                     </span>
-                    <span className="mt-4 hidden text-sm leading-6 opacity-75 lg:block">{model.bestFor}</span>
+                  <span className="mt-4 block text-sm leading-6 opacity-80">{model.bestFor}</span>
                   </button>
                 ))}
-                <details className="col-span-2 overflow-hidden rounded-lg border border-[#d8cbb8] bg-white text-[#171512] lg:col-span-1">
-                  <summary className="cursor-pointer list-none px-4 py-4 marker:content-none lg:px-5">
-                    <h3 className="flex items-center justify-between gap-3 text-base font-semibold">
-                      CM 방식과 턴키 방식은 어떻게 다른가요?
-                      <span className="text-xl font-light text-[#8f6f43]" aria-hidden="true">+</span>
-                    </h3>
-                  </summary>
-                  <div className="overflow-x-auto border-t border-[#eadfcd]">
-                    <table className="w-full min-w-[340px] border-collapse text-left text-xs leading-5">
-                      <thead className="bg-[#fff7df]">
-                        <tr>
-                          <th className="p-3 font-semibold">비교 항목</th>
-                          <th className="p-3 font-semibold">CM 방식</th>
-                          <th className="p-3 font-semibold">턴키 방식</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#eee6da] text-[#625d54]">
-                        <tr><th className="p-3 font-semibold text-[#171512]">디자인</th><td className="p-3">고객 중심 결정</td><td className="p-3">위브디자인 제안</td></tr>
-                        <tr><th className="p-3 font-semibold text-[#171512]">현장 관리</th><td className="p-3">위브디자인 관리</td><td className="p-3">위브디자인 통합 관리</td></tr>
-                        <tr><th className="p-3 font-semibold text-[#171512]">예산 조정</th><td className="p-3">선택 범위가 넓음</td><td className="p-3">확정 범위 중심</td></tr>
-                        <tr><th className="p-3 font-semibold text-[#171512]">추천 대상</th><td className="p-3">원하는 디자인이 명확한 경우</td><td className="p-3">전체 과정을 맡기고 싶은 경우</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
               </div>
 
-              <div className="overflow-hidden rounded-lg border border-white/12 bg-[#fffdf8] text-[#171512] shadow-[0_28px_80px_rgba(0,0,0,0.28)]">
-                <div className="grid gap-5 p-4 md:gap-8 md:p-10">
+            <div className="mt-5 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_18px_55px_rgba(55,46,31,0.08)]">
+              <div className="grid gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-8">
+                <div>
+                  <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
+                  <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-tight md:text-4xl">
+                    {selectedConstructionModel.title}
+                  </h3>
+                  <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:text-lg md:leading-8">
+                    {selectedConstructionModel.summary}
+                  </p>
+                </div>
+                <aside className="grid gap-3">
+                  <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
+                    <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">추천 대상</p>
+                    <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
+                  </div>
+                  {selectedConstructionModel.id === 'cm' && (
+                    <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
+                      <p className="mt-3 text-sm leading-6 text-[#625d54]">
+                        고객이 디자인 선택과 일부 의사결정을 직접 가져가면, 턴키 방식보다 총 공사 금액을 조정할 여지가 있습니다.
+                      </p>
+                    </div>
+                  )}
+                </aside>
+              </div>
+
+              <div className="grid gap-4 border-t border-[#eadfcd] bg-[#fffdf8] p-5 md:grid-cols-3 md:p-8">
+                <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
+                  <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
+                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
+                    {selectedConstructionModel.customerRole.slice(0, 3).map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <Check className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-lg border border-[#dcebdd] bg-[#fbfffb] p-5">
+                  <p className="text-sm font-bold tracking-[0.18em] text-[#2f7d45]">장점</p>
+                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#405044]">
+                    {selectedConstructionModel.pros.slice(0, 3).map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <Check className="mt-1 shrink-0 text-[#2f7d45]" size={15} />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+                <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
+                  <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">확인할 점</p>
+                  <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
+                    {selectedConstructionModel.cons.map((item) => (
+                      <li key={item} className="flex gap-2">
+                        <Sparkles className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="border-t border-[#eadfcd] p-5 md:p-8">
+                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                   <div>
-                    <p className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">
-                      {selectedConstructionModel.eyebrow}
-                    </p>
-                    <div className="grid gap-8 xl:grid-cols-[1fr_0.48fr] xl:items-end">
-                      <div>
-                        <h3 className="mt-3 max-w-4xl text-2xl font-semibold leading-[1.2] md:mt-4 md:text-4xl xl:text-5xl">
-                          {selectedConstructionModel.title}
-                        </h3>
-                        <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:mt-6 md:text-lg md:leading-9">{selectedConstructionModel.summary}</p>
-                      </div>
-                      <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
-                        <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">핵심 기준</p>
-                        <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
-                      </div>
-                    </div>
-
-                    <div className="mt-8 rounded-lg bg-[#302b24] p-5 text-white">
-                      <p className="text-sm font-bold tracking-[0.18em] text-[#f1c76a]">추천 대상</p>
-                      <p className="mt-3 text-lg leading-7">{selectedConstructionModel.bestFor}</p>
-                    </div>
-                    {selectedConstructionModel.id === 'cm' && (
-                      <div className="mt-4 rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
-                        <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
-                        <p className="mt-3 text-lg font-semibold leading-8 text-[#171512]">
-                          CM 방식은 디자인 선택과 일부 의사결정을 고객이 직접 가져가기 때문에, 턴키 방식보다 총 공사 금액을 낮게
-                          조정할 수 있는 여지가 있습니다.
-                        </p>
-                      </div>
-                    )}
-                    <div className="mt-4 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
-                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
-                      <h4 className="mt-2 text-xl font-semibold">소비자가 준비하거나 결정하는 부분</h4>
-                      <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54] md:grid-cols-2">
-                        {selectedConstructionModel.customerRole.map((item) => (
-                          <li key={item} className="flex gap-2">
-                            <Check className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
-                            {item}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+                    <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
+                    <h4 className="mt-2 text-2xl font-semibold">단계별 흐름</h4>
                   </div>
-
-                  <div className="grid gap-5">
-                    <div className="rounded-lg border border-[#eadfcd] bg-white p-5 md:p-7">
-                      <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
-                        <div>
-                          <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
-                          <h4 className="mt-2 text-2xl font-semibold">단계별 흐름</h4>
+                  <p className="max-w-md text-sm leading-6 text-[#625d54]">
+                    단계별로 결정할 내용과 위브디자인이 관리하는 지점을 나누어 정리합니다.
+                  </p>
+                </div>
+                <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0">
+                  {selectedConstructionModel.workflow.map((step, index) => (
+                    <div key={step.title} className="relative min-w-[78%] snap-start lg:min-w-0">
+                      <div className="workflow-step h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
+                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
+                          {String(index + 1).padStart(2, '0')}
+                        </span>
+                        <h5 className="mt-4 text-lg font-semibold">{step.title}</h5>
+                        <p className="mt-3 text-sm leading-6 text-[#625d54]">{step.body}</p>
+                      </div>
+                      {index < selectedConstructionModel.workflow.length - 1 && (
+                        <div className="workflow-arrow hidden lg:flex" aria-hidden="true">
+                          <ArrowRight size={18} />
                         </div>
-                        <p className="max-w-md text-sm leading-6 text-[#625d54]">
-                          단계별로 결정해야 할 내용과 WEVE가 관리하는 지점을 나누어 보여드립니다.
-                        </p>
-                      </div>
-                      <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:mt-7 lg:grid lg:grid-cols-5 lg:gap-4 lg:overflow-visible lg:pb-0">
-                        {selectedConstructionModel.workflow.map((step, index) => (
-                          <div key={step.title} className="relative min-w-[78%] snap-start lg:min-w-0">
-                            <div className="workflow-step h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
-                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
-                                {String(index + 1).padStart(2, '0')}
-                              </span>
-                              <h5 className="mt-4 text-lg font-semibold">{step.title}</h5>
-                              <p className="mt-3 text-sm leading-6 text-[#625d54]">{step.body}</p>
-                            </div>
-                            {index < selectedConstructionModel.workflow.length - 1 && (
-                              <div className="workflow-arrow hidden lg:flex" aria-hidden="true">
-                                <ArrowRight size={18} />
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                      )}
                     </div>
-
-                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-                      <div className="rounded-lg border border-[#dcebdd] bg-[#fbfffb] p-5">
-                        <h4 className="text-lg font-semibold text-[#2f7d45]">장점</h4>
-                        <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#405044]">
-                          {selectedConstructionModel.pros.map((item) => (
-                            <li key={item} className="flex gap-2">
-                              <Check className="mt-1 shrink-0 text-[#2f7d45]" size={16} />
-                              {item}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
-                        <h4 className="text-lg font-semibold text-[#8f6f43]">확인할 점</h4>
-                        <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
-                          {selectedConstructionModel.cons.map((item) => (
-                            <li key={item} className="flex gap-2">
-                              <Sparkles className="mt-1 shrink-0 text-[#8f6f43]" size={15} />
-                              {item}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-              </>
-            ) : (
-              <div id="faq" className="rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-5 text-[#171512] shadow-[0_28px_80px_rgba(0,0,0,0.18)] md:p-10">
-                <div className="grid gap-3 md:grid-cols-[0.45fr_1fr] md:items-end md:gap-8">
-                  <p className="text-sm font-bold tracking-[0.22em] text-[#8f6f43]">FAQ</p>
-                  <h2 className="text-3xl font-semibold leading-tight md:text-5xl">자주 묻는 인테리어 상담 질문</h2>
-                </div>
-                <div className="mt-7 divide-y divide-[#ded4c4] border-y border-[#ded4c4] md:mt-10">
-                  {homepageFaqItems.map((item) => (
-                    <details key={item.question} className="group py-1">
-                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold marker:content-none md:text-lg">
-                        <h3 className="text-base font-semibold md:text-lg">{item.question}</h3>
-                        <span className="text-xl font-light text-[#8f6f43] transition group-open:rotate-45" aria-hidden="true">+</span>
-                      </summary>
-                      <p className="max-w-3xl pb-5 text-sm leading-7 text-[#625d54] md:text-base">{item.answer}</p>
-                    </details>
                   ))}
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </section>
 
@@ -2070,6 +1948,43 @@ export default function WeveDesignLanding({
                   {mapStatus}
                 </div>
               )}
+            </div>
+          </div>
+        </section>
+
+        <section id="faq" className="scroll-reveal bg-[#fffdf8] px-4 py-16 md:px-8 md:py-24">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid gap-4 md:grid-cols-[0.48fr_1fr] md:items-end md:gap-10">
+              <div>
+                <p className="text-sm font-bold uppercase tracking-[0.24em] text-[#8f6f43]">FAQ</p>
+                <h2 className="mt-3 text-3xl font-semibold leading-tight tracking-normal md:text-5xl">
+                  상담 전에 자주 묻는 질문을 정리했습니다.
+                </h2>
+              </div>
+              <p className="max-w-2xl text-sm leading-7 text-[#625d54] md:text-base md:leading-8">
+                예산, 일정, 공사 범위처럼 상담 전 가장 많이 확인하는 내용을 먼저 살펴볼 수 있습니다.
+                상세 조건은 현장 상황을 확인한 뒤 더 정확하게 안내드립니다.
+              </p>
+            </div>
+            <div className="mt-8 overflow-hidden rounded-lg border border-[#eadfcd] bg-white shadow-[0_18px_45px_rgba(57,46,31,0.06)] md:mt-12">
+              {homepageFaqItems.map((item, index) => (
+                <details key={item.question} className="group border-b border-[#eadfcd] last:border-b-0">
+                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-5 marker:content-none md:px-7 md:py-6">
+                    <div className="flex min-w-0 items-start gap-4">
+                      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#fff4d8] text-sm font-bold text-[#9a7335]">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <h3 className="text-base font-semibold leading-7 text-[#171512] md:text-lg">{item.question}</h3>
+                    </div>
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#eadfcd] text-lg font-light text-[#8f6f43] transition group-open:rotate-45 group-open:bg-[#f1c76a] group-open:text-[#171512]" aria-hidden="true">
+                      +
+                    </span>
+                  </summary>
+                  <p className="px-5 pb-6 pl-[68px] text-sm leading-7 text-[#625d54] md:px-7 md:pb-7 md:pl-[76px] md:text-base md:leading-8">
+                    {item.answer}
+                  </p>
+                </details>
+              ))}
             </div>
           </div>
         </section>
@@ -2842,7 +2757,7 @@ function Header({
   scrolled: boolean;
   onLogoClick: () => void;
   onPortfolioClick: () => void;
-  onSectionClick: (sectionId: 'home' | 'about' | 'location' | 'contact') => void;
+  onSectionClick: (sectionId: 'home' | 'about' | 'work-method' | 'faq' | 'location' | 'contact') => void;
   onMenuClick: () => void;
 }) {
   const onDarkHeader = overlay;
@@ -2856,6 +2771,9 @@ function Header({
     : 'border-[#eadfcd] bg-[#fffdf8]/92 text-[#171512] backdrop-blur';
   const mutedTone = onDarkHeader ? 'text-white/84' : 'text-[#514c43]';
   const activeContact = activeSection === 'contact';
+  const introMenuItemClass = `w-full rounded px-3 py-2.5 text-left text-sm font-semibold transition ${
+    onDarkHeader ? 'text-white/86 hover:bg-white/12 hover:text-white' : 'text-[#514c43] hover:bg-[#fff6e3] hover:text-[#171512]'
+  }`;
 
   return (
     <header className={`fixed top-0 z-50 w-full border-b px-5 transition-colors duration-300 sm:px-8 md:px-10 lg:px-12 xl:px-16 ${headerTone}`}>
@@ -2873,9 +2791,27 @@ function Header({
           <button onClick={() => onSectionClick('home')} className={navClass('home')}>
             홈
           </button>
-          <button onClick={() => onSectionClick('about')} className={navClass('about')}>
-            소개
-          </button>
+          <div className="group relative">
+            <button onClick={() => onSectionClick('about')} className={`${navClass('about')} inline-flex items-center gap-1.5`}>
+              소개
+              <ChevronDown size={15} className="transition group-hover:rotate-180 group-focus-within:rotate-180" />
+            </button>
+            <div
+              className={`pointer-events-none absolute left-1/2 top-full z-50 mt-4 w-44 -translate-x-1/2 rounded-md border p-2 opacity-0 shadow-[0_18px_45px_rgba(23,21,18,0.16)] transition group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 ${
+                onDarkHeader ? 'border-white/16 bg-[#171512]/94 backdrop-blur-xl' : 'border-[#eadfcd] bg-white'
+              }`}
+            >
+              <button onClick={() => onSectionClick('about')} className={introMenuItemClass}>
+                회사 소개
+              </button>
+              <button onClick={() => onSectionClick('work-method')} className={introMenuItemClass}>
+                진행 방식
+              </button>
+              <button onClick={() => onSectionClick('faq')} className={introMenuItemClass}>
+                FAQ
+              </button>
+            </div>
+          </div>
           <button onClick={onPortfolioClick} className={navClass('portfolio')}>
             포트폴리오
           </button>
@@ -2921,6 +2857,17 @@ function Header({
           <button onClick={() => onSectionClick('about')} className="py-2 text-left">
             소개
           </button>
+          <div className={`grid gap-1 border-l pl-4 ${onDarkHeader ? 'border-white/18' : 'border-[#eadfcd]'}`}>
+            <button onClick={() => onSectionClick('about')} className="py-1.5 text-left text-sm font-medium opacity-80">
+              회사 소개
+            </button>
+            <button onClick={() => onSectionClick('work-method')} className="py-1.5 text-left text-sm font-medium opacity-80">
+              진행 방식
+            </button>
+            <button onClick={() => onSectionClick('faq')} className="py-1.5 text-left text-sm font-medium opacity-80">
+              FAQ
+            </button>
+          </div>
           <button onClick={onPortfolioClick} className="py-2 text-left">
             포트폴리오
           </button>
