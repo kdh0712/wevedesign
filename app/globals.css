@@ -298,11 +298,8 @@ img {
   position: relative;
   overflow-x: clip;
   background:
-    linear-gradient(135deg, rgb(241 199 106 / 0.18), transparent 28%, transparent 72%, rgb(143 111 67 / 0.10)),
-    linear-gradient(90deg, rgb(234 223 205 / 0.42) 1px, transparent 1px),
-    linear-gradient(180deg, rgb(234 223 205 / 0.36) 1px, transparent 1px),
-    #fffaf0;
-  background-size: 44px 44px;
+    radial-gradient(circle at 18% 12%, rgb(241 199 106 / 0.18), transparent 30rem),
+    linear-gradient(180deg, #fffaf0 0%, #fffdf8 46%, #f8efe0 100%);
 }
 
 .method-section.scroll-reveal {
@@ -498,7 +495,9 @@ img {
 
 @media (max-width: 640px) {
   .method-section {
-    background-size: 32px 32px;
+    background:
+      radial-gradient(circle at 12% 4%, rgb(241 199 106 / 0.16), transparent 18rem),
+      linear-gradient(180deg, #fffaf0 0%, #fffdf8 56%, #f8efe0 100%);
   }
 
   .method-section h2,
@@ -507,7 +506,7 @@ img {
   .method-section button,
   .method-section li {
     overflow-wrap: anywhere;
-    word-break: keep-all;
+    word-break: break-word;
   }
 
   .method-mode-eyebrow {
