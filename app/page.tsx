@@ -26,7 +26,7 @@ import {
   X,
 } from 'lucide-react';
 import { projectPath } from '@/app/lib/seo-utils';
-import { homepageFaqItems, siteModifiedDate, siteUrl } from '@/app/lib/site-content';
+import { homepageFaqItems, siteUrl } from '@/app/lib/site-content';
 
 type Category = {
   title: string;
@@ -721,6 +721,7 @@ export default function WeveDesignLanding({
   const [shouldLoadMap, setShouldLoadMap] = useState(false);
   const [shouldLoadConsultationTools, setShouldLoadConsultationTools] = useState(false);
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
+  const [activeGuideTab, setActiveGuideTab] = useState<'method' | 'faq'>('method');
   const [methodProgress, setMethodProgress] = useState(0);
   const entrySourceRef = useRef('');
   const methodSectionRef = useRef<HTMLElement | null>(null);
@@ -1792,20 +1793,47 @@ export default function WeveDesignLanding({
           style={{ backgroundColor: methodBackground, color: methodTextColor }}
         >
           <div className="mx-auto max-w-7xl">
-            <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-end lg:gap-10">
-              <div>
-                <p className="mb-4 text-sm font-bold uppercase tracking-[0.28em] text-[#f1c76a]">WORK METHOD</p>
-                <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-5xl xl:text-6xl">
-                  우리 집에 맞는 공사 방식을 먼저 선택합니다.
-                </h2>
-              </div>
-              <p className="method-muted max-w-2xl text-base leading-7 md:text-lg md:leading-9" style={{ color: methodMutedColor }}>
-                원하는 디자인을 직접 가져오는지, 디자인 제안부터 사후 관리까지 맡기고 싶은지에 따라 진행 방식이 달라집니다.
-                두 방식을 비교한 뒤 상담에서 더 맞는 흐름을 정합니다.
-              </p>
+            <div className="mb-8 inline-flex rounded-full border border-[#d8cbb8] bg-white/88 p-1 text-sm font-semibold text-[#625d54] shadow-[0_16px_45px_rgba(0,0,0,0.08)] backdrop-blur md:mb-12">
+              <button
+                type="button"
+                onClick={() => setActiveGuideTab('method')}
+                className={`rounded-full px-5 py-2.5 transition ${
+                  activeGuideTab === 'method'
+                    ? 'bg-[#171512] text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
+                    : 'hover:bg-[#fff7df] hover:text-[#171512]'
+                }`}
+              >
+                진행 방식
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveGuideTab('faq')}
+                className={`rounded-full px-5 py-2.5 transition ${
+                  activeGuideTab === 'faq'
+                    ? 'bg-[#171512] text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
+                    : 'hover:bg-[#fff7df] hover:text-[#171512]'
+                }`}
+              >
+                FAQ
+              </button>
             </div>
 
-            <div className="mt-8 grid gap-5 md:mt-12 lg:grid-cols-[360px_1fr] lg:gap-8">
+            {activeGuideTab === 'method' ? (
+              <>
+                <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-end lg:gap-10">
+                  <div>
+                    <p className="mb-4 text-sm font-bold tracking-[0.26em] text-[#f1c76a]">진행 방식</p>
+                    <h2 className="max-w-3xl text-3xl font-semibold leading-tight tracking-normal md:text-5xl xl:text-6xl">
+                      우리 집에 맞는 공사 방식을 먼저 선택합니다.
+                    </h2>
+                  </div>
+                  <p className="method-muted max-w-2xl text-base leading-7 md:text-lg md:leading-9" style={{ color: methodMutedColor }}>
+                    원하는 디자인을 직접 가져오는지, 디자인 제안부터 사후 관리까지 맡기고 싶은지에 따라 진행 방식이 달라집니다.
+                    두 방식을 비교한 뒤 상담에서 더 맞는 흐름을 정합니다.
+                  </p>
+                </div>
+
+                <div className="mt-8 grid gap-5 md:mt-12 lg:grid-cols-[360px_1fr] lg:gap-8">
               <div className="grid grid-cols-2 gap-2 self-start lg:grid-cols-1 lg:gap-3">
                 {constructionModels.map((model) => (
                   <button
@@ -1868,18 +1896,18 @@ export default function WeveDesignLanding({
                         <p className="mt-4 max-w-4xl text-base leading-7 text-[#625d54] md:mt-6 md:text-lg md:leading-9">{selectedConstructionModel.summary}</p>
                       </div>
                       <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
-                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">Key point</p>
+                        <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">핵심 기준</p>
                         <p className="mt-3 text-lg font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
                       </div>
                     </div>
 
                     <div className="mt-8 rounded-lg bg-[#302b24] p-5 text-white">
-                      <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#f1c76a]">Recommended for</p>
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#f1c76a]">추천 대상</p>
                       <p className="mt-3 text-lg leading-7">{selectedConstructionModel.bestFor}</p>
                     </div>
                     {selectedConstructionModel.id === 'cm' && (
                       <div className="mt-4 rounded-lg border border-[#f1c76a] bg-[#fff7df] p-5">
-                        <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">Budget note</p>
+                        <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">예산 메모</p>
                         <p className="mt-3 text-lg font-semibold leading-8 text-[#171512]">
                           CM 방식은 디자인 선택과 일부 의사결정을 고객이 직접 가져가기 때문에, 턴키 방식보다 총 공사 금액을 낮게
                           조정할 수 있는 여지가 있습니다.
@@ -1887,7 +1915,7 @@ export default function WeveDesignLanding({
                       </div>
                     )}
                     <div className="mt-4 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-5">
-                      <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#8f6f43]">Customer role</p>
+                      <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
                       <h4 className="mt-2 text-xl font-semibold">소비자가 준비하거나 결정하는 부분</h4>
                       <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54] md:grid-cols-2">
                         {selectedConstructionModel.customerRole.map((item) => (
@@ -1904,8 +1932,8 @@ export default function WeveDesignLanding({
                     <div className="rounded-lg border border-[#eadfcd] bg-white p-5 md:p-7">
                       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                         <div>
-                          <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">Workflow</p>
-                          <h4 className="mt-2 text-2xl font-semibold">진행 워크플로우</h4>
+                          <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
+                          <h4 className="mt-2 text-2xl font-semibold">단계별 흐름</h4>
                         </div>
                         <p className="max-w-md text-sm leading-6 text-[#625d54]">
                           단계별로 결정해야 할 내용과 WEVE가 관리하는 지점을 나누어 보여드립니다.
@@ -1959,6 +1987,26 @@ export default function WeveDesignLanding({
                 </div>
               </div>
             </div>
+              </>
+            ) : (
+              <div id="faq" className="rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-5 text-[#171512] shadow-[0_28px_80px_rgba(0,0,0,0.18)] md:p-10">
+                <div className="grid gap-3 md:grid-cols-[0.45fr_1fr] md:items-end md:gap-8">
+                  <p className="text-sm font-bold tracking-[0.22em] text-[#8f6f43]">FAQ</p>
+                  <h2 className="text-3xl font-semibold leading-tight md:text-5xl">자주 묻는 인테리어 상담 질문</h2>
+                </div>
+                <div className="mt-7 divide-y divide-[#ded4c4] border-y border-[#ded4c4] md:mt-10">
+                  {homepageFaqItems.map((item) => (
+                    <details key={item.question} className="group py-1">
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold marker:content-none md:text-lg">
+                        <h3 className="text-base font-semibold md:text-lg">{item.question}</h3>
+                        <span className="text-xl font-light text-[#8f6f43] transition group-open:rotate-45" aria-hidden="true">+</span>
+                      </summary>
+                      <p className="max-w-3xl pb-5 text-sm leading-7 text-[#625d54] md:text-base">{item.answer}</p>
+                    </details>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
@@ -2017,26 +2065,6 @@ export default function WeveDesignLanding({
                   {mapStatus}
                 </div>
               )}
-            </div>
-          </div>
-        </section>
-
-        <section id="faq" className="scroll-reveal bg-[#fffaf0] px-4 py-14 md:px-8 md:py-24">
-          <div className="mx-auto max-w-5xl">
-            <div className="grid gap-3 md:grid-cols-[0.45fr_1fr] md:items-end md:gap-8">
-              <p className="text-sm font-bold uppercase tracking-[0.22em] text-[#8f6f43]">FAQ</p>
-              <h2 className="text-3xl font-semibold leading-tight md:text-5xl">자주 묻는 인테리어 상담 질문</h2>
-            </div>
-            <div className="mt-7 divide-y divide-[#ded4c4] border-y border-[#ded4c4] md:mt-10">
-              {homepageFaqItems.map((item) => (
-                <details key={item.question} className="group py-1">
-                  <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 font-semibold marker:content-none md:text-lg">
-                    <h3 className="text-base font-semibold md:text-lg">{item.question}</h3>
-                    <span className="text-xl font-light text-[#8f6f43] transition group-open:rotate-45" aria-hidden="true">+</span>
-                  </summary>
-                  <p className="max-w-3xl pb-5 text-sm leading-7 text-[#625d54] md:text-base">{item.answer}</p>
-                </details>
-              ))}
             </div>
           </div>
         </section>
@@ -2338,37 +2366,38 @@ export default function WeveDesignLanding({
         </div>
       )}
 
-      <footer id="footer" className="bg-[#171512] px-4 py-10 text-[#b8b0a3] md:px-8 md:py-16">
-        <div className="mx-auto flex max-w-7xl flex-col justify-between gap-8 md:flex-row md:items-end">
-          <div>
+      <footer id="footer" className="bg-[#171512] px-4 py-10 text-[#b8b0a3] md:px-8 md:py-14">
+        <div className="mx-auto grid max-w-7xl gap-8 lg:grid-cols-[1fr_1.2fr] lg:items-end">
+          <div className="max-w-xl">
             <button onClick={handleLogoClick} className="inline-flex" aria-label="WEVE DESIGN 홈으로 이동">
               <img src="/weve-mark.webp" width={176} height={145} alt="WEVE DESIGN" className="brand-mark-on-dark h-16 w-auto" />
             </button>
             <p data-preview-target="heroDescription" className="mt-4 max-w-xl leading-7">{settings.heroDescription || defaultSettings.heroDescription}</p>
-          </div>
-          <div className="space-y-2 text-sm">
-            <p className="pb-1 text-xs font-bold uppercase tracking-[0.16em] text-[#d4bd91]">사업자 정보</p>
-            <p>
-              <span>상호 위브디자인</span>
-              {' | '}
-              <span data-preview-target="representativeName">대표자 {settings.representativeName || defaultSettings.representativeName}</span>
-            </p>
-            <p data-preview-target="companyPhone">대표전화 {companyPhone}</p>
-            {(settings.businessNumber || defaultSettings.businessNumber) && (
-              <p data-preview-target="businessNumber">사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
-            )}
-            <p>통신판매: 홈페이지 내 온라인 판매 미운영</p>
-            <p data-preview-target="address">도로명 {roadAddress}</p>
-            <p data-preview-target="lotAddress">지번 {lotAddress}</p>
-            <p className="pt-2 text-xs text-[#81796d]">
-              <time dateTime={siteModifiedDate}>최종 수정 {siteModifiedDate.replace(/-/g, '.')}</time>
-            </p>
-            <p data-preview-target="companyStartYear" className="pt-4 text-xs uppercase tracking-[0.2em] text-[#81796d]">
+            <p data-preview-target="companyStartYear" className="mt-6 text-xs uppercase tracking-[0.2em] text-[#81796d]">
               © {settings.companyStartYear || defaultSettings.companyStartYear} WEVE DESIGN. All rights reserved.
             </p>
-            <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 text-xs">
-              <a href="/privacy" className="transition hover:text-white">개인정보처리방침</a>
-              <a href="/terms" className="transition hover:text-white">이용약관</a>
+          </div>
+          <div className="grid gap-6 text-sm sm:grid-cols-2 lg:justify-self-end">
+            <div className="space-y-2">
+              <p className="pb-1 text-xs font-bold tracking-[0.16em] text-[#d4bd91]">사업자 정보</p>
+              <p>
+                <span>상호 위브디자인</span>
+                {' | '}
+                <span data-preview-target="representativeName">대표자 {settings.representativeName || defaultSettings.representativeName}</span>
+              </p>
+              <p data-preview-target="companyPhone">대표전화 {companyPhone}</p>
+              {(settings.businessNumber || defaultSettings.businessNumber) && (
+                <p data-preview-target="businessNumber">사업자등록번호 {settings.businessNumber || defaultSettings.businessNumber}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <p className="pb-1 text-xs font-bold tracking-[0.16em] text-[#d4bd91]">오시는 길</p>
+              <p data-preview-target="address">도로명 {roadAddress}</p>
+              <p data-preview-target="lotAddress">지번 {lotAddress}</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-2 pt-3 text-xs">
+                <a href="/privacy" className="transition hover:text-white">개인정보처리방침</a>
+                <a href="/terms" className="transition hover:text-white">이용약관</a>
+              </div>
             </div>
           </div>
         </div>
