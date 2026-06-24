@@ -298,8 +298,8 @@ img {
   position: relative;
   overflow-x: clip;
   background:
-    radial-gradient(circle at 18% 12%, rgb(241 199 106 / 0.18), transparent 30rem),
-    linear-gradient(180deg, #fffaf0 0%, #fffdf8 46%, #f8efe0 100%);
+    radial-gradient(circle at 18% 12%, rgb(241 199 106 / 0.08), transparent 26rem),
+    linear-gradient(180deg, #fffaf2 0%, #fffdf8 54%, #fbf3e6 100%);
 }
 
 .method-section.scroll-reveal {
@@ -503,8 +503,8 @@ img {
   .method-section {
     overflow-x: hidden;
     background:
-      radial-gradient(circle at 12% 4%, rgb(241 199 106 / 0.16), transparent 18rem),
-      linear-gradient(180deg, #fffaf0 0%, #fffdf8 56%, #f8efe0 100%);
+      radial-gradient(circle at 12% 4%, rgb(241 199 106 / 0.08), transparent 16rem),
+      linear-gradient(180deg, #fffaf2 0%, #fffdf8 58%, #fbf3e6 100%);
   }
 
   .method-section h2,

@@ -281,6 +281,7 @@ type PreviewTarget = {
 
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
+  storageWarning?: string;
   record?: Consultation | Customer | Site | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
@@ -773,7 +774,7 @@ export default function ManagerPage() {
         setCurrentUser(parsed.user);
         setLoginId(parsed.user.loginId || 'admin');
         await syncKakaoBizForm(parsed.token, parsed.firebaseToken || '');
-        const loaded = await loadOfficeData(parsed.token, { silent: true });
+        const loaded = await loadOfficeData(parsed.token, { silent: true }, parsed.firebaseToken || '');
         if (!loaded) throw new Error('저장된 로그인 정보를 확인할 수 없습니다.');
         if (!cancelled) setStatus('로그인 상태를 복원했습니다.');
       } catch (caught) {
@@ -879,7 +880,7 @@ export default function ManagerPage() {
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
       await syncKakaoBizForm(result.token, result.firebaseToken || '');
-      const loaded = await loadOfficeData(result.token, { silent: true });
+      const loaded = await loadOfficeData(result.token, { silent: true }, result.firebaseToken || '');
       if (!loaded) throw new Error('관리자 데이터를 불러오지 못했습니다. 다시 로그인해 주세요.');
       window.sessionStorage.setItem(
         MANAGER_SESSION_STORAGE_KEY,
@@ -978,7 +979,7 @@ export default function ManagerPage() {
     }
   };
 
-  const loadOfficeData = async (managerPassword = password, options: { silent?: boolean } = {}) => {
+  const loadOfficeData = async (managerPassword = password, options: { silent?: boolean } = {}, firebaseAuthToken = firebaseToken) => {
     if (!options.silent) {
       setError('');
       setStatus('');
@@ -988,8 +989,8 @@ export default function ManagerPage() {
     if (!options.silent) setLoadingOffice(true);
     try {
       const [response, settingsResponse] = await Promise.all([
-        fetch('/api/manager/office', { headers: authHeaders(managerPassword) }),
-        fetch('/api/manager/settings', { headers: authHeaders(managerPassword) }),
+        fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
+        fetch('/api/manager/settings', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
       ]);
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 불러오지 못했습니다.');
@@ -1087,6 +1088,7 @@ export default function ManagerPage() {
       setPassword(managerPassword);
       setIsUnlocked(true);
       setLastRefreshedAt(formatTime(new Date()));
+      if (data.storageWarning) setError(data.storageWarning);
       if (!options.silent) setStatus('업무 데이터를 불러왔습니다.');
       return true;
     } catch (caught) {

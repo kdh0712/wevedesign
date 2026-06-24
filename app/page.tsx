@@ -1780,14 +1780,14 @@ export default function WeveDesignLanding({
           id="work-method"
           className="method-section scroll-reveal px-4 py-12 text-[#171512] md:px-8 md:py-24"
         >
-          <div className="mx-auto max-w-7xl">
-            <div className="grid min-w-0 gap-6 lg:grid-cols-[370px_minmax(0,1fr)] lg:gap-9">
-              <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur md:p-7 lg:sticky lg:top-28 lg:self-start">
+          <div className="mx-auto max-w-6xl">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]">
+              <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur lg:sticky lg:top-28 lg:self-start">
                 <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
-                <h2 className="text-2xl font-semibold leading-tight tracking-normal sm:text-3xl md:text-4xl">
+                <h2 className="text-2xl font-semibold leading-tight tracking-normal sm:text-3xl lg:text-[2rem]">
                   공사 범위와 결정 방식에 맞춰 진행 흐름을 정합니다.
                 </h2>
-                <p className="mt-4 hidden text-sm leading-7 text-[#625d54] sm:block md:text-base md:leading-8">
+                <p className="mt-4 hidden text-sm leading-7 text-[#625d54] sm:block">
                   디자인을 직접 준비하고 현장 관리를 맡길지, 디자인 제안부터 마감 이후 관리까지 한 흐름으로 맡길지에 따라
                   상담과 견적 방식이 달라집니다.
                 </p>
@@ -1831,16 +1831,16 @@ export default function WeveDesignLanding({
 
               <div className="grid min-w-0 max-w-full gap-5 overflow-hidden">
                 <div className="method-focus-card min-w-0 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
-                  <div className="grid min-w-0 gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start lg:gap-7">
+                  <div className="grid min-w-0 gap-5 p-5 md:p-6 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
                     <div className="min-w-0">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
-                      <h3 className="mt-3 max-w-4xl text-[1.45rem] font-semibold leading-tight sm:text-2xl md:text-4xl">
+                      <h3 className="mt-3 max-w-2xl text-[1.45rem] font-semibold leading-tight sm:text-2xl md:text-3xl">
                         {selectedConstructionModel.title}
                       </h3>
                       <p className="mt-3 text-sm leading-6 text-[#625d54] md:hidden">
                         {methodMobileSummary}
                       </p>
-                      <p className="mt-4 hidden max-w-4xl text-base leading-7 text-[#625d54] md:block md:text-lg md:leading-8">
+                      <p className="mt-4 hidden max-w-2xl text-base leading-7 text-[#625d54] md:block">
                         {selectedConstructionModel.summary}
                       </p>
                     </div>
@@ -1875,7 +1875,7 @@ export default function WeveDesignLanding({
                     ))}
                   </div>
 
-                  <div className="hidden gap-4 border-t border-[#eadfcd] bg-[#fffdf8] p-5 md:grid md:grid-cols-3 md:p-8">
+                  <div className="hidden gap-3 border-t border-[#eadfcd] bg-[#fffdf8] p-5 md:grid md:grid-cols-3">
                     <div className="rounded-lg border border-[#eadfcd] bg-white p-5">
                       <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">고객 준비사항</p>
                       <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#625d54]">
@@ -1912,7 +1912,7 @@ export default function WeveDesignLanding({
                   </div>
                 </div>
 
-                <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-[#eadfcd] bg-white p-4 shadow-[0_18px_55px_rgba(57,46,31,0.07)] md:p-8">
+                <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-[#eadfcd] bg-white p-4 shadow-[0_18px_55px_rgba(57,46,31,0.07)] md:p-6">
                   <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                     <div>
                       <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>

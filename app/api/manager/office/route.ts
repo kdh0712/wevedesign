@@ -101,6 +101,20 @@ const publicQuery = `{
   }
 }`;
 
+const emptyOfficeData = {
+  consultations: [],
+  customers: [],
+  sites: [],
+  estimates: [],
+  sales: [],
+  inventory: [],
+  vendors: [],
+};
+
+async function readPublicData() {
+  return managerClient.fetch(publicQuery).catch(() => ({ categories: [], projects: [] }));
+}
+
 const seoulDateKey = (date: Date) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -146,13 +160,35 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
-    if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      const [officeData, publicData, visitStats] = await Promise.all([
-        readOfficeDataFromFirestore(request),
-        managerClient.fetch(publicQuery),
-        getVisitStats(),
-      ]);
-      return NextResponse.json({ ...officeData, ...publicData, visitStats });
+    if (shouldUseFirestoreErp()) {
+      try {
+        if (!canUseFirestoreForRequest(request)) {
+          throw new Error('Firestore 인증 정보가 없습니다. Firebase 서비스 계정 환경변수 또는 Firebase 로그인 토큰을 확인해 주세요.');
+        }
+
+        const [officeData, publicData, visitStats] = await Promise.all([
+          readOfficeDataFromFirestore(request),
+          readPublicData(),
+          getVisitStats(),
+        ]);
+        return NextResponse.json({ ...officeData, ...publicData, visitStats });
+      } catch (firestoreError) {
+        const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
+        console.error('Firestore office data fetch failed:', firestoreError);
+
+        const [fallbackData, publicData, visitStats] = await Promise.all([
+          managerClient.fetch(query).catch(() => null),
+          readPublicData(),
+          getVisitStats(),
+        ]);
+
+        return NextResponse.json({
+          ...(fallbackData || emptyOfficeData),
+          ...publicData,
+          visitStats,
+          storageWarning: `Firestore 연결 확인 필요: ${warning}`,
+        });
+      }
     }
 
     const data = await managerClient.fetch(query);

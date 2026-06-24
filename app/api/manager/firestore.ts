@@ -45,17 +45,37 @@ export const officeFirestoreCollections: Record<PrivateOfficeType, string> = {
 
 let cachedGoogleToken: { token: string; expiresAt: number } | null = null;
 
+function parseServiceAccountJson(raw: string): ServiceAccount | null {
+  const candidates = [raw, raw.replace(/\r?\n/g, '')];
+  try {
+    candidates.push(Buffer.from(raw, 'base64').toString('utf8'));
+  } catch {
+    // Ignore invalid base64 input.
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as ServiceAccount | string;
+      const account = typeof parsed === 'string' ? (JSON.parse(parsed) as ServiceAccount) : parsed;
+      if (account.client_email && account.private_key) {
+        return {
+          ...account,
+          private_key: account.private_key.replace(/\\n/g, '\n'),
+        };
+      }
+    } catch {
+      // Try the next input shape.
+    }
+  }
+
+  return null;
+}
+
 const serviceAccount = (): ServiceAccount | null => {
   const json = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   if (json) {
-    try {
-      const parsed = JSON.parse(json) as ServiceAccount;
-      if (parsed.client_email && parsed.private_key) {
-        return { ...parsed, private_key: parsed.private_key.replace(/\\n/g, '\n') };
-      }
-    } catch {
-      return null;
-    }
+    const parsed = parseServiceAccountJson(json);
+    if (parsed) return parsed;
   }
 
   const client_email = process.env.FIREBASE_SERVICE_ACCOUNT_EMAIL?.trim();
@@ -116,7 +136,12 @@ async function googleAccessToken() {
   const signer = createSign('RSA-SHA256');
   signer.update(`${header}.${claim}`);
   signer.end();
-  const signature = base64Url(signer.sign(account.private_key));
+  let signature = '';
+  try {
+    signature = base64Url(signer.sign(account.private_key));
+  } catch {
+    throw new Error('Firebase 서비스 계정 private_key 형식이 올바르지 않습니다. JSON 전체를 다시 복사하거나 base64로 변환해 환경변수에 넣어주세요.');
+  }
   const assertion = `${header}.${claim}.${signature}`;
 
   const response = await fetch('https://oauth2.googleapis.com/token', {
