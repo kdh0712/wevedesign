@@ -91,11 +91,37 @@ const parsedProjectIdFromDatabaseUrl = () => {
   return match?.[1] || '';
 };
 
-export const firestoreProjectId = () =>
+const configuredFirestoreProjectId = () =>
   process.env.FIREBASE_PROJECT_ID ||
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ||
-  serviceAccount()?.project_id ||
   parsedProjectIdFromDatabaseUrl();
+
+export const firestoreProjectId = () => {
+  const accountProjectId = serviceAccount()?.project_id?.trim();
+  return accountProjectId || configuredFirestoreProjectId();
+};
+
+function firestorePermissionMessage(message: string) {
+  if (!/Permission denied on resource project/i.test(message)) return message;
+
+  const account = serviceAccount();
+  const envProjectId = configuredFirestoreProjectId();
+  const accountProjectId = account?.project_id?.trim() || '';
+
+  if (envProjectId && accountProjectId && envProjectId !== accountProjectId) {
+    return [
+      `Firestore 프로젝트 권한 오류: ${message}`,
+      `현재 FIREBASE_PROJECT_ID는 "${envProjectId}"이고 서비스 계정 JSON의 project_id는 "${accountProjectId}"입니다.`,
+      'Vercel의 FIREBASE_PROJECT_ID를 서비스 계정 JSON의 project_id와 같게 수정하거나 비워두면 됩니다.',
+    ].join(' ');
+  }
+
+  return [
+    `Firestore 프로젝트 권한 오류: ${message}`,
+    'Firebase 서비스 계정이 해당 프로젝트의 Firestore에 접근할 권한이 있는지 확인해 주세요.',
+    'Google Cloud IAM에서 Cloud Datastore User 또는 Cloud Datastore Owner 권한이 필요합니다.',
+  ].join(' ');
+}
 
 export const isFirestoreConfigured = () => Boolean(firestoreProjectId());
 
@@ -259,7 +285,7 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
     const data = (await response.json().catch(() => null)) as FirestoreListResponse | null;
     if (response.status === 404) return rows;
     if (!response.ok) {
-      throw new Error(data?.error?.message || `Firestore collection read failed: ${collection}`);
+      throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore collection read failed: ${collection}`));
     }
 
     rows.push(...(data?.documents || []).map((document) => toRecord<T>(document)));
@@ -277,7 +303,7 @@ export async function getFirestoreDocument<T extends Record<string, unknown>>(co
   const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: { message?: string } }) | null;
   if (response.status === 404) return null;
   if (!response.ok || !data?.name) {
-    throw new Error(data?.error?.message || `Firestore document read failed: ${collection}/${id}`);
+    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document read failed: ${collection}/${id}`));
   }
   return toRecord<T>(data);
 }
@@ -300,7 +326,7 @@ export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   });
   const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: { message?: string } }) | null;
   if (!response.ok || !data?.name) {
-    throw new Error(data?.error?.message || `Firestore document save failed: ${collection}/${id}`);
+    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document save failed: ${collection}/${id}`));
   }
   return toRecord<T>(data);
 }
@@ -313,7 +339,7 @@ export async function deleteFirestoreDocument(collection: string, id: string, id
   if (response.status === 404) return;
   const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!response.ok) {
-    throw new Error(data?.error?.message || `Firestore document delete failed: ${collection}/${id}`);
+    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document delete failed: ${collection}/${id}`));
   }
 }
 
