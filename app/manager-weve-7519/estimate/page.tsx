@@ -217,6 +217,8 @@ export default function EstimateWorkspacePage() {
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
   const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
   const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
+  const [lineFilterType, setLineFilterType] = useState<'all' | 'space' | 'category'>('all');
+  const [lineFilterValue, setLineFilterValue] = useState('');
   const [workGroupBy, setWorkGroupBy] = useState<'space' | 'category'>('category');
   const [editingMaterial, setEditingMaterial] = useState<Material>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -234,7 +236,10 @@ export default function EstimateWorkspacePage() {
     [selectedEstimateId, selectedSiteEstimates],
   );
   const totals = useMemo(() => calculateTotals(lines, workLines), [lines, workLines]);
-  const sortedLines = useMemo(() => sortEstimateLines(lines, lineGroupBy), [lines, lineGroupBy]);
+  const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
+  const lineCategoryOptions = useMemo(() => uniqueLineValues(lines, (line) => line.category || line.process), [lines]);
+  const filteredLines = useMemo(() => filterEstimateLines(lines, lineFilterType, lineFilterValue), [lines, lineFilterType, lineFilterValue]);
+  const sortedLines = useMemo(() => sortEstimateLines(filteredLines, lineGroupBy), [filteredLines, lineGroupBy]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
@@ -260,6 +265,7 @@ export default function EstimateWorkspacePage() {
       })
       .slice(0, 120);
   }, [materials, lineDbCategory, lineDbSearch]);
+  const lineFilterOptions = lineFilterType === 'space' ? lineSpaceOptions : lineFilterType === 'category' ? lineCategoryOptions : [];
 
   useEffect(() => {
     const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
@@ -268,6 +274,17 @@ export default function EstimateWorkspacePage() {
     if (siteIdFromUrl) setSelectedSiteId(siteIdFromUrl);
     if (savedPassword) void loadData(savedPassword, siteIdFromUrl);
   }, []);
+
+  useEffect(() => {
+    if (lineFilterType === 'all') {
+      if (lineFilterValue) setLineFilterValue('');
+      return;
+    }
+    const options = lineFilterType === 'space' ? lineSpaceOptions : lineCategoryOptions;
+    if (lineFilterValue && !options.includes(lineFilterValue)) {
+      setLineFilterValue('');
+    }
+  }, [lineCategoryOptions, lineFilterType, lineFilterValue, lineSpaceOptions]);
 
   useEffect(() => {
     if (!selectedSiteId) return;
@@ -764,14 +781,14 @@ export default function EstimateWorkspacePage() {
             <CompactMetric title="예상 마진" value={formatMoney(totals.marginAmount)} tone={totals.marginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.marginRate.toFixed(1)}%`} />
             <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
           </div>
-          <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
-            <div className="grid gap-2 md:grid-cols-[minmax(220px,360px)_minmax(0,1fr)] md:items-center">
+          <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+            <div className="grid gap-2 md:grid-cols-[minmax(220px,360px)_minmax(0,1fr)] md:items-end">
               <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.12em] text-[#60717d]">
                 현재 버전
                 <select
                   value={selectedEstimateId || NEW_ESTIMATE_ID}
                   onChange={(event) => setSelectedEstimateId(event.target.value)}
-                  className="rounded-md border border-[#d5dde2] bg-white px-3 py-2.5 text-sm font-semibold normal-case tracking-normal text-[#171512] outline-none focus:border-[#38a9bd]"
+                  className="h-11 rounded-md border border-[#d5dde2] bg-white px-3 text-sm font-semibold normal-case tracking-normal text-[#171512] outline-none focus:border-[#38a9bd]"
                 >
                   {selectedSiteEstimates.length === 0 && <option value={NEW_ESTIMATE_ID}>저장 전 새 초안</option>}
                   {selectedEstimateId === NEW_ESTIMATE_ID && selectedSiteEstimates.length > 0 && (
@@ -784,20 +801,24 @@ export default function EstimateWorkspacePage() {
                   ))}
                 </select>
               </label>
-              <div className="rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2 text-sm text-[#4d5d66]">
-                <b className="text-[#171512]">{versionLabel || estimateVersionLabel(versionType)}</b>
-                <span className="mx-2 text-[#a9b4bb]">|</span>
-                {selectedEstimateId === NEW_ESTIMATE_ID ? '저장 전 새 버전입니다.' : `최근 수정 ${formatShortDate(selectedEstimate?.updatedAt || selectedEstimate?.createdAt)}`}
+              <div className="grid gap-1">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-[#60717d]">버전 정보</span>
+                <div className="flex h-11 items-center rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 text-sm text-[#4d5d66]">
+                  <b className="text-[#171512]">{versionLabel || estimateVersionLabel(versionType)}</b>
+                  <span className="mx-2 text-[#a9b4bb]">|</span>
+                  {selectedEstimateId === NEW_ESTIMATE_ID ? '저장 전 새 버전입니다.' : `최근 수정 ${formatShortDate(selectedEstimate?.updatedAt || selectedEstimate?.createdAt)}`}
+                </div>
               </div>
             </div>
             <div className="grid gap-2">
+              <span className="hidden text-xs font-bold uppercase tracking-[0.12em] text-transparent xl:block">버전 작업</span>
               <div className="flex flex-wrap justify-start gap-2 xl:justify-end">
-                <button type="button" onClick={() => setIsVersionPanelOpen((current) => !current)} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+                <button type="button" onClick={() => setIsVersionPanelOpen((current) => !current)} className="inline-flex h-11 items-center gap-2 rounded-md bg-[#171512] px-4 text-sm font-semibold text-white">
                   <Plus size={16} />
                   버전 추가
                 </button>
                 {estimateId && selectedEstimateId !== NEW_ESTIMATE_ID && (
-                  <button type="button" onClick={deleteEstimate} disabled={isSaving} className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 disabled:opacity-60">
+                  <button type="button" onClick={deleteEstimate} disabled={isSaving} className="inline-flex h-11 items-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-semibold text-red-600 disabled:opacity-60">
                     <Trash2 size={16} />
                     버전 삭제
                   </button>
@@ -944,6 +965,47 @@ export default function EstimateWorkspacePage() {
                     <option value="category">분류별 정렬</option>
                     <option value="space">공간별 정렬</option>
                   </select>
+                  <select
+                    value={lineFilterType}
+                    onChange={(event) => {
+                      const nextType = event.target.value as typeof lineFilterType;
+                      setLineFilterType(nextType);
+                      setLineFilterValue('');
+                    }}
+                    aria-label="견적 내역 보기 조건"
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                  >
+                    <option value="all">전체 보기</option>
+                    <option value="space">공간만 보기</option>
+                    <option value="category">분류만 보기</option>
+                  </select>
+                  {lineFilterType !== 'all' && (
+                    <select
+                      value={lineFilterValue}
+                      onChange={(event) => setLineFilterValue(event.target.value)}
+                      aria-label="견적 내역 필터 값"
+                      className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">전체 {lineFilterType === 'space' ? '공간' : '분류'}</option>
+                      {lineFilterOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(lineFilterType !== 'all' || lineFilterValue) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLineFilterType('all');
+                        setLineFilterValue('');
+                      }}
+                      className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold text-[#4d5d66] hover:bg-[#f7fafb]"
+                    >
+                      조건 초기화
+                    </button>
+                  )}
                   <button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
                     <Plus size={16} />
                     항목 추가
@@ -951,8 +1013,13 @@ export default function EstimateWorkspacePage() {
                 </div>
               </div>
 
-              <div className="max-h-[calc(100vh-340px)] min-h-[430px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3">
+              <div className="max-h-[calc(100vh-260px)] min-h-[620px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3">
                 <div className="grid gap-3">
+                  {sortedLines.length === 0 && (
+                    <div className="rounded-lg border border-dashed border-[#cfd9df] bg-white p-10 text-center text-sm font-semibold text-[#60717d]">
+                      선택한 조건에 해당하는 견적 항목이 없습니다.
+                    </div>
+                  )}
                   {sortedLines.map((line, index) => {
                     const estimateAmount = line.quantity * line.customerUnitPrice;
                     const costAmount = line.quantity * line.executionUnitPrice;
@@ -2091,6 +2158,18 @@ function lineGroupKey(line: EstimateLine, groupBy: 'space' | 'category') {
 
 function workLineGroupKey(line: WorkLine, groupBy: 'space' | 'category') {
   return (groupBy === 'space' ? line.space : line.category || line.process) || '미분류';
+}
+
+function uniqueLineValues(lines: EstimateLine[], getValue: (line: EstimateLine) => string) {
+  return Array.from(new Set(lines.map((line) => getValue(line).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+}
+
+function filterEstimateLines(lines: EstimateLine[], filterType: 'all' | 'space' | 'category', filterValue: string) {
+  if (filterType === 'all' || !filterValue) return lines;
+  return lines.filter((line) => {
+    const value = filterType === 'space' ? line.space : line.category || line.process;
+    return value === filterValue;
+  });
 }
 
 function sortEstimateLines(lines: EstimateLine[], groupBy: 'space' | 'category') {

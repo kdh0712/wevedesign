@@ -169,6 +169,8 @@ type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
 
 type Sale = {
   _id: string;
+  siteId?: string;
+  estimateId?: string;
   customerName?: string;
   projectTitle?: string;
   amount?: number;
@@ -514,6 +516,7 @@ export default function ManagerPage() {
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
+  const [selectedDashboardSiteId, setSelectedDashboardSiteId] = useState('');
   const [homepageTab, setHomepageTab] = useState<HomepageTabKey>('basic');
   const [category, setCategory] = useState('');
   const [newCategory, setNewCategory] = useState('');
@@ -633,7 +636,7 @@ export default function ManagerPage() {
   const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
   const [siteForm, setSiteForm] = useState({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
-  const [saleForm, setSaleForm] = useState({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
+  const [saleForm, setSaleForm] = useState({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
   const [editingCustomerId, setEditingCustomerId] = useState('');
@@ -696,15 +699,55 @@ export default function ManagerPage() {
     [officeData.projects, selectedProjectId],
   );
   const selectedProjectImageOptions = useMemo(() => getProjectImageOptions(selectedProjectForEdit), [selectedProjectForEdit]);
+  const latestEstimateBySite = useMemo(() => buildLatestEstimateBySite(officeData.estimates), [officeData.estimates]);
+  const dashboardSite = useMemo(
+    () => officeData.sites.find((site) => site._id === selectedDashboardSiteId) || officeData.sites[0],
+    [officeData.sites, selectedDashboardSiteId],
+  );
+  const dashboardSiteEstimate = dashboardSite ? latestEstimateBySite.get(dashboardSite._id) : undefined;
+  const dashboardSiteSale = dashboardSite
+    ? officeData.sales.find((sale) => sale.siteId === dashboardSite._id) || officeData.sales.find((sale) => sale.projectTitle === dashboardSite.title)
+    : undefined;
+  const saleFormSite = useMemo(() => officeData.sites.find((site) => site._id === saleForm.siteId), [officeData.sites, saleForm.siteId]);
+  const saleFormSiteEstimates = useMemo(
+    () => sortEstimateSummaries(officeData.estimates.filter((estimate) => estimate.siteId === saleForm.siteId)),
+    [officeData.estimates, saleForm.siteId],
+  );
+  const saleFormEstimate = useMemo(
+    () => saleFormSiteEstimates.find((estimate) => estimate._id === saleForm.estimateId) || saleFormSiteEstimates[0],
+    [saleForm.estimateId, saleFormSiteEstimates],
+  );
   const salesTotal = useMemo(() => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0), [officeData.sales]);
   const profitTotal = useMemo(
     () => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0) - Number(sale.cost || 0), 0),
     [officeData.sales],
   );
+  const projectedEstimateTotal = useMemo(
+    () => Array.from(latestEstimateBySite.values()).reduce((sum, estimate) => sum + Number(estimate.customerEstimateTotal || 0), 0),
+    [latestEstimateBySite],
+  );
+  const projectedMarginTotal = useMemo(
+    () => Array.from(latestEstimateBySite.values()).reduce((sum, estimate) => sum + Number(estimate.marginAmount || 0), 0),
+    [latestEstimateBySite],
+  );
+  const contractedSiteCount = useMemo(
+    () => officeData.sites.filter((site) => ['계약', '시공중', '완료'].includes(site.status || '')).length,
+    [officeData.sites],
+  );
   const lowStockCount = useMemo(
     () => officeData.inventory.filter((item) => Number(item.quantity || 0) <= Number(item.minQuantity || 0)).length,
     [officeData.inventory],
   );
+
+  useEffect(() => {
+    if (!officeData.sites.length) {
+      if (selectedDashboardSiteId) setSelectedDashboardSiteId('');
+      return;
+    }
+    if (!selectedDashboardSiteId || !officeData.sites.some((site) => site._id === selectedDashboardSiteId)) {
+      setSelectedDashboardSiteId(officeData.sites[0]._id);
+    }
+  }, [officeData.sites, selectedDashboardSiteId]);
 
   useEffect(() => {
     window.localStorage.removeItem('weve-manager-session');
@@ -1182,7 +1225,7 @@ export default function ManagerPage() {
 
   const resetSaleForm = () => {
     setEditingSaleId('');
-    setSaleForm({ customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
+    setSaleForm({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   };
 
   const resetInventoryForm = () => {
@@ -1274,6 +1317,8 @@ export default function ManagerPage() {
   const editSale = (sale: Sale) => {
     setEditingSaleId(sale._id);
     setSaleForm({
+      siteId: sale.siteId || '',
+      estimateId: sale.estimateId || '',
       customerName: sale.customerName || '',
       projectTitle: sale.projectTitle || '',
       amount: sale.amount ? String(sale.amount) : '',
@@ -1282,6 +1327,42 @@ export default function ManagerPage() {
       paymentDate: sale.paymentDate || '',
       memo: sale.memo || '',
     });
+    scrollToForm(saleFormRef);
+  };
+
+  const applySiteToSaleForm = (siteId: string) => {
+    const site = officeData.sites.find((item) => item._id === siteId);
+    const estimate = site ? latestEstimateBySite.get(site._id) : undefined;
+    setSaleForm((current) => ({
+      ...current,
+      siteId,
+      estimateId: estimate?._id || '',
+      customerName: site?.customerName || current.customerName,
+      projectTitle: site?.title || current.projectTitle,
+      amount: estimate?.customerEstimateTotal ? String(Math.round(Number(estimate.customerEstimateTotal))) : current.amount,
+      cost: estimate?.executionCostTotal ? String(Math.round(Number(estimate.executionCostTotal))) : current.cost,
+      memo: estimate ? `${estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType))} · ${estimate.versionLabel || '견적'} 기준` : current.memo,
+    }));
+  };
+
+  const applyEstimateToSaleForm = (estimateId: string) => {
+    const estimate = officeData.estimates.find((item) => item._id === estimateId);
+    const site = estimate?.siteId ? officeData.sites.find((item) => item._id === estimate.siteId) : undefined;
+    setSaleForm((current) => ({
+      ...current,
+      siteId: estimate?.siteId || current.siteId,
+      estimateId,
+      customerName: estimate?.customerName || site?.customerName || current.customerName,
+      projectTitle: estimate?.siteTitle || site?.title || current.projectTitle,
+      amount: estimate?.customerEstimateTotal ? String(Math.round(Number(estimate.customerEstimateTotal))) : current.amount,
+      cost: estimate?.executionCostTotal ? String(Math.round(Number(estimate.executionCostTotal))) : current.cost,
+      memo: estimate ? `${estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType))} · ${estimate.versionLabel || '견적'} 기준` : current.memo,
+    }));
+  };
+
+  const startSaleFromSite = (siteId: string) => {
+    applySiteToSaleForm(siteId);
+    setActiveTab('sales');
     scrollToForm(saleFormRef);
   };
 
@@ -1947,51 +2028,30 @@ export default function ManagerPage() {
           )}
 
         {activeTab === 'dashboard' && (
-          <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <MetricCard title="신규 상담" value={`${officeData.consultations.filter((item) => item.status !== '완료').length}건`} sub="미완료 상담" />
-            <MetricCard title="고객" value={`${officeData.customers.length}명`} sub="등록 고객" />
-            <MetricCard title="현장" value={`${officeData.sites.length}곳`} sub="관리 현장" />
-            <MetricCard title="매출" value={formatMoney(salesTotal)} sub={`예상 이익 ${formatMoney(profitTotal)}`} />
-            <MetricCard title="재고" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
-          </div>
-        )}
-
-        {activeTab === 'dashboard' && (
-          <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
-            <Panel title="최근 상담 요청">
-              <RecordList
-                empty="상담 기록이 없습니다."
-                items={officeData.consultations.slice(0, 6).map((item) => ({
-                  key: item._id,
-                  title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
-                  meta: `${item.source || '직접 등록'} · ${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '신규'}`,
-                  body: item.message,
-                  onClick: () => setSelectedConsultation(item),
-                  action: (
-                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                      <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
-                        상담 완료
-                      </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                        삭제
-                      </button>
-                    </div>
-                  ),
-                }))}
-              />
-            </Panel>
-            <Panel title="이번 매출 메모">
-              <RecordList
-                empty="매출 기록이 없습니다."
-                items={officeData.sales.slice(0, 6).map((item) => ({
-                  key: item._id,
-                  title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
-                  meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))}`,
-                  body: item.memo,
-                }))}
-              />
-            </Panel>
-          </div>
+          <DashboardOverview
+            officeData={officeData}
+            homepageSettings={homepageSettings}
+            visitStats={visitStats}
+            selectedSiteId={dashboardSite?._id || ''}
+            selectedSite={dashboardSite}
+            selectedEstimate={dashboardSiteEstimate}
+            selectedSale={dashboardSiteSale}
+            salesTotal={salesTotal}
+            profitTotal={profitTotal}
+            projectedEstimateTotal={projectedEstimateTotal}
+            projectedMarginTotal={projectedMarginTotal}
+            lowStockCount={lowStockCount}
+            contractedSiteCount={contractedSiteCount}
+            onSelectSite={setSelectedDashboardSiteId}
+            onOpenTab={setActiveTab}
+            onOpenEstimate={(siteId) => {
+              window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(siteId)}`;
+            }}
+            onStartSale={startSaleFromSite}
+            onOpenConsultation={setSelectedConsultation}
+            onCompleteConsultation={setCompletionConsultation}
+            onDeleteRecord={deleteOfficeRecord}
+          />
         )}
 
         {activeTab === 'consultations' && (
@@ -2218,50 +2278,102 @@ export default function ManagerPage() {
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
             <Panel title={editingSaleId ? '매출 수정' : '매출 등록'}>
               <div ref={saleFormRef}>
-              <OfficeForm
-                fields={[
-                  { label: '고객명', value: saleForm.customerName, onChange: (value) => setSaleForm({ ...saleForm, customerName: value }) },
-                  { label: '현장명', value: saleForm.projectTitle, onChange: (value) => setSaleForm({ ...saleForm, projectTitle: value }) },
-                  { label: '매출액', value: saleForm.amount, onChange: (value) => setSaleForm({ ...saleForm, amount: onlyNumber(value) }) },
-                  { label: '원가', value: saleForm.cost, onChange: (value) => setSaleForm({ ...saleForm, cost: onlyNumber(value) }) },
-                  { label: '상태', value: saleForm.status, onChange: (value) => setSaleForm({ ...saleForm, status: value }) },
-                  { label: '입금일', value: saleForm.paymentDate, onChange: (value) => setSaleForm({ ...saleForm, paymentDate: value }) },
-                  { label: '메모', value: saleForm.memo, onChange: (value) => setSaleForm({ ...saleForm, memo: value }), textarea: true },
-                ]}
-                buttonLabel={editingSaleId ? '매출 수정 저장' : '매출 저장'}
-                disabled={savingOffice}
-                onSubmit={async () => {
-                  await saveOfficeRecord('sale', {
-                    ...saleForm,
-                    amount: Number(saleForm.amount || 0),
-                    cost: Number(saleForm.cost || 0),
-                  }, editingSaleId || undefined);
-                  resetSaleForm();
-                }}
-                secondaryLabel={editingSaleId ? '수정 취소' : undefined}
-                onSecondary={resetSaleForm}
-              />
+                <div className="grid gap-4">
+                  <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                    <p className="text-sm font-semibold">현장과 견적 기준</p>
+                    <p className="mt-1 text-xs leading-5 text-[#60717d]">현장을 선택하면 최신 견적 금액과 실행 원가가 매출 입력값으로 자동 적용됩니다.</p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <label className="grid gap-1 text-sm font-semibold">
+                        현장 선택
+                        <select
+                          value={saleForm.siteId}
+                          onChange={(event) => applySiteToSaleForm(event.target.value)}
+                          className="rounded-md border border-[#d8d1c5] bg-white px-3 py-2.5 font-normal outline-none focus:border-[#8f6f43]"
+                        >
+                          <option value="">수기 입력</option>
+                          {officeData.sites.map((site) => (
+                            <option key={site._id} value={site._id}>
+                              {site.title || '현장명 없음'} · {site.customerName || '고객명 없음'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="grid gap-1 text-sm font-semibold">
+                        기준 견적
+                        <select
+                          value={saleForm.estimateId || saleFormEstimate?._id || ''}
+                          onChange={(event) => applyEstimateToSaleForm(event.target.value)}
+                          disabled={!saleFormSiteEstimates.length}
+                          className="rounded-md border border-[#d8d1c5] bg-white px-3 py-2.5 font-normal outline-none focus:border-[#8f6f43] disabled:bg-[#edf2f5]"
+                        >
+                          <option value="">견적 없음</option>
+                          {saleFormSiteEstimates.map((estimate) => (
+                            <option key={estimate._id} value={estimate._id}>
+                              {estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType))} · {estimate.versionLabel || '버전명 없음'} · {formatMoney(Number(estimate.customerEstimateTotal || 0))}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <MiniMetric label="견적 금액" value={formatMoney(Number(saleFormEstimate?.customerEstimateTotal || saleForm.amount || 0))} />
+                      <MiniMetric label="실행 원가" value={formatMoney(Number(saleFormEstimate?.executionCostTotal || saleForm.cost || 0))} />
+                      <MiniMetric label="예상 마진" value={formatMoney(Number(saleForm.amount || 0) - Number(saleForm.cost || 0))} />
+                    </div>
+                  </div>
+                  <OfficeForm
+                    fields={[
+                      { label: '고객명', value: saleForm.customerName, onChange: (value) => setSaleForm({ ...saleForm, customerName: value }) },
+                      { label: '현장명', value: saleForm.projectTitle, onChange: (value) => setSaleForm({ ...saleForm, projectTitle: value }) },
+                      { label: '매출액', value: saleForm.amount ? Number(saleForm.amount).toLocaleString('ko-KR') : '', onChange: (value) => setSaleForm({ ...saleForm, amount: onlyNumber(value) }) },
+                      { label: '원가', value: saleForm.cost ? Number(saleForm.cost).toLocaleString('ko-KR') : '', onChange: (value) => setSaleForm({ ...saleForm, cost: onlyNumber(value) }) },
+                      { label: '상태', value: saleForm.status, onChange: (value) => setSaleForm({ ...saleForm, status: value }), options: ['견적', '계약', '입금 예정', '부분 입금', '입금 완료', '취소'] },
+                      { label: '입금일', value: saleForm.paymentDate, onChange: (value) => setSaleForm({ ...saleForm, paymentDate: value }) },
+                      { label: '메모', value: saleForm.memo, onChange: (value) => setSaleForm({ ...saleForm, memo: value }), textarea: true },
+                    ]}
+                    buttonLabel={editingSaleId ? '매출 수정 저장' : '매출 저장'}
+                    disabled={savingOffice}
+                    onSubmit={async () => {
+                      await saveOfficeRecord('sale', {
+                        ...saleForm,
+                        amount: Number(saleForm.amount || 0),
+                        cost: Number(saleForm.cost || 0),
+                      }, editingSaleId || undefined);
+                      resetSaleForm();
+                    }}
+                    secondaryLabel={editingSaleId ? '수정 취소' : undefined}
+                    onSecondary={resetSaleForm}
+                  />
+                </div>
               </div>
             </Panel>
-            <Panel title="매출 목록">
+            <Panel title="매출 현황">
+              <div className="mb-4 grid gap-3 md:grid-cols-3">
+                <MetricCard title="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
+                <MetricCard title="견적 기준 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
+                <MetricCard title="매출 등록률" value={`${officeData.sites.length ? Math.round((officeData.sales.length / officeData.sites.length) * 100) : 0}%`} sub={`${officeData.sales.length}건 / 현장 ${officeData.sites.length}곳`} />
+              </div>
               <RecordList
-                empty="등록된 매출이 없습니다."
-                items={officeData.sales.map((item) => ({
-                  key: item._id,
-                  title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
-                  meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))} · 이익 ${formatMoney(Number(item.amount || 0) - Number(item.cost || 0))}`,
-                  body: item.memo,
-                  action: (
-                    <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                      <button onClick={() => editSale(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
-                        수정
-                      </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                        삭제
-                      </button>
-                    </div>
-                  ),
-                }))}
+                empty="등록된 매출이 없습니다. 현장을 선택하면 최신 견적 기준으로 빠르게 등록할 수 있습니다."
+                items={officeData.sales.map((item) => {
+                  const estimate = item.estimateId ? officeData.estimates.find((entry) => entry._id === item.estimateId) : undefined;
+                  return {
+                    key: item._id,
+                    title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
+                    meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))} · 이익 ${formatMoney(Number(item.amount || 0) - Number(item.cost || 0))}${estimate ? ` · ${estimate.versionLabel || '견적'} 기준` : ''}`,
+                    body: item.memo,
+                    action: (
+                      <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                        <button onClick={() => editSale(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
+                          수정
+                        </button>
+                        <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                          삭제
+                        </button>
+                      </div>
+                    ),
+                  };
+                })}
               />
             </Panel>
           </div>
@@ -3228,6 +3340,243 @@ function EstimateSitesPanel({
           <div className="rounded-lg border border-dashed border-[#cfd9df] bg-[#f7fafb] p-8 text-center text-[#60717d]">현장을 선택하면 견적 요약이 표시됩니다.</div>
         )}
       </Panel>
+    </div>
+  );
+}
+
+function DashboardOverview({
+  officeData,
+  homepageSettings,
+  visitStats,
+  selectedSiteId,
+  selectedSite,
+  selectedEstimate,
+  selectedSale,
+  salesTotal,
+  profitTotal,
+  projectedEstimateTotal,
+  projectedMarginTotal,
+  lowStockCount,
+  contractedSiteCount,
+  onSelectSite,
+  onOpenTab,
+  onOpenEstimate,
+  onStartSale,
+  onOpenConsultation,
+  onCompleteConsultation,
+  onDeleteRecord,
+}: {
+  officeData: OfficeData;
+  homepageSettings: {
+    kakaoUrl?: string;
+    kakaoChannelManagerUrl?: string;
+    naverPlaceUrl?: string;
+    blogUrl?: string;
+    instagramUrl?: string;
+    kakaoUnreadCount?: string;
+    naverUnreadCount?: string;
+  };
+  visitStats: VisitStats | null;
+  selectedSiteId: string;
+  selectedSite?: Site;
+  selectedEstimate?: EstimateSummary;
+  selectedSale?: Sale;
+  salesTotal: number;
+  profitTotal: number;
+  projectedEstimateTotal: number;
+  projectedMarginTotal: number;
+  lowStockCount: number;
+  contractedSiteCount: number;
+  onSelectSite: (siteId: string) => void;
+  onOpenTab: (tab: TabKey) => void;
+  onOpenEstimate: (siteId: string) => void;
+  onStartSale: (siteId: string) => void;
+  onOpenConsultation: (consultation: Consultation) => void;
+  onCompleteConsultation: (consultation: Consultation) => void;
+  onDeleteRecord: (id: string) => void;
+}) {
+  const activeConsultations = officeData.consultations.filter((item) => item.status !== '완료');
+  const estimateCoverage = officeData.sites.length ? Math.round((new Set(officeData.estimates.map((estimate) => estimate.siteId).filter(Boolean)).size / officeData.sites.length) * 100) : 0;
+  const selectedSiteEstimates = selectedSite ? sortEstimateSummaries(officeData.estimates.filter((estimate) => estimate.siteId === selectedSite._id)) : [];
+  const externalCards = [
+    { label: '카카오 채널 관리', url: homepageSettings.kakaoChannelManagerUrl, count: homepageSettings.kakaoUnreadCount, tone: 'bg-[#ffe812] text-[#171512]', note: '채팅·채널 상담 확인' },
+    { label: '카카오 상담 링크', url: homepageSettings.kakaoUrl, count: homepageSettings.kakaoUnreadCount, tone: 'bg-[#fff7cc] text-[#171512]', note: '고객용 상담 진입' },
+    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, count: homepageSettings.naverUnreadCount, tone: 'bg-[#03c75a] text-white', note: '예약·리뷰·플레이스' },
+    { label: '블로그', url: homepageSettings.blogUrl, count: '', tone: 'bg-[#f1c76a] text-[#171512]', note: '시공 사례 콘텐츠' },
+    { label: '인스타그램', url: homepageSettings.instagramUrl, count: '', tone: 'bg-[#273541] text-white', note: 'SNS 포트폴리오' },
+  ];
+
+  return (
+    <div className="grid gap-5">
+      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <div className="relative overflow-hidden rounded-2xl border border-[#273541] bg-[#1f2c36] p-6 text-white shadow-sm">
+          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-[#38bcd4]/20 blur-3xl" />
+          <div className="absolute bottom-0 left-20 h-32 w-32 rounded-full bg-[#f1c76a]/20 blur-3xl" />
+          <div className="relative">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#9de5ef]">Business Dashboard</p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">업무 현황</h2>
+            <p className="mt-2 text-sm leading-6 text-[#dce7ec]">상담, 현장, 견적, 매출 흐름을 한 화면에서 확인합니다.</p>
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <DarkMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
+              <DarkMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
+              <DarkMetric label="방문" value={`${visitStats?.todayCount || 0} / ${visitStats?.weekCount || 0}`} sub="오늘 / 이번 주" />
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
+          <MetricCard title="미완료 상담" value={`${activeConsultations.length}건`} sub={`전체 상담 ${officeData.consultations.length}건`} />
+          <MetricCard title="현장 진행" value={`${contractedSiteCount}곳`} sub={`전체 현장 ${officeData.sites.length}곳`} />
+          <MetricCard title="견적 작성률" value={`${estimateCoverage}%`} sub={`견적 ${officeData.estimates.length}개 버전`} />
+          <MetricCard title="재고 확인" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
+        <Panel title="현장별 바로 보기">
+          <div className="grid gap-4">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
+              <label className="grid gap-1 text-sm font-semibold text-[#4d473f]">
+                현장 선택
+                <select
+                  value={selectedSiteId}
+                  onChange={(event) => onSelectSite(event.target.value)}
+                  className="rounded-md border border-[#d8d1c5] bg-white px-3 py-2.5 font-normal outline-none focus:border-[#8f6f43]"
+                >
+                  {officeData.sites.length === 0 && <option value="">등록 현장 없음</option>}
+                  {officeData.sites.map((site) => (
+                    <option key={site._id} value={site._id}>
+                      {site.title || '현장명 없음'} · {site.customerName || '고객명 없음'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" onClick={() => selectedSite?._id && onOpenEstimate(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+                견적 작업
+              </button>
+              <button type="button" onClick={() => selectedSite?._id && onStartSale(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#f1c76a] px-4 py-2.5 text-sm font-semibold disabled:opacity-40">
+                매출 등록
+              </button>
+            </div>
+
+            {selectedSite ? (
+              <div className="rounded-xl border border-[#d5dde2] bg-[#f7fafb] p-5">
+                <div className="flex flex-col justify-between gap-3 md:flex-row">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
+                    <h3 className="mt-1 text-2xl font-semibold">{selectedSite.title || '현장명 없음'}</h3>
+                    <p className="mt-2 text-sm text-[#60717d]">{[selectedSite.customerName, selectedSite.customerPhone, selectedSite.address].filter(Boolean).join(' · ') || '현장 정보 없음'}</p>
+                  </div>
+                  <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(selectedSite.status || '상담중')}`}>{selectedSite.status || '상담중'}</span>
+                </div>
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <MiniMetric label="최신 견적" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} />
+                  <MiniMetric label="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} />
+                  <MiniMetric label="등록 매출" value={selectedSale ? formatMoney(Number(selectedSale.amount || 0)) : '미등록'} />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedSiteEstimates.length === 0 ? (
+                    <span className="rounded-full bg-[#fff5d9] px-3 py-1 text-xs font-bold text-[#8b6420]">견적 미작성</span>
+                  ) : (
+                    selectedSiteEstimates.map((estimate) => (
+                      <span key={estimate._id} className="rounded-full border border-[#d5dde2] bg-white px-3 py-1 text-xs font-bold text-[#4d5d66]">
+                        {estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType))} · {estimate.versionLabel || '버전명 없음'}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-[#cfd9df] bg-[#f7fafb] p-8 text-center text-sm font-semibold text-[#60717d]">등록된 현장이 없습니다.</div>
+            )}
+          </div>
+        </Panel>
+
+        <Panel title="외부 채널">
+          <div className="grid gap-3">
+            {externalCards.map((card) => (
+              <div key={card.label} className="flex items-center justify-between gap-3 rounded-xl border border-[#d5dde2] bg-[#f7fafb] p-4">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${card.tone}`}>
+                    {card.label.includes('카카오') ? <MessageCircle size={20} /> : <Link2 size={20} />}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-semibold">{card.label}</p>
+                    <p className="mt-1 text-xs text-[#60717d]">{card.url ? card.note : '홈페이지·채널 설정에서 링크를 입력해주세요.'}</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {card.count && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#267d8c]">알림 {card.count}</span>}
+                  {card.url ? (
+                    <a href={card.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-2 text-xs font-bold text-[#273541] shadow-sm">
+                      이동 <ExternalLink size={13} />
+                    </a>
+                  ) : (
+                    <button type="button" onClick={() => onOpenTab('integrations')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#60717d]">
+                      설정
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel title="최근 상담 요청">
+          <RecordList
+            empty="상담 기록이 없습니다."
+            items={officeData.consultations.slice(0, 6).map((item) => ({
+              key: item._id,
+              title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
+              meta: `${item.source || '직접 등록'} · ${item.propertyType || item.siteType || '현장 종류 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
+              body: item.message,
+              onClick: () => onOpenConsultation(item),
+              action: (
+                <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                  <button onClick={() => onCompleteConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
+                    상담 완료
+                  </button>
+                  <button onClick={() => onDeleteRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                    삭제
+                  </button>
+                </div>
+              ),
+            }))}
+          />
+        </Panel>
+        <Panel title="매출·견적 흐름">
+          <RecordList
+            empty="매출 기록이 없습니다."
+            items={officeData.sales.slice(0, 6).map((item) => ({
+              key: item._id,
+              title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
+              meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))} · 이익 ${formatMoney(Number(item.amount || 0) - Number(item.cost || 0))}`,
+              body: item.memo,
+            }))}
+          />
+        </Panel>
+      </section>
+    </div>
+  );
+}
+
+function DarkMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/10 p-4 backdrop-blur">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b7dbe2]">{label}</p>
+      <p className="mt-2 text-2xl font-semibold">{value}</p>
+      <p className="mt-1 text-xs text-[#dce7ec]">{sub}</p>
+    </div>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[#e1e8ec] bg-white px-4 py-3">
+      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#60717d]">{label}</p>
+      <p className="mt-2 text-lg font-semibold">{value}</p>
     </div>
   );
 }
@@ -4979,6 +5328,18 @@ function sortEstimateSummaries(estimates: EstimateSummary[]) {
     if (rankDiff !== 0) return rankDiff;
     return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
   });
+}
+
+function buildLatestEstimateBySite(estimates: EstimateSummary[]) {
+  const map = new Map<string, EstimateSummary>();
+  estimates.forEach((estimate) => {
+    if (!estimate.siteId) return;
+    const current = map.get(estimate.siteId);
+    if (!current || sortEstimateSummaries([estimate, current])[0]._id === estimate._id) {
+      map.set(estimate.siteId, estimate);
+    }
+  });
+  return map;
 }
 
 function imageObjectPosition(value?: string, x?: number, y?: number) {

@@ -31,7 +31,7 @@ const query = `{
     _id, siteId, siteTitle, customerName, versionType, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, updatedAt, createdAt
   },
   "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
-    _id, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt
+    _id, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt
   },
   "inventory": *[_type == "officeInventoryItem"] | order(itemName asc)[0...200] {
     _id, itemName, category, quantity, unit, minQuantity, vendor, memo, createdAt

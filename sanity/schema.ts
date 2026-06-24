@@ -1030,6 +1030,8 @@ const officeSale = defineType({
   title: '매출',
   type: 'document',
   fields: [
+    defineField({ name: 'siteId', title: '현장 ID', type: 'string' }),
+    defineField({ name: 'estimateId', title: '견적 ID', type: 'string' }),
     defineField({ name: 'customerName', title: '고객명', type: 'string' }),
     defineField({ name: 'projectTitle', title: '현장명', type: 'string' }),
     defineField({ name: 'amount', title: '매출액', type: 'number' }),
