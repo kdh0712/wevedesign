@@ -1829,12 +1829,12 @@ export default function WeveDesignLanding({
                 </div>
               </div>
 
-              <div className="grid min-w-0 gap-5">
+              <div className="grid min-w-0 max-w-full gap-5 overflow-hidden">
                 <div className="method-focus-card min-w-0 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
                   <div className="grid min-w-0 gap-6 p-5 md:p-8 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-start lg:gap-7">
                     <div className="min-w-0">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
-                      <h3 className="mt-3 max-w-4xl text-[1.65rem] font-semibold leading-tight sm:text-2xl md:text-4xl">
+                      <h3 className="mt-3 max-w-4xl text-[1.45rem] font-semibold leading-tight sm:text-2xl md:text-4xl">
                         {selectedConstructionModel.title}
                       </h3>
                       <p className="mt-3 text-sm leading-6 text-[#625d54] md:hidden">
@@ -1844,12 +1844,12 @@ export default function WeveDesignLanding({
                         {selectedConstructionModel.summary}
                       </p>
                     </div>
-                    <aside className="grid content-start gap-3 self-start">
-                      <div className="rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
+                    <aside className="grid min-w-0 max-w-full content-start gap-3 self-start">
+                      <div className="min-w-0 rounded-lg border border-[#eadfcd] bg-[#fffaf0] p-4">
                         <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">추천 대상</p>
                         <p className="mt-2 text-base font-semibold leading-7">{selectedConstructionModel.bestFor}</p>
                       </div>
-                      <div className="rounded-lg border border-[#f1c76a] bg-[#fff7df] p-4">
+                      <div className="min-w-0 rounded-lg border border-[#f1c76a] bg-[#fff7df] p-4">
                         <p className="text-sm font-bold tracking-[0.18em] text-[#8f6f43]">{methodSupportNote.title}</p>
                         <p className="mt-3 text-sm leading-6 text-[#625d54]">{methodSupportNote.body}</p>
                       </div>
@@ -1912,7 +1912,7 @@ export default function WeveDesignLanding({
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-[#eadfcd] bg-white p-4 shadow-[0_18px_55px_rgba(57,46,31,0.07)] md:p-8">
+                <div className="min-w-0 max-w-full overflow-hidden rounded-lg border border-[#eadfcd] bg-white p-4 shadow-[0_18px_55px_rgba(57,46,31,0.07)] md:p-8">
                   <div className="flex flex-col justify-between gap-3 md:flex-row md:items-end">
                     <div>
                       <p className="text-sm font-bold tracking-[0.2em] text-[#8f6f43]">진행 흐름</p>
@@ -1922,14 +1922,14 @@ export default function WeveDesignLanding({
                       단계별로 결정할 내용과 위브디자인이 관리하는 지점을 나누어 정리합니다.
                     </p>
                   </div>
-                  <div className="mt-5 flex snap-x gap-3 overflow-x-auto pb-2 lg:grid lg:grid-cols-5 lg:overflow-visible lg:pb-0">
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-3">
                     {selectedConstructionModel.workflow.map((step, index) => (
-                      <div key={step.title} className="relative min-w-[46%] snap-start sm:min-w-[42%] lg:min-w-0">
-                        <div className="workflow-step method-flow-card h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-4">
+                      <div key={step.title} className={`relative min-w-0 ${index === selectedConstructionModel.workflow.length - 1 ? 'col-span-2 sm:col-span-1' : ''}`}>
+                        <div className="workflow-step method-flow-card h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-3.5 sm:p-4">
                           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#f1c76a] text-sm font-bold text-[#171512]">
                             {String(index + 1).padStart(2, '0')}
                           </span>
-                          <h5 className="mt-3 text-base font-semibold md:mt-4 md:text-lg">{step.title}</h5>
+                          <h5 className="mt-3 text-base font-semibold leading-tight md:mt-4 md:text-lg">{step.title}</h5>
                           <p className="mt-3 hidden text-sm leading-6 text-[#625d54] sm:block">{step.body}</p>
                         </div>
                         {index < selectedConstructionModel.workflow.length - 1 && (
