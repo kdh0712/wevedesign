@@ -27,6 +27,8 @@ type ScheduleTask = {
   memo?: string;
 };
 
+type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
+
 type MaterialDoc = {
   _id: string;
   _type: 'estimateMaterial';
@@ -46,7 +48,7 @@ const estimateQuery = `{
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
-    _id, siteId, siteTitle, customerName, versionLabel, linesJson, scheduleJson,
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, scheduleJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
@@ -112,7 +114,9 @@ async function saveEstimate(body: Record<string, unknown>) {
   const totals = calculateTotals(lines);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
-  const id = existingId || `siteEstimate-${hashId(siteId)}`;
+  const versionType = normalizeVersionType(body.versionType);
+  const versionLabel = String(body.versionLabel || defaultVersionLabel(versionType)).trim();
+  const id = existingId || `siteEstimate-${hashId([siteId, versionType, versionLabel, now].join('|'))}`;
 
   const doc = {
     _id: id,
@@ -120,7 +124,8 @@ async function saveEstimate(body: Record<string, unknown>) {
     siteId,
     siteTitle: String(body.siteTitle || '').trim(),
     customerName: String(body.customerName || '').trim(),
-    versionLabel: String(body.versionLabel || '기본 견적').trim(),
+    versionType,
+    versionLabel,
     linesJson: JSON.stringify(lines),
     scheduleJson: JSON.stringify(schedule),
     customerEstimateTotal: totals.customerEstimateTotal,
@@ -134,6 +139,22 @@ async function saveEstimate(body: Record<string, unknown>) {
 
   await managerClient.createOrReplace(doc);
   return NextResponse.json({ record: doc });
+}
+
+function normalizeVersionType(value: unknown): EstimateVersionType {
+  const next = String(value || '').trim();
+  if (next === 'revision' || next === 'final' || next === 'change') return next;
+  return 'draft';
+}
+
+function defaultVersionLabel(versionType: EstimateVersionType) {
+  const labels: Record<EstimateVersionType, string> = {
+    draft: '초안',
+    revision: '수정안',
+    final: '최종안',
+    change: '변경견적',
+  };
+  return labels[versionType];
 }
 
 async function saveMaterial(material: Record<string, unknown>) {

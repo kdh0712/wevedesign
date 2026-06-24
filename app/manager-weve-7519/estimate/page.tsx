@@ -50,11 +50,14 @@ type ScheduleTask = {
   memo: string;
 };
 
+type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
+
 type SiteEstimate = {
   _id?: string;
   siteId?: string;
   siteTitle?: string;
   customerName?: string;
+  versionType?: EstimateVersionType;
   versionLabel?: string;
   linesJson?: string;
   scheduleJson?: string;
@@ -85,6 +88,13 @@ type MaterialPickerState = {
 };
 
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
+const NEW_ESTIMATE_ID = '__new_estimate_version__';
+const estimateVersionTypes: Array<{ key: EstimateVersionType; label: string; description: string }> = [
+  { key: 'draft', label: '초안', description: '첫 상담/초기 견적' },
+  { key: 'revision', label: '수정안', description: '고객 피드백 반영' },
+  { key: 'final', label: '최종안', description: '계약 전 최종 확정' },
+  { key: 'change', label: '변경견적', description: '추가·변경 공사' },
+];
 
 const emptyLine = (): EstimateLine => ({
   id: `line-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -118,8 +128,11 @@ export default function EstimateWorkspacePage() {
   const [estimates, setEstimates] = useState<SiteEstimate[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState('');
+  const [selectedEstimateId, setSelectedEstimateId] = useState('');
   const [estimateId, setEstimateId] = useState('');
-  const [versionLabel, setVersionLabel] = useState('기본 견적');
+  const [versionType, setVersionType] = useState<EstimateVersionType>('draft');
+  const [newVersionType, setNewVersionType] = useState<EstimateVersionType>('revision');
+  const [versionLabel, setVersionLabel] = useState('초안');
   const [memo, setMemo] = useState('');
   const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
@@ -138,6 +151,14 @@ export default function EstimateWorkspacePage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const selectedSite = sites.find((site) => site._id === selectedSiteId);
+  const selectedSiteEstimates = useMemo(
+    () => sortEstimateVersions(estimates.filter((estimate) => estimate.siteId === selectedSiteId)),
+    [estimates, selectedSiteId],
+  );
+  const selectedEstimate = useMemo(
+    () => selectedSiteEstimates.find((estimate) => estimate._id === selectedEstimateId),
+    [selectedEstimateId, selectedSiteEstimates],
+  );
   const totals = useMemo(() => calculateTotals(lines), [lines]);
   const materialCategories = useMemo(() => Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort(), [materials]);
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
@@ -170,24 +191,52 @@ export default function EstimateWorkspacePage() {
   }, []);
 
   useEffect(() => {
-    const estimate = estimates.find((item) => item.siteId === selectedSiteId);
+    if (!selectedSiteId) return;
+    if (selectedEstimateId === NEW_ESTIMATE_ID) return;
+
+    if (selectedSiteEstimates.length === 0) {
+      const site = sites.find((item) => item._id === selectedSiteId);
+      setSelectedEstimateId(NEW_ESTIMATE_ID);
+      setEstimateId('');
+      setVersionType('draft');
+      setNewVersionType('revision');
+      setVersionLabel(defaultVersionLabel('draft', []));
+      setMemo('');
+      setLines(site ? [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }] : [emptyLine()]);
+      setSchedule([emptyTask()]);
+      setSelectedLineId('');
+      return;
+    }
+
+    if (!selectedEstimateId || !selectedSiteEstimates.some((estimate) => estimate._id === selectedEstimateId)) {
+      setSelectedEstimateId(selectedSiteEstimates[0]?._id || '');
+    }
+  }, [selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
+
+  useEffect(() => {
+    if (!selectedSiteId || selectedEstimateId === NEW_ESTIMATE_ID) return;
+    const estimate = selectedEstimate;
     const site = sites.find((item) => item._id === selectedSiteId);
 
     setEstimateId(estimate?._id || '');
-    setVersionLabel(estimate?.versionLabel || '기본 견적');
+    const nextVersionType = normalizeVersionType(estimate?.versionType);
+    setVersionType(nextVersionType);
+    setVersionLabel(estimate?.versionLabel || defaultVersionLabel(nextVersionType, selectedSiteEstimates));
     setMemo(estimate?.memo || '');
     setLines(parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]));
     setSchedule(parseJson<ScheduleTask[]>(estimate?.scheduleJson, [emptyTask()]));
     setSelectedLineId('');
 
     if (!estimate && site) {
-      setLines([{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 기본 견적` }]);
+      setVersionType('draft');
+      setVersionLabel(defaultVersionLabel('draft', selectedSiteEstimates));
+      setLines([{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }]);
     }
-  }, [selectedSiteId, estimates, sites]);
+  }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
 
   const authHeaders = (nextPassword = password) => ({ 'x-manager-password': nextPassword });
 
-  const loadData = async (nextPassword = password, preferredSiteId = selectedSiteId) => {
+  const loadData = async (nextPassword = password, preferredSiteId = selectedSiteId, preferredEstimateId = selectedEstimateId) => {
     setError('');
     setStatus('');
     if (!nextPassword) return;
@@ -201,6 +250,9 @@ export default function EstimateWorkspacePage() {
       setEstimates(data.estimates || []);
       setMaterials(data.materials || []);
       setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
+      if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
+        setSelectedEstimateId(preferredEstimateId);
+      }
       setIsUnlocked(true);
       window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, nextPassword);
     } catch (caught) {
@@ -228,17 +280,25 @@ export default function EstimateWorkspacePage() {
           siteId: selectedSite._id,
           siteTitle: selectedSite.title,
           customerName: selectedSite.customerName,
+          versionType,
           versionLabel,
           lines,
           schedule,
           memo,
+          createdAt: selectedEstimate?.createdAt,
         }),
       });
       const data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '견적 저장에 실패했습니다.');
+      const savedRecord = data.record as SiteEstimate | undefined;
+      const savedEstimateId = savedRecord?._id || estimateId;
 
-      setStatus('견적 작업이 저장되었습니다.');
-      await loadData(password, selectedSite._id);
+      if (savedEstimateId) {
+        setEstimateId(savedEstimateId);
+        setSelectedEstimateId(savedEstimateId);
+      }
+      setStatus(`${versionLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.`);
+      await loadData(password, selectedSite._id, savedEstimateId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 저장 중 오류가 발생했습니다.');
     } finally {
@@ -357,6 +417,29 @@ export default function EstimateWorkspacePage() {
     setActiveTab('lines');
   };
 
+  const startNewVersion = (copyCurrent = true) => {
+    if (!selectedSite) {
+      setError('현장을 먼저 선택해주세요.');
+      return;
+    }
+
+    const nextLabel = defaultVersionLabel(newVersionType, selectedSiteEstimates);
+    setSelectedEstimateId(NEW_ESTIMATE_ID);
+    setEstimateId('');
+    setVersionType(newVersionType);
+    setVersionLabel(nextLabel);
+    setMemo(copyCurrent ? memo : '');
+    setLines(
+      copyCurrent && lines.some((line) => line.name || line.category || line.process)
+        ? cloneEstimateLines(lines)
+        : [{ ...emptyLine(), space: '공용', category: selectedSite.siteType || '', name: `${selectedSite.title || '현장'} ${nextLabel}` }],
+    );
+    setSchedule(copyCurrent && schedule.some((task) => task.name) ? cloneScheduleTasks(schedule) : [emptyTask()]);
+    setSelectedLineId('');
+    setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
+    setActiveTab('lines');
+  };
+
   const updateLine = (id: string, updates: Partial<EstimateLine>) => {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
   };
@@ -417,7 +500,14 @@ export default function EstimateWorkspacePage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select value={selectedSiteId} onChange={(event) => setSelectedSiteId(event.target.value)} className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd]">
+            <select
+              value={selectedSiteId}
+              onChange={(event) => {
+                setSelectedSiteId(event.target.value);
+                setSelectedEstimateId('');
+              }}
+              className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd]"
+            >
               {sites.map((site) => (
                 <option key={site._id} value={site._id}>
                   {site.title || '현장명 없음'} · {site.customerName || '고객명 없음'}
@@ -448,14 +538,79 @@ export default function EstimateWorkspacePage() {
                 {[selectedSite?.customerName, selectedSite?.customerPhone, selectedSite?.address].filter(Boolean).join(' · ') || '현장 정보가 없습니다.'}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-2 rounded-md bg-[#f7fafb] p-3 md:grid-cols-[0.95fr_1.05fr]">
-              <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} aria-label="견적 버전" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+            <div className="grid gap-2 rounded-md bg-[#f7fafb] p-3">
+              <div className="grid grid-cols-[116px_minmax(0,1fr)] gap-2">
+                <select
+                  value={versionType}
+                  onChange={(event) => setVersionType(event.target.value as EstimateVersionType)}
+                  aria-label="견적 버전 구분"
+                  className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                >
+                  {estimateVersionTypes.map((type) => (
+                    <option key={type.key} value={type.key}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} aria-label="견적 버전명" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+              </div>
               <input value={memo} onChange={(event) => setMemo(event.target.value)} aria-label="현장 메모" placeholder="현장 메모" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
             </div>
             <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
             <CompactMetric title="실행 원가" value={formatMoney(totals.executionCostTotal)} />
             <CompactMetric title="예상 마진" value={formatMoney(totals.marginAmount)} tone={totals.marginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.marginRate.toFixed(1)}%`} />
             <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
+          </div>
+          <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {selectedSiteEstimates.length === 0 && (
+                <span className="inline-flex shrink-0 items-center rounded-full border border-[#f1c76a] bg-[#fff7df] px-3 py-2 text-xs font-bold text-[#8b6420]">
+                  저장 전 새 초안
+                </span>
+              )}
+              {selectedSiteEstimates.map((estimate) => {
+                const isActive = selectedEstimateId === estimate._id;
+                return (
+                  <button
+                    key={estimate._id}
+                    type="button"
+                    onClick={() => setSelectedEstimateId(estimate._id || '')}
+                    className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-bold transition ${
+                      isActive ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66] hover:border-[#38a9bd]'
+                    }`}
+                  >
+                    <span>{estimateVersionLabel(normalizeVersionType(estimate.versionType))}</span>
+                    <span className={isActive ? 'text-white/80' : 'text-[#87949c]'}>{estimate.versionLabel || '버전명 없음'}</span>
+                  </button>
+                );
+              })}
+              {selectedEstimateId === NEW_ESTIMATE_ID && selectedSiteEstimates.length > 0 && (
+                <span className="inline-flex shrink-0 items-center rounded-full border border-[#f1c76a] bg-[#fff7df] px-3 py-2 text-xs font-bold text-[#8b6420]">
+                  저장 전 {estimateVersionLabel(versionType)}
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <select
+                value={newVersionType}
+                onChange={(event) => setNewVersionType(event.target.value as EstimateVersionType)}
+                aria-label="새 견적 버전 구분"
+                className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+              >
+                {estimateVersionTypes.map((type) => (
+                  <option key={type.key} value={type.key}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={() => startNewVersion(true)} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+                <Plus size={16} />
+                현재 내역 복사
+              </button>
+              <button type="button" onClick={() => startNewVersion(false)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                빈 버전
+              </button>
+            </div>
           </div>
         </section>
 
@@ -1132,6 +1287,55 @@ function CoverRow({ label, value, strong = false }: { label: string; value: stri
       <td className={`border border-[#171512] px-4 py-4 ${strong ? 'text-2xl font-semibold' : ''}`}>{value}</td>
     </tr>
   );
+}
+
+function normalizeVersionType(value?: string): EstimateVersionType {
+  if (value === 'revision' || value === 'final' || value === 'change') return value;
+  return 'draft';
+}
+
+function estimateVersionLabel(type: EstimateVersionType) {
+  return estimateVersionTypes.find((item) => item.key === type)?.label || '초안';
+}
+
+function estimateVersionRank(type?: string) {
+  const rank: Record<EstimateVersionType, number> = {
+    final: 0,
+    change: 1,
+    revision: 2,
+    draft: 3,
+  };
+  return rank[normalizeVersionType(type)];
+}
+
+function sortEstimateVersions(estimates: SiteEstimate[]) {
+  return [...estimates].sort((a, b) => {
+    const rankDiff = estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
+    if (rankDiff !== 0) return rankDiff;
+    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+  });
+}
+
+function defaultVersionLabel(type: EstimateVersionType, estimates: SiteEstimate[]) {
+  const base = estimateVersionLabel(type);
+  const sameTypeCount = estimates.filter((estimate) => normalizeVersionType(estimate.versionType) === type).length;
+  if (type === 'draft' && sameTypeCount === 0) return '초안';
+  if (type === 'final' && sameTypeCount === 0) return '최종안';
+  return `${base} ${sameTypeCount + 1}`;
+}
+
+function cloneEstimateLines(lines: EstimateLine[]) {
+  return lines.map((line, index) => ({
+    ...line,
+    id: `line-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  }));
+}
+
+function cloneScheduleTasks(tasks: ScheduleTask[]) {
+  return tasks.map((task, index) => ({
+    ...task,
+    id: `task-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  }));
 }
 
 function groupLinesByCategory(lines: EstimateLine[]) {

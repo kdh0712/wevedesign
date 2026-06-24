@@ -1124,6 +1124,20 @@ const siteEstimate = defineType({
     defineField({ name: 'siteId', title: '현장 ID', type: 'string' }),
     defineField({ name: 'siteTitle', title: '현장명', type: 'string' }),
     defineField({ name: 'customerName', title: '고객명', type: 'string' }),
+    defineField({
+      name: 'versionType',
+      title: '견적 버전 구분',
+      type: 'string',
+      initialValue: 'draft',
+      options: {
+        list: [
+          { title: '초안', value: 'draft' },
+          { title: '수정안', value: 'revision' },
+          { title: '최종안', value: 'final' },
+          { title: '변경견적', value: 'change' },
+        ],
+      },
+    }),
     defineField({ name: 'versionLabel', title: '견적 버전', type: 'string', initialValue: '기본 견적' }),
     defineField({ name: 'linesJson', title: '견적 내역 JSON', type: 'text', rows: 10 }),
     defineField({ name: 'scheduleJson', title: '공정 일정 JSON', type: 'text', rows: 8 }),
@@ -1136,11 +1150,21 @@ const siteEstimate = defineType({
     defineField({ name: 'updatedAt', title: '수정일', type: 'datetime' }),
   ],
   preview: {
-    select: { title: 'siteTitle', customerName: 'customerName', total: 'customerEstimateTotal' },
-    prepare({ title, customerName, total }) {
+    select: { title: 'siteTitle', customerName: 'customerName', versionType: 'versionType', versionLabel: 'versionLabel', total: 'customerEstimateTotal' },
+    prepare({ title, customerName, versionType, versionLabel, total }) {
+      const versionLabels: Record<string, string> = {
+        draft: '초안',
+        revision: '수정안',
+        final: '최종안',
+        change: '변경견적',
+      };
       return {
         title: title || '현장 견적',
-        subtitle: [customerName, total ? `${Number(total).toLocaleString('ko-KR')}원` : undefined].filter(Boolean).join(' · '),
+        subtitle: [
+          customerName,
+          `${versionLabels[versionType] || '초안'}${versionLabel ? ` · ${versionLabel}` : ''}`,
+          total ? `${Number(total).toLocaleString('ko-KR')}원` : undefined,
+        ].filter(Boolean).join(' · '),
       };
     },
   },

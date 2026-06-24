@@ -28,7 +28,7 @@ const query = `{
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
-    _id, siteId, siteTitle, customerName, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, updatedAt, createdAt
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, updatedAt, createdAt
   },
   "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
     _id, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt

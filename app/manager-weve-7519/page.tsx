@@ -155,6 +155,7 @@ type EstimateSummary = {
   siteId?: string;
   siteTitle?: string;
   customerName?: string;
+  versionType?: EstimateVersionType;
   versionLabel?: string;
   customerEstimateTotal?: number;
   executionCostTotal?: number;
@@ -163,6 +164,8 @@ type EstimateSummary = {
   updatedAt?: string;
   createdAt?: string;
 };
+
+type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
 
 type Sale = {
   _id: string;
@@ -3098,8 +3101,9 @@ function EstimateSitesPanel({
 }) {
   const [selectedSiteId, setSelectedSiteId] = useState(sites[0]?._id || '');
   const selectedSite = sites.find((site) => site._id === selectedSiteId) || sites[0];
-  const selectedEstimate = selectedSite ? estimates.find((estimate) => estimate.siteId === selectedSite._id) : undefined;
-  const estimatedSiteCount = estimates.filter((estimate) => estimate.siteId).length;
+  const selectedSiteEstimates = selectedSite ? sortEstimateSummaries(estimates.filter((estimate) => estimate.siteId === selectedSite._id)) : [];
+  const selectedEstimate = selectedSiteEstimates[0];
+  const estimatedSiteCount = new Set(estimates.filter((estimate) => estimate.siteId).map((estimate) => estimate.siteId)).size;
 
   useEffect(() => {
     if (!selectedSiteId && sites[0]?._id) setSelectedSiteId(sites[0]._id);
@@ -3138,7 +3142,8 @@ function EstimateSitesPanel({
         ) : (
           <div className="grid max-h-[680px] gap-3 overflow-y-auto pr-1">
             {sites.map((site) => {
-              const estimate = estimates.find((item) => item.siteId === site._id);
+              const siteEstimates = sortEstimateSummaries(estimates.filter((item) => item.siteId === site._id));
+              const estimate = siteEstimates[0];
               const isActive = selectedSite?._id === site._id;
 
               return (
@@ -3156,13 +3161,13 @@ function EstimateSitesPanel({
                       <p className="mt-1 text-sm text-[#60717d]">{[site.customerName, site.siteType, site.status].filter(Boolean).join(' · ') || '현장 정보 없음'}</p>
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-bold ${estimate ? 'bg-[#e8f7ee] text-[#217346]' : 'bg-[#fff5d9] text-[#8b6420]'}`}>
-                      {estimate ? '견적 있음' : '미작성'}
+                      {estimate ? `${siteEstimates.length}개 버전` : '미작성'}
                     </span>
                   </div>
                   <div className="mt-3 grid gap-2 text-xs text-[#60717d] sm:grid-cols-3">
+                    <span>{estimate ? estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType)) : '버전 없음'}</span>
                     <span>견적 {formatMoney(Number(estimate?.customerEstimateTotal || 0))}</span>
                     <span>원가 {formatMoney(Number(estimate?.executionCostTotal || 0))}</span>
-                    <span>마진 {Number(estimate?.marginRate || 0).toFixed(1)}%</span>
                   </div>
                 </button>
               );
@@ -3203,11 +3208,20 @@ function EstimateSitesPanel({
             <div className="rounded-lg border border-[#d5dde2] bg-white p-5">
               <h3 className="text-lg font-semibold">작업 상태</h3>
               <div className="mt-4 grid gap-3 text-sm text-[#4d5d66] md:grid-cols-2">
-                <p className="rounded-md bg-[#f7fafb] p-3">견적 버전: {selectedEstimate?.versionLabel || '아직 작성 전'}</p>
+                <p className="rounded-md bg-[#f7fafb] p-3">대표 버전: {selectedEstimate ? `${estimateVersionLabel(normalizeEstimateVersionType(selectedEstimate.versionType))} · ${selectedEstimate.versionLabel || '버전명 없음'}` : '아직 작성 전'}</p>
                 <p className="rounded-md bg-[#f7fafb] p-3">마지막 수정: {selectedEstimate?.updatedAt ? formatDate(selectedEstimate.updatedAt) : '기록 없음'}</p>
                 <p className="rounded-md bg-[#f7fafb] p-3">현장 상태: {selectedSite.status || '미정'}</p>
-                <p className="rounded-md bg-[#f7fafb] p-3">현장 메모: {selectedSite.memo || '메모 없음'}</p>
+                <p className="rounded-md bg-[#f7fafb] p-3">버전 수: {selectedSiteEstimates.length}개</p>
               </div>
+              {selectedSiteEstimates.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedSiteEstimates.map((estimate) => (
+                    <span key={estimate._id} className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-xs font-bold text-[#4d5d66]">
+                      {estimateVersionLabel(normalizeEstimateVersionType(estimate.versionType))} · {estimate.versionLabel || '버전명 없음'}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ) : (
@@ -4932,6 +4946,39 @@ function formatTime(value: Date) {
 
 function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
+}
+
+function normalizeEstimateVersionType(value?: string): EstimateVersionType {
+  if (value === 'revision' || value === 'final' || value === 'change') return value;
+  return 'draft';
+}
+
+function estimateVersionLabel(type: EstimateVersionType) {
+  const labels: Record<EstimateVersionType, string> = {
+    draft: '초안',
+    revision: '수정안',
+    final: '최종안',
+    change: '변경견적',
+  };
+  return labels[type];
+}
+
+function estimateVersionRank(type?: string) {
+  const rank: Record<EstimateVersionType, number> = {
+    final: 0,
+    change: 1,
+    revision: 2,
+    draft: 3,
+  };
+  return rank[normalizeEstimateVersionType(type)];
+}
+
+function sortEstimateSummaries(estimates: EstimateSummary[]) {
+  return [...estimates].sort((a, b) => {
+    const rankDiff = estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
+    if (rankDiff !== 0) return rankDiff;
+    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+  });
 }
 
 function imageObjectPosition(value?: string, x?: number, y?: number) {
