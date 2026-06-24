@@ -1868,7 +1868,7 @@ export default function ManagerPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
+    <main className="min-h-screen bg-[#eef3f5] text-[#171512]">
       {!isUnlocked && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
           <form
@@ -1969,29 +1969,27 @@ export default function ManagerPage() {
           </div>
         </aside>
 
-        <section className="min-w-0 flex-1 px-4 py-5 md:px-6">
-          <header className="mb-5 rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-            <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+        <section className="min-w-0 flex-1 px-4 py-4 md:px-5">
+          <header className="mb-4 rounded-lg border border-[#d5dde2] bg-white px-4 py-3 shadow-sm">
+            <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
               <div>
-                <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE MANAGER</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-normal md:text-4xl">사무업무 통합 콘솔</h1>
-                <p className="mt-2 text-sm text-[#60717d]">상담, 고객, 매출, 재고, 협력업체, 홈페이지 관리를 한 곳에서 처리합니다.</p>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">WEVE MANAGER</p>
+                <h1 className="mt-1 text-2xl font-semibold tracking-normal md:text-3xl">사무업무 통합 콘솔</h1>
+                <p className="mt-1 text-sm text-[#60717d]">상담, 고객, 현장, 매출, 홈페이지 관리를 한 곳에서 처리합니다.</p>
               </div>
-              <div className="flex flex-col items-start gap-2 sm:items-end">
+              <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                 <span className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">
                   접속자 오늘 {visitStats?.todayCount ?? 0} · 이번 주 {visitStats?.weekCount ?? 0}
                 </span>
+                <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-semibold text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
+                {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">갱신 {lastRefreshedAt}</span>}
                 <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
                   <LogOut size={15} />
                   로그아웃
                 </button>
               </div>
             </div>
-            <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-semibold text-[#60717d]">
-              <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
-              {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1">마지막 갱신 {lastRefreshedAt}</span>}
-            </div>
-            <div className="mt-5 lg:hidden">
+            <div className="mt-3 lg:hidden">
               <div className="flex gap-2 overflow-x-auto">
                 {visibleSections.map((section) => (
                   <button
@@ -2010,13 +2008,13 @@ export default function ManagerPage() {
           </header>
 
           {activeSectionTabs.length > 1 && (
-            <nav className="mb-5 flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm" aria-label={`${activeSection?.label || '업무'} 세부 메뉴`}>
+            <nav className="mb-4 flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-1.5 shadow-sm" aria-label={`${activeSection?.label || '업무'} 세부 메뉴`}>
               {activeSectionTabs.map((tab) => (
                 <button
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`inline-flex shrink-0 items-center gap-2 rounded-md px-4 py-2.5 text-sm font-semibold transition ${
+                  className={`inline-flex shrink-0 items-center gap-2 rounded-md px-3.5 py-2 text-sm font-semibold transition ${
                     activeTab === tab.key ? 'bg-[#273541] text-white' : 'text-[#4d5d66] hover:bg-[#edf2f5] hover:text-[#171512]'
                   }`}
                 >
@@ -3407,41 +3405,39 @@ function DashboardOverview({
   ];
 
   return (
-    <div className="grid gap-5">
-      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="relative overflow-hidden rounded-2xl border border-[#273541] bg-[#1f2c36] p-6 text-white shadow-sm">
-          <div className="absolute right-0 top-0 h-40 w-40 rounded-full bg-[#38bcd4]/20 blur-3xl" />
-          <div className="absolute bottom-0 left-20 h-32 w-32 rounded-full bg-[#f1c76a]/20 blur-3xl" />
-          <div className="relative">
-            <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#9de5ef]">Business Dashboard</p>
-            <h2 className="mt-3 text-3xl font-semibold tracking-normal md:text-4xl">업무 현황</h2>
-            <p className="mt-2 text-sm leading-6 text-[#dce7ec]">상담, 현장, 견적, 매출 흐름을 한 화면에서 확인합니다.</p>
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <DarkMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
-              <DarkMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
-              <DarkMetric label="방문" value={`${visitStats?.todayCount || 0} / ${visitStats?.weekCount || 0}`} sub="오늘 / 이번 주" />
-            </div>
+    <div className="grid gap-4">
+      <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">Business Dashboard</p>
+            <h2 className="mt-1 text-2xl font-semibold tracking-normal">업무 현황</h2>
+            <p className="mt-1 text-sm text-[#60717d]">상담, 현장, 견적, 매출 흐름을 한 화면에서 확인합니다.</p>
           </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-1">
-          <MetricCard title="미완료 상담" value={`${activeConsultations.length}건`} sub={`전체 상담 ${officeData.consultations.length}건`} />
-          <MetricCard title="현장 진행" value={`${contractedSiteCount}곳`} sub={`전체 현장 ${officeData.sites.length}곳`} />
-          <MetricCard title="견적 작성률" value={`${estimateCoverage}%`} sub={`견적 ${officeData.estimates.length}개 버전`} />
-          <MetricCard title="재고 확인" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
+          <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[560px]">
+            <SummaryMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
+            <SummaryMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
+            <SummaryMetric label="방문" value={`${visitStats?.todayCount || 0} / ${visitStats?.weekCount || 0}`} sub="오늘 / 이번 주" />
+          </div>
         </div>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <MetricCard title="미완료 상담" value={`${activeConsultations.length}건`} sub={`전체 상담 ${officeData.consultations.length}건`} />
+        <MetricCard title="현장 진행" value={`${contractedSiteCount}곳`} sub={`전체 현장 ${officeData.sites.length}곳`} />
+        <MetricCard title="견적 작성률" value={`${estimateCoverage}%`} sub={`견적 ${officeData.estimates.length}개 버전`} />
+        <MetricCard title="재고 확인" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
         <Panel title="현장별 바로 보기">
-          <div className="grid gap-4">
+          <div className="grid gap-3">
             <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto_auto] md:items-end">
               <label className="grid gap-1 text-sm font-semibold text-[#4d473f]">
                 현장 선택
                 <select
                   value={selectedSiteId}
                   onChange={(event) => onSelectSite(event.target.value)}
-                  className="rounded-md border border-[#d8d1c5] bg-white px-3 py-2.5 font-normal outline-none focus:border-[#8f6f43]"
+                  className="rounded-md border border-[#d8d1c5] bg-white px-3 py-2 text-sm font-normal outline-none focus:border-[#8f6f43]"
                 >
                   {officeData.sites.length === 0 && <option value="">등록 현장 없음</option>}
                   {officeData.sites.map((site) => (
@@ -3451,30 +3447,30 @@ function DashboardOverview({
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={() => selectedSite?._id && onOpenEstimate(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-40">
+              <button type="button" onClick={() => selectedSite?._id && onOpenEstimate(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#171512] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-40">
                 견적 작업
               </button>
-              <button type="button" onClick={() => selectedSite?._id && onStartSale(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#f1c76a] px-4 py-2.5 text-sm font-semibold disabled:opacity-40">
+              <button type="button" onClick={() => selectedSite?._id && onStartSale(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#f1c76a] px-3.5 py-2 text-sm font-semibold disabled:opacity-40">
                 매출 등록
               </button>
             </div>
 
             {selectedSite ? (
-              <div className="rounded-xl border border-[#d5dde2] bg-[#f7fafb] p-5">
+              <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                 <div className="flex flex-col justify-between gap-3 md:flex-row">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
-                    <h3 className="mt-1 text-2xl font-semibold">{selectedSite.title || '현장명 없음'}</h3>
-                    <p className="mt-2 text-sm text-[#60717d]">{[selectedSite.customerName, selectedSite.customerPhone, selectedSite.address].filter(Boolean).join(' · ') || '현장 정보 없음'}</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
+                    <h3 className="mt-1 text-xl font-semibold">{selectedSite.title || '현장명 없음'}</h3>
+                    <p className="mt-1 text-sm text-[#60717d]">{[selectedSite.customerName, selectedSite.customerPhone, selectedSite.address].filter(Boolean).join(' · ') || '현장 정보 없음'}</p>
                   </div>
                   <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(selectedSite.status || '상담중')}`}>{selectedSite.status || '상담중'}</span>
                 </div>
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="mt-3 grid gap-2 sm:grid-cols-3">
                   <MiniMetric label="최신 견적" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} />
                   <MiniMetric label="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} />
                   <MiniMetric label="등록 매출" value={selectedSale ? formatMoney(Number(selectedSale.amount || 0)) : '미등록'} />
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   {selectedSiteEstimates.length === 0 ? (
                     <span className="rounded-full bg-[#fff5d9] px-3 py-1 text-xs font-bold text-[#8b6420]">견적 미작성</span>
                   ) : (
@@ -3493,15 +3489,15 @@ function DashboardOverview({
         </Panel>
 
         <Panel title="외부 채널">
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {externalCards.map((card) => (
-              <div key={card.label} className="flex items-center justify-between gap-3 rounded-xl border border-[#d5dde2] bg-[#f7fafb] p-4">
+              <div key={card.label} className="flex items-center justify-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${card.tone}`}>
-                    {card.label.includes('카카오') ? <MessageCircle size={20} /> : <Link2 size={20} />}
+                  <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${card.tone}`}>
+                    {card.label.includes('카카오') ? <MessageCircle size={18} /> : <Link2 size={18} />}
                   </span>
                   <div className="min-w-0">
-                    <p className="font-semibold">{card.label}</p>
+                    <p className="text-sm font-semibold">{card.label}</p>
                     <p className="mt-1 text-xs text-[#60717d]">{card.url ? card.note : '홈페이지·채널 설정에서 링크를 입력해주세요.'}</p>
                   </div>
                 </div>
@@ -3523,7 +3519,7 @@ function DashboardOverview({
         </Panel>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel title="최근 상담 요청">
           <RecordList
             empty="상담 기록이 없습니다."
@@ -3562,40 +3558,39 @@ function DashboardOverview({
   );
 }
 
-function DarkMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
+function SummaryMetric({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#b7dbe2]">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 text-xs text-[#dce7ec]">{sub}</p>
+    <div className="rounded-md border border-[#dce5ea] bg-[#f7fafb] px-4 py-3">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#60717d]">{label}</p>
+      <p className="mt-1 text-xl font-semibold tracking-normal text-[#171512]">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-[#60717d]">{sub}</p>
     </div>
   );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-[#e1e8ec] bg-white px-4 py-3">
-      <p className="text-xs font-bold uppercase tracking-[0.14em] text-[#60717d]">{label}</p>
-      <p className="mt-2 text-lg font-semibold">{value}</p>
+    <div className="rounded-md border border-[#dce5ea] bg-white px-3 py-2.5">
+      <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#60717d]">{label}</p>
+      <p className="mt-1 text-base font-semibold">{value}</p>
     </div>
   );
 }
 
 function MetricCard({ title, value, sub }: { title: string; value: string; sub: string }) {
   return (
-    <section className="relative overflow-hidden rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#38bcd4] via-[#f1c76a] to-[#273541]" />
-      <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#60717d]">{title}</p>
-      <p className="mt-3 text-3xl font-semibold tracking-normal text-[#171512]">{value}</p>
-      <p className="mt-2 text-sm font-medium text-[#60717d]">{sub}</p>
+    <section className="rounded-lg border border-[#d5dde2] bg-white px-4 py-3 shadow-sm">
+      <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#60717d]">{title}</p>
+      <p className="mt-1.5 text-2xl font-semibold tracking-normal text-[#171512]">{value}</p>
+      <p className="mt-1 text-xs font-medium text-[#60717d]">{sub}</p>
     </section>
   );
 }
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-      <h2 className="mb-4 flex items-center gap-2 text-xl font-semibold">
+    <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+      <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
         <span className="h-2 w-2 rounded-full bg-[#38bcd4]" />
         {title}
       </h2>
@@ -5016,25 +5011,25 @@ function RecordList({
   items: Array<{ key: string; title: string; meta?: string; body?: string; action?: React.ReactNode; onClick?: () => void }>;
 }) {
   if (items.length === 0) {
-    return <p className="rounded-md bg-[#fffdf8] px-4 py-5 text-sm text-[#625d54]">{empty}</p>;
+    return <p className="rounded-md bg-[#f7fafb] px-4 py-4 text-sm text-[#60717d]">{empty}</p>;
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       {items.map((item) => (
         <article
           key={item.key}
           onClick={item.onClick}
-          className={`rounded-md border border-[#eadfcd] bg-[#fffdf8] p-4 ${item.onClick ? 'cursor-pointer transition hover:border-[#38a9bd] hover:bg-white' : ''}`}
+          className={`rounded-md border border-[#d5dde2] bg-[#fffdf8] p-3 ${item.onClick ? 'cursor-pointer transition hover:border-[#38a9bd] hover:bg-white' : ''}`}
         >
-          <div className="flex flex-col justify-between gap-3 md:flex-row">
+          <div className="flex flex-col justify-between gap-2 md:flex-row">
             <div>
-              <h3 className="font-semibold">{item.title}</h3>
-              {item.meta && <p className="mt-1 text-sm text-[#625d54]">{item.meta}</p>}
+              <h3 className="text-sm font-semibold">{item.title}</h3>
+              {item.meta && <p className="mt-1 text-xs text-[#625d54]">{item.meta}</p>}
             </div>
             {item.action}
           </div>
-          {item.body && <p className="mt-3 max-h-12 overflow-hidden whitespace-pre-wrap text-sm leading-6 text-[#4d473f]">{item.body}</p>}
+          {item.body && <p className="mt-2 max-h-10 overflow-hidden whitespace-pre-wrap text-sm leading-5 text-[#4d473f]">{item.body}</p>}
         </article>
       ))}
     </div>
