@@ -1,5 +1,11 @@
 import { NextResponse } from 'next/server';
 import { assertManager, hashId, managerClient } from '../../../manager/_utils';
+import {
+  canUseFirestoreOnServer,
+  getFirestoreDocument,
+  saveServerRecordToFirestore,
+  shouldUseFirestoreErp,
+} from '../../../manager/firestore';
 
 export const runtime = 'nodejs';
 
@@ -44,6 +50,41 @@ const reportUrl = (formId: string, cursorId?: number) => {
   return url;
 };
 
+const kakaoConsultationId = (formId: string, applyId: number) => `kakao-bizform-${hashId(`${formId}:${applyId}`)}`;
+
+function toKakaoConsultationRecord(formId: string, entry: KakaoBizFormResponse & { applyId: number }) {
+  const answers = Array.isArray(entry.answers) ? entry.answers : [];
+  const answerText = answers
+    .map((item) => [item.question, item.answer].filter(Boolean).join(': '))
+    .filter(Boolean)
+    .join('\n');
+  const inflowSource = String(entry.inflowSource || '湲고?').trim();
+
+  return {
+    _id: kakaoConsultationId(formId, entry.applyId),
+    _type: 'officeConsultation',
+    name: String(entry.name || '').trim(),
+    phone: String(entry.phoneNumber || '').trim(),
+    address: String(entry.address || '').trim(),
+    fullAddress: String(entry.address || '').trim(),
+    siteType: answerFor(answers, ['공간유형', '현장종류', '주거형태', '건물유형']),
+    propertyType: answerFor(answers, ['공간유형', '현장종류', '주거형태', '건물유형']),
+    areaRange: answerFor(answers, ['평수', '면적']),
+    homeStatus: answerFor(answers, ['거주상태', '공간상태', '현재상태']),
+    reason: answerFor(answers, ['인테리어이유', '공사이유', '상담목적']),
+    budget: answerFor(answers, ['예산']),
+    timeline: answerFor(answers, ['희망일정', '공사일정', '시작일', '시공시기']),
+    message: answerText,
+    memo: [entry.email ? `?대찓?? ${entry.email}` : '', entry.channelAddStatus ? `梨꾨꼸 異붽?: ${entry.channelAddStatus}` : '']
+      .filter(Boolean)
+      .join('\n'),
+    privacyAgreed: true,
+    status: '?좉퇋',
+    source: `移댁뭅??鍮꾩쫰?덉뒪?? 쨌 ${inflowSource}`,
+    createdAt: entry.submittedAt || new Date().toISOString(),
+  };
+}
+
 export async function POST(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
@@ -78,6 +119,18 @@ export async function POST(request: Request) {
     }
 
     const entries = responses.filter((entry): entry is KakaoBizFormResponse & { applyId: number } => Boolean(entry.applyId));
+    if (shouldUseFirestoreErp() && canUseFirestoreOnServer()) {
+      let imported = 0;
+      for (const entry of entries) {
+        const id = kakaoConsultationId(formId, entry.applyId);
+        const exists = await getFirestoreDocument('officeConsultations', id).catch(() => null);
+        if (exists) continue;
+        await saveServerRecordToFirestore('officeConsultations', toKakaoConsultationRecord(formId, entry), id);
+        imported += 1;
+      }
+      return NextResponse.json({ configured: true, imported, checkedAt: new Date().toISOString() });
+    }
+
     const entryIds = entries.map((entry) => `kakao-bizform-${hashId(`${formId}:${entry.applyId}`)}`);
     const existingIds = entryIds.length
       ? await managerClient.fetch<string[]>('*[_id in $ids]._id', { ids: entryIds })

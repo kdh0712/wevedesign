@@ -121,6 +121,7 @@ type MaterialPickerState = {
 };
 
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
+const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const estimateVersionTypes: Array<{ key: EstimateVersionType; label: string; description: string }> = [
   { key: 'draft', label: '초안', description: '첫 상담/초기 견적' },
@@ -188,6 +189,7 @@ const workStatuses = ['예정', '발주', '진행', '완료', '보류'];
 
 export default function EstimateWorkspacePage() {
   const [password, setPassword] = useState('');
+  const [firebaseToken, setFirebaseToken] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [sites, setSites] = useState<Site[]>([]);
   const [estimates, setEstimates] = useState<SiteEstimate[]>([]);
@@ -268,11 +270,23 @@ export default function EstimateWorkspacePage() {
   const lineFilterOptions = lineFilterType === 'space' ? lineSpaceOptions : lineFilterType === 'category' ? lineCategoryOptions : [];
 
   useEffect(() => {
-    const savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
+    let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
+    let savedFirebaseToken = '';
+    const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
+    if (savedSession) {
+      try {
+        const parsed = JSON.parse(savedSession) as { token?: string; firebaseToken?: string };
+        savedPassword = parsed.token || savedPassword;
+        savedFirebaseToken = parsed.firebaseToken || '';
+      } catch {
+        savedFirebaseToken = '';
+      }
+    }
     const siteIdFromUrl = new URLSearchParams(window.location.search).get('siteId') || '';
     setPassword(savedPassword);
+    setFirebaseToken(savedFirebaseToken);
     if (siteIdFromUrl) setSelectedSiteId(siteIdFromUrl);
-    if (savedPassword) void loadData(savedPassword, siteIdFromUrl);
+    if (savedPassword) void loadData(savedPassword, siteIdFromUrl, '', savedFirebaseToken);
   }, []);
 
   useEffect(() => {
@@ -340,15 +354,18 @@ export default function EstimateWorkspacePage() {
     }
   }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
 
-  const authHeaders = (nextPassword = password) => ({ 'x-manager-password': nextPassword });
+  const authHeaders = (nextPassword = password, nextFirebaseToken = firebaseToken) => ({
+    'x-manager-password': nextPassword,
+    ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
+  });
 
-  const loadData = async (nextPassword = password, preferredSiteId = selectedSiteId, preferredEstimateId = selectedEstimateId) => {
+  const loadData = async (nextPassword = password, preferredSiteId = selectedSiteId, preferredEstimateId = selectedEstimateId, nextFirebaseToken = firebaseToken) => {
     setError('');
     setStatus('');
     if (!nextPassword) return;
 
     try {
-      const response = await fetch('/api/manager/estimate', { headers: authHeaders(nextPassword) });
+      const response = await fetch('/api/manager/estimate', { headers: authHeaders(nextPassword, nextFirebaseToken) });
       const data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
 

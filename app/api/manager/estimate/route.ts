@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { assertManager, hashId, managerClient } from '../_utils';
+import {
+  canUseFirestoreForRequest,
+  deleteEstimateFromFirestore,
+  deleteMaterialFromFirestore,
+  readEstimateDataFromFirestore,
+  saveEstimateToFirestore,
+  saveMaterialToFirestore,
+  shouldUseFirestoreErp,
+} from '../firestore';
 
 export const runtime = 'nodejs';
 
@@ -85,6 +94,10 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
+    if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+      return NextResponse.json(await readEstimateDataFromFirestore(request));
+    }
+
     const data = await managerClient.fetch(estimateQuery);
     return NextResponse.json(data);
   } catch (error) {
@@ -108,23 +121,31 @@ export async function POST(request: Request) {
     const action = String(body?.action || '');
 
     if (action === 'saveEstimate') {
-      return await saveEstimate(body);
+      return await saveEstimate(body, request);
     }
 
     if (action === 'deleteEstimate') {
       const id = String(body?.id || '').trim();
       if (!id) return NextResponse.json({ error: '삭제할 견적 버전을 선택해주세요.' }, { status: 400 });
+      if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+        await deleteEstimateFromFirestore(request, id);
+        return NextResponse.json({ ok: true });
+      }
       await managerClient.delete(id);
       return NextResponse.json({ ok: true });
     }
 
     if (action === 'saveMaterial') {
-      return await saveMaterial(body?.material || {});
+      return await saveMaterial(body?.material || {}, request);
     }
 
     if (action === 'deleteMaterial') {
       const id = String(body?.id || '').trim();
       if (!id) return NextResponse.json({ error: '삭제할 자재를 선택해주세요.' }, { status: 400 });
+      if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+        await deleteMaterialFromFirestore(request, id);
+        return NextResponse.json({ ok: true });
+      }
       await managerClient.delete(id);
       return NextResponse.json({ ok: true });
     }
@@ -136,7 +157,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function saveEstimate(body: Record<string, unknown>) {
+async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const siteId = String(body.siteId || '').trim();
   if (!siteId) return NextResponse.json({ error: '현장을 먼저 선택해주세요.' }, { status: 400 });
 
@@ -172,6 +193,11 @@ async function saveEstimate(body: Record<string, unknown>) {
     updatedAt: now,
   };
 
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    await saveEstimateToFirestore(doc, request);
+    return NextResponse.json({ record: doc });
+  }
+
   await managerClient.createOrReplace(doc);
   return NextResponse.json({ record: doc });
 }
@@ -192,7 +218,7 @@ function defaultVersionLabel(versionType: EstimateVersionType) {
   return labels[versionType];
 }
 
-async function saveMaterial(material: Record<string, unknown>) {
+async function saveMaterial(material: Record<string, unknown>, request: Request) {
   const name = String(material.name || '').trim();
   if (!name) return NextResponse.json({ error: '품명을 입력해주세요.' }, { status: 400 });
 
@@ -217,6 +243,11 @@ async function saveMaterial(material: Record<string, unknown>) {
     updatedAt: now,
   };
 
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    await saveMaterialToFirestore(doc, request);
+    return NextResponse.json({ record: doc });
+  }
+
   await managerClient.createOrReplace(doc);
   return NextResponse.json({ record: doc });
 }
@@ -236,6 +267,14 @@ async function importMaterials(request: Request) {
 
   if (!docs.length) {
     return NextResponse.json({ error: '읽을 수 있는 자재 단가 항목을 찾지 못했습니다.' }, { status: 400 });
+  }
+
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    for (const doc of docs) {
+      await saveMaterialToFirestore(doc, request);
+    }
+    const categories = Array.from(new Set(docs.map((doc) => doc.category))).sort();
+    return NextResponse.json({ importedCount: docs.length, categories });
   }
 
   for (let index = 0; index < docs.length; index += 100) {

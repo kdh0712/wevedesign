@@ -22,6 +22,10 @@ export function assertManager(request: Request) {
     return Response.json({ error: '관리자 비밀번호가 올바르지 않습니다.' }, { status: 401 });
   }
 
+  return null;
+}
+
+export function assertSanityWriteConfigured() {
   if (!process.env.SANITY_WRITE_TOKEN) {
     return Response.json({ error: 'SANITY_WRITE_TOKEN is not configured.' }, { status: 500 });
   }

@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
-import { assertManager, getOrCreateCategory, managerClient } from '../_utils';
+import { assertManager, assertSanityWriteConfigured, getOrCreateCategory, managerClient } from '../_utils';
+import {
+  canUseFirestoreForRequest,
+  deleteOfficeRecordFromFirestore,
+  officeFirestoreCollections,
+  readOfficeDataFromFirestore,
+  saveOfficeRecordToFirestore,
+  shouldUseFirestoreErp,
+  type PrivateOfficeType,
+} from '../firestore';
 
 export const runtime = 'nodejs';
 
@@ -65,6 +74,33 @@ const query = `{
   }
 }`;
 
+const publicQuery = `{
+  "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
+    _id, title, "slug": slug.current
+  },
+  "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
+    _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
+    "mainImage": mainImage.asset->url,
+    "mainImageAssetId": mainImage.asset->_id,
+    "mainImageAlt": mainImage.alt,
+    "categoryId": category->_id,
+    "categoryTitle": category->title,
+    "galleryGroups": galleryGroups[] {
+      roomType, title,
+      images[] {
+        "assetId": asset->_id,
+        "url": asset->url,
+        alt, caption
+      }
+    },
+    "gallery": gallery[] {
+      "assetId": asset->_id,
+      "url": asset->url,
+      alt, caption, roomType
+    }
+  }
+}`;
+
 const seoulDateKey = (date: Date) =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Seoul',
@@ -91,10 +127,9 @@ const weekDateKeys = () => {
 async function getVisitStats() {
   const today = seoulDateKey(new Date());
   const weekDates = weekDateKeys();
-  const rows = await managerClient.fetch<Array<{ date: string; count?: number }>>(
-    '*[_type == "siteVisitDaily" && date in $dates]{date,count}',
-    { dates: weekDates },
-  );
+  const rows = await managerClient
+    .fetch<Array<{ date: string; count?: number }>>('*[_type == "siteVisitDaily" && date in $dates]{date,count}', { dates: weekDates })
+    .catch(() => []);
   const todayCount = rows.find((row) => row.date === today)?.count || 0;
   const weekCount = rows.reduce((sum, row) => sum + Number(row.count || 0), 0);
 
@@ -111,6 +146,15 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
+    if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+      const [officeData, publicData, visitStats] = await Promise.all([
+        readOfficeDataFromFirestore(request),
+        managerClient.fetch(publicQuery),
+        getVisitStats(),
+      ]);
+      return NextResponse.json({ ...officeData, ...publicData, visitStats });
+    }
+
     const data = await managerClient.fetch(query);
     data.visitStats = await getVisitStats();
     return NextResponse.json(data);
@@ -135,8 +179,17 @@ export async function POST(request: Request) {
 
     const cleanData = sanitizeRecord(body?.data || {});
     const now = new Date().toISOString();
+    const firestoreType = type as PrivateOfficeType;
+
+    if (firestoreType in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+      const record = await saveOfficeRecordToFirestore(request, firestoreType, cleanData, body?.id ? String(body.id) : undefined);
+      return NextResponse.json({ record });
+    }
 
     if (type === 'project') {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+
       if (!body?.id) {
         const record = await managerClient.create({
           _type: 'project',
@@ -162,6 +215,9 @@ export async function POST(request: Request) {
     }
 
     if (type === 'category') {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+
       const title = String(cleanData.title || '').trim();
       if (!title) {
         return NextResponse.json({ error: '추가할 카테고리 이름을 입력해 주세요.' }, { status: 400 });
@@ -170,6 +226,9 @@ export async function POST(request: Request) {
       const record = await getOrCreateCategory(title);
       return NextResponse.json({ record });
     }
+
+    const sanityError = assertSanityWriteConfigured();
+    if (sanityError) return sanityError;
 
     const record = body?.id
       ? await managerClient.patch(String(body.id)).set({ ...cleanData, updatedAt: now }).commit()
@@ -189,10 +248,19 @@ export async function DELETE(request: Request) {
   try {
     const body = await request.json();
     const id = String(body?.id || '').trim();
+    const type = String(body?.type || '').trim() as PrivateOfficeType;
 
     if (!id) {
       return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
     }
+
+    if (type in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+      await deleteOfficeRecordFromFirestore(request, type, id);
+      return NextResponse.json({ ok: true });
+    }
+
+    const sanityError = assertSanityWriteConfigured();
+    if (sanityError) return sanityError;
 
     await managerClient.delete(id);
     return NextResponse.json({ ok: true });

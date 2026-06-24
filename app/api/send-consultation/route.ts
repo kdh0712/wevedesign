@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
+import { canUseFirestoreOnServer, savePublicConsultationToFirestore, shouldUseFirestoreErp } from '../manager/firestore';
 
 type ConsultationPayload = {
   name?: string;
@@ -96,11 +97,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
     }
 
-    if (!process.env.SANITY_WRITE_TOKEN) {
+    if (!process.env.SANITY_WRITE_TOKEN && !(shouldUseFirestoreErp() && canUseFirestoreOnServer())) {
       return NextResponse.json({ error: '관리자 저장 토큰(SANITY_WRITE_TOKEN)이 설정되어 있지 않습니다.' }, { status: 500 });
     }
 
-    await writeClient.create({
+    const consultationRecord = {
       _type: 'officeConsultation',
       name,
       phone,
@@ -120,7 +121,13 @@ export async function POST(request: Request) {
       status: '신규',
       source,
       createdAt: new Date().toISOString(),
-    });
+    };
+
+    if (shouldUseFirestoreErp() && canUseFirestoreOnServer()) {
+      await savePublicConsultationToFirestore(consultationRecord);
+    } else {
+      await writeClient.create(consultationRecord);
+    }
 
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {

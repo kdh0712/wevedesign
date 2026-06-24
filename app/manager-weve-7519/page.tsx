@@ -772,7 +772,7 @@ export default function ManagerPage() {
         setFirebaseToken(parsed.firebaseToken || '');
         setCurrentUser(parsed.user);
         setLoginId(parsed.user.loginId || 'admin');
-        await syncKakaoBizForm(parsed.token);
+        await syncKakaoBizForm(parsed.token, parsed.firebaseToken || '');
         const loaded = await loadOfficeData(parsed.token, { silent: true });
         if (!loaded) throw new Error('저장된 로그인 정보를 확인할 수 없습니다.');
         if (!cancelled) setStatus('로그인 상태를 복원했습니다.');
@@ -821,10 +821,10 @@ export default function ManagerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentUser?.role]);
 
-  const authHeaders = (managerPassword = password) => ({
+  const authHeaders = (managerPassword = password, firebaseAuthToken = firebaseToken) => ({
     'x-manager-password': managerPassword,
     'x-manager-user': currentUser?.loginId || 'admin',
-    ...(firebaseToken ? { 'x-firebase-token': firebaseToken } : {}),
+    ...(firebaseAuthToken ? { 'x-firebase-token': firebaseAuthToken } : {}),
   });
 
   const readJsonResponse = async <T,>(response: Response): Promise<T> => {
@@ -844,12 +844,12 @@ export default function ManagerPage() {
     return false;
   };
 
-  const syncKakaoBizForm = async (managerPassword = password) => {
+  const syncKakaoBizForm = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
     if (!managerPassword) return null;
     try {
       const response = await fetch('/api/integrations/kakao-bizform/sync', {
         method: 'POST',
-        headers: { 'x-manager-password': managerPassword },
+        headers: authHeaders(managerPassword, firebaseAuthToken),
       });
       const data = await readJsonResponse<KakaoSyncStatus>(response);
       setKakaoSyncStatus(data);
@@ -878,7 +878,7 @@ export default function ManagerPage() {
       setPassword(result.token);
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
-      await syncKakaoBizForm(result.token);
+      await syncKakaoBizForm(result.token, result.firebaseToken || '');
       const loaded = await loadOfficeData(result.token, { silent: true });
       if (!loaded) throw new Error('관리자 데이터를 불러오지 못했습니다. 다시 로그인해 주세요.');
       window.sessionStorage.setItem(
@@ -1129,6 +1129,30 @@ export default function ManagerPage() {
     }
   };
 
+  const migrateFirestoreData = async () => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/migrate-firestore', {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+      const result = await readJsonResponse<{ error?: string; counts?: Record<string, number> }>(response);
+      if (!response.ok) throw new Error(result.error || 'Firestore 이전에 실패했습니다.');
+
+      const total = Object.values(result.counts || {}).reduce((sum, count) => sum + Number(count || 0), 0);
+      setStatus(`Firestore 이전 완료: ${total.toLocaleString('ko-KR')}개 문서를 복사했습니다.`);
+      await loadOfficeData();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Firestore 이전 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
   const saveOfficeRecord = async (type: OfficeType, data: Record<string, unknown>, id?: string) => {
     setError('');
     setStatus('');
@@ -1158,7 +1182,7 @@ export default function ManagerPage() {
     }
   };
 
-  const deleteOfficeRecord = async (id: string) => {
+  const deleteOfficeRecord = async (id: string, type?: OfficeType) => {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
@@ -1171,7 +1195,7 @@ export default function ManagerPage() {
           ...authHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, type }),
       });
       const result = await readJsonResponse<{ error?: string }>(response);
 
@@ -1983,6 +2007,16 @@ export default function ManagerPage() {
                 </span>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-semibold text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
                 {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">갱신 {lastRefreshedAt}</span>}
+                {currentUser?.role === 'admin' && (
+                  <button
+                    type="button"
+                    onClick={migrateFirestoreData}
+                    disabled={savingOffice}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-xs font-bold text-[#4d5d66] transition hover:border-[#38a9bd] hover:text-[#171512] disabled:opacity-50"
+                  >
+                    Firestore 이전
+                  </button>
+                )}
                 <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
                   <LogOut size={15} />
                   로그아웃
@@ -2088,7 +2122,7 @@ export default function ManagerPage() {
                     <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1.5 text-xs font-semibold text-white">
                       상담 완료
                     </button>
-                    <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600">
+                    <button onClick={() => deleteOfficeRecord(item._id, 'consultation')} className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600">
                       삭제
                     </button>
                   </div>
@@ -2188,7 +2222,7 @@ export default function ManagerPage() {
                       <button onClick={() => editCustomer(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                      <button onClick={() => deleteOfficeRecord(item._id, 'customer')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                         삭제
                       </button>
                     </div>
@@ -2253,7 +2287,7 @@ export default function ManagerPage() {
                       <button onClick={() => editSite(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                      <button onClick={() => deleteOfficeRecord(item._id, 'site')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                         삭제
                       </button>
                     </div>
@@ -2365,7 +2399,7 @@ export default function ManagerPage() {
                         <button onClick={() => editSale(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                           수정
                         </button>
-                        <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                        <button onClick={() => deleteOfficeRecord(item._id, 'sale')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                           삭제
                         </button>
                       </div>
@@ -2419,7 +2453,7 @@ export default function ManagerPage() {
                       <button onClick={() => editInventory(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                      <button onClick={() => deleteOfficeRecord(item._id, 'inventory')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                         삭제
                       </button>
                     </div>
@@ -2467,7 +2501,7 @@ export default function ManagerPage() {
                       <button onClick={() => editVendor(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
-                      <button onClick={() => deleteOfficeRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                      <button onClick={() => deleteOfficeRecord(item._id, 'vendor')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                         삭제
                       </button>
                     </div>
@@ -3182,7 +3216,7 @@ export default function ManagerPage() {
             onClose={() => setSelectedConsultation(null)}
             onComplete={() => setCompletionConsultation(selectedConsultation)}
             onRegisterCustomer={() => prepareCustomerFromConsultation(selectedConsultation)}
-            onDelete={() => deleteOfficeRecord(selectedConsultation._id)}
+            onDelete={() => deleteOfficeRecord(selectedConsultation._id, 'consultation')}
           />
         )}
         {completionConsultation && (
@@ -3391,7 +3425,7 @@ function DashboardOverview({
   onStartSale: (siteId: string) => void;
   onOpenConsultation: (consultation: Consultation) => void;
   onCompleteConsultation: (consultation: Consultation) => void;
-  onDeleteRecord: (id: string) => void;
+  onDeleteRecord: (id: string, type?: OfficeType) => void;
 }) {
   const activeConsultations = officeData.consultations.filter((item) => item.status !== '완료');
   const estimateCoverage = officeData.sites.length ? Math.round((new Set(officeData.estimates.map((estimate) => estimate.siteId).filter(Boolean)).size / officeData.sites.length) * 100) : 0;
@@ -3534,7 +3568,7 @@ function DashboardOverview({
                   <button onClick={() => onCompleteConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
                     상담 완료
                   </button>
-                  <button onClick={() => onDeleteRecord(item._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                  <button onClick={() => onDeleteRecord(item._id, 'consultation')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
                     삭제
                   </button>
                 </div>
