@@ -1140,6 +1140,7 @@ const siteEstimate = defineType({
     }),
     defineField({ name: 'versionLabel', title: '견적 버전', type: 'string', initialValue: '기본 견적' }),
     defineField({ name: 'linesJson', title: '견적 내역 JSON', type: 'text', rows: 10 }),
+    defineField({ name: 'workLinesJson', title: '공사 내역서 JSON', type: 'text', rows: 10 }),
     defineField({ name: 'scheduleJson', title: '공정 일정 JSON', type: 'text', rows: 8 }),
     defineField({ name: 'customerEstimateTotal', title: '견적 금액', type: 'number' }),
     defineField({ name: 'executionCostTotal', title: '실행 원가', type: 'number' }),

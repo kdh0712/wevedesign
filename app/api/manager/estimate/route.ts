@@ -18,6 +18,22 @@ type EstimateLine = {
   note?: string;
 };
 
+type WorkLine = {
+  id?: string;
+  sourceLineId?: string;
+  space?: string;
+  category?: string;
+  process?: string;
+  name?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number | string;
+  executionUnitPrice?: number | string;
+  vendor?: string;
+  status?: string;
+  note?: string;
+};
+
 type ScheduleTask = {
   id?: string;
   name?: string;
@@ -48,7 +64,7 @@ const estimateQuery = `{
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
-    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, scheduleJson,
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
@@ -87,6 +103,13 @@ export async function POST(request: Request) {
       return await saveEstimate(body);
     }
 
+    if (action === 'deleteEstimate') {
+      const id = String(body?.id || '').trim();
+      if (!id) return NextResponse.json({ error: '삭제할 견적 버전을 선택해주세요.' }, { status: 400 });
+      await managerClient.delete(id);
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === 'saveMaterial') {
       return await saveMaterial(body?.material || {});
     }
@@ -110,8 +133,9 @@ async function saveEstimate(body: Record<string, unknown>) {
   if (!siteId) return NextResponse.json({ error: '현장을 먼저 선택해주세요.' }, { status: 400 });
 
   const lines = Array.isArray(body.lines) ? normalizeLines(body.lines as EstimateLine[]) : [];
+  const workLines = Array.isArray(body.workLines) ? normalizeWorkLines(body.workLines as WorkLine[]) : [];
   const schedule = Array.isArray(body.schedule) ? normalizeSchedule(body.schedule as ScheduleTask[]) : [];
-  const totals = calculateTotals(lines);
+  const totals = calculateTotals(lines, workLines);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
   const versionType = normalizeVersionType(body.versionType);
@@ -127,6 +151,7 @@ async function saveEstimate(body: Record<string, unknown>) {
     versionType,
     versionLabel,
     linesJson: JSON.stringify(lines),
+    workLinesJson: JSON.stringify(workLines),
     scheduleJson: JSON.stringify(schedule),
     customerEstimateTotal: totals.customerEstimateTotal,
     executionCostTotal: totals.executionCostTotal,
@@ -281,6 +306,31 @@ function normalizeLines(lines: EstimateLine[]) {
     .filter((line) => line.name || line.space || line.category);
 }
 
+function normalizeWorkLines(lines: WorkLine[]) {
+  return lines
+    .map((line, index) => {
+      const quantity = toNumber(line.quantity);
+      const executionUnitPrice = toNumber(line.executionUnitPrice);
+      return {
+        id: line.id || `work-${Date.now()}-${index}`,
+        sourceLineId: String(line.sourceLineId || '').trim(),
+        space: String(line.space || '').trim(),
+        category: String(line.category || '').trim(),
+        process: String(line.process || '').trim(),
+        name: String(line.name || '').trim(),
+        spec: String(line.spec || '').trim(),
+        unit: String(line.unit || '').trim(),
+        quantity,
+        executionUnitPrice,
+        executionAmount: Math.round(quantity * executionUnitPrice),
+        vendor: String(line.vendor || '').trim(),
+        status: String(line.status || '예정').trim(),
+        note: String(line.note || '').trim(),
+      };
+    })
+    .filter((line) => line.name || line.space || line.category || line.process);
+}
+
 function normalizeSchedule(schedule: ScheduleTask[]) {
   return schedule
     .map((task, index) => ({
@@ -294,9 +344,11 @@ function normalizeSchedule(schedule: ScheduleTask[]) {
     .filter((task) => task.name);
 }
 
-function calculateTotals(lines: ReturnType<typeof normalizeLines>) {
+function calculateTotals(lines: ReturnType<typeof normalizeLines>, workLines: ReturnType<typeof normalizeWorkLines>) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
-  const executionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
+  const executionCostTotal = workLines.length > 0
+    ? Math.round(workLines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0))
+    : Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
   const marginAmount = customerEstimateTotal - executionCostTotal;
   const marginRate = customerEstimateTotal > 0 ? Math.round((marginAmount / customerEstimateTotal) * 1000) / 10 : 0;
 
