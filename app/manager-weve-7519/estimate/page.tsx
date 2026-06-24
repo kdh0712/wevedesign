@@ -128,6 +128,16 @@ const estimateVersionTypes: Array<{ key: EstimateVersionType; label: string; des
   { key: 'final', label: '최종안', description: '계약 전 최종 확정' },
   { key: 'change', label: '변경견적', description: '추가·변경 공사' },
 ];
+const favoriteScheduleColors = [
+  { label: '골드', value: '#f1c76a' },
+  { label: '그린', value: '#8fc6a8' },
+  { label: '블루', value: '#8bb8e8' },
+  { label: '코랄', value: '#d9a1a1' },
+  { label: '퍼플', value: '#b9a7e8' },
+  { label: '오렌지', value: '#e3a85f' },
+  { label: '민트', value: '#79c7c5' },
+  { label: '차콜', value: '#4d5d66' },
+];
 
 const emptyLine = (): EstimateLine => ({
   id: `line-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -560,6 +570,15 @@ export default function EstimateWorkspacePage() {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
   };
 
+  const deleteLine = (id: string) => {
+    setLines((current) => {
+      const next = current.filter((line) => line.id !== id);
+      return next.length ? next : [emptyLine()];
+    });
+    setWorkLines((current) => current.filter((line) => line.sourceLineId !== id));
+    setSelectedLineId((current) => (current === id ? '' : current));
+  };
+
   const updateTask = (id: string, updates: Partial<ScheduleTask>) => {
     setSchedule((current) => current.map((task) => (task.id === id ? { ...task, ...updates } : task)));
   };
@@ -932,70 +951,95 @@ export default function EstimateWorkspacePage() {
                 </div>
               </div>
 
-              <div className="max-h-[calc(100vh-340px)] min-h-[430px] overflow-auto rounded-lg border border-[#edf2f5]">
-                <table className="w-full min-w-[1320px] border-collapse text-sm">
-                  <thead className="sticky top-0 z-10 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
-                    <tr>
-                      {['선택', '공간', '분류', '공종', '품명', '규격', '단위', '수량', '견적단가', '실행단가', '견적금액', '원가', '마진', '비고', '삭제'].map((header) => (
-                        <th key={header} className="border-b border-[#d5dde2] px-3 py-3">{header}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sortedLines.map((line, index) => {
-                      const margin = line.quantity * line.customerUnitPrice - line.quantity * line.executionUnitPrice;
-                      const currentGroup = lineGroupKey(line, lineGroupBy);
-                      const previousGroup = index > 0 ? lineGroupKey(sortedLines[index - 1], lineGroupBy) : '';
-                      return (
-                        <Fragment key={line.id}>
-                          {currentGroup !== previousGroup && (
-                            <tr>
-                              <td colSpan={15} className="border-y border-[#e7d8bd] bg-[#fff8e8] px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#8b6420]">
-                                {lineGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
-                              </td>
-                            </tr>
-                          )}
-                          <tr className={`border-b border-[#edf2f5] ${selectedLineId === line.id ? 'bg-[#fff9e8]' : ''}`}>
-                          <td className="px-2 py-2">
-                            <button
-                              type="button"
-                              onClick={() => setSelectedLineId(line.id)}
-                              className={`rounded-full px-3 py-1 text-xs font-bold ${selectedLineId === line.id ? 'bg-[#171512] text-white' : 'bg-[#edf2f5] text-[#60717d]'}`}
-                            >
-                              선택
+              <div className="max-h-[calc(100vh-340px)] min-h-[430px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3">
+                <div className="grid gap-3">
+                  {sortedLines.map((line, index) => {
+                    const estimateAmount = line.quantity * line.customerUnitPrice;
+                    const costAmount = line.quantity * line.executionUnitPrice;
+                    const margin = estimateAmount - costAmount;
+                    const currentGroup = lineGroupKey(line, lineGroupBy);
+                    const previousGroup = index > 0 ? lineGroupKey(sortedLines[index - 1], lineGroupBy) : '';
+                    const isPinnedBaseLine = isBaseEstimateLine(line);
+
+                    return (
+                      <Fragment key={line.id}>
+                        {currentGroup !== previousGroup && (
+                          <div className="rounded-md border border-[#e7d8bd] bg-[#fff8e8] px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#8b6420]">
+                            {lineGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
+                          </div>
+                        )}
+                        <article className={`rounded-lg border bg-white p-3 shadow-sm ${selectedLineId === line.id ? 'border-[#f1c76a] ring-2 ring-[#f1c76a]/25' : isPinnedBaseLine ? 'border-[#f1c76a]' : 'border-[#d5dde2]'}`}>
+                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedLineId(line.id)}
+                                className={`rounded-full px-3 py-1 text-xs font-bold ${selectedLineId === line.id ? 'bg-[#171512] text-white' : 'bg-[#edf2f5] text-[#60717d]'}`}
+                              >
+                                선택
+                              </button>
+                              {isPinnedBaseLine && (
+                                <span className="rounded-full bg-[#fff3c7] px-3 py-1 text-xs font-bold text-[#8b6420]">
+                                  상단 고정 기본 항목
+                                </span>
+                              )}
+                              <span className="text-xs font-semibold text-[#60717d]">
+                                {[line.space || '공간 미정', line.category || '분류 미정', line.process || '공종 미정'].join(' · ')}
+                              </span>
+                            </div>
+                            <button type="button" onClick={() => deleteLine(line.id)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50" aria-label="견적 항목 삭제">
+                              <Trash2 size={14} />
+                              항목 삭제
                             </button>
-                          </td>
-                          <td className="px-2 py-2"><CellSelect value={line.space} options={defaultSpaces} onChange={(value) => updateLine(line.id, { space: value })} /></td>
-                          <td className="px-2 py-2">
-                            <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />
-                          </td>
-                          <td className="px-2 py-2">
-                            <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />
-                          </td>
-                          <td className="px-2 py-2">
-                            <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
-                          </td>
-                          <td className="px-2 py-2"><CellInput value={line.spec} onChange={(value) => updateLine(line.id, { spec: value })} /></td>
-                          <td className="px-2 py-2"><CellInput value={line.unit} onChange={(value) => updateLine(line.id, { unit: value })} /></td>
-                          <td className="px-2 py-2"><CellNumber value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} /></td>
-                          <td className="px-2 py-2"><CellNumber value={line.customerUnitPrice} onChange={(value) => updateLine(line.id, { customerUnitPrice: value })} /></td>
-                          <td className="px-2 py-2"><CellNumber value={line.executionUnitPrice} onChange={(value) => updateLine(line.id, { executionUnitPrice: value })} /></td>
-                          <td className="px-3 py-2 font-semibold">{formatMoney(line.quantity * line.customerUnitPrice)}</td>
-                          <td className="px-3 py-2 font-semibold">{formatMoney(line.quantity * line.executionUnitPrice)}</td>
-                          <td className={`px-3 py-2 font-semibold ${margin >= 0 ? 'text-[#217346]' : 'text-red-600'}`}>{formatMoney(margin)}</td>
-                          <td className="px-2 py-2"><CellInput value={line.note} onChange={(value) => updateLine(line.id, { note: value })} /></td>
-                          <td className="px-2 py-2">
-                            <button type="button" onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-2 text-red-600" aria-label="견적 항목 삭제">
-                              <Trash2 size={15} />
-                              <span className="text-xs font-semibold">삭제</span>
-                            </button>
-                          </td>
-                        </tr>
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                          </div>
+
+                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
+                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
+                              <FieldShell label="공간">
+                                <CellSelect value={line.space} options={defaultSpaces} onChange={(value) => updateLine(line.id, { space: value })} />
+                              </FieldShell>
+                              <FieldShell label="분류">
+                                <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />
+                              </FieldShell>
+                              <FieldShell label="공종">
+                                <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />
+                              </FieldShell>
+                              <FieldShell label="품명">
+                                <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                              </FieldShell>
+                              <FieldShell label="규격">
+                                <CellInput value={line.spec} onChange={(value) => updateLine(line.id, { spec: value })} />
+                              </FieldShell>
+                              <FieldShell label="단위">
+                                <CellInput value={line.unit} onChange={(value) => updateLine(line.id, { unit: value })} />
+                              </FieldShell>
+                              <FieldShell label="수량">
+                                <CellNumber value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} />
+                              </FieldShell>
+                              <FieldShell label="견적단가">
+                                <CellNumber value={line.customerUnitPrice} onChange={(value) => updateLine(line.id, { customerUnitPrice: value })} />
+                              </FieldShell>
+                              <FieldShell label="실행단가">
+                                <CellNumber value={line.executionUnitPrice} onChange={(value) => updateLine(line.id, { executionUnitPrice: value })} />
+                              </FieldShell>
+                              <div className="sm:col-span-2 lg:col-span-4 2xl:col-span-3">
+                                <FieldShell label="비고">
+                                  <CellInput value={line.note} onChange={(value) => updateLine(line.id, { note: value })} />
+                                </FieldShell>
+                              </div>
+                            </div>
+
+                            <div className="grid content-start gap-2 rounded-lg border border-[#edf2f5] bg-[#fbfdfe] p-3 sm:grid-cols-3 lg:grid-cols-1 2xl:grid-cols-3">
+                              <LineAmount label="견적금액" value={estimateAmount} />
+                              <LineAmount label="원가" value={costAmount} />
+                              <LineAmount label="마진" value={margin} positive={margin >= 0} />
+                            </div>
+                          </div>
+                        </article>
+                      </Fragment>
+                    );
+                  })}
+                </div>
               </div>
             </section>
           </section>
@@ -1436,7 +1480,7 @@ function PickerCell({ value, placeholder, onClick }: { value: string; placeholde
     <button
       type="button"
       onClick={onClick}
-      className={`w-full min-w-32 rounded-md border px-3 py-2 text-left text-sm outline-none transition hover:border-[#38a9bd] hover:bg-[#edf8fb] ${
+      className={`w-full min-w-0 rounded-md border px-3 py-2 text-left text-sm outline-none transition hover:border-[#38a9bd] hover:bg-[#edf8fb] ${
         value ? 'border-[#d5dde2] bg-white text-[#171512]' : 'border-dashed border-[#c7d4dc] bg-[#f7fafb] text-[#60717d]'
       }`}
     >
@@ -1638,10 +1682,25 @@ function ScheduleEditorModal({
               기본 종료일은 {rawEndDate}입니다. {holidayExtension > 0 ? `휴일 ${formatNumber(holidayExtension)}일이 포함되어 자동 연장됩니다.` : '지정 휴일과 겹치지 않습니다.'}
             </p>
           </div>
-          <label className="grid gap-1">
+          <div className="grid gap-2">
             <span className="text-sm font-semibold">색상</span>
-            <input value={task.color || '#f1c76a'} type="color" onChange={(event) => onChange({ ...task, color: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white px-2 py-1" />
-          </label>
+            <div className="grid grid-cols-[52px_minmax(0,1fr)] gap-2">
+              <input value={task.color || '#f1c76a'} type="color" onChange={(event) => onChange({ ...task, color: event.target.value })} className="h-11 w-full rounded-md border border-[#d5dde2] bg-white px-2 py-1" />
+              <div className="flex flex-wrap gap-1.5">
+                {favoriteScheduleColors.map((color) => (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => onChange({ ...task, color: color.value })}
+                    title={color.label}
+                    className={`h-8 w-8 rounded-full border-2 shadow-sm transition hover:-translate-y-0.5 ${normalizeColor(task.color) === color.value ? 'border-[#171512]' : 'border-white'}`}
+                    style={{ backgroundColor: color.value }}
+                    aria-label={`${color.label} 색상 선택`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
           <label className="grid gap-1">
             <span className="text-sm font-semibold">진행률</span>
             <NumberTextInput value={task.progress} onChange={(value) => onChange({ ...task, progress: Math.max(0, Math.min(100, value)) })} />
@@ -1716,19 +1775,30 @@ function countBy<T>(items: T[], getLabel: (item: T) => string) {
 
 function FieldShell({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="grid gap-1">
+    <div className="grid gap-1">
       <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d]">{label}</span>
       {children}
-    </label>
+    </div>
+  );
+}
+
+function LineAmount({ label, value, positive }: { label: string; value: number; positive?: boolean }) {
+  return (
+    <div className="rounded-md border border-[#edf2f5] bg-white px-3 py-2">
+      <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d]">{label}</span>
+      <b className={`mt-1 block text-base ${positive === false ? 'text-red-600' : positive === true ? 'text-[#217346]' : 'text-[#171512]'}`}>
+        {formatMoney(value)}
+      </b>
+    </div>
   );
 }
 
 function CellInput({ value, listId, onChange }: { value: string; listId?: string; onChange: (value: string) => void }) {
-  return <input value={value} list={listId} onChange={(event) => onChange(event.target.value)} className="w-full min-w-28 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]" />;
+  return <input value={value} list={listId} onChange={(event) => onChange(event.target.value)} className="w-full min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]" />;
 }
 
 function CellNumber({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  return <NumberTextInput value={value} onChange={onChange} className="w-full min-w-24" />;
+  return <NumberTextInput value={value} onChange={onChange} className="w-full min-w-0" />;
 }
 
 function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
@@ -1745,7 +1815,7 @@ function NumberTextInput({ value, onChange, className = '' }: { value: number; o
 
 function CellSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
   return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full min-w-24 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]">
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]">
       <option value="">선택</option>
       {options.map((option) => (
         <option key={option} value={option}>{option}</option>
@@ -1925,16 +1995,20 @@ function estimateVersionRank(type?: string) {
 
 function sortEstimateVersions(estimates: SiteEstimate[]) {
   return [...estimates].sort((a, b) => {
-    const baseDiff = Number(!isBaseEstimate(a)) - Number(!isBaseEstimate(b));
-    if (baseDiff !== 0) return baseDiff;
-    const rankDiff = estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
-    if (rankDiff !== 0) return rankDiff;
-    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const createdDiff = estimateCreatedTime(b) - estimateCreatedTime(a);
+    if (createdDiff !== 0) return createdDiff;
+    const updatedDiff = estimateUpdatedTime(b) - estimateUpdatedTime(a);
+    if (updatedDiff !== 0) return updatedDiff;
+    return estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
   });
 }
 
-function isBaseEstimate(estimate: SiteEstimate) {
-  return (estimate.versionLabel || '').includes('기본 견적');
+function estimateCreatedTime(estimate: SiteEstimate) {
+  return new Date(estimate.createdAt || estimate.updatedAt || 0).getTime();
+}
+
+function estimateUpdatedTime(estimate: SiteEstimate) {
+  return new Date(estimate.updatedAt || estimate.createdAt || 0).getTime();
 }
 
 function defaultVersionLabel(type: EstimateVersionType, estimates: SiteEstimate[]) {
@@ -2021,10 +2095,16 @@ function workLineGroupKey(line: WorkLine, groupBy: 'space' | 'category') {
 
 function sortEstimateLines(lines: EstimateLine[], groupBy: 'space' | 'category') {
   return [...lines].sort((a, b) => {
+    const baseDiff = Number(!isBaseEstimateLine(a)) - Number(!isBaseEstimateLine(b));
+    if (baseDiff !== 0) return baseDiff;
     const groupDiff = lineGroupKey(a, groupBy).localeCompare(lineGroupKey(b, groupBy), 'ko-KR');
     if (groupDiff !== 0) return groupDiff;
     return (a.process || a.name).localeCompare(b.process || b.name, 'ko-KR');
   });
+}
+
+function isBaseEstimateLine(line: EstimateLine) {
+  return [line.name, line.note, line.category, line.process].some((value) => String(value || '').replace(/\s/g, '').includes('기본견적'));
 }
 
 function sortWorkLines(lines: WorkLine[], groupBy: 'space' | 'category') {
@@ -2175,7 +2255,7 @@ function parseDateKey(value: string) {
 }
 
 function colorForName(name: string) {
-  const colors = ['#f1c76a', '#8fc6a8', '#8bb8e8', '#d9a1a1', '#b9a7e8', '#e3a85f', '#79c7c5'];
+  const colors = favoriteScheduleColors.map((color) => color.value);
   const seed = Array.from(name || '공정').reduce((sum, char) => sum + char.charCodeAt(0), 0);
   return colors[seed % colors.length];
 }
