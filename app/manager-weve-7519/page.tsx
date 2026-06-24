@@ -1131,30 +1131,6 @@ export default function ManagerPage() {
     }
   };
 
-  const migrateFirestoreData = async () => {
-    setError('');
-    setStatus('');
-    if (!requirePassword()) return;
-
-    setSavingOffice(true);
-    try {
-      const response = await fetch('/api/manager/migrate-firestore', {
-        method: 'POST',
-        headers: authHeaders(),
-      });
-      const result = await readJsonResponse<{ error?: string; counts?: Record<string, number> }>(response);
-      if (!response.ok) throw new Error(result.error || 'Firestore 이전에 실패했습니다.');
-
-      const total = Object.values(result.counts || {}).reduce((sum, count) => sum + Number(count || 0), 0);
-      setStatus(`Firestore 이전 완료: ${total.toLocaleString('ko-KR')}개 문서를 복사했습니다.`);
-      await loadOfficeData();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Firestore 이전 중 오류가 발생했습니다.');
-    } finally {
-      setSavingOffice(false);
-    }
-  };
-
   const saveOfficeRecord = async (type: OfficeType, data: Record<string, unknown>, id?: string) => {
     setError('');
     setStatus('');
@@ -1894,7 +1870,7 @@ export default function ManagerPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#eef3f5] text-[#171512]">
+    <main className="min-h-screen bg-[#eef3f5] text-[#171512] [zoom:0.9]">
       {!isUnlocked && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
           <form
@@ -2009,16 +1985,6 @@ export default function ManagerPage() {
                 </span>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-semibold text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
                 {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">갱신 {lastRefreshedAt}</span>}
-                {currentUser?.role === 'admin' && (
-                  <button
-                    type="button"
-                    onClick={migrateFirestoreData}
-                    disabled={savingOffice}
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-xs font-bold text-[#4d5d66] transition hover:border-[#38a9bd] hover:text-[#171512] disabled:opacity-50"
-                  >
-                    Firestore 이전
-                  </button>
-                )}
                 <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
                   <LogOut size={15} />
                   로그아웃
@@ -3464,6 +3430,42 @@ function DashboardOverview({
         <MetricCard title="재고 확인" value={`${officeData.inventory.length}개`} sub={`부족 ${lowStockCount}개`} />
       </section>
 
+      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel title="최근 상담 요청">
+          <RecordList
+            empty="상담 기록이 없습니다."
+            items={officeData.consultations.slice(0, 6).map((item) => ({
+              key: item._id,
+              title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
+              meta: `${item.source || '직접 등록'} · ${item.propertyType || item.siteType || '현장 종류 없음'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
+              body: item.message,
+              onClick: () => onOpenConsultation(item),
+              action: (
+                <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                  <button onClick={() => onCompleteConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1 text-xs font-semibold text-white">
+                    상담 완료
+                  </button>
+                  <button onClick={() => onDeleteRecord(item._id, 'consultation')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
+                    삭제
+                  </button>
+                </div>
+              ),
+            }))}
+          />
+        </Panel>
+        <Panel title="매출·견적 흐름">
+          <RecordList
+            empty="매출 기록이 없습니다."
+            items={officeData.sales.slice(0, 6).map((item) => ({
+              key: item._id,
+              title: `${item.projectTitle || item.customerName || '매출 항목'} · ${formatMoney(Number(item.amount || 0))}`,
+              meta: `${item.status || '상태 없음'} · 원가 ${formatMoney(Number(item.cost || 0))} · 이익 ${formatMoney(Number(item.amount || 0) - Number(item.cost || 0))}`,
+              body: item.memo,
+            }))}
+          />
+        </Panel>
+      </section>
+
       <section className="grid gap-4 xl:grid-cols-[1fr_0.95fr]">
         <Panel title="현장별 바로 보기">
           <div className="grid gap-3">
@@ -3525,11 +3527,11 @@ function DashboardOverview({
         </Panel>
 
         <Panel title="외부 채널">
-          <div className="grid gap-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {externalCards.map((card) => (
-              <div key={card.label} className="flex items-center justify-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${card.tone}`}>
+              <div key={card.label} className="grid min-h-[116px] content-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${card.tone}`}>
                     {card.label.includes('카카오') ? <MessageCircle size={18} /> : <Link2 size={18} />}
                   </span>
                   <div className="min-w-0">
@@ -3537,14 +3539,14 @@ function DashboardOverview({
                     <p className="mt-1 text-xs text-[#60717d]">{card.url ? card.note : '홈페이지·채널 설정에서 링크를 입력해주세요.'}</p>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex items-center justify-between gap-2">
                   {card.count && <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#267d8c]">알림 {card.count}</span>}
                   {card.url ? (
-                    <a href={card.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-2 text-xs font-bold text-[#273541] shadow-sm">
+                    <a href={card.url} target="_blank" rel="noreferrer" className="ml-auto inline-flex items-center gap-1 rounded-md bg-white px-3 py-2 text-xs font-bold text-[#273541] shadow-sm">
                       이동 <ExternalLink size={13} />
                     </a>
                   ) : (
-                    <button type="button" onClick={() => onOpenTab('integrations')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#60717d]">
+                    <button type="button" onClick={() => onOpenTab('integrations')} className="ml-auto rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-bold text-[#60717d]">
                       설정
                     </button>
                   )}
@@ -3555,7 +3557,7 @@ function DashboardOverview({
         </Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="hidden">
         <Panel title="최근 상담 요청">
           <RecordList
             empty="상담 기록이 없습니다."
