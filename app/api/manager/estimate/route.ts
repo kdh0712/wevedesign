@@ -39,7 +39,12 @@ type ScheduleTask = {
   name?: string;
   startDate?: string;
   endDate?: string;
+  durationDays?: number | string;
   progress?: number | string;
+  color?: string;
+  vendorId?: string;
+  vendorName?: string;
+  vendorPhone?: string;
   memo?: string;
 };
 
@@ -64,11 +69,14 @@ const estimateQuery = `{
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
-    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson,
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
+  },
+  "vendors": *[_type == "officeVendor"] | order(name asc)[0...300] {
+    _id, name, manager, phone, service, status, memo, createdAt
   }
 }`;
 
@@ -135,6 +143,7 @@ async function saveEstimate(body: Record<string, unknown>) {
   const lines = Array.isArray(body.lines) ? normalizeLines(body.lines as EstimateLine[]) : [];
   const workLines = Array.isArray(body.workLines) ? normalizeWorkLines(body.workLines as WorkLine[]) : [];
   const schedule = Array.isArray(body.schedule) ? normalizeSchedule(body.schedule as ScheduleTask[]) : [];
+  const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
   const totals = calculateTotals(lines, workLines);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
@@ -153,6 +162,7 @@ async function saveEstimate(body: Record<string, unknown>) {
     linesJson: JSON.stringify(lines),
     workLinesJson: JSON.stringify(workLines),
     scheduleJson: JSON.stringify(schedule),
+    holidaysJson: JSON.stringify(holidays),
     customerEstimateTotal: totals.customerEstimateTotal,
     executionCostTotal: totals.executionCostTotal,
     marginAmount: totals.marginAmount,
@@ -338,10 +348,30 @@ function normalizeSchedule(schedule: ScheduleTask[]) {
       name: String(task.name || '').trim(),
       startDate: String(task.startDate || '').trim(),
       endDate: String(task.endDate || '').trim(),
+      durationDays: Math.max(1, Math.round(toNumber(task.durationDays) || 1)),
       progress: Math.max(0, Math.min(100, toNumber(task.progress))),
+      color: normalizeColor(task.color),
+      vendorId: String(task.vendorId || '').trim(),
+      vendorName: String(task.vendorName || '').trim(),
+      vendorPhone: String(task.vendorPhone || '').trim(),
       memo: String(task.memo || '').trim(),
     }))
     .filter((task) => task.name);
+}
+
+function normalizeHolidays(values: unknown[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value || '').trim())
+        .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)),
+    ),
+  ).sort();
+}
+
+function normalizeColor(value: unknown) {
+  const color = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
 }
 
 function calculateTotals(lines: ReturnType<typeof normalizeLines>, workLines: ReturnType<typeof normalizeWorkLines>) {

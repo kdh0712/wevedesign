@@ -62,8 +62,22 @@ type ScheduleTask = {
   name: string;
   startDate: string;
   endDate: string;
+  durationDays: number;
   progress: number;
+  color: string;
+  vendorId: string;
+  vendorName: string;
+  vendorPhone: string;
   memo: string;
+};
+
+type Vendor = {
+  _id?: string;
+  name?: string;
+  manager?: string;
+  phone?: string;
+  service?: string;
+  status?: string;
 };
 
 type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
@@ -78,6 +92,7 @@ type SiteEstimate = {
   linesJson?: string;
   workLinesJson?: string;
   scheduleJson?: string;
+  holidaysJson?: string;
   customerEstimateTotal?: number;
   executionCostTotal?: number;
   marginAmount?: number;
@@ -92,6 +107,7 @@ type EstimateApiData = {
   sites?: Site[];
   estimates?: SiteEstimate[];
   materials?: Material[];
+  vendors?: Vendor[];
   record?: SiteEstimate | Material;
   importedCount?: number;
 };
@@ -132,7 +148,12 @@ const emptyTask = (): ScheduleTask => ({
   name: '',
   startDate: '',
   endDate: '',
+  durationDays: 1,
   progress: 0,
+  color: '#f1c76a',
+  vendorId: '',
+  vendorName: '',
+  vendorPhone: '',
   memo: '',
 });
 
@@ -161,6 +182,7 @@ export default function EstimateWorkspacePage() {
   const [sites, setSites] = useState<Site[]>([]);
   const [estimates, setEstimates] = useState<SiteEstimate[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState('');
   const [selectedEstimateId, setSelectedEstimateId] = useState('');
   const [estimateId, setEstimateId] = useState('');
@@ -171,6 +193,8 @@ export default function EstimateWorkspacePage() {
   const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
+  const [holidays, setHolidays] = useState<string[]>([]);
+  const [holidayDate, setHolidayDate] = useState(() => todayKey());
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -180,6 +204,7 @@ export default function EstimateWorkspacePage() {
   const [lineDbCategory, setLineDbCategory] = useState('');
   const [selectedLineId, setSelectedLineId] = useState('');
   const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
+  const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
   const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
   const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
   const [workGroupBy, setWorkGroupBy] = useState<'space' | 'category'>('category');
@@ -203,6 +228,7 @@ export default function EstimateWorkspacePage() {
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+  const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const materialCategories = useMemo(() => Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort(), [materials]);
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
   const materialNames = useMemo(() => Array.from(new Set(materials.map((item) => item.name || '').filter(Boolean))).sort(), [materials]);
@@ -249,6 +275,7 @@ export default function EstimateWorkspacePage() {
       setLines(nextLines);
       setWorkLines(deriveWorkLines(nextLines));
       setSchedule([emptyTask()]);
+      setHolidays([]);
       setSelectedLineId('');
       return;
     }
@@ -272,7 +299,8 @@ export default function EstimateWorkspacePage() {
     const nextWorkLines = parseJson<WorkLine[]>(estimate?.workLinesJson, []);
     setLines(nextLines);
     setWorkLines(nextWorkLines.length ? nextWorkLines : deriveWorkLines(nextLines));
-    setSchedule(parseJson<ScheduleTask[]>(estimate?.scheduleJson, [emptyTask()]));
+    setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
+    setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setSelectedLineId('');
 
     if (!estimate && site) {
@@ -281,6 +309,7 @@ export default function EstimateWorkspacePage() {
       const nextLinesForSite = [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }];
       setLines(nextLinesForSite);
       setWorkLines(deriveWorkLines(nextLinesForSite));
+      setHolidays([]);
     }
   }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
 
@@ -299,6 +328,7 @@ export default function EstimateWorkspacePage() {
       setSites(data.sites || []);
       setEstimates(data.estimates || []);
       setMaterials(data.materials || []);
+      setVendors(data.vendors || []);
       setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
         setSelectedEstimateId(preferredEstimateId);
@@ -335,6 +365,7 @@ export default function EstimateWorkspacePage() {
           lines,
           workLines,
           schedule,
+          holidays,
           memo,
           createdAt: selectedEstimate?.createdAt,
         }),
@@ -518,6 +549,7 @@ export default function EstimateWorkspacePage() {
     setLines(nextLines);
     setWorkLines(copyCurrent && workLines.some((line) => line.name || line.category || line.process) ? cloneWorkLines(workLines) : deriveWorkLines(nextLines));
     setSchedule(copyCurrent && schedule.some((task) => task.name) ? cloneScheduleTasks(schedule) : [emptyTask()]);
+    setHolidays(copyCurrent ? [...holidays] : []);
     setSelectedLineId('');
     setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
     setActiveTab('lines');
@@ -550,21 +582,54 @@ export default function EstimateWorkspacePage() {
   const addScheduleFromProcess = (name: string, date: string) => {
     const cleanName = name.trim();
     if (!cleanName || !date) return;
-    setSchedule((current) => [
-      ...current,
-      {
-        ...emptyTask(),
-        name: cleanName,
-        startDate: date,
-        endDate: date,
-      },
-    ]);
+    setScheduleEditor({
+      ...emptyTask(),
+      name: cleanName,
+      startDate: date,
+      endDate: date,
+      durationDays: 1,
+      color: colorForName(cleanName),
+    });
   };
 
   const handleCalendarDrop = (event: DragEvent<HTMLDivElement>, date: string) => {
     event.preventDefault();
     const processName = event.dataTransfer.getData('text/plain');
     addScheduleFromProcess(processName, date);
+  };
+
+  const saveScheduleEditor = () => {
+    if (!scheduleEditor?.name.trim()) {
+      setError('공정명을 입력해주세요.');
+      return;
+    }
+    const startDate = scheduleEditor.startDate || todayKey();
+    const durationDays = Math.max(1, Math.round(Number(scheduleEditor.durationDays || 1)));
+    const rawEndDate = addDays(startDate, durationDays - 1);
+    const nextTask = {
+      ...scheduleEditor,
+      name: scheduleEditor.name.trim(),
+      startDate,
+      endDate: rawEndDate,
+      durationDays,
+      color: normalizeColor(scheduleEditor.color),
+    };
+    setSchedule((current) => {
+      const exists = current.some((task) => task.id === nextTask.id);
+      return exists ? current.map((task) => (task.id === nextTask.id ? nextTask : task)) : [...current, nextTask];
+    });
+    setScheduleEditor(null);
+    setError('');
+  };
+
+  const deleteScheduleTask = (id: string) => {
+    setSchedule((current) => current.filter((task) => task.id !== id));
+    setScheduleEditor((current) => (current?.id === id ? null : current));
+  };
+
+  const addHoliday = () => {
+    if (!holidayDate) return;
+    setHolidays((current) => Array.from(new Set([...current, holidayDate])).sort());
   };
 
   if (!isUnlocked) {
@@ -871,7 +936,7 @@ export default function EstimateWorkspacePage() {
                 <table className="w-full min-w-[1320px] border-collapse text-sm">
                   <thead className="sticky top-0 z-10 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
                     <tr>
-                      {['선택', '공간', '분류', '공종', '품명', '규격', '단위', '수량', '견적단가', '실행단가', '견적금액', '원가', '마진', '비고', ''].map((header) => (
+                      {['선택', '공간', '분류', '공종', '품명', '규격', '단위', '수량', '견적단가', '실행단가', '견적금액', '원가', '마진', '비고', '삭제'].map((header) => (
                         <th key={header} className="border-b border-[#d5dde2] px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -882,7 +947,15 @@ export default function EstimateWorkspacePage() {
                       const currentGroup = lineGroupKey(line, lineGroupBy);
                       const previousGroup = index > 0 ? lineGroupKey(sortedLines[index - 1], lineGroupBy) : '';
                       return (
-                        <tr key={line.id} className={`border-b border-[#edf2f5] ${currentGroup !== previousGroup ? 'border-t-2 border-t-[#c6a25d]' : ''} ${selectedLineId === line.id ? 'bg-[#fff9e8]' : ''}`}>
+                        <Fragment key={line.id}>
+                          {currentGroup !== previousGroup && (
+                            <tr>
+                              <td colSpan={15} className="border-y border-[#e7d8bd] bg-[#fff8e8] px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#8b6420]">
+                                {lineGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
+                              </td>
+                            </tr>
+                          )}
+                          <tr className={`border-b border-[#edf2f5] ${selectedLineId === line.id ? 'bg-[#fff9e8]' : ''}`}>
                           <td className="px-2 py-2">
                             <button
                               type="button"
@@ -912,11 +985,13 @@ export default function EstimateWorkspacePage() {
                           <td className={`px-3 py-2 font-semibold ${margin >= 0 ? 'text-[#217346]' : 'text-red-600'}`}>{formatMoney(margin)}</td>
                           <td className="px-2 py-2"><CellInput value={line.note} onChange={(value) => updateLine(line.id, { note: value })} /></td>
                           <td className="px-2 py-2">
-                            <button type="button" onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))} className="rounded-md border border-red-200 p-2 text-red-600">
+                            <button type="button" onClick={() => setLines((current) => current.filter((item) => item.id !== line.id))} className="inline-flex items-center gap-1 rounded-md border border-red-200 px-2 py-2 text-red-600" aria-label="견적 항목 삭제">
                               <Trash2 size={15} />
+                              <span className="text-xs font-semibold">삭제</span>
                             </button>
                           </td>
                         </tr>
+                        </Fragment>
                       );
                     })}
                   </tbody>
@@ -1014,8 +1089,9 @@ export default function EstimateWorkspacePage() {
                             <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d]">금액</p>
                             <p className="mt-2 whitespace-nowrap text-sm font-semibold">{formatMoney(amount)}</p>
                           </div>
-                          <button type="button" onClick={() => setWorkLines((current) => current.filter((item) => item.id !== line.id))} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-red-200 text-red-600" aria-label="공사 항목 삭제">
+                          <button type="button" onClick={() => setWorkLines((current) => current.filter((item) => item.id !== line.id))} className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-red-200 px-2 text-red-600" aria-label="공사 항목 삭제">
                             <Trash2 size={16} />
+                            <span className="text-xs font-semibold">삭제</span>
                           </button>
                         </div>
                       </div>
@@ -1048,7 +1124,7 @@ export default function EstimateWorkspacePage() {
                 <input value={editingMaterial.spec || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <div className="grid grid-cols-2 gap-2">
                   <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                  <input value={editingMaterial.unitPrice || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unitPrice: Number(event.target.value.replace(/[^\d]/g, '')) })} placeholder="단가" className="rounded-md border border-[#d5dde2] px-3 py-2" />
+                  <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} />
                 </div>
                 <button type="button" onClick={saveMaterial} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-3 font-semibold disabled:opacity-60">
                   단가 저장
@@ -1130,10 +1206,34 @@ export default function EstimateWorkspacePage() {
                   ))
                 )}
               </div>
-              <button type="button" onClick={() => setSchedule((current) => [...current, emptyTask()])} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-3 text-sm font-semibold text-white">
+              <button type="button" onClick={() => setScheduleEditor({ ...emptyTask(), startDate: todayKey(), endDate: todayKey() })} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-3 text-sm font-semibold text-white">
                 <Plus size={16} />
                 빈 일정 추가
               </button>
+              <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
+                <p className="text-sm font-semibold">휴일 지정</p>
+                <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+                  <input type="date" value={holidayDate} onChange={(event) => setHolidayDate(event.target.value)} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm" />
+                  <button type="button" onClick={addHoliday} className="rounded-md bg-[#f1c76a] px-3 py-2 text-sm font-semibold">추가</button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {holidays.length === 0 ? (
+                    <span className="text-xs text-[#60717d]">지정된 휴일 없음</span>
+                  ) : (
+                    holidays.map((date) => (
+                      <button
+                        key={date}
+                        type="button"
+                        onClick={() => setHolidays((current) => current.filter((item) => item !== date))}
+                        className="inline-flex items-center gap-1 rounded-full border border-[#ead9b9] bg-white px-2 py-1 text-xs font-semibold text-[#8b6420]"
+                      >
+                        {date}
+                        <X size={12} />
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
             </aside>
 
             <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
@@ -1163,36 +1263,57 @@ export default function EstimateWorkspacePage() {
                 </div>
                 <div className="grid min-w-[980px] grid-cols-7">
                   {calendarDays.map((day) => {
-                    const dayTasks = tasksForDate(schedule, day.date);
+                    const dayTasks = tasksForDate(schedule, day.date, holidaySet);
+                    const isHoliday = holidaySet.has(day.date);
                     return (
                       <div
                         key={day.key}
                         onDragOver={(event) => event.preventDefault()}
                         onDrop={(event) => handleCalendarDrop(event, day.date)}
-                        className={`min-h-32 border-b border-r border-[#edf2f5] p-2 last:border-r-0 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'}`}
+                        className={`min-h-36 border-b border-r border-[#edf2f5] p-2 last:border-r-0 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'} ${isHoliday ? 'bg-[linear-gradient(135deg,#fff7f7_0,#fff7f7_50%,#fff_50%,#fff_100%)]' : ''}`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.day}</span>
+                          {isHoliday && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">휴일</span>}
                           <button
                             type="button"
-                            onClick={() => setSchedule((current) => [...current, { ...emptyTask(), startDate: day.date, endDate: day.date }])}
+                            onClick={() => setScheduleEditor({ ...emptyTask(), startDate: day.date, endDate: day.date })}
                             className="text-xs text-[#87949c]"
                           >
                             +
                           </button>
                         </div>
                         <div className="mt-2 grid gap-1">
-                          {dayTasks.map((task) => (
-                            <button
-                              key={task.id}
-                              type="button"
-                              onClick={() => updateTask(task.id, { startDate: day.date })}
-                              className="truncate rounded-md bg-[#fff3cf] px-2 py-1 text-left text-xs font-semibold text-[#73511a]"
-                              title={task.name}
-                            >
-                              {task.name || '공정명 없음'}
-                            </button>
-                          ))}
+                          {dayTasks.map((task) => {
+                            const adjustedEndDate = adjustedTaskEndDate(task, holidaySet);
+                            const isStart = day.date === task.startDate;
+                            const isEnd = day.date === adjustedEndDate;
+                            return (
+                              <div
+                                key={task.id}
+                                onDoubleClick={() => setScheduleEditor(task)}
+                                className={`group relative flex min-h-7 cursor-pointer items-center gap-1 px-2 py-1 text-left text-xs font-semibold text-[#171512] shadow-sm ${
+                                  isStart ? 'rounded-l-full' : '-ml-2'
+                                } ${isEnd ? 'rounded-r-full' : '-mr-2'} ${!isStart && !isEnd ? 'rounded-none' : ''}`}
+                                style={{ backgroundColor: softenColor(task.color || '#f1c76a') }}
+                                title={`${task.name} · ${task.startDate}~${adjustedEndDate}`}
+                              >
+                                {isStart && <span className="truncate">{task.name || '공정명 없음'}</span>}
+                                {isHoliday && <span className="text-[10px] text-red-600">연장</span>}
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    deleteScheduleTask(task.id);
+                                  }}
+                                  className="ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/80 text-red-600"
+                                  aria-label="공정 삭제"
+                                >
+                                  <X size={12} />
+                                </button>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -1208,12 +1329,15 @@ export default function EstimateWorkspacePage() {
                 <div className="grid gap-3">
                   {schedule.map((task) => (
                     <div key={task.id} className="grid gap-2 rounded-lg border border-[#d5dde2] p-4 md:grid-cols-[1.2fr_0.75fr_0.75fr_0.45fr_1.1fr_auto] md:items-center">
-                      <input value={task.name} onChange={(event) => updateTask(task.id, { name: event.target.value })} placeholder="공정명" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                      <input type="date" value={task.startDate} onChange={(event) => updateTask(task.id, { startDate: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                      <input type="date" value={task.endDate} onChange={(event) => updateTask(task.id, { endDate: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                      <input type="number" min={0} max={100} value={task.progress} onChange={(event) => updateTask(task.id, { progress: Number(event.target.value) })} className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                      <input value={task.memo} onChange={(event) => updateTask(task.id, { memo: event.target.value })} placeholder="메모" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                      <button type="button" onClick={() => setSchedule((current) => current.filter((item) => item.id !== task.id))} className="rounded-md border border-red-200 p-2 text-red-600">
+                      <button type="button" onDoubleClick={() => setScheduleEditor(task)} onClick={() => setScheduleEditor(task)} className="rounded-md border border-[#d5dde2] px-3 py-2 text-left font-semibold">
+                        <span className="mr-2 inline-block h-3 w-3 rounded-full" style={{ backgroundColor: task.color || '#f1c76a' }} />
+                        {task.name || '공정명 없음'}
+                      </button>
+                      <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{task.startDate || '-'}</div>
+                      <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{adjustedTaskEndDate(task, holidaySet) || '-'}</div>
+                      <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{formatNumber(task.durationDays || 1)}일</div>
+                      <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{task.vendorName || '담당자 미지정'}</div>
+                      <button type="button" onClick={() => deleteScheduleTask(task.id)} className="rounded-md border border-red-200 p-2 text-red-600">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -1266,6 +1390,18 @@ export default function EstimateWorkspacePage() {
           onChooseProcess={choosePickerProcess}
           onChooseMaterial={choosePickerMaterial}
           onClose={() => setMaterialPicker(null)}
+        />
+      )}
+
+      {scheduleEditor && (
+        <ScheduleEditorModal
+          task={scheduleEditor}
+          vendors={vendors}
+          holidaySet={holidaySet}
+          onChange={setScheduleEditor}
+          onSave={saveScheduleEditor}
+          onDelete={() => deleteScheduleTask(scheduleEditor.id)}
+          onClose={() => setScheduleEditor(null)}
         />
       )}
     </main>
@@ -1443,6 +1579,117 @@ function MaterialPickerModal({
   );
 }
 
+function ScheduleEditorModal({
+  task,
+  vendors,
+  holidaySet,
+  onChange,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  task: ScheduleTask;
+  vendors: Vendor[];
+  holidaySet: Set<string>;
+  onChange: (task: ScheduleTask) => void;
+  onSave: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  const durationDays = Math.max(1, Math.round(Number(task.durationDays || 1)));
+  const startDate = task.startDate || todayKey();
+  const rawEndDate = addDays(startDate, durationDays - 1);
+  const adjustedEndDate = adjustedTaskEndDate({ ...task, startDate, endDate: rawEndDate, durationDays }, holidaySet);
+  const holidayExtension = Math.max(0, daysBetween(rawEndDate, adjustedEndDate));
+
+  return (
+    <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
+      <section className="w-full max-w-2xl rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">SCHEDULE</p>
+            <h2 className="mt-1 text-2xl font-semibold">공정 일정 수정</h2>
+            <p className="mt-1 text-sm text-[#60717d]">기간, 담당 작업자, 색상을 지정하면 달력에 바로 반영됩니다.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
+            <X size={18} />
+          </button>
+        </header>
+
+        <div className="grid gap-4 p-5 md:grid-cols-2">
+          <label className="grid gap-1 md:col-span-2">
+            <span className="text-sm font-semibold">공정명</span>
+            <input value={task.name} onChange={(event) => onChange({ ...task, name: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2.5 outline-none focus:border-[#38a9bd]" />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-sm font-semibold">시작일</span>
+            <input value={startDate} type="date" onChange={(event) => onChange({ ...task, startDate: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2.5 outline-none focus:border-[#38a9bd]" />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-sm font-semibold">진행 기간</span>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <NumberTextInput value={durationDays} onChange={(value) => onChange({ ...task, durationDays: Math.max(1, Math.round(value || 1)) })} />
+              <span className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-3 py-2.5 text-sm font-semibold">일</span>
+            </div>
+          </label>
+          <div className="rounded-md border border-[#e7d8bd] bg-[#fffdf8] p-3 md:col-span-2">
+            <p className="text-sm font-semibold">표시 종료일 {adjustedEndDate}</p>
+            <p className="mt-1 text-xs leading-5 text-[#60717d]">
+              기본 종료일은 {rawEndDate}입니다. {holidayExtension > 0 ? `휴일 ${formatNumber(holidayExtension)}일이 포함되어 자동 연장됩니다.` : '지정 휴일과 겹치지 않습니다.'}
+            </p>
+          </div>
+          <label className="grid gap-1">
+            <span className="text-sm font-semibold">색상</span>
+            <input value={task.color || '#f1c76a'} type="color" onChange={(event) => onChange({ ...task, color: event.target.value })} className="h-11 rounded-md border border-[#d5dde2] bg-white px-2 py-1" />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-sm font-semibold">진행률</span>
+            <NumberTextInput value={task.progress} onChange={(value) => onChange({ ...task, progress: Math.max(0, Math.min(100, value)) })} />
+          </label>
+          <label className="grid gap-1 md:col-span-2">
+            <span className="text-sm font-semibold">담당 작업자</span>
+            <select
+              value={task.vendorId}
+              onChange={(event) => {
+                const vendor = vendors.find((item) => item._id === event.target.value);
+                onChange({
+                  ...task,
+                  vendorId: vendor?._id || '',
+                  vendorName: vendor ? [vendor.name, vendor.manager].filter(Boolean).join(' · ') : '',
+                  vendorPhone: vendor?.phone || '',
+                });
+              }}
+              className="rounded-md border border-[#d5dde2] px-3 py-2.5 outline-none focus:border-[#38a9bd]"
+            >
+              <option value="">담당자 미지정</option>
+              {vendors.map((vendor) => (
+                <option key={vendor._id || vendor.name} value={vendor._id || ''}>
+                  {[vendor.name, vendor.manager, vendor.service, vendor.phone].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 md:col-span-2">
+            <span className="text-sm font-semibold">메모</span>
+            <textarea value={task.memo} onChange={(event) => onChange({ ...task, memo: event.target.value })} rows={3} className="rounded-md border border-[#d5dde2] px-3 py-2.5 outline-none focus:border-[#38a9bd]" />
+          </label>
+        </div>
+
+        <footer className="flex flex-wrap justify-between gap-2 border-t border-[#edf2f5] p-5">
+          <button type="button" onClick={onDelete} className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600">
+            <Trash2 size={16} />
+            삭제
+          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">취소</button>
+            <button type="button" onClick={onSave} className="rounded-md bg-[#171512] px-5 py-2 text-sm font-semibold text-white">저장</button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function StepButton({ label, active, enabled, onClick }: { label: string; active: boolean; enabled: boolean; onClick: () => void }) {
   return (
     <button
@@ -1481,7 +1728,19 @@ function CellInput({ value, listId, onChange }: { value: string; listId?: string
 }
 
 function CellNumber({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  return <input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} className="w-full min-w-24 rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]" />;
+  return <NumberTextInput value={value} onChange={onChange} className="w-full min-w-24" />;
+}
+
+function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={formatNumberInput(value)}
+      onChange={(event) => onChange(parseNumberInput(event.target.value))}
+      className={`${className} rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]`}
+    />
+  );
 }
 
 function CellSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
@@ -1666,10 +1925,16 @@ function estimateVersionRank(type?: string) {
 
 function sortEstimateVersions(estimates: SiteEstimate[]) {
   return [...estimates].sort((a, b) => {
+    const baseDiff = Number(!isBaseEstimate(a)) - Number(!isBaseEstimate(b));
+    if (baseDiff !== 0) return baseDiff;
     const rankDiff = estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
     if (rankDiff !== 0) return rankDiff;
     return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
   });
+}
+
+function isBaseEstimate(estimate: SiteEstimate) {
+  return (estimate.versionLabel || '').includes('기본 견적');
 }
 
 function defaultVersionLabel(type: EstimateVersionType, estimates: SiteEstimate[]) {
@@ -1692,6 +1957,28 @@ function cloneScheduleTasks(tasks: ScheduleTask[]) {
     ...task,
     id: `task-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
   }));
+}
+
+function hydrateScheduleTasks(tasks: Partial<ScheduleTask>[]) {
+  return tasks.map((task) => {
+    const startDate = task.startDate || '';
+    const endDate = task.endDate || startDate;
+    const durationDays = Math.max(1, Math.round(Number(task.durationDays || (startDate && endDate ? daysBetween(startDate, endDate) + 1 : 1))));
+    return {
+      ...emptyTask(),
+      ...task,
+      id: task.id || `task-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      startDate,
+      endDate,
+      durationDays,
+      progress: Number(task.progress || 0),
+      color: normalizeColor(task.color || colorForName(task.name || '공정')),
+      vendorId: task.vendorId || '',
+      vendorName: task.vendorName || '',
+      vendorPhone: task.vendorPhone || '',
+      memo: task.memo || '',
+    };
+  });
 }
 
 function estimateLineToWorkLine(line: EstimateLine): WorkLine {
@@ -1823,10 +2110,10 @@ function buildCalendarDays(monthKey: string) {
   });
 }
 
-function tasksForDate(tasks: ScheduleTask[], date: string) {
+function tasksForDate(tasks: ScheduleTask[], date: string, holidays: Set<string>) {
   return tasks.filter((task) => {
     const start = task.startDate || task.endDate;
-    const end = task.endDate || task.startDate;
+    const end = adjustedTaskEndDate(task, holidays);
     if (!start && !end) return false;
     return date >= start && date <= end;
   });
@@ -1842,6 +2129,83 @@ function formatShortDate(value?: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
   return `${date.getFullYear()}.${`${date.getMonth() + 1}`.padStart(2, '0')}.${`${date.getDate()}`.padStart(2, '0')}`;
+}
+
+function adjustedTaskEndDate(task: ScheduleTask, holidays: Set<string>) {
+  const start = task.startDate || task.endDate;
+  if (!start) return '';
+  const rawEnd = task.durationDays ? addDays(start, Math.max(1, Number(task.durationDays || 1)) - 1) : task.endDate || start;
+  return extendEndDateForHolidays(start, rawEnd, holidays);
+}
+
+function extendEndDateForHolidays(start: string, rawEnd: string, holidays: Set<string>) {
+  let end = rawEnd;
+  let previousEnd = '';
+  while (end !== previousEnd) {
+    previousEnd = end;
+    const holidayCount = countHolidaysBetween(start, end, holidays);
+    end = addDays(rawEnd, holidayCount);
+  }
+  return end;
+}
+
+function countHolidaysBetween(start: string, end: string, holidays: Set<string>) {
+  let count = 0;
+  holidays.forEach((date) => {
+    if (date >= start && date <= end) count += 1;
+  });
+  return count;
+}
+
+function addDays(dateKeyValue: string, days: number) {
+  const date = parseDateKey(dateKeyValue);
+  date.setDate(date.getDate() + days);
+  return dateKey(date);
+}
+
+function daysBetween(start: string, end: string) {
+  const startTime = parseDateKey(start).getTime();
+  const endTime = parseDateKey(end).getTime();
+  return Math.max(0, Math.round((endTime - startTime) / 86400000));
+}
+
+function parseDateKey(value: string) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(year || 1970, (month || 1) - 1, day || 1);
+}
+
+function colorForName(name: string) {
+  const colors = ['#f1c76a', '#8fc6a8', '#8bb8e8', '#d9a1a1', '#b9a7e8', '#e3a85f', '#79c7c5'];
+  const seed = Array.from(name || '공정').reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return colors[seed % colors.length];
+}
+
+function normalizeColor(value?: string) {
+  const color = String(value || '').trim();
+  return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
+}
+
+function softenColor(color: string) {
+  const normalized = normalizeColor(color).replace('#', '');
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, 0.72)`;
+}
+
+function formatNumber(value: number) {
+  return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function formatNumberInput(value: number) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return '';
+  return Number(value).toLocaleString('ko-KR');
+}
+
+function parseNumberInput(value: string) {
+  const normalized = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseJson<T>(value: string | undefined, fallback: T): T {
