@@ -1780,9 +1780,9 @@ export default function WeveDesignLanding({
           id="work-method"
           className="method-section scroll-reveal px-4 py-12 text-[#171512] md:px-8 md:py-24"
         >
-          <div className="mx-auto max-w-6xl">
-            <div className="grid min-w-0 gap-5 lg:grid-cols-[280px_minmax(0,1fr)] xl:grid-cols-[300px_minmax(0,1fr)]">
-              <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur lg:sticky lg:top-28 lg:self-start">
+          <div className="mx-auto max-w-7xl">
+            <div className="grid min-w-0 gap-5 lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)]">
+              <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur lg:self-start">
                 <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
                 <h2 className="text-2xl font-semibold leading-tight tracking-normal sm:text-3xl lg:text-[2rem]">
                   공사 범위와 결정 방식에 맞춰 진행 흐름을 정합니다.
@@ -1831,7 +1831,7 @@ export default function WeveDesignLanding({
 
               <div className="grid min-w-0 max-w-full gap-5 overflow-hidden">
                 <div className="method-focus-card min-w-0 overflow-hidden rounded-lg border border-[#eadfcd] bg-white text-[#171512] shadow-[0_24px_70px_rgba(57,46,31,0.10)]">
-                  <div className="grid min-w-0 gap-5 p-5 md:p-6 lg:grid-cols-[minmax(0,1fr)_220px] lg:items-start">
+                  <div className="grid min-w-0 gap-5 p-5 md:p-6 lg:grid-cols-[minmax(0,1fr)_210px] lg:items-start xl:grid-cols-[minmax(0,1fr)_230px]">
                     <div className="min-w-0">
                       <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#8f6f43]">{selectedConstructionModel.eyebrow}</p>
                       <h3 className="mt-3 max-w-2xl text-[1.45rem] font-semibold leading-tight sm:text-2xl md:text-3xl">
@@ -1840,7 +1840,7 @@ export default function WeveDesignLanding({
                       <p className="mt-3 text-sm leading-6 text-[#625d54] md:hidden">
                         {methodMobileSummary}
                       </p>
-                      <p className="mt-4 hidden max-w-2xl text-base leading-7 text-[#625d54] md:block">
+                      <p className="mt-4 hidden max-w-3xl text-base leading-7 text-[#625d54] md:block">
                         {selectedConstructionModel.summary}
                       </p>
                     </div>
@@ -1922,7 +1922,7 @@ export default function WeveDesignLanding({
                       단계별로 결정할 내용과 위브디자인이 관리하는 지점을 나누어 정리합니다.
                     </p>
                   </div>
-                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 lg:gap-3">
+                  <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5 xl:gap-3">
                     {selectedConstructionModel.workflow.map((step, index) => (
                       <div key={step.title} className={`relative min-w-0 ${index === selectedConstructionModel.workflow.length - 1 ? 'col-span-2 sm:col-span-1' : ''}`}>
                         <div className="workflow-step method-flow-card h-full rounded-lg border border-[#eadfcd] bg-[#fffdf8] p-3.5 sm:p-4">
