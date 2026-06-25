@@ -16,13 +16,16 @@ import {
   Loader2,
   LogOut,
   Mail,
+  MapPinned,
   MessageCircle,
+  Newspaper,
   PackagePlus,
   Phone,
   ShieldCheck,
   UploadCloud,
   Users,
   WalletCards,
+  Instagram,
 } from 'lucide-react';
 
 type UploadResult = {
@@ -2626,12 +2629,6 @@ export default function ManagerPage() {
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <SettingInput
-                    label="카카오톡 고객 상담 링크"
-                    value={homepageSettings.kakaoUrl}
-                    onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoUrl: value })}
-                    placeholder="예: https://pf.kakao.com/_.../chat"
-                  />
-                  <SettingInput
                     label="카카오 비즈니스 채널 관리 링크"
                     value={homepageSettings.kakaoChannelManagerUrl}
                     onChange={(value) => setHomepageSettings({ ...homepageSettings, kakaoChannelManagerUrl: value })}
@@ -2659,10 +2656,9 @@ export default function ManagerPage() {
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   {[
                     { label: '카카오 채널 관리', url: homepageSettings.kakaoChannelManagerUrl, tone: 'bg-[#ffe812] text-[#171512]', icon: <MessageCircle size={20} /> },
-                    { label: '카카오 고객 상담', url: homepageSettings.kakaoUrl, tone: 'bg-[#fff7cc] text-[#171512]', icon: <MessageCircle size={20} /> },
-                    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, tone: 'bg-[#03c75a] text-white', icon: <Link2 size={20} /> },
-                    { label: '네이버 블로그', url: homepageSettings.blogUrl, tone: 'bg-[#e9f8ef] text-[#087c3a]', icon: <Link2 size={20} /> },
-                    { label: '인스타그램', url: homepageSettings.instagramUrl, tone: 'bg-[#f7edf3] text-[#b42c70]', icon: <Link2 size={20} /> },
+                    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, tone: 'bg-[#03c75a] text-white', icon: <MapPinned size={20} /> },
+                    { label: '네이버 블로그', url: homepageSettings.blogUrl, tone: 'bg-[#e9f8ef] text-[#087c3a]', icon: <Newspaper size={20} /> },
+                    { label: '인스타그램', url: homepageSettings.instagramUrl, tone: 'bg-[#f7edf3] text-[#b42c70]', icon: <Instagram size={20} /> },
                   ].map((channel) => (
                     <div key={channel.label} className="flex items-center justify-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                       <div className="flex min-w-0 items-center gap-3">
@@ -3399,11 +3395,10 @@ function DashboardOverview({
   const estimateCoverage = officeData.sites.length ? Math.round((new Set(officeData.estimates.map((estimate) => estimate.siteId).filter(Boolean)).size / officeData.sites.length) * 100) : 0;
   const selectedSiteEstimates = selectedSite ? sortEstimateSummaries(officeData.estimates.filter((estimate) => estimate.siteId === selectedSite._id)) : [];
   const externalCards = [
-    { label: '카카오 채널 관리', url: homepageSettings.kakaoChannelManagerUrl, count: homepageSettings.kakaoUnreadCount, tone: 'bg-[#ffe812] text-[#171512]', note: '채팅·채널 상담 확인' },
-    { label: '카카오 상담 링크', url: homepageSettings.kakaoUrl, count: homepageSettings.kakaoUnreadCount, tone: 'bg-[#fff7cc] text-[#171512]', note: '고객용 상담 진입' },
-    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, count: homepageSettings.naverUnreadCount, tone: 'bg-[#03c75a] text-white', note: '예약·리뷰·플레이스' },
-    { label: '블로그', url: homepageSettings.blogUrl, count: '', tone: 'bg-[#f1c76a] text-[#171512]', note: '시공 사례 콘텐츠' },
-    { label: '인스타그램', url: homepageSettings.instagramUrl, count: '', tone: 'bg-[#273541] text-white', note: 'SNS 포트폴리오' },
+    { label: '카카오 채널 관리', url: homepageSettings.kakaoChannelManagerUrl, count: homepageSettings.kakaoUnreadCount, tone: 'bg-[#ffe812] text-[#171512]', note: '채팅·채널 상담 확인', icon: <MessageCircle size={18} /> },
+    { label: '네이버 플레이스', url: homepageSettings.naverPlaceUrl, count: homepageSettings.naverUnreadCount, tone: 'bg-[#03c75a] text-white', note: '예약·리뷰·플레이스', icon: <MapPinned size={18} /> },
+    { label: '블로그', url: homepageSettings.blogUrl, count: '', tone: 'bg-[#f1c76a] text-[#171512]', note: '시공 사례 콘텐츠', icon: <Newspaper size={18} /> },
+    { label: '인스타그램', url: homepageSettings.instagramUrl, count: '', tone: 'bg-[#273541] text-white', note: 'SNS 포트폴리오', icon: <Instagram size={18} /> },
   ];
 
   return (
@@ -3532,7 +3527,7 @@ function DashboardOverview({
               <div key={card.label} className="grid min-h-[116px] content-between gap-3 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
                 <div className="flex min-w-0 items-start gap-3">
                   <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${card.tone}`}>
-                    {card.label.includes('카카오') ? <MessageCircle size={18} /> : <Link2 size={18} />}
+                    {card.icon}
                   </span>
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{card.label}</p>
