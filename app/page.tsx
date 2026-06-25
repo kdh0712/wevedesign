@@ -1780,7 +1780,7 @@ export default function WeveDesignLanding({
           id="work-method"
           className="method-section scroll-reveal px-4 py-12 text-[#171512] md:px-8 md:py-24"
         >
-          <div className="mx-auto max-w-7xl">
+          <div className="method-container mx-auto max-w-7xl">
             <div className="grid min-w-0 gap-5 lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[290px_minmax(0,1fr)]">
               <div className="method-sticky-panel min-w-0 max-w-full rounded-lg border border-[#eadfcd] bg-white/86 p-5 backdrop-blur lg:self-start">
                 <p className="mb-3 text-sm font-bold tracking-[0.24em] text-[#8f6f43]">진행 방식</p>
