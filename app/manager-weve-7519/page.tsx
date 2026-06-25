@@ -1974,7 +1974,7 @@ export default function ManagerPage() {
           </div>
         </aside>
 
-        <section className="min-w-0 flex-1 px-4 py-4 md:px-5">
+        <section className="flex min-w-0 flex-1 flex-col px-4 py-4 md:px-5">
           <header className="mb-4 rounded-lg border border-[#d5dde2] bg-white px-4 py-3 shadow-sm">
             <div className="flex flex-col justify-between gap-3 xl:flex-row xl:items-center">
               <div>
@@ -2030,6 +2030,7 @@ export default function ManagerPage() {
             </nav>
           )}
 
+          <div className="grid min-h-[calc(100vh-210px)] flex-1 gap-4">
         {activeTab === 'dashboard' && (
           <DashboardOverview
             officeData={officeData}
@@ -3145,6 +3146,8 @@ export default function ManagerPage() {
           </div>
         )}
 
+          </div>
+
         {(status || error || results.length > 0) && (
           <section className="mt-5 rounded-lg border border-[#d9cdbb] bg-white p-5 shadow-sm">
             {status && <p className="font-semibold text-[#2f7d45]">{status}</p>}
@@ -3622,7 +3625,7 @@ function MetricCard({ title, value, sub }: { title: string; value: string; sub: 
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+    <section className="h-full rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
         <span className="h-2 w-2 rounded-full bg-[#38bcd4]" />
         {title}

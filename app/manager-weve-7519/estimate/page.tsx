@@ -899,8 +899,8 @@ export default function EstimateWorkspacePage() {
         </datalist>
 
         {activeTab === 'lines' && (
-          <section className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)]">
-            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+          <section className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)] xl:items-stretch">
+            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:flex xl:min-h-[calc(100vh-260px)] xl:flex-col">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">GLOBAL DB</p>
@@ -933,7 +933,7 @@ export default function EstimateWorkspacePage() {
                 ))}
               </div>
 
-              <div className="mt-4 max-h-[calc(100vh-380px)] min-h-[360px] overflow-y-auto pr-1">
+              <div className="mt-4 max-h-[calc(100vh-380px)] min-h-[360px] overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none">
                 {lineDbMaterials.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-6 text-center text-sm text-[#60717d]">
                     자재 단가 DB가 비어 있습니다. `자재 단가` 탭에서 엑셀을 먼저 업로드해주세요.
@@ -964,7 +964,7 @@ export default function EstimateWorkspacePage() {
               </div>
             </aside>
 
-            <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+            <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:min-h-[calc(100vh-260px)]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">견적 내역</h2>
@@ -1030,7 +1030,7 @@ export default function EstimateWorkspacePage() {
                 </div>
               </div>
 
-              <div className="max-h-[calc(100vh-260px)] min-h-[620px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3">
+              <div className="max-h-[calc(100vh-260px)] min-h-[620px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3 xl:min-h-0 xl:flex-1 xl:max-h-none">
                 <div className="grid gap-3">
                   {sortedLines.length === 0 && (
                     <div className="rounded-lg border border-dashed border-[#cfd9df] bg-white p-10 text-center text-sm font-semibold text-[#60717d]">
@@ -1305,7 +1305,7 @@ export default function EstimateWorkspacePage() {
 
         {activeTab === 'schedule' && (
           <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:flex xl:min-h-[calc(100vh-260px)] xl:flex-col">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 작업</h2>
@@ -1364,7 +1364,7 @@ export default function EstimateWorkspacePage() {
               </div>
             </aside>
 
-            <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+            <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:min-h-[calc(100vh-260px)]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 달력</h2>
