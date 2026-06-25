@@ -2030,7 +2030,7 @@ export default function ManagerPage() {
             </nav>
           )}
 
-          <div className="grid min-h-[calc(100vh-210px)] flex-1 gap-4">
+          <div className="grid gap-4">
         {activeTab === 'dashboard' && (
           <DashboardOverview
             officeData={officeData}
@@ -2105,7 +2105,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'customers' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingCustomerId ? '고객 수정' : '고객 등록'}>
               <div ref={customerFormRef}>
               {pendingConsultationForCustomer && (
@@ -2206,7 +2206,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'sites' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingSiteId ? '현장 수정' : '현장 등록'}>
               <div ref={siteFormRef}>
                 <OfficeForm
@@ -2279,7 +2279,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'sales' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingSaleId ? '매출 수정' : '매출 등록'}>
               <div ref={saleFormRef}>
                 <div className="grid gap-4">
@@ -2384,7 +2384,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'inventory' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingInventoryId ? '재고 수정' : '재고 등록'}>
               <div ref={inventoryFormRef}>
               <OfficeForm
@@ -2437,7 +2437,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'vendors' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingVendorId ? '협력업체 수정' : '협력업체 등록'}>
               <div ref={vendorFormRef}>
               <OfficeForm
@@ -2485,7 +2485,7 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'accounts' && currentUser?.role === 'admin' && (
-          <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr]">
+          <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr] xl:items-start">
             <Panel title={accountForm.id ? '계정 권한 수정' : '계정 생성'}>
               <div className="grid gap-4">
                 <div className="grid gap-3 md:grid-cols-2">
@@ -3227,7 +3227,7 @@ function EstimateSitesPanel({
   };
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr]">
+    <div className="grid gap-5 xl:grid-cols-[0.78fr_1.22fr] xl:items-start">
       <Panel title="현장별 견적 작업">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm leading-6 text-[#60717d]">
@@ -3625,7 +3625,7 @@ function MetricCard({ title, value, sub }: { title: string; value: string; sub: 
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="h-full rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+    <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
       <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold">
         <span className="h-2 w-2 rounded-full bg-[#38bcd4]" />
         {title}
