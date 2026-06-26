@@ -398,22 +398,75 @@ export async function deleteOfficeRecordFromFirestore(request: Request, type: Pr
   return deleteFirestoreDocument(officeFirestoreCollections[type], id, requestIdToken(request));
 }
 
-export async function readEstimateDataFromFirestore(request: Request) {
+type EstimateMaterialMeta = {
+  _id?: string;
+  version?: string;
+  updatedAt?: string;
+  count?: number;
+};
+
+const estimateMaterialMetaCollection = 'erpMetadata';
+const estimateMaterialMetaId = 'estimateMaterials';
+
+const materialMetaFromRows = (materials: Array<Record<string, unknown>>): EstimateMaterialMeta => {
+  const latestUpdatedAt = materials
+    .map((item) => String(item.updatedAt || ''))
+    .filter(Boolean)
+    .sort()
+    .at(-1) || '';
+
+  return {
+    _id: estimateMaterialMetaId,
+    version: latestUpdatedAt || String(materials.length),
+    updatedAt: latestUpdatedAt,
+    count: materials.length,
+  };
+};
+
+export async function readEstimateMaterialMetaFromFirestore(request: Request) {
+  return getFirestoreDocument<EstimateMaterialMeta>(
+    estimateMaterialMetaCollection,
+    estimateMaterialMetaId,
+    requestIdToken(request),
+  ).catch(() => null);
+}
+
+export async function touchEstimateMaterialMetaInFirestore(request: Request, count?: number) {
+  const now = new Date().toISOString();
+  return saveFirestoreDocument(
+    estimateMaterialMetaCollection,
+    {
+      _id: estimateMaterialMetaId,
+      version: now,
+      updatedAt: now,
+      ...(typeof count === 'number' ? { count } : {}),
+    },
+    requestIdToken(request),
+    estimateMaterialMetaId,
+  );
+}
+
+export async function readEstimateDataFromFirestore(request: Request, options: { includeMaterials?: boolean } = {}) {
   const idToken = requestIdToken(request);
-  const [sites, estimates, materials, vendors] = await Promise.all([
+  const includeMaterials = options.includeMaterials !== false;
+  const [sites, estimates, vendors, materialsMeta, materials] = await Promise.all([
     listFirestoreCollection('officeSites', idToken),
     listFirestoreCollection('siteEstimates', idToken),
-    listFirestoreCollection('estimateMaterials', idToken, 5000),
     listFirestoreCollection('officeVendors', idToken),
+    readEstimateMaterialMetaFromFirestore(request),
+    includeMaterials ? listFirestoreCollection('estimateMaterials', idToken, 5000) : Promise.resolve([]),
   ]);
+
+  const sortedMaterials = materials.sort((a, b) =>
+    [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
+      .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
+  ).slice(0, 5000);
 
   return {
     sites: sites.sort(byNewest(['createdAt'])).slice(0, 300),
     estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
-    materials: materials.sort((a, b) =>
-      [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
-        .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
-    ).slice(0, 5000),
+    ...(includeMaterials ? { materials: sortedMaterials } : {}),
+    materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
     vendors: vendors.sort(byText('name')).slice(0, 300),
   };
 }

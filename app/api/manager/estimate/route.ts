@@ -9,6 +9,7 @@ import {
   saveEstimateToFirestore,
   saveMaterialToFirestore,
   shouldUseFirestoreErp,
+  touchEstimateMaterialMetaInFirestore,
 } from '../firestore';
 
 export const runtime = 'nodejs';
@@ -94,11 +95,19 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   try {
+    const url = new URL(request.url);
+    const includeMaterials = url.searchParams.get('materials') !== 'skip';
+
     if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      return NextResponse.json(await readEstimateDataFromFirestore(request));
+      return NextResponse.json(await readEstimateDataFromFirestore(request, { includeMaterials }));
     }
 
     const data = await managerClient.fetch(estimateQuery);
+    if (!includeMaterials) {
+      const rest = { ...(data || {}) };
+      delete rest.materials;
+      return NextResponse.json({ ...rest, materialsMeta: null });
+    }
     return NextResponse.json(data);
   } catch (error) {
     console.error('Estimate data fetch failed:', error);
@@ -144,6 +153,7 @@ export async function POST(request: Request) {
       if (!id) return NextResponse.json({ error: '삭제할 자재를 선택해주세요.' }, { status: 400 });
       if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
         await deleteMaterialFromFirestore(request, id);
+        await touchEstimateMaterialMetaInFirestore(request);
         return NextResponse.json({ ok: true });
       }
       await managerClient.delete(id);
@@ -245,6 +255,7 @@ async function saveMaterial(material: Record<string, unknown>, request: Request)
 
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
     await saveMaterialToFirestore(doc, request);
+    await touchEstimateMaterialMetaInFirestore(request);
     return NextResponse.json({ record: doc });
   }
 
@@ -273,6 +284,7 @@ async function importMaterials(request: Request) {
     for (const doc of docs) {
       await saveMaterialToFirestore(doc, request);
     }
+    await touchEstimateMaterialMetaInFirestore(request, docs.length);
     const categories = Array.from(new Set(docs.map((doc) => doc.category))).sort();
     return NextResponse.json({ importedCount: docs.length, categories });
   }

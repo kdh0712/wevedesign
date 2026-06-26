@@ -107,9 +107,22 @@ type EstimateApiData = {
   sites?: Site[];
   estimates?: SiteEstimate[];
   materials?: Material[];
+  materialsMeta?: MaterialCacheMeta | null;
   vendors?: Vendor[];
   record?: SiteEstimate | Material;
   importedCount?: number;
+};
+
+type MaterialCacheMeta = {
+  version?: string;
+  updatedAt?: string;
+  count?: number;
+};
+
+type MaterialCacheRecord = {
+  savedAt: string;
+  meta?: MaterialCacheMeta | null;
+  materials: Material[];
 };
 
 type MaterialPickerState = {
@@ -122,7 +135,51 @@ type MaterialPickerState = {
 
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
 const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
+const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
+
+const readMaterialCache = (): MaterialCacheRecord | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(MATERIAL_CACHE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MaterialCacheRecord;
+    return Array.isArray(parsed.materials) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeMaterialCache = (materials: Material[], meta?: MaterialCacheMeta | null) => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      MATERIAL_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        savedAt: new Date().toISOString(),
+        meta: meta || null,
+        materials,
+      } satisfies MaterialCacheRecord),
+    );
+  } catch {
+    // If browser storage is full or blocked, continue without cache.
+  }
+};
+
+const clearMaterialCache = () => {
+  if (typeof window === 'undefined') return;
+  window.localStorage.removeItem(MATERIAL_CACHE_STORAGE_KEY);
+};
+
+const materialMetaKey = (meta?: MaterialCacheMeta | null) =>
+  [meta?.version || '', meta?.updatedAt || '', typeof meta?.count === 'number' ? String(meta.count) : ''].join('|');
+
+const isMaterialCacheFresh = (cache: MaterialCacheRecord | null, serverMeta?: MaterialCacheMeta | null) => {
+  if (!cache?.materials?.length) return false;
+  if (!serverMeta) return true;
+  return materialMetaKey(cache.meta) === materialMetaKey(serverMeta);
+};
+
 const estimateVersionTypes: Array<{ key: EstimateVersionType; label: string; description: string }> = [
   { key: 'draft', label: '초안', description: '첫 상담/초기 견적' },
   { key: 'revision', label: '수정안', description: '고객 피드백 반영' },
@@ -359,19 +416,42 @@ export default function EstimateWorkspacePage() {
     ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
   });
 
-  const loadData = async (nextPassword = password, preferredSiteId = selectedSiteId, preferredEstimateId = selectedEstimateId, nextFirebaseToken = firebaseToken) => {
+  const loadData = async (
+    nextPassword = password,
+    preferredSiteId = selectedSiteId,
+    preferredEstimateId = selectedEstimateId,
+    nextFirebaseToken = firebaseToken,
+    forceRefreshMaterials = false,
+  ) => {
     setError('');
     setStatus('');
     if (!nextPassword) return;
 
     try {
-      const response = await fetch('/api/manager/estimate', { headers: authHeaders(nextPassword, nextFirebaseToken) });
-      const data = (await response.json()) as EstimateApiData;
+      const cachedMaterials = forceRefreshMaterials ? null : readMaterialCache();
+      const shouldSkipMaterials = Boolean(cachedMaterials?.materials?.length);
+      const response = await fetch(`/api/manager/estimate${shouldSkipMaterials ? '?materials=skip' : ''}`, {
+        headers: authHeaders(nextPassword, nextFirebaseToken),
+      });
+      let data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
+
+      if (shouldSkipMaterials && !isMaterialCacheFresh(cachedMaterials, data.materialsMeta)) {
+        const refreshResponse = await fetch('/api/manager/estimate', {
+          headers: authHeaders(nextPassword, nextFirebaseToken),
+        });
+        data = (await refreshResponse.json()) as EstimateApiData;
+        if (!refreshResponse.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
+      }
+
+      const nextMaterials = Array.isArray(data.materials) ? data.materials : cachedMaterials?.materials || [];
+      if (Array.isArray(data.materials)) {
+        writeMaterialCache(data.materials, data.materialsMeta);
+      }
 
       setSites(data.sites || []);
       setEstimates(data.estimates || []);
-      setMaterials(data.materials || []);
+      setMaterials(nextMaterials);
       setVendors(data.vendors || []);
       setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
@@ -486,7 +566,8 @@ export default function EstimateWorkspacePage() {
 
       setStatus(`자재 단가 ${data.importedCount || 0}개를 반영했습니다.`);
       setUploadFile(null);
-      await loadData(password, selectedSiteId);
+      clearMaterialCache();
+      await loadData(password, selectedSiteId, selectedEstimateId, firebaseToken, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '자재 단가 업로드 중 오류가 발생했습니다.');
     } finally {
@@ -509,7 +590,8 @@ export default function EstimateWorkspacePage() {
 
       setEditingMaterial({});
       setStatus('자재 단가를 저장했습니다.');
-      await loadData(password, selectedSiteId);
+      clearMaterialCache();
+      await loadData(password, selectedSiteId, selectedEstimateId, firebaseToken, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '자재 단가 저장 중 오류가 발생했습니다.');
     } finally {
