@@ -805,10 +805,36 @@ export default function EstimateWorkspacePage() {
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
       <style>{`
         @media print {
-          @page { size: A4 landscape; margin: 10mm; }
+          @page { size: A4 landscape; margin: 0; }
+          html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
-          #estimate-print { position: absolute; inset: 0; width: 100%; background: white; }
+          #estimate-print {
+            position: fixed;
+            inset: 0;
+            width: 297mm;
+            height: 210mm;
+            overflow: hidden;
+            background: white;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          #estimate-print > section {
+            width: 297mm !important;
+            height: 210mm !important;
+            max-width: none !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            box-sizing: border-box !important;
+            break-after: avoid;
+            page-break-after: avoid;
+          }
+          .estimate-title-strip {
+            background: #d9d9d9 !important;
+            box-shadow: inset 0 0 0 9999px #d9d9d9;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
           .no-print { display: none !important; }
         }
       `}</style>
@@ -2042,9 +2068,9 @@ function LandscapeEstimateDocumentPreview({
   return (
     <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
       {view === 'cover' && (
-        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-16 py-12 text-[#111] print:max-w-none print:border-0 print:px-8 print:py-6">
+        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-16 py-10 text-[#111] print:max-w-none print:border-0 print:px-10 print:py-8">
           <div className="mx-auto max-w-[940px]">
-            <div className="grid grid-cols-3 bg-[#d9d9d9] py-4 text-center text-3xl font-semibold tracking-[0.65em]">
+            <div className="estimate-title-strip grid grid-cols-3 bg-[#d9d9d9] py-4 text-center text-3xl font-semibold tracking-[0.65em]">
               <span>견</span>
               <span>적</span>
               <span>서</span>
@@ -2058,12 +2084,12 @@ function LandscapeEstimateDocumentPreview({
               </tbody>
             </table>
             <p className="border-b-[6px] border-[#bfbfbf] px-8 py-5 text-lg font-semibold">상기와 같이 견적을 제출합니다.</p>
-            <div className="mt-10 grid grid-cols-[1fr_1.05fr] items-end gap-16">
+            <div className="mt-7 grid grid-cols-[1fr_1.05fr] items-end gap-16">
               <div>
-                <p className="mb-7 text-base leading-8">*견적 외 사항은 별도입니다.<br />*견적서 유효기간은 발행일로부터 30일간 유효합니다.</p>
-                <img src="/weve-mark.png" alt="WEVE DESIGN" className="mx-auto h-auto w-[230px] object-contain" />
+                <p className="mb-5 text-base leading-8">*견적 외 사항은 별도입니다.<br />*견적서 유효기간은 발행일로부터 30일간 유효합니다.</p>
+                <img src="/weve-mark.png" alt="WEVE DESIGN" className="mx-auto h-auto w-[161px] object-contain" />
               </div>
-              <div className="text-lg leading-9">
+              <div className="pl-8 text-lg leading-9 print:pl-10">
                 <p className="tracking-[0.35em]">위 브 디 자 인</p>
                 <p>{company.address}</p>
                 <p>대표 : {company.ceo}</p>
