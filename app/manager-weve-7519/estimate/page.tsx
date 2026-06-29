@@ -805,6 +805,7 @@ export default function EstimateWorkspacePage() {
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
       <style>{`
         @media print {
+          @page { size: A4 landscape; margin: 10mm; }
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print { position: absolute; inset: 0; width: 100%; background: white; }
@@ -1600,7 +1601,7 @@ export default function EstimateWorkspacePage() {
                 현재 서류 인쇄
               </button>
             </div>
-            <EstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
+            <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
           </section>
         )}
       </section>
@@ -2004,6 +2005,209 @@ function CellSelect({ value, options, onChange }: { value: string; options: stri
   );
 }
 
+function LandscapeEstimateDocumentPreview({
+  site,
+  lines,
+  totals,
+  versionLabel,
+  view,
+}: {
+  site?: Site;
+  lines: EstimateLine[];
+  totals: ReturnType<typeof calculateTotals>;
+  versionLabel: string;
+  view: 'cover' | 'summary' | 'detail';
+}) {
+  const visibleLines = lines.filter((line) => line.name);
+  const grouped = groupLinesByCategory(visibleLines);
+  const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
+  const customerAddress = site?.address || site?.title || '';
+  const customerName = site?.customerName || '고객';
+  const customerPhone = site?.customerPhone || '';
+  const constructionTitle = site?.title || `${site?.siteType || '인테리어'} 공사`;
+  const estimateAmountText = toKoreanEstimateAmount(totals.customerEstimateTotal);
+  const documentTitle = versionLabel ? `견적서 · ${versionLabel}` : '견적서';
+  const company = {
+    name: '위브디자인',
+    ceo: '김현종',
+    address: '경기도 의왕시 오리나무1길 12, 1층',
+    phone: '031.381.0489',
+    fax: '031.422.2915',
+    email: 'weve0489@gmail.com',
+    manager: '김현종',
+    managerPhone: '010.6346.3882',
+    businessNumber: '138-05-48056',
+  };
+
+  return (
+    <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+      {view === 'cover' && (
+        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-16 py-12 text-[#111] print:max-w-none print:border-0 print:px-8 print:py-6">
+          <div className="mx-auto max-w-[940px]">
+            <div className="grid grid-cols-3 bg-[#d9d9d9] py-4 text-center text-3xl font-semibold tracking-[0.65em]">
+              <span>견</span>
+              <span>적</span>
+              <span>서</span>
+            </div>
+            <p className="mt-3 border-b-[6px] border-[#bfbfbf] pb-3 text-right text-lg">견적 표지</p>
+            <table className="mt-3 w-full border-collapse text-lg">
+              <tbody>
+                <DocumentCoverLine label="고객명" value={`${customerAddress} · ${customerName} 귀하`} side={customerPhone ? `(연락처: ${customerPhone})` : ''} />
+                <DocumentCoverLine label="공사명" value={constructionTitle} side={`발행일 : ${today}`} />
+                <DocumentCoverLine label="견적금액" value={`일금 ${estimateAmountText} 원정`} side={`${formatWonAmount(totals.customerEstimateTotal)} (부가세 별도)`} strong />
+              </tbody>
+            </table>
+            <p className="border-b-[6px] border-[#bfbfbf] px-8 py-5 text-lg font-semibold">상기와 같이 견적을 제출합니다.</p>
+            <div className="mt-10 grid grid-cols-[1fr_1.05fr] items-end gap-16">
+              <div>
+                <p className="mb-7 text-base leading-8">*견적 외 사항은 별도입니다.<br />*견적서 유효기간은 발행일로부터 30일간 유효합니다.</p>
+                <img src="/weve-mark.png" alt="WEVE DESIGN" className="mx-auto h-auto w-[230px] object-contain" />
+              </div>
+              <div className="text-lg leading-9">
+                <p className="tracking-[0.35em]">위 브 디 자 인</p>
+                <p>{company.address}</p>
+                <p>대표 : {company.ceo}</p>
+                <p>☎ {company.phone} &nbsp;&nbsp; FAX {company.fax}</p>
+                <p>✉ {company.email}</p>
+                <p>담당자 : {company.manager} &nbsp; {company.managerPhone}</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {view === 'summary' && (
+        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
+          <header className="grid grid-cols-[1fr_390px] gap-8">
+            <div>
+              <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-3 text-center text-3xl font-semibold tracking-[0.65em]">견 적 서</h1>
+              <div className="mt-4 grid grid-cols-[140px_1fr] gap-x-4 text-base leading-7">
+                <span>{today}</span>
+                <span>{customerAddress}</span>
+                <span></span>
+                <span>{customerName} 님 귀하</span>
+              </div>
+              <div className="mt-2 border-t border-[#111] pt-2 text-center">
+                <p className="text-xl font-semibold">합계금액</p>
+                <p className="mt-1 text-lg">(부가세 별도) &nbsp; 일금 {estimateAmountText} 원정</p>
+                <p className="mt-1 text-xl font-semibold">({formatWonAmount(totals.customerEstimateTotal)})</p>
+              </div>
+            </div>
+            <div className="pt-3 text-base leading-7">
+              <p>등록 번호 <span className="float-right">{company.businessNumber}</span></p>
+              <p>{company.address}</p>
+              <p>{company.name}</p>
+              <p>대표 &nbsp;&nbsp; {company.ceo}</p>
+              <p>T-{company.phone} <span className="float-right">FAX-{company.fax}</span></p>
+            </div>
+          </header>
+          <table className="mt-3 w-full border-collapse text-base">
+            <thead>
+              <tr className="bg-[#f3f1ec]">
+                {['공정', '규격', '산식', '단위', '금액', '세액'].map((header) => (
+                  <th key={header} className="border border-[#111] px-3 py-1.5 text-center text-lg font-semibold tracking-[0.25em]">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map((group, index) => (
+                <tr key={group.category}>
+                  <td className="border border-[#111] px-3 py-1.5">{index + 1}. {group.category}</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(group.customerAmount)}</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                </tr>
+              ))}
+              {Array.from({ length: Math.max(0, 13 - grouped.length) }).map((_, index) => (
+                <tr key={`summary-blank-${index}`}>
+                  <td className="border border-[#111] px-3 py-1.5">&nbsp;</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                </tr>
+              ))}
+              <tr className="bg-[#f8e8da] text-lg font-semibold">
+                <td className="border border-[#111] px-3 py-2 text-center" colSpan={4}>합계 (부가세 별도)</td>
+                <td className="border border-[#111] px-3 py-2 text-right">{formatWonAmount(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-1 text-sm">※ 비고 및 특이사항</p>
+        </section>
+      )}
+
+      {view === 'detail' && (
+        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
+          <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-[#e6e6f6]">
+                {['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((header) => (
+                  <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map((group, groupIndex) => (
+                <Fragment key={group.category}>
+                  <tr className="font-semibold">
+                    <td className="border border-[#111] px-3 py-1.5">{groupIndex + 1}. {group.category}</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                  </tr>
+                  {group.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.customerUnitPrice)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.quantity * line.customerUnitPrice)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[#f5f3ed] font-semibold">
+                    <td className="border border-[#111] px-3 py-1.5 text-center">소계</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(group.customerAmount)}</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                  </tr>
+                </Fragment>
+              ))}
+              <tr className="bg-[#dff1f4] text-lg font-semibold">
+                <td className="border border-[#111] px-3 py-2 text-center">합계</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2 text-right">{formatWonAmount(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="mt-4 flex justify-between text-sm">
+            <span>1/1</span>
+            <span>{company.name}</span>
+          </div>
+          <p className="sr-only">{documentTitle}</p>
+        </section>
+      )}
+    </article>
+  );
+}
+
 function EstimateDocumentPreview({
   site,
   lines,
@@ -2202,6 +2406,10 @@ function DocumentCoverLine({ label, value, side = '', strong = false }: { label:
 
 function formatPlainNumber(value: number) {
   return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function formatWonAmount(value: number) {
+  return `₩${formatPlainNumber(value)}`;
 }
 
 function toKoreanEstimateAmount(value: number) {
