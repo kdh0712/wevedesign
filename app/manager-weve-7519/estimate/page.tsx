@@ -90,7 +90,19 @@ type PurchaseOrder = {
   orderDate: string;
   deliveryDate: string;
   memo: string;
+  templateKey: 'modelSpec' | 'subType' | 'custom';
+  columnLabels: PurchaseOrderColumnLabels;
   items: PurchaseOrderItem[];
+};
+
+type PurchaseOrderColumnLabels = {
+  category: string;
+  modelName: string;
+  spec: string;
+  quantity: string;
+  unit: string;
+  unitPrice: string;
+  amount: string;
 };
 
 type ExtraItem = {
@@ -291,10 +303,40 @@ const emptyPurchaseOrderItem = (): PurchaseOrderItem => ({
   vendorName: '',
   spec: '',
   unit: '',
-  quantity: 1,
+  quantity: 0,
   unitPrice: 0,
   note: '',
 });
+
+const purchaseOrderTemplates: Record<PurchaseOrder['templateKey'], PurchaseOrderColumnLabels> = {
+  modelSpec: {
+    category: '구분',
+    modelName: '모델명',
+    spec: '규격',
+    quantity: '수량',
+    unit: '단위',
+    unitPrice: '단가',
+    amount: '금액',
+  },
+  subType: {
+    category: '구분',
+    modelName: '소구분',
+    spec: '종류',
+    quantity: '수량',
+    unit: '단위',
+    unitPrice: '단가',
+    amount: '금액',
+  },
+  custom: {
+    category: '구분',
+    modelName: '모델명',
+    spec: '규격',
+    quantity: '수량',
+    unit: '단위',
+    unitPrice: '단가',
+    amount: '금액',
+  },
+};
 
 const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   id: `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -303,7 +345,9 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   orderDate: todayKey(),
   deliveryDate: '',
   memo: '',
-  items: [emptyPurchaseOrderItem()],
+  templateKey: 'modelSpec',
+  columnLabels: purchaseOrderTemplates.modelSpec,
+  items: [],
 });
 
 const emptyExtraItem = (): ExtraItem => ({
@@ -311,7 +355,7 @@ const emptyExtraItem = (): ExtraItem => ({
   name: '',
   spec: '',
   unit: '',
-  quantity: 1,
+  quantity: 0,
   unitPrice: 0,
   date: todayKey(),
   vendorName: '',
@@ -341,7 +385,11 @@ export default function EstimateWorkspacePage() {
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([emptyPurchaseOrder()]);
   const [selectedPurchaseOrderId, setSelectedPurchaseOrderId] = useState('');
+  const [purchaseItemDraft, setPurchaseItemDraft] = useState<PurchaseOrderItem>(() => emptyPurchaseOrderItem());
+  const [editingPurchaseItemId, setEditingPurchaseItemId] = useState('');
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([emptyExtraItem()]);
+  const [extraItemDraft, setExtraItemDraft] = useState<ExtraItem>(() => emptyExtraItem());
+  const [editingExtraItemId, setEditingExtraItemId] = useState('');
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
@@ -378,6 +426,7 @@ export default function EstimateWorkspacePage() {
     () => purchaseOrders.find((order) => order.id === selectedPurchaseOrderId) || purchaseOrders[0],
     [purchaseOrders, selectedPurchaseOrderId],
   );
+  const selectedPurchaseOrderLabels = selectedPurchaseOrder ? getPurchaseOrderLabels(selectedPurchaseOrder) : purchaseOrderTemplates.modelSpec;
   const purchaseOrderTotal = useMemo(
     () => purchaseOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0), 0),
     [purchaseOrders],
@@ -465,7 +514,11 @@ export default function EstimateWorkspacePage() {
       const nextPurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextPurchaseOrders);
       setSelectedPurchaseOrderId(nextPurchaseOrders[0].id);
-      setExtraItems([emptyExtraItem()]);
+      setExtraItems([]);
+      setPurchaseItemDraft(emptyPurchaseOrderItem());
+      setEditingPurchaseItemId('');
+      setExtraItemDraft(emptyExtraItem());
+      setEditingExtraItemId('');
       setHolidays([]);
       setSelectedLineId('');
       return;
@@ -494,7 +547,11 @@ export default function EstimateWorkspacePage() {
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
-    setExtraItems(hydrateExtraItems(parseJson<Partial<ExtraItem>[]>(estimate?.extraItemsJson, [emptyExtraItem()])));
+    setExtraItems(hydrateExtraItems(parseJson<Partial<ExtraItem>[]>(estimate?.extraItemsJson, [])));
+    setPurchaseItemDraft(emptyPurchaseOrderItem());
+    setEditingPurchaseItemId('');
+    setExtraItemDraft(emptyExtraItem());
+    setEditingExtraItemId('');
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setSelectedLineId('');
 
@@ -507,10 +564,19 @@ export default function EstimateWorkspacePage() {
       const nextSitePurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextSitePurchaseOrders);
       setSelectedPurchaseOrderId(nextSitePurchaseOrders[0].id);
-      setExtraItems([emptyExtraItem()]);
+      setExtraItems([]);
+      setPurchaseItemDraft(emptyPurchaseOrderItem());
+      setEditingPurchaseItemId('');
+      setExtraItemDraft(emptyExtraItem());
+      setEditingExtraItemId('');
       setHolidays([]);
     }
   }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
+
+  useEffect(() => {
+    setPurchaseItemDraft(emptyPurchaseOrderItem());
+    setEditingPurchaseItemId('');
+  }, [selectedPurchaseOrderId]);
 
   const authHeaders = (nextPassword = password, nextFirebaseToken = firebaseToken) => ({
     'x-manager-password': nextPassword,
@@ -783,7 +849,11 @@ export default function EstimateWorkspacePage() {
       : [emptyPurchaseOrder()];
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
-    setExtraItems(copyCurrent && extraItems.some((item) => item.name || item.spec || item.vendorName) ? cloneExtraItems(extraItems) : [emptyExtraItem()]);
+    setExtraItems(copyCurrent && extraItems.some((item) => item.name || item.spec || item.vendorName) ? cloneExtraItems(extraItems) : []);
+    setPurchaseItemDraft(emptyPurchaseOrderItem());
+    setEditingPurchaseItemId('');
+    setExtraItemDraft(emptyExtraItem());
+    setEditingExtraItemId('');
     setHolidays(copyCurrent ? [...holidays] : []);
     setSelectedLineId('');
     setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
@@ -823,6 +893,34 @@ export default function EstimateWorkspacePage() {
     setPurchaseOrders((current) => current.map((order) => (order.id === id ? { ...order, ...updates } : order)));
   };
 
+  const updatePurchaseOrderTemplate = (id: string, templateKey: PurchaseOrder['templateKey']) => {
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              templateKey,
+              columnLabels: templateKey === 'custom' ? order.columnLabels : purchaseOrderTemplates[templateKey],
+            }
+          : order,
+      ),
+    );
+  };
+
+  const updatePurchaseOrderColumnLabel = (id: string, key: keyof PurchaseOrderColumnLabels, value: string) => {
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              templateKey: 'custom',
+              columnLabels: { ...order.columnLabels, [key]: value },
+            }
+          : order,
+      ),
+    );
+  };
+
   const deletePurchaseOrder = (id: string) => {
     setPurchaseOrders((current) => {
       const next = current.filter((order) => order.id !== id);
@@ -836,18 +934,29 @@ export default function EstimateWorkspacePage() {
     });
   };
 
-  const addPurchaseOrderItem = (orderId: string) => {
-    setPurchaseOrders((current) => current.map((order) => (order.id === orderId ? { ...order, items: [...order.items, emptyPurchaseOrderItem()] } : order)));
+  const submitPurchaseOrderItem = (orderId: string) => {
+    if (!purchaseItemDraft.category && !purchaseItemDraft.modelName && !purchaseItemDraft.spec && !purchaseItemDraft.unit && !purchaseItemDraft.unitPrice && !purchaseItemDraft.note) {
+      setError('발주 항목 내용을 먼저 입력해주세요.');
+      return;
+    }
+    const nextItem = { ...purchaseItemDraft, id: editingPurchaseItemId || `po-item-${Date.now()}-${Math.random().toString(16).slice(2)}` };
+    setPurchaseOrders((current) =>
+      current.map((order) => {
+        if (order.id !== orderId) return order;
+        const items = editingPurchaseItemId
+          ? order.items.map((item) => (item.id === editingPurchaseItemId ? nextItem : item))
+          : [...order.items, nextItem];
+        return { ...order, items };
+      }),
+    );
+    setPurchaseItemDraft(emptyPurchaseOrderItem());
+    setEditingPurchaseItemId('');
+    setError('');
   };
 
-  const updatePurchaseOrderItem = (orderId: string, itemId: string, updates: Partial<PurchaseOrderItem>) => {
-    setPurchaseOrders((current) =>
-      current.map((order) =>
-        order.id === orderId
-          ? { ...order, items: order.items.map((item) => (item.id === itemId ? { ...item, ...updates } : item)) }
-          : order,
-      ),
-    );
+  const editPurchaseOrderItem = (item: PurchaseOrderItem) => {
+    setPurchaseItemDraft({ ...item });
+    setEditingPurchaseItemId(item.id);
   };
 
   const deletePurchaseOrderItem = (orderId: string, itemId: string) => {
@@ -855,20 +964,42 @@ export default function EstimateWorkspacePage() {
       current.map((order) => {
         if (order.id !== orderId) return order;
         const nextItems = order.items.filter((item) => item.id !== itemId);
-        return { ...order, items: nextItems.length ? nextItems : [emptyPurchaseOrderItem()] };
+        return { ...order, items: nextItems };
       }),
     );
+    if (editingPurchaseItemId === itemId) {
+      setPurchaseItemDraft(emptyPurchaseOrderItem());
+      setEditingPurchaseItemId('');
+    }
   };
 
-  const updateExtraItem = (id: string, updates: Partial<ExtraItem>) => {
-    setExtraItems((current) => current.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+  const submitExtraItem = () => {
+    if (!extraItemDraft.name && !extraItemDraft.spec && !extraItemDraft.unit && !extraItemDraft.unitPrice && !extraItemDraft.note) {
+      setError('추가 항목 내용을 먼저 입력해주세요.');
+      return;
+    }
+    const nextItem = { ...extraItemDraft, id: editingExtraItemId || `extra-${Date.now()}-${Math.random().toString(16).slice(2)}` };
+    setExtraItems((current) =>
+      editingExtraItemId
+        ? current.map((item) => (item.id === editingExtraItemId ? nextItem : item))
+        : [...current, nextItem],
+    );
+    setExtraItemDraft(emptyExtraItem());
+    setEditingExtraItemId('');
+    setError('');
+  };
+
+  const editExtraItem = (item: ExtraItem) => {
+    setExtraItemDraft({ ...item });
+    setEditingExtraItemId(item.id);
   };
 
   const deleteExtraItem = (id: string) => {
-    setExtraItems((current) => {
-      const next = current.filter((item) => item.id !== id);
-      return next.length ? next : [emptyExtraItem()];
-    });
+    setExtraItems((current) => current.filter((item) => item.id !== id));
+    if (editingExtraItemId === id) {
+      setExtraItemDraft(emptyExtraItem());
+      setEditingExtraItemId('');
+    }
   };
 
   const syncWorkLinesFromEstimate = () => {
@@ -1821,56 +1952,58 @@ export default function EstimateWorkspacePage() {
                   <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
                     <div className="min-w-0">
 
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <h3 className="font-semibold">발주 항목</h3>
-                    <button type="button" onClick={() => addPurchaseOrderItem(selectedPurchaseOrder.id)} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-                      <Plus size={16} />
-                      항목 추가
-                    </button>
-                  </div>
-
-                  <div className="mt-3 grid gap-3">
-                    {selectedPurchaseOrder.items.map((item) => {
-                      const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
-                      return (
-                        <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
-                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(100px,0.85fr)_minmax(120px,1fr)_minmax(140px,1.2fr)_80px_72px_104px_110px_44px] 2xl:items-end">
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              구분
-                              <input value={item.category} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { category: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                            </label>
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              모델명
-                              <input value={item.modelName} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { modelName: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                            </label>
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              규격
-                              <input value={item.spec} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { spec: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                            </label>
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              수량
-                              <NumberTextInput value={item.quantity} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { quantity: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                            </label>
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              단위
-                              <input value={item.unit} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unit: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                            </label>
-                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                              단가
-                              <NumberTextInput value={item.unitPrice} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unitPrice: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                            </label>
-                            <div className="min-w-0 rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
-                              <p className="text-[11px] font-bold text-[#60717d]">금액</p>
-                              <p title={formatMoney(amount)} className="mt-1 truncate font-semibold">{formatCompactMoney(amount)}</p>
-                            </div>
-                            <button type="button" onClick={() => deletePurchaseOrderItem(selectedPurchaseOrder.id, item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                          <input value={item.note} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { note: event.target.value })} placeholder="비고" className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                        </article>
-                      );
-                    })}
+                  <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold">{editingPurchaseItemId ? '발주 항목 수정' : '발주 항목 입력'}</h3>
+                        <p className="mt-1 text-xs text-[#60717d]">항목을 작성한 뒤 추가하면 아래 발주서 표에 반영되고 입력란은 비워집니다.</p>
+                      </div>
+                      <div className="flex gap-2">
+                        {editingPurchaseItemId && (
+                          <button type="button" onClick={() => deletePurchaseOrderItem(selectedPurchaseOrder.id, editingPurchaseItemId)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600">
+                            <Trash2 size={14} />
+                            선택 항목 삭제
+                          </button>
+                        )}
+                        <button type="button" onClick={() => submitPurchaseOrderItem(selectedPurchaseOrder.id)} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+                          <Plus size={16} />
+                          {editingPurchaseItemId ? '수정 반영' : '항목 추가'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(100px,0.85fr)_minmax(120px,1fr)_minmax(140px,1.2fr)_80px_72px_104px_110px] 2xl:items-end">
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.category}
+                        <input value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.modelName}
+                        <input value={purchaseItemDraft.modelName} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, modelName: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.spec}
+                        <input value={purchaseItemDraft.spec} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, spec: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.quantity}
+                        <NumberTextInput value={purchaseItemDraft.quantity} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.unit}
+                        <input value={purchaseItemDraft.unit} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, unit: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                      </label>
+                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                        {selectedPurchaseOrderLabels.unitPrice}
+                        <NumberTextInput value={purchaseItemDraft.unitPrice} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, unitPrice: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                      </label>
+                      <div className="min-w-0 rounded-md border border-[#edf2f5] bg-white px-3 py-2">
+                        <p className="text-[11px] font-bold text-[#60717d]">{selectedPurchaseOrderLabels.amount}</p>
+                        <p title={formatMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)} className="mt-1 truncate font-semibold">
+                          {formatCompactMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)}
+                        </p>
+                      </div>
+                    </div>
+                    <input value={purchaseItemDraft.note} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, note: event.target.value }))} placeholder="비고" className="mt-2 w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
                   </div>
 
                   <div className="mt-5 overflow-hidden rounded-lg border border-[#171512] bg-white">
@@ -1890,23 +2023,31 @@ export default function EstimateWorkspacePage() {
                       </colgroup>
                       <thead className="bg-[#f3f1ec]">
                         <tr>
-                          {['구분', '모델명', '규격', '수량', '단위', '금액', '비고'].map((header) => (
-                            <th key={header} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
+                          {[selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.spec, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고'].map((header, index) => (
+                            <th key={`${header}-${index}`} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {selectedPurchaseOrder.items.map((item) => (
-                          <tr key={`summary-${item.id}`}>
-                            <td className="break-words border border-[#171512] px-3 py-2">{item.category}</td>
-                            <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
-                            <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
-                            <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
-                            <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
-                            <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
-                            <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
+                        {selectedPurchaseOrder.items.length === 0 ? (
+                          <tr>
+                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={7}>작성된 발주 항목이 없습니다.</td>
                           </tr>
-                        ))}
+                        ) : selectedPurchaseOrder.templateKey === 'subType' ? (
+                          renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem)
+                        ) : (
+                          selectedPurchaseOrder.items.map((item) => (
+                            <tr key={`summary-${item.id}`} onDoubleClick={() => editPurchaseOrderItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
+                              <td className="break-words border border-[#171512] px-3 py-2">{item.category}</td>
+                              <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
+                              <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
+                              <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
+                              <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
+                              <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
+                              <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1944,6 +2085,24 @@ export default function EstimateWorkspacePage() {
                           메모
                           <textarea value={selectedPurchaseOrder.memo} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { memo: event.target.value })} rows={5} className="min-w-0 resize-none rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
                         </label>
+                        <div className="border-t border-[#d5dde2] pt-3">
+                          <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                            발주서 템플릿
+                            <select value={selectedPurchaseOrder.templateKey} onChange={(event) => updatePurchaseOrderTemplate(selectedPurchaseOrder.id, event.target.value as PurchaseOrder['templateKey'])} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]">
+                              <option value="modelSpec">템플릿1 · 구분/모델명/규격</option>
+                              <option value="subType">템플릿2 · 구분/소구분/종류</option>
+                              <option value="custom">사용자 지정</option>
+                            </select>
+                          </label>
+                          <div className="mt-2 grid grid-cols-2 gap-2">
+                            {(Object.keys(selectedPurchaseOrderLabels) as Array<keyof PurchaseOrderColumnLabels>).map((key) => (
+                              <label key={key} className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                {key === 'category' ? '1열' : key === 'modelName' ? '2열' : key === 'spec' ? '3열' : key === 'quantity' ? '수량열' : key === 'unit' ? '단위열' : key === 'unitPrice' ? '단가열' : '금액열'}
+                                <input value={selectedPurchaseOrderLabels[key]} onChange={(event) => updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, key, event.target.value)} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                       <div className="mt-4 rounded-lg border border-[#edf2f5] bg-white p-3">
                         <p className="text-[11px] font-bold text-[#60717d]">현재 발주 금액</p>
@@ -1973,9 +2132,9 @@ export default function EstimateWorkspacePage() {
                   <p className="text-[11px] font-bold text-[#60717d]">추가 비용 합계</p>
                   <p title={formatMoney(totals.additionalCostTotal)} className="text-xl font-bold text-red-600">{formatCompactMoney(totals.additionalCostTotal)}</p>
                 </div>
-                <button type="button" onClick={() => setExtraItems((current) => [...current, emptyExtraItem()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 font-semibold text-white">
+                <button type="button" onClick={submitExtraItem} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 font-semibold text-white">
                   <Plus size={16} />
-                  항목 추가
+                  {editingExtraItemId ? '수정 반영' : '항목 추가'}
                 </button>
               </div>
             </div>
@@ -1983,54 +2142,89 @@ export default function EstimateWorkspacePage() {
             <div className="mt-4 overflow-hidden rounded-lg border border-[#171512]">
               <h3 className="border-b border-[#171512] py-3 text-center text-2xl font-bold tracking-[0.3em]">추가 사항</h3>
               <div className="grid gap-3 bg-[#f7fafb] p-3">
-                {extraItems.map((item) => {
-                  const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
-                  return (
-                    <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3">
-                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(130px,1.1fr)_minmax(110px,0.9fr)_70px_82px_104px_110px_130px_minmax(120px,1fr)_44px] 2xl:items-end">
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          품명
-                          <input value={item.name} onChange={(event) => updateExtraItem(item.id, { name: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        </label>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          규격
-                          <input value={item.spec} onChange={(event) => updateExtraItem(item.id, { spec: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        </label>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          단위
-                          <input value={item.unit} onChange={(event) => updateExtraItem(item.id, { unit: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        </label>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          수량
-                          <NumberTextInput value={item.quantity} onChange={(value) => updateExtraItem(item.id, { quantity: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                        </label>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          단가
-                          <NumberTextInput value={item.unitPrice} onChange={(value) => updateExtraItem(item.id, { unitPrice: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                        </label>
-                        <div className="min-w-0 rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
-                          <p className="text-[11px] font-bold text-[#60717d]">금액</p>
-                          <p title={formatMoney(amount)} className="truncate font-semibold">{formatCompactMoney(amount)}</p>
-                        </div>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          날짜
-                          <input type="date" value={item.date} onChange={(event) => updateExtraItem(item.id, { date: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        </label>
-                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          업체
-                          <input list="estimate-vendors" value={item.vendorName} onChange={(event) => updateExtraItem(item.id, { vendorName: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        </label>
-                        <button type="button" onClick={() => deleteExtraItem(item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                      <input value={item.note} onChange={(event) => updateExtraItem(item.id, { note: event.target.value })} placeholder="상세 메모" className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    </article>
-                  );
-                })}
+                <article className="rounded-lg border border-[#d5dde2] bg-white p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold">{editingExtraItemId ? '추가 항목 수정' : '추가 항목 입력'}</h3>
+                      <p className="mt-1 text-xs text-[#60717d]">항목을 추가하면 아래 양식에 들어가고 입력란은 초기화됩니다.</p>
+                    </div>
+                    {editingExtraItemId && (
+                      <button type="button" onClick={() => deleteExtraItem(editingExtraItemId)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600">
+                        <Trash2 size={14} />
+                        선택 항목 삭제
+                      </button>
+                    )}
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-[minmax(150px,1.2fr)_minmax(130px,1fr)_72px_82px_110px_120px] xl:items-end">
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      품명
+                      <input value={extraItemDraft.name} onChange={(event) => setExtraItemDraft((current) => ({ ...current, name: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      규격
+                      <input value={extraItemDraft.spec} onChange={(event) => setExtraItemDraft((current) => ({ ...current, spec: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      단위
+                      <input value={extraItemDraft.unit} onChange={(event) => setExtraItemDraft((current) => ({ ...current, unit: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      수량
+                      <NumberTextInput value={extraItemDraft.quantity} onChange={(value) => setExtraItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      단가
+                      <NumberTextInput value={extraItemDraft.unitPrice} onChange={(value) => setExtraItemDraft((current) => ({ ...current, unitPrice: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                    </label>
+                    <div className="min-w-0 rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
+                      <p className="text-[11px] font-bold text-[#60717d]">금액</p>
+                      <p title={formatMoney(extraItemDraft.quantity * extraItemDraft.unitPrice)} className="truncate font-semibold">{formatCompactMoney(extraItemDraft.quantity * extraItemDraft.unitPrice)}</p>
+                    </div>
+                  </div>
+                </article>
+
+                <table className="w-full table-fixed border-collapse bg-white text-sm">
+                  <colgroup>
+                    <col className="w-[28%]" />
+                    <col className="w-[20%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[20%]" />
+                  </colgroup>
+                  <thead className="bg-[#e8e7f8]">
+                    <tr>
+                      {['품명', '규격', '단위', '수량', '단가', '금액'].map((header) => (
+                        <th key={header} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extraItems.length === 0 ? (
+                      <tr>
+                        <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={6}>작성된 추가 항목이 없습니다.</td>
+                      </tr>
+                    ) : (
+                      extraItems.map((item, index) => (
+                        <tr key={item.id} onDoubleClick={() => editExtraItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
+                          <td className="break-words border border-[#171512] px-2 py-2">{index + 1}. {item.name}</td>
+                          <td className="break-words border border-[#171512] px-2 py-2 text-center">{item.spec}</td>
+                          <td className="break-words border border-[#171512] px-2 py-2 text-center">{item.unit}</td>
+                          <td className="break-all border border-[#171512] px-2 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
+                          <td className="break-all border border-[#171512] px-2 py-2 text-right tabular-nums">{formatPlainNumber(item.unitPrice)}</td>
+                          <td className="break-all border border-[#171512] px-2 py-2 text-right tabular-nums">{formatPlainNumber(item.quantity * item.unitPrice)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
               </div>
               <div className="grid grid-cols-[1fr_220px] border-t border-[#171512] bg-[#f8e8da] text-lg font-bold">
                 <div className="px-4 py-3 text-center">합계</div>
+                <div title={formatMoney(totals.additionalCostTotal)} className="border-l border-[#171512] px-4 py-3 text-right">{formatMoney(totals.additionalCostTotal)}</div>
+              </div>
+              <div className="grid grid-cols-[1fr_220px] border-t border-[#171512] bg-[#eeeeee] text-lg font-bold">
+                <div className="px-4 py-3 text-center">총합계</div>
                 <div title={formatMoney(totals.additionalCostTotal)} className="border-l border-[#171512] px-4 py-3 text-right">{formatMoney(totals.additionalCostTotal)}</div>
               </div>
             </div>
@@ -3136,10 +3330,52 @@ function hydrateScheduleTasks(tasks: Partial<ScheduleTask>[]) {
   });
 }
 
+function getPurchaseOrderLabels(order: Partial<PurchaseOrder>): PurchaseOrderColumnLabels {
+  const templateKey = order.templateKey && purchaseOrderTemplates[order.templateKey] ? order.templateKey : 'modelSpec';
+  return {
+    ...purchaseOrderTemplates[templateKey],
+    ...(order.columnLabels || {}),
+  };
+}
+
+function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: PurchaseOrderItem) => void) {
+  const groups: Array<{ category: string; items: PurchaseOrderItem[] }> = [];
+  items.forEach((item) => {
+    const category = item.category || '미분류';
+    const last = groups[groups.length - 1];
+    if (last && last.category === category) {
+      last.items.push(item);
+      return;
+    }
+    groups.push({ category, items: [item] });
+  });
+
+  return groups.map((group) => (
+    <Fragment key={`${group.category}-${group.items[0]?.id}`}>
+      {group.items.map((item, index) => (
+        <tr key={`summary-${item.id}`} onDoubleClick={() => onEdit(item)} className="cursor-pointer hover:bg-[#fff8e8]">
+          {index === 0 && (
+            <td rowSpan={group.items.length} className="break-words border border-[#171512] px-3 py-2 text-center font-semibold">
+              {group.category}
+            </td>
+          )}
+          <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
+          <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
+          <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
+          <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
+          <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
+          <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
+        </tr>
+      ))}
+    </Fragment>
+  ));
+}
+
 function clonePurchaseOrders(orders: PurchaseOrder[]) {
   return orders.map((order, orderIndex) => ({
     ...order,
     id: `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
+    columnLabels: getPurchaseOrderLabels(order),
     items: order.items.map((item, itemIndex) => ({
       ...item,
       id: `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
@@ -3148,20 +3384,27 @@ function clonePurchaseOrders(orders: PurchaseOrder[]) {
 }
 
 function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
-  const next = orders.map((order, orderIndex) => ({
-    ...emptyPurchaseOrder(order.title || `발주서 ${orderIndex + 1}`),
-    ...order,
-    id: order.id || `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
-    items: Array.isArray(order.items) && order.items.length
-      ? order.items.map((item, itemIndex) => ({
-          ...emptyPurchaseOrderItem(),
-          ...item,
-          id: item.id || `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
-          quantity: Number(item.quantity || 0),
-          unitPrice: Number(item.unitPrice || 0),
-        }))
-      : [emptyPurchaseOrderItem()],
-  }));
+  const next = orders.map((order, orderIndex) => {
+    const templateKey = order.templateKey && purchaseOrderTemplates[order.templateKey] ? order.templateKey : 'modelSpec';
+    return {
+      ...emptyPurchaseOrder(order.title || `발주서 ${orderIndex + 1}`),
+      ...order,
+      id: order.id || `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
+      templateKey,
+      columnLabels: getPurchaseOrderLabels({ ...order, templateKey }),
+      items: Array.isArray(order.items) && order.items.length
+        ? order.items
+            .filter((item) => item.category || item.modelName || item.spec || item.note || Number(item.quantity || 0) || Number(item.unitPrice || 0))
+            .map((item, itemIndex) => ({
+              ...emptyPurchaseOrderItem(),
+              ...item,
+              id: item.id || `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
+              quantity: Number(item.quantity || 0),
+              unitPrice: Number(item.unitPrice || 0),
+            }))
+        : [],
+    };
+  });
   return next.length ? next : [emptyPurchaseOrder()];
 }
 
@@ -3173,14 +3416,16 @@ function cloneExtraItems(items: ExtraItem[]) {
 }
 
 function hydrateExtraItems(items: Partial<ExtraItem>[]) {
-  const next = items.map((item, index) => ({
-    ...emptyExtraItem(),
-    ...item,
-    id: item.id || `extra-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
-    quantity: Number(item.quantity || 0),
-    unitPrice: Number(item.unitPrice || 0),
-  }));
-  return next.length ? next : [emptyExtraItem()];
+  const next = items
+    .filter((item) => item.name || item.spec || item.note || Number(item.quantity || 0) || Number(item.unitPrice || 0))
+    .map((item, index) => ({
+      ...emptyExtraItem(),
+      ...item,
+      id: item.id || `extra-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+      quantity: Number(item.quantity || 0),
+      unitPrice: Number(item.unitPrice || 0),
+    }));
+  return next;
 }
 
 function estimateLineToWorkLine(line: EstimateLine): WorkLine {

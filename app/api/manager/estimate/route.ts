@@ -77,6 +77,8 @@ type PurchaseOrder = {
   orderDate?: string;
   deliveryDate?: string;
   memo?: string;
+  templateKey?: string;
+  columnLabels?: Record<string, string>;
   items?: PurchaseOrderItem[];
 };
 
@@ -460,9 +462,25 @@ function normalizeSchedule(schedule: ScheduleTask[]) {
 }
 
 function normalizePurchaseOrders(orders: PurchaseOrder[]) {
+  const defaultColumnLabels = {
+    category: '구분',
+    modelName: '모델명',
+    spec: '규격',
+    quantity: '수량',
+    unit: '단위',
+    unitPrice: '단가',
+    amount: '금액',
+  };
+
   return orders
     .map((order, index) => {
       const id = String(order.id || `purchase-${Date.now()}-${index}`).trim();
+      const templateKey = ['modelSpec', 'subType', 'custom'].includes(String(order.templateKey || ''))
+        ? String(order.templateKey)
+        : 'modelSpec';
+      const columnLabels = Object.fromEntries(
+        Object.entries({ ...defaultColumnLabels, ...(order.columnLabels || {}) }).map(([key, value]) => [key, String(value || '').trim() || defaultColumnLabels[key as keyof typeof defaultColumnLabels]]),
+      );
       const items = Array.isArray(order.items)
         ? order.items
             .map((item, itemIndex) => {
@@ -491,6 +509,8 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
         orderDate: String(order.orderDate || '').trim(),
         deliveryDate: String(order.deliveryDate || '').trim(),
         memo: String(order.memo || '').trim(),
+        templateKey,
+        columnLabels,
         items,
       };
     })
