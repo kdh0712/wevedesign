@@ -80,7 +80,10 @@ const estimateQuery = `{
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
-    customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
+    customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
+    estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
+    actualExecutionCostTotal, actualMarginAmount, actualMarginRate,
+    memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
@@ -198,6 +201,12 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     executionCostTotal: totals.executionCostTotal,
     marginAmount: totals.marginAmount,
     marginRate: totals.marginRate,
+    estimateExecutionCostTotal: totals.estimateExecutionCostTotal,
+    estimatedMarginAmount: totals.estimatedMarginAmount,
+    estimatedMarginRate: totals.estimatedMarginRate,
+    actualExecutionCostTotal: totals.actualExecutionCostTotal,
+    actualMarginAmount: totals.actualMarginAmount,
+    actualMarginRate: totals.actualMarginRate,
     memo: String(body.memo || '').trim(),
     createdAt: typeof body.createdAt === 'string' ? body.createdAt : now,
     updatedAt: now,
@@ -427,13 +436,31 @@ function normalizeColor(value: unknown) {
 
 function calculateTotals(lines: ReturnType<typeof normalizeLines>, workLines: ReturnType<typeof normalizeWorkLines>) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
-  const executionCostTotal = workLines.length > 0
+  const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
+  const hasWorkLines = workLines.length > 0;
+  const actualExecutionCostTotal = hasWorkLines
     ? Math.round(workLines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0))
-    : Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
-  const marginAmount = customerEstimateTotal - executionCostTotal;
-  const marginRate = customerEstimateTotal > 0 ? Math.round((marginAmount / customerEstimateTotal) * 1000) / 10 : 0;
+    : 0;
+  const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
+  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal : 0;
+  const estimatedMarginRate = customerEstimateTotal > 0 ? Math.round((estimatedMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
+  const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
+  const executionCostTotal = actualExecutionCostTotal;
+  const marginAmount = actualMarginAmount;
+  const marginRate = actualMarginRate;
 
-  return { customerEstimateTotal, executionCostTotal, marginAmount, marginRate };
+  return {
+    customerEstimateTotal,
+    executionCostTotal,
+    marginAmount,
+    marginRate,
+    estimateExecutionCostTotal,
+    estimatedMarginAmount,
+    estimatedMarginRate,
+    actualExecutionCostTotal,
+    actualMarginAmount,
+    actualMarginRate,
+  };
 }
 
 function materialId(category: string, name: string, spec: string, unit: string) {

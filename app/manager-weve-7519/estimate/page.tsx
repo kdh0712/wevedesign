@@ -97,6 +97,12 @@ type SiteEstimate = {
   executionCostTotal?: number;
   marginAmount?: number;
   marginRate?: number;
+  estimateExecutionCostTotal?: number;
+  estimatedMarginAmount?: number;
+  estimatedMarginRate?: number;
+  actualExecutionCostTotal?: number;
+  actualMarginAmount?: number;
+  actualMarginRate?: number;
   memo?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -711,7 +717,7 @@ export default function EstimateWorkspacePage() {
         .map(estimateLineToWorkLine);
       return additions.length ? [...current, ...additions] : current;
     });
-    setStatus('견적 내역의 공종과 품목을 공사 내역서에 반영했습니다.');
+    setStatus('견적 내역의 공종과 품목을 실행 내역서에 반영했습니다.');
   };
 
   const addScheduleFromProcess = (name: string, date: string) => {
@@ -849,7 +855,7 @@ export default function EstimateWorkspacePage() {
         )}
 
         <section className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
-          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1.35fr)_minmax(260px,0.85fr)_repeat(4,minmax(132px,0.45fr))]">
+          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1.35fr)_minmax(260px,0.85fr)_repeat(5,minmax(132px,0.45fr))]">
             <div className="rounded-md bg-[#f7fafb] px-4 py-3">
               <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
               <h2 className="mt-1 truncate text-xl font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
@@ -873,11 +879,19 @@ export default function EstimateWorkspacePage() {
                 </select>
                 <input value={versionLabel} onChange={(event) => setVersionLabel(event.target.value)} aria-label="견적 버전명" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
               </div>
-              <input value={memo} onChange={(event) => setMemo(event.target.value)} aria-label="현장 메모" placeholder="현장 메모" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+              <textarea
+                value={memo}
+                onChange={(event) => setMemo(event.target.value)}
+                aria-label="수정 기록 메모"
+                placeholder="수정 기록 메모: 다른 컴퓨터에서도 이어서 확인할 작업 내용을 적어주세요."
+                rows={2}
+                className="min-w-0 resize-none rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]"
+              />
             </div>
             <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
-            <CompactMetric title="실행 원가" value={formatMoney(totals.executionCostTotal)} />
-            <CompactMetric title="예상 마진" value={formatMoney(totals.marginAmount)} tone={totals.marginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.marginRate.toFixed(1)}%`} />
+            <CompactMetric title="견적 예상원가" value={formatMoney(totals.estimateExecutionCostTotal)} />
+            <CompactMetric title="예상 마진" value={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
+            <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
             <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
@@ -953,7 +967,7 @@ export default function EstimateWorkspacePage() {
         <nav className="no-print flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
           {[
             { key: 'lines' as const, label: '견적 내역', Icon: FileSpreadsheet },
-            { key: 'work' as const, label: '공사 내역서', Icon: ClipboardList },
+            { key: 'work' as const, label: '실행 내역서', Icon: ClipboardList },
             { key: 'materials' as const, label: '자재 단가', Icon: Search },
             { key: 'schedule' as const, label: '공정 일정', Icon: CalendarDays },
             { key: 'documents' as const, label: '서류 출력', Icon: Printer },
@@ -1015,7 +1029,7 @@ export default function EstimateWorkspacePage() {
                 ))}
               </div>
 
-              <div className="mt-4 max-h-[calc(100vh-380px)] min-h-[360px] overflow-y-auto pr-1 xl:min-h-0 xl:flex-1 xl:max-h-none">
+              <div className="mt-4 max-h-[520px] min-h-[360px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-white p-2 pr-1">
                 {lineDbMaterials.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-6 text-center text-sm text-[#60717d]">
                     자재 단가 DB가 비어 있습니다. `자재 단가` 탭에서 엑셀을 먼저 업로드해주세요.
@@ -1198,7 +1212,7 @@ export default function EstimateWorkspacePage() {
                             <div className="grid content-start gap-2 rounded-lg border border-[#edf2f5] bg-[#fbfdfe] p-3 sm:grid-cols-3 lg:grid-cols-1 2xl:grid-cols-3">
                               <LineAmount label="견적금액" value={estimateAmount} />
                               <LineAmount label="원가" value={costAmount} />
-                              <LineAmount label="마진" value={margin} positive={margin >= 0} />
+                              <LineAmount label="예상마진" value={margin} positive={margin >= 0} />
                             </div>
                           </div>
                         </article>
@@ -1215,16 +1229,16 @@ export default function EstimateWorkspacePage() {
           <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-xl font-semibold">공사 내역서</h2>
+                <h2 className="text-xl font-semibold">실행 내역서</h2>
                 <p className="mt-1 text-sm leading-6 text-[#60717d]">
-                  실제 실행 원가를 관리하는 내역입니다. 이 합계가 예상 마진 계산에 반영됩니다.
+                  실제 실행 원가를 관리하는 내역입니다. 이 합계가 실제 마진 계산에 반영됩니다.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={workGroupBy}
                   onChange={(event) => setWorkGroupBy(event.target.value as typeof workGroupBy)}
-                  aria-label="공사 내역서 정렬 기준"
+                  aria-label="실행 내역서 정렬 기준"
                   className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                 >
                   <option value="category">분류별 정렬</option>
@@ -1236,15 +1250,15 @@ export default function EstimateWorkspacePage() {
                 </button>
                 <button type="button" onClick={() => setWorkLines((current) => [...current, emptyWorkLine()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
                   <Plus size={16} />
-                  공사 항목 추가
+                  실행 항목 추가
                 </button>
               </div>
             </div>
 
             <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <CompactMetric title="공사 실행 원가" value={formatMoney(totals.executionCostTotal)} />
-              <CompactMetric title="견적 대비 마진" value={formatMoney(totals.marginAmount)} tone={totals.marginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.marginRate.toFixed(1)}%`} />
-              <CompactMetric title="공사 항목" value={`${workLines.filter((line) => line.name).length}개`} />
+              <CompactMetric title="실제 실행 원가" value={formatMoney(totals.actualExecutionCostTotal)} />
+              <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+              <CompactMetric title="실행 항목" value={`${workLines.filter((line) => line.name).length}개`} />
             </div>
 
             <div className="grid gap-3">
@@ -1352,7 +1366,7 @@ export default function EstimateWorkspacePage() {
                 </select>
                 <input value={materialSearch} onChange={(event) => setMaterialSearch(event.target.value)} placeholder="품명, 규격, 공종 검색" className="min-w-0 flex-1 rounded-md border border-[#d5dde2] px-4 py-3" />
               </div>
-              <div className="mt-4 max-h-[620px] overflow-auto">
+              <div className="mt-4 max-h-[min(720px,70vh)] overflow-auto rounded-lg border border-[#edf2f5]">
                 <table className="min-w-[820px] w-full text-sm">
                   <thead className="sticky top-0 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
                     <tr>
@@ -1398,7 +1412,7 @@ export default function EstimateWorkspacePage() {
               <div className="mt-4 grid gap-2">
                 {processPool.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-5 text-sm text-[#60717d]">
-                    견적 내역 또는 공사 내역서에 공종을 입력하면 이곳에 자동으로 표시됩니다.
+                    견적 내역 또는 실행 내역서에 공종을 입력하면 이곳에 자동으로 표시됩니다.
                   </div>
                 ) : (
                   processPool.map((process) => (
@@ -1563,13 +1577,13 @@ export default function EstimateWorkspacePage() {
             <div className="no-print rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
               <h2 className="text-xl font-semibold">서류 출력</h2>
               <p className="mt-2 text-sm leading-6 text-[#60717d]">
-                기존 엑셀의 `표지(견)`, `갑지`, `내역서` 흐름에 맞춰 같은 데이터로 서류를 나눠 확인합니다.
+                기존 엑셀의 `표지(견)`, `갑지`, `세부내역서` 흐름에 맞춰 같은 데이터로 서류를 나눠 확인합니다.
               </p>
               <div className="mt-5 grid gap-2">
                 {[
                   ['cover', '표지'],
                   ['summary', '갑지'],
-                  ['detail', '내역서'],
+                  ['detail', '세부내역서'],
                 ].map(([key, label]) => (
                   <button
                     key={key}
@@ -1586,7 +1600,7 @@ export default function EstimateWorkspacePage() {
                 현재 서류 인쇄
               </button>
             </div>
-            <PrintPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
+            <EstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
           </section>
         )}
       </section>
@@ -1990,6 +2004,235 @@ function CellSelect({ value, options, onChange }: { value: string; options: stri
   );
 }
 
+function EstimateDocumentPreview({
+  site,
+  lines,
+  totals,
+  versionLabel,
+  view,
+}: {
+  site?: Site;
+  lines: EstimateLine[];
+  totals: ReturnType<typeof calculateTotals>;
+  versionLabel: string;
+  view: 'cover' | 'summary' | 'detail';
+}) {
+  const visibleLines = lines.filter((line) => line.name);
+  const grouped = groupLinesByCategory(visibleLines);
+  const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
+  const customerLabel = [site?.address, site?.customerName].filter(Boolean).join(' · ') || site?.title || '고객';
+  const constructionTitle = site?.title || `${site?.siteType || '인테리어'} 공사`;
+
+  return (
+    <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+      {view === 'cover' && (
+        <section className="mx-auto min-h-[760px] max-w-[980px] border border-[#111] bg-white px-14 py-16 text-[#111]">
+          <div className="mx-auto max-w-[860px]">
+            <div className="grid grid-cols-3 bg-[#d9d9d9] py-4 text-center text-3xl font-semibold tracking-[0.65em]">
+              <span>견</span>
+              <span>적</span>
+              <span>서</span>
+            </div>
+            <p className="mt-3 border-b-[6px] border-[#bfbfbf] pb-3 text-right text-lg">견적 표지</p>
+            <table className="mt-4 w-full border-collapse text-lg">
+              <tbody>
+                <DocumentCoverLine label="고객명" value={`${customerLabel} 귀하`} side={site?.customerPhone ? `(연락처: ${site.customerPhone})` : ''} />
+                <DocumentCoverLine label="공사명" value={constructionTitle} side={`발행일 : ${today}`} />
+                <DocumentCoverLine label="견적 금액" value={`일금 ${toKoreanEstimateAmount(totals.customerEstimateTotal)} 원정`} side={`${formatPlainNumber(totals.customerEstimateTotal)} (부가세 별도)`} strong />
+              </tbody>
+            </table>
+            <p className="border-b-[6px] border-[#bfbfbf] px-8 py-5 text-lg font-semibold">상기와 같이 견적을 제출합니다.</p>
+            <div className="mt-14 grid grid-cols-[1fr_1.1fr] gap-10">
+              <div className="flex flex-col items-center justify-center">
+                <div className="text-center text-5xl font-serif tracking-[0.22em] text-[#22313a]">WEVE</div>
+                <div className="mt-2 text-[10px] tracking-[0.28em] text-[#22313a]">INTERIOR DESIGN</div>
+              </div>
+              <div className="text-lg leading-9">
+                <p className="tracking-[0.35em]">위 브 디 자 인</p>
+                <p>경기도 의왕시 오리나무1길 12, 1층</p>
+                <p>대표 : 김현종</p>
+                <p>☎ 031.381.0489 &nbsp;&nbsp; FAX 031.422.2915</p>
+                <p>✉ weve0489@gmail.com</p>
+                <p>담당자 : 김현종 &nbsp; 010.6346.3882</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {view === 'summary' && (
+        <section className="mx-auto min-h-[760px] max-w-[980px] border border-[#111] bg-white p-8 text-[#111]">
+          <header className="grid grid-cols-[1fr_340px] gap-6">
+            <div>
+              <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-3 text-center text-3xl font-semibold tracking-[0.65em]">견적서</h1>
+              <div className="mt-4 text-base leading-7">
+                <p>{today}</p>
+                <p>{customerLabel} 님 귀하</p>
+                <p>{site?.siteType ? `평형: ${site.siteType}` : ''}</p>
+              </div>
+              <div className="mt-1 border-t border-[#111] pt-2 text-center">
+                <p className="text-xl font-semibold">합계 금액</p>
+                <p className="mt-1 text-lg">(부가세 별도) &nbsp; 일금 {toKoreanEstimateAmount(totals.customerEstimateTotal)} 원정</p>
+                <p className="mt-1 text-xl font-semibold">({formatPlainNumber(totals.customerEstimateTotal)})</p>
+              </div>
+            </div>
+            <div className="pt-5 text-base leading-7">
+              <p>등록 번호 <span className="float-right">138-05-48056</span></p>
+              <p>경기도 의왕시 오리나무1길 12, 1층</p>
+              <p>위브디자인</p>
+              <p>대표 &nbsp;&nbsp; 김현종</p>
+              <p>T-031.381.0489 <span className="float-right">FAX-031.422.2915</span></p>
+            </div>
+          </header>
+          <table className="mt-2 w-full border-collapse text-base">
+            <thead>
+              <tr className="bg-[#f3f1ec]">
+                {['공정', '규격', '산식', '단위', '금액', '세액'].map((header) => (
+                  <th key={header} className="border border-[#111] px-3 py-1.5 text-center text-lg font-semibold tracking-[0.25em]">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map((group, index) => (
+                <tr key={group.category}>
+                  <td className="border border-[#111] px-3 py-1.5">{index + 1}. {group.category}</td>
+                  <td className="border border-[#111] px-3 py-1.5">{group.representativeSpec}</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(group.customerAmount)}</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                </tr>
+              ))}
+              {Array.from({ length: Math.max(0, 13 - grouped.length) }).map((_, index) => (
+                <tr key={`blank-${index}`}>
+                  <td className="border border-[#111] px-3 py-1.5">&nbsp;</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                </tr>
+              ))}
+              <tr className="bg-[#f8e8da] text-lg font-semibold">
+                <td className="border border-[#111] px-3 py-2 text-center" colSpan={4}>합 계 (부가세 별도)</td>
+                <td className="border border-[#111] px-3 py-2 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="mt-1 text-sm">※ 비고 및 특이사항</p>
+        </section>
+      )}
+
+      {view === 'detail' && (
+        <section className="mx-auto max-w-[1080px] border border-[#111] bg-white p-10 text-[#111]">
+          <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-[#e6e6f6]">
+                {['품 명', '규 격', '단위', '수량', '단 가', '금 액', '비고'].map((header) => (
+                  <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.35em]">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {grouped.map((group, groupIndex) => (
+                <Fragment key={group.category}>
+                  <tr className="font-semibold">
+                    <td className="border border-[#111] px-3 py-1.5">{groupIndex + 1}. {group.category}</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                  </tr>
+                  {group.lines.map((line) => (
+                    <tr key={line.id}>
+                      <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.customerUnitPrice)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity * line.customerUnitPrice)}</td>
+                      <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-[#f5f3ed] font-semibold">
+                    <td className="border border-[#111] px-3 py-1.5 text-center">소 계</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                    <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(group.customerAmount)}</td>
+                    <td className="border border-[#111] px-3 py-1.5"></td>
+                  </tr>
+                </Fragment>
+              ))}
+              <tr className="bg-[#dff1f4] text-lg font-semibold">
+                <td className="border border-[#111] px-3 py-2 text-center">합 계</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2"></td>
+                <td className="border border-[#111] px-3 py-2 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-2"></td>
+              </tr>
+            </tbody>
+          </table>
+          <div className="mt-4 flex justify-between text-sm">
+            <span>1/1</span>
+            <span>위브디자인</span>
+          </div>
+        </section>
+      )}
+    </article>
+  );
+}
+
+function DocumentCoverLine({ label, value, side = '', strong = false }: { label: string; value: string; side?: string; strong?: boolean }) {
+  return (
+    <tr>
+      <th className="w-32 border-y-2 border-[#111] px-4 py-4 text-left font-normal tracking-[0.35em]">{label}</th>
+      <td className={`border-y-2 border-[#111] px-4 py-4 ${strong ? 'font-semibold' : ''}`}>{value}</td>
+      <td className="w-64 border-y-2 border-[#111] px-4 py-4 text-right">{side}</td>
+    </tr>
+  );
+}
+
+function formatPlainNumber(value: number) {
+  return Number(value || 0).toLocaleString('ko-KR');
+}
+
+function toKoreanEstimateAmount(value: number) {
+  const number = Math.max(0, Math.round(Number(value || 0)));
+  if (!number) return '영';
+
+  const digits = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+  const smallUnits = ['', '십', '백', '천'];
+  const largeUnits = ['', '만', '억', '조'];
+  const chunks: string[] = [];
+  let rest = number;
+
+  for (let unitIndex = 0; rest > 0; unitIndex += 1) {
+    const chunk = rest % 10000;
+    if (chunk > 0) {
+      const parts: string[] = [];
+      const chunkText = String(chunk).padStart(4, '0');
+      for (let index = 0; index < 4; index += 1) {
+        const digit = Number(chunkText[index]);
+        if (!digit) continue;
+        const smallUnitIndex = 3 - index;
+        parts.push(`${digits[digit]}${smallUnits[smallUnitIndex]}`);
+      }
+      chunks.unshift(`${parts.join('')}${largeUnits[unitIndex] || ''}`);
+    }
+    rest = Math.floor(rest / 10000);
+  }
+
+  return chunks.join('');
+}
+
 function PrintPreview({
   site,
   lines,
@@ -2312,12 +2555,28 @@ function groupLinesByCategory(lines: EstimateLine[]) {
 
 function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = []) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0));
-  const executionCostTotal = workLines.some((line) => line.name || line.category || line.process)
+  const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
+  const hasWorkLines = workLines.some((line) => line.name || line.category || line.process);
+  const actualExecutionCostTotal = hasWorkLines
     ? Math.round(workLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0))
-    : Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
-  const marginAmount = customerEstimateTotal - executionCostTotal;
-  const marginRate = customerEstimateTotal > 0 ? Math.round((marginAmount / customerEstimateTotal) * 1000) / 10 : 0;
-  return { customerEstimateTotal, executionCostTotal, marginAmount, marginRate };
+    : 0;
+  const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
+  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal : 0;
+  const estimatedMarginRate = customerEstimateTotal > 0 ? Math.round((estimatedMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
+  const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
+  return {
+    customerEstimateTotal,
+    estimateExecutionCostTotal,
+    actualExecutionCostTotal,
+    executionCostTotal: actualExecutionCostTotal,
+    estimatedMarginAmount,
+    estimatedMarginRate,
+    actualMarginAmount,
+    actualMarginRate,
+    marginAmount: actualMarginAmount,
+    marginRate: actualMarginRate,
+    hasWorkLines,
+  };
 }
 
 function buildProcessPool(lines: EstimateLine[], workLines: WorkLine[]) {
