@@ -1769,7 +1769,7 @@ export default function EstimateWorkspacePage() {
         )}
 
         {activeTab === 'purchase' && (
-          <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <section className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
             <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1816,34 +1816,10 @@ export default function EstimateWorkspacePage() {
                       <h2 className="text-xl font-semibold">발주서 작성</h2>
                       <p className="mt-1 text-sm leading-6 text-[#60717d]">모델명, 업체명, 규격, 개수, 날짜를 입력하면 아래 발주 틀에 정리됩니다.</p>
                     </div>
-                    <button type="button" onClick={() => deletePurchaseOrder(selectedPurchaseOrder.id)} className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600">
-                      <Trash2 size={16} />
-                      발주서 삭제
-                    </button>
                   </div>
 
-                  <div className="mt-4 grid gap-3 rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-4 md:grid-cols-5">
-                    <label className="grid gap-1 text-xs font-bold text-[#60717d] md:col-span-2">
-                      발주서명
-                      <input value={selectedPurchaseOrder.title} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { title: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                      업체명
-                      <input list="estimate-vendors" value={selectedPurchaseOrder.vendorName} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { vendorName: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                      발주일
-                      <input type="date" value={selectedPurchaseOrder.orderDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { orderDate: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                      입고 예정일
-                      <input type="date" value={selectedPurchaseOrder.deliveryDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { deliveryDate: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
-                    </label>
-                    <label className="grid gap-1 text-xs font-bold text-[#60717d] md:col-span-5">
-                      메모
-                      <input value={selectedPurchaseOrder.memo} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { memo: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
-                    </label>
-                  </div>
+                  <div className="mt-4 grid gap-4 2xl:grid-cols-[minmax(0,1fr)_300px]">
+                    <div className="min-w-0">
 
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <h3 className="font-semibold">발주 항목</h3>
@@ -1858,34 +1834,34 @@ export default function EstimateWorkspacePage() {
                       const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
                       return (
                         <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
-                          <div className="grid gap-2 lg:grid-cols-[1fr_1fr_1.2fr_90px_90px_120px_120px_auto] lg:items-end">
+                          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(100px,0.85fr)_minmax(120px,1fr)_minmax(140px,1.2fr)_80px_72px_104px_110px_44px] 2xl:items-end">
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               구분
-                              <input value={item.category} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { category: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input value={item.category} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { category: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                             </label>
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               모델명
-                              <input value={item.modelName} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { modelName: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input value={item.modelName} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { modelName: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                             </label>
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               규격
-                              <input value={item.spec} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { spec: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input value={item.spec} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { spec: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                             </label>
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               수량
-                              <NumberTextInput value={item.quantity} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { quantity: value })} className="bg-white text-sm font-semibold" />
+                              <NumberTextInput value={item.quantity} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { quantity: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
                             </label>
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               단위
-                              <input value={item.unit} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unit: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input value={item.unit} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unit: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                             </label>
                             <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                               단가
-                              <NumberTextInput value={item.unitPrice} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unitPrice: value })} className="bg-white text-sm font-semibold" />
+                              <NumberTextInput value={item.unitPrice} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unitPrice: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
                             </label>
-                            <div className="rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
+                            <div className="min-w-0 rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
                               <p className="text-[11px] font-bold text-[#60717d]">금액</p>
-                              <p title={formatMoney(amount)} className="mt-1 font-semibold">{formatCompactMoney(amount)}</p>
+                              <p title={formatMoney(amount)} className="mt-1 truncate font-semibold">{formatCompactMoney(amount)}</p>
                             </div>
                             <button type="button" onClick={() => deletePurchaseOrderItem(selectedPurchaseOrder.id, item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
                               <Trash2 size={16} />
@@ -1902,7 +1878,16 @@ export default function EstimateWorkspacePage() {
                       <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
                       <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
                     </div>
-                    <table className="w-full border-collapse text-sm">
+                    <table className="w-full table-fixed border-collapse text-sm">
+                      <colgroup>
+                        <col className="w-[16%]" />
+                        <col className="w-[16%]" />
+                        <col className="w-[22%]" />
+                        <col className="w-[12%]" />
+                        <col className="w-[10%]" />
+                        <col className="w-[14%]" />
+                        <col className="w-[10%]" />
+                      </colgroup>
                       <thead className="bg-[#f3f1ec]">
                         <tr>
                           {['구분', '모델명', '규격', '수량', '단위', '금액', '비고'].map((header) => (
@@ -1913,17 +1898,60 @@ export default function EstimateWorkspacePage() {
                       <tbody>
                         {selectedPurchaseOrder.items.map((item) => (
                           <tr key={`summary-${item.id}`}>
-                            <td className="border border-[#171512] px-3 py-2">{item.category}</td>
-                            <td className="border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
-                            <td className="border border-[#171512] px-3 py-2">{item.spec}</td>
-                            <td className="border border-[#171512] px-3 py-2 text-right">{formatNumber(item.quantity)}</td>
-                            <td className="border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
-                            <td className="border border-[#171512] px-3 py-2 text-right">{formatMoney(item.quantity * item.unitPrice)}</td>
-                            <td className="border border-[#171512] px-3 py-2">{item.note}</td>
+                            <td className="break-words border border-[#171512] px-3 py-2">{item.category}</td>
+                            <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
+                            <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
+                            <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
+                            <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
+                            <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
+                            <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                    </div>
+
+                    <aside className="h-fit rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 shadow-sm 2xl:sticky 2xl:top-24">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-[#38a9bd]">ORDER INFO</p>
+                          <h3 className="mt-1 text-lg font-semibold">발주 정보</h3>
+                        </div>
+                        <button type="button" onClick={() => deletePurchaseOrder(selectedPurchaseOrder.id)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600">
+                          <Trash2 size={14} />
+                          삭제
+                        </button>
+                      </div>
+                      <div className="mt-4 grid gap-3">
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          발주서명
+                          <input value={selectedPurchaseOrder.title} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { title: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          업체명
+                          <input list="estimate-vendors" value={selectedPurchaseOrder.vendorName} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { vendorName: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          발주일
+                          <input type="date" value={selectedPurchaseOrder.orderDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { orderDate: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          입고 예정일
+                          <input type="date" value={selectedPurchaseOrder.deliveryDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { deliveryDate: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          메모
+                          <textarea value={selectedPurchaseOrder.memo} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { memo: event.target.value })} rows={5} className="min-w-0 resize-none rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                        </label>
+                      </div>
+                      <div className="mt-4 rounded-lg border border-[#edf2f5] bg-white p-3">
+                        <p className="text-[11px] font-bold text-[#60717d]">현재 발주 금액</p>
+                        <p title={formatMoney(selectedPurchaseOrder.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0))} className="mt-1 text-xl font-bold text-[#171512]">
+                          {formatCompactMoney(selectedPurchaseOrder.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0))}
+                        </p>
+                      </div>
+                    </aside>
                   </div>
                 </>
               ) : (
@@ -1959,38 +1987,38 @@ export default function EstimateWorkspacePage() {
                   const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
                   return (
                     <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3">
-                      <div className="grid gap-2 xl:grid-cols-[1.2fr_1fr_90px_90px_120px_120px_140px_1fr_auto] xl:items-end">
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(130px,1.1fr)_minmax(110px,0.9fr)_70px_82px_104px_110px_130px_minmax(120px,1fr)_44px] 2xl:items-end">
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           품명
-                          <input value={item.name} onChange={(event) => updateExtraItem(item.id, { name: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                          <input value={item.name} onChange={(event) => updateExtraItem(item.id, { name: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                         </label>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           규격
-                          <input value={item.spec} onChange={(event) => updateExtraItem(item.id, { spec: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                          <input value={item.spec} onChange={(event) => updateExtraItem(item.id, { spec: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                         </label>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           단위
-                          <input value={item.unit} onChange={(event) => updateExtraItem(item.id, { unit: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                          <input value={item.unit} onChange={(event) => updateExtraItem(item.id, { unit: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                         </label>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           수량
-                          <NumberTextInput value={item.quantity} onChange={(value) => updateExtraItem(item.id, { quantity: value })} className="bg-white text-sm font-semibold" />
+                          <NumberTextInput value={item.quantity} onChange={(value) => updateExtraItem(item.id, { quantity: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
                         </label>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           단가
-                          <NumberTextInput value={item.unitPrice} onChange={(value) => updateExtraItem(item.id, { unitPrice: value })} className="bg-white text-sm font-semibold" />
+                          <NumberTextInput value={item.unitPrice} onChange={(value) => updateExtraItem(item.id, { unitPrice: value })} className="w-full min-w-0 bg-white text-sm font-semibold" />
                         </label>
-                        <div className="rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
+                        <div className="min-w-0 rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
                           <p className="text-[11px] font-bold text-[#60717d]">금액</p>
-                          <p title={formatMoney(amount)} className="font-semibold">{formatCompactMoney(amount)}</p>
+                          <p title={formatMoney(amount)} className="truncate font-semibold">{formatCompactMoney(amount)}</p>
                         </div>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           날짜
-                          <input type="date" value={item.date} onChange={(event) => updateExtraItem(item.id, { date: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                          <input type="date" value={item.date} onChange={(event) => updateExtraItem(item.id, { date: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                         </label>
                         <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                           업체
-                          <input list="estimate-vendors" value={item.vendorName} onChange={(event) => updateExtraItem(item.id, { vendorName: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                          <input list="estimate-vendors" value={item.vendorName} onChange={(event) => updateExtraItem(item.id, { vendorName: event.target.value })} className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                         </label>
                         <button type="button" onClick={() => deleteExtraItem(item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
                           <Trash2 size={16} />
