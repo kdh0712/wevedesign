@@ -71,6 +71,40 @@ type ScheduleTask = {
   memo: string;
 };
 
+type PurchaseOrderItem = {
+  id: string;
+  category: string;
+  modelName: string;
+  vendorName: string;
+  spec: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  note: string;
+};
+
+type PurchaseOrder = {
+  id: string;
+  title: string;
+  vendorName: string;
+  orderDate: string;
+  deliveryDate: string;
+  memo: string;
+  items: PurchaseOrderItem[];
+};
+
+type ExtraItem = {
+  id: string;
+  name: string;
+  spec: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  date: string;
+  vendorName: string;
+  note: string;
+};
+
 type Vendor = {
   _id?: string;
   name?: string;
@@ -93,6 +127,8 @@ type SiteEstimate = {
   workLinesJson?: string;
   scheduleJson?: string;
   holidaysJson?: string;
+  purchaseOrdersJson?: string;
+  extraItemsJson?: string;
   customerEstimateTotal?: number;
   executionCostTotal?: number;
   marginAmount?: number;
@@ -101,6 +137,7 @@ type SiteEstimate = {
   estimatedMarginAmount?: number;
   estimatedMarginRate?: number;
   actualExecutionCostTotal?: number;
+  additionalCostTotal?: number;
   actualMarginAmount?: number;
   actualMarginRate?: number;
   memo?: string;
@@ -247,6 +284,40 @@ const emptyWorkLine = (): WorkLine => ({
   note: '',
 });
 
+const emptyPurchaseOrderItem = (): PurchaseOrderItem => ({
+  id: `po-item-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  category: '',
+  modelName: '',
+  vendorName: '',
+  spec: '',
+  unit: '',
+  quantity: 1,
+  unitPrice: 0,
+  note: '',
+});
+
+const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
+  id: `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  title,
+  vendorName: '',
+  orderDate: todayKey(),
+  deliveryDate: '',
+  memo: '',
+  items: [emptyPurchaseOrderItem()],
+});
+
+const emptyExtraItem = (): ExtraItem => ({
+  id: `extra-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  name: '',
+  spec: '',
+  unit: '',
+  quantity: 1,
+  unitPrice: 0,
+  date: todayKey(),
+  vendorName: '',
+  note: '',
+});
+
 const defaultSpaces = ['거실', '주방', '침실', '욕실', '현관', '공용', '기타'];
 const workStatuses = ['예정', '발주', '진행', '완료', '보류'];
 
@@ -268,9 +339,12 @@ export default function EstimateWorkspacePage() {
   const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([emptyPurchaseOrder()]);
+  const [selectedPurchaseOrderId, setSelectedPurchaseOrderId] = useState('');
+  const [extraItems, setExtraItems] = useState<ExtraItem[]>([emptyExtraItem()]);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
-  const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'documents'>('lines');
+  const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [materialSearch, setMaterialSearch] = useState('');
@@ -300,7 +374,15 @@ export default function EstimateWorkspacePage() {
     () => selectedSiteEstimates.find((estimate) => estimate._id === selectedEstimateId),
     [selectedEstimateId, selectedSiteEstimates],
   );
-  const totals = useMemo(() => calculateTotals(lines, workLines), [lines, workLines]);
+  const selectedPurchaseOrder = useMemo(
+    () => purchaseOrders.find((order) => order.id === selectedPurchaseOrderId) || purchaseOrders[0],
+    [purchaseOrders, selectedPurchaseOrderId],
+  );
+  const purchaseOrderTotal = useMemo(
+    () => purchaseOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0), 0),
+    [purchaseOrders],
+  );
+  const totals = useMemo(() => calculateTotals(lines, workLines, extraItems), [extraItems, lines, workLines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const lineCategoryOptions = useMemo(() => uniqueLineValues(lines, (line) => line.category || line.process), [lines]);
   const filteredLines = useMemo(() => filterEstimateLines(lines, lineFilterType, lineFilterValue), [lines, lineFilterType, lineFilterValue]);
@@ -312,6 +394,7 @@ export default function EstimateWorkspacePage() {
   const materialCategories = useMemo(() => Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort(), [materials]);
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
   const materialNames = useMemo(() => Array.from(new Set(materials.map((item) => item.name || '').filter(Boolean))).sort(), [materials]);
+  const vendorNames = useMemo(() => Array.from(new Set(vendors.map((vendor) => vendor.name || '').filter(Boolean))).sort(), [vendors]);
   const filteredMaterials = useMemo(() => {
     const keyword = materialSearch.trim().toLowerCase();
     return materials.filter((item) => {
@@ -379,6 +462,10 @@ export default function EstimateWorkspacePage() {
       setLines(nextLines);
       setWorkLines(deriveWorkLines(nextLines));
       setSchedule([emptyTask()]);
+      const nextPurchaseOrders = [emptyPurchaseOrder()];
+      setPurchaseOrders(nextPurchaseOrders);
+      setSelectedPurchaseOrderId(nextPurchaseOrders[0].id);
+      setExtraItems([emptyExtraItem()]);
       setHolidays([]);
       setSelectedLineId('');
       return;
@@ -401,9 +488,13 @@ export default function EstimateWorkspacePage() {
     setMemo(estimate?.memo || '');
     const nextLines = parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]);
     const nextWorkLines = parseJson<WorkLine[]>(estimate?.workLinesJson, []);
+    const nextPurchaseOrders = hydratePurchaseOrders(parseJson<Partial<PurchaseOrder>[]>(estimate?.purchaseOrdersJson, [emptyPurchaseOrder()]));
     setLines(nextLines);
     setWorkLines(nextWorkLines.length ? nextWorkLines : deriveWorkLines(nextLines));
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
+    setPurchaseOrders(nextPurchaseOrders);
+    setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
+    setExtraItems(hydrateExtraItems(parseJson<Partial<ExtraItem>[]>(estimate?.extraItemsJson, [emptyExtraItem()])));
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setSelectedLineId('');
 
@@ -413,6 +504,10 @@ export default function EstimateWorkspacePage() {
       const nextLinesForSite = [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }];
       setLines(nextLinesForSite);
       setWorkLines(deriveWorkLines(nextLinesForSite));
+      const nextSitePurchaseOrders = [emptyPurchaseOrder()];
+      setPurchaseOrders(nextSitePurchaseOrders);
+      setSelectedPurchaseOrderId(nextSitePurchaseOrders[0].id);
+      setExtraItems([emptyExtraItem()]);
       setHolidays([]);
     }
   }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
@@ -495,6 +590,8 @@ export default function EstimateWorkspacePage() {
           lines,
           workLines,
           schedule,
+          purchaseOrders,
+          extraItems,
           holidays,
           memo,
           createdAt: selectedEstimate?.createdAt,
@@ -681,6 +778,12 @@ export default function EstimateWorkspacePage() {
     setLines(nextLines);
     setWorkLines(copyCurrent && workLines.some((line) => line.name || line.category || line.process) ? cloneWorkLines(workLines) : deriveWorkLines(nextLines));
     setSchedule(copyCurrent && schedule.some((task) => task.name) ? cloneScheduleTasks(schedule) : [emptyTask()]);
+    const nextPurchaseOrders = copyCurrent && purchaseOrders.some((order) => order.title || order.vendorName || order.items.some((item) => item.modelName || item.spec))
+      ? clonePurchaseOrders(purchaseOrders)
+      : [emptyPurchaseOrder()];
+    setPurchaseOrders(nextPurchaseOrders);
+    setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
+    setExtraItems(copyCurrent && extraItems.some((item) => item.name || item.spec || item.vendorName) ? cloneExtraItems(extraItems) : [emptyExtraItem()]);
     setHolidays(copyCurrent ? [...holidays] : []);
     setSelectedLineId('');
     setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
@@ -707,6 +810,65 @@ export default function EstimateWorkspacePage() {
 
   const updateWorkLine = (id: string, updates: Partial<WorkLine>) => {
     setWorkLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
+  };
+
+  const addPurchaseOrder = () => {
+    const nextOrder = emptyPurchaseOrder(`발주서 ${purchaseOrders.length + 1}`);
+    setPurchaseOrders((current) => [...current, nextOrder]);
+    setSelectedPurchaseOrderId(nextOrder.id);
+    setActiveTab('purchase');
+  };
+
+  const updatePurchaseOrder = (id: string, updates: Partial<PurchaseOrder>) => {
+    setPurchaseOrders((current) => current.map((order) => (order.id === id ? { ...order, ...updates } : order)));
+  };
+
+  const deletePurchaseOrder = (id: string) => {
+    setPurchaseOrders((current) => {
+      const next = current.filter((order) => order.id !== id);
+      if (next.length === 0) {
+        const fallback = emptyPurchaseOrder();
+        setSelectedPurchaseOrderId(fallback.id);
+        return [fallback];
+      }
+      if (selectedPurchaseOrderId === id) setSelectedPurchaseOrderId(next[0].id);
+      return next;
+    });
+  };
+
+  const addPurchaseOrderItem = (orderId: string) => {
+    setPurchaseOrders((current) => current.map((order) => (order.id === orderId ? { ...order, items: [...order.items, emptyPurchaseOrderItem()] } : order)));
+  };
+
+  const updatePurchaseOrderItem = (orderId: string, itemId: string, updates: Partial<PurchaseOrderItem>) => {
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === orderId
+          ? { ...order, items: order.items.map((item) => (item.id === itemId ? { ...item, ...updates } : item)) }
+          : order,
+      ),
+    );
+  };
+
+  const deletePurchaseOrderItem = (orderId: string, itemId: string) => {
+    setPurchaseOrders((current) =>
+      current.map((order) => {
+        if (order.id !== orderId) return order;
+        const nextItems = order.items.filter((item) => item.id !== itemId);
+        return { ...order, items: nextItems.length ? nextItems : [emptyPurchaseOrderItem()] };
+      }),
+    );
+  };
+
+  const updateExtraItem = (id: string, updates: Partial<ExtraItem>) => {
+    setExtraItems((current) => current.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+  };
+
+  const deleteExtraItem = (id: string) => {
+    setExtraItems((current) => {
+      const next = current.filter((item) => item.id !== id);
+      return next.length ? next : [emptyExtraItem()];
+    });
   };
 
   const syncWorkLinesFromEstimate = () => {
@@ -882,12 +1044,13 @@ export default function EstimateWorkspacePage() {
         )}
 
         <section className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
-          <div className="grid gap-3 2xl:grid-cols-[minmax(280px,1.35fr)_minmax(260px,0.85fr)_repeat(5,minmax(132px,0.45fr))]">
+          <div className="grid gap-3 2xl:grid-cols-[minmax(220px,0.85fr)_minmax(260px,0.85fr)_repeat(6,minmax(150px,0.55fr))]">
             <div className="rounded-md bg-[#f7fafb] px-4 py-3">
               <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
-              <h2 className="mt-1 truncate text-xl font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
-              <p className="mt-1 truncate text-sm text-[#60717d]">
-                {[selectedSite?.customerName, selectedSite?.customerPhone, selectedSite?.address].filter(Boolean).join(' · ') || '현장 정보가 없습니다.'}
+              <h2 className="mt-1 truncate text-lg font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
+              <p className="mt-1 text-sm leading-5 text-[#60717d]">
+                <span className="block truncate">{[selectedSite?.customerName, selectedSite?.customerPhone].filter(Boolean).join(' · ') || '고객 정보 없음'}</span>
+                <span className="block truncate">{selectedSite?.address || '주소 정보 없음'}</span>
               </p>
             </div>
             <div className="grid gap-2 rounded-md bg-[#f7fafb] p-3">
@@ -915,10 +1078,11 @@ export default function EstimateWorkspacePage() {
                 className="min-w-0 resize-none rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]"
               />
             </div>
-            <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
-            <CompactMetric title="견적 예상원가" value={formatMoney(totals.estimateExecutionCostTotal)} />
-            <CompactMetric title="예상 마진" value={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
-            <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+            <CompactMetric title="견적 금액" value={formatCompactMoney(totals.customerEstimateTotal)} fullValue={formatMoney(totals.customerEstimateTotal)} />
+            <CompactMetric title="견적 예상원가" value={formatCompactMoney(totals.estimateExecutionCostTotal)} fullValue={formatMoney(totals.estimateExecutionCostTotal)} />
+            <CompactMetric title="추가 비용" value={formatCompactMoney(totals.additionalCostTotal)} fullValue={formatMoney(totals.additionalCostTotal)} tone={totals.additionalCostTotal > 0 ? 'negative' : 'default'} />
+            <CompactMetric title="예상 마진" value={formatCompactMoney(totals.estimatedMarginAmount)} fullValue={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
+            <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatCompactMoney(totals.actualMarginAmount) : '미작성'} fullValue={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '실행 내역서 기준'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
             <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
@@ -997,6 +1161,8 @@ export default function EstimateWorkspacePage() {
             { key: 'work' as const, label: '실행 내역서', Icon: ClipboardList },
             { key: 'materials' as const, label: '자재 단가', Icon: Search },
             { key: 'schedule' as const, label: '공정 일정', Icon: CalendarDays },
+            { key: 'purchase' as const, label: '발주서', Icon: ClipboardList },
+            { key: 'extras' as const, label: '추가 사항', Icon: FileSpreadsheet },
             { key: 'documents' as const, label: '서류 출력', Icon: Printer },
           ].map(({ key, label, Icon }) => (
             <button
@@ -1019,6 +1185,9 @@ export default function EstimateWorkspacePage() {
         </datalist>
         <datalist id="estimate-material-names">
           {materialNames.map((name) => <option key={name} value={name} />)}
+        </datalist>
+        <datalist id="estimate-vendors">
+          {vendorNames.map((name) => <option key={name} value={name} />)}
         </datalist>
 
         {activeTab === 'lines' && (
@@ -1599,6 +1768,247 @@ export default function EstimateWorkspacePage() {
           </section>
         )}
 
+        {activeTab === 'purchase' && (
+          <section className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-semibold">발주서 리스트</h2>
+                  <p className="mt-1 text-sm leading-6 text-[#60717d]">업체별 발주 내용을 저장하고 관리합니다.</p>
+                </div>
+                <button type="button" onClick={addPurchaseOrder} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white">
+                  <Plus size={15} />
+                  추가
+                </button>
+              </div>
+              <div className="mt-4 grid max-h-[calc(100vh-340px)] gap-2 overflow-y-auto pr-1">
+                {purchaseOrders.map((order) => {
+                  const orderTotal = order.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+                  return (
+                    <button
+                      key={order.id}
+                      type="button"
+                      onClick={() => setSelectedPurchaseOrderId(order.id)}
+                      className={`rounded-lg border p-3 text-left transition ${selectedPurchaseOrder?.id === order.id ? 'border-[#38a9bd] bg-[#edf8fb]' : 'border-[#d5dde2] bg-[#f7fafb] hover:border-[#c6a25d]'}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-semibold">{order.title || '발주서'}</p>
+                          <p className="mt-1 truncate text-xs text-[#60717d]">{order.vendorName || '업체 미지정'} · {order.orderDate || '날짜 없음'}</p>
+                        </div>
+                        <span title={formatMoney(orderTotal)} className="shrink-0 text-xs font-bold text-[#217346]">{formatCompactMoney(orderTotal)}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-4 rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3 text-sm">
+                <p className="font-semibold">발주 총액</p>
+                <p title={formatMoney(purchaseOrderTotal)} className="mt-1 text-2xl font-bold text-[#171512]">{formatCompactMoney(purchaseOrderTotal)}</p>
+              </div>
+            </aside>
+
+            <section className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+              {selectedPurchaseOrder ? (
+                <>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-xl font-semibold">발주서 작성</h2>
+                      <p className="mt-1 text-sm leading-6 text-[#60717d]">모델명, 업체명, 규격, 개수, 날짜를 입력하면 아래 발주 틀에 정리됩니다.</p>
+                    </div>
+                    <button type="button" onClick={() => deletePurchaseOrder(selectedPurchaseOrder.id)} className="inline-flex items-center gap-2 rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600">
+                      <Trash2 size={16} />
+                      발주서 삭제
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-4 md:grid-cols-5">
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d] md:col-span-2">
+                      발주서명
+                      <input value={selectedPurchaseOrder.title} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { title: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      업체명
+                      <input list="estimate-vendors" value={selectedPurchaseOrder.vendorName} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { vendorName: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      발주일
+                      <input type="date" value={selectedPurchaseOrder.orderDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { orderDate: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                      입고 예정일
+                      <input type="date" value={selectedPurchaseOrder.deliveryDate} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { deliveryDate: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    <label className="grid gap-1 text-xs font-bold text-[#60717d] md:col-span-5">
+                      메모
+                      <input value={selectedPurchaseOrder.memo} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { memo: event.target.value })} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]" />
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <h3 className="font-semibold">발주 항목</h3>
+                    <button type="button" onClick={() => addPurchaseOrderItem(selectedPurchaseOrder.id)} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+                      <Plus size={16} />
+                      항목 추가
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid gap-3">
+                    {selectedPurchaseOrder.items.map((item) => {
+                      const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                      return (
+                        <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
+                          <div className="grid gap-2 lg:grid-cols-[1fr_1fr_1.2fr_90px_90px_120px_120px_auto] lg:items-end">
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              구분
+                              <input value={item.category} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { category: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              모델명
+                              <input value={item.modelName} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { modelName: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              규격
+                              <input value={item.spec} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { spec: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              수량
+                              <NumberTextInput value={item.quantity} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { quantity: value })} className="bg-white text-sm font-semibold" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              단위
+                              <input value={item.unit} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unit: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                            </label>
+                            <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                              단가
+                              <NumberTextInput value={item.unitPrice} onChange={(value) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { unitPrice: value })} className="bg-white text-sm font-semibold" />
+                            </label>
+                            <div className="rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
+                              <p className="text-[11px] font-bold text-[#60717d]">금액</p>
+                              <p title={formatMoney(amount)} className="mt-1 font-semibold">{formatCompactMoney(amount)}</p>
+                            </div>
+                            <button type="button" onClick={() => deletePurchaseOrderItem(selectedPurchaseOrder.id, item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                          <input value={item.note} onChange={(event) => updatePurchaseOrderItem(selectedPurchaseOrder.id, item.id, { note: event.target.value })} placeholder="비고" className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                        </article>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-5 overflow-hidden rounded-lg border border-[#171512] bg-white">
+                    <div className="grid grid-cols-[1fr_auto] border-b border-[#171512]">
+                      <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
+                      <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
+                    </div>
+                    <table className="w-full border-collapse text-sm">
+                      <thead className="bg-[#f3f1ec]">
+                        <tr>
+                          {['구분', '모델명', '규격', '수량', '단위', '금액', '비고'].map((header) => (
+                            <th key={header} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selectedPurchaseOrder.items.map((item) => (
+                          <tr key={`summary-${item.id}`}>
+                            <td className="border border-[#171512] px-3 py-2">{item.category}</td>
+                            <td className="border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
+                            <td className="border border-[#171512] px-3 py-2">{item.spec}</td>
+                            <td className="border border-[#171512] px-3 py-2 text-right">{formatNumber(item.quantity)}</td>
+                            <td className="border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
+                            <td className="border border-[#171512] px-3 py-2 text-right">{formatMoney(item.quantity * item.unitPrice)}</td>
+                            <td className="border border-[#171512] px-3 py-2">{item.note}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-10 text-center text-sm text-[#60717d]">발주서를 추가해주세요.</div>
+              )}
+            </section>
+          </section>
+        )}
+
+        {activeTab === 'extras' && (
+          <section className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold">추가 사항</h2>
+                <p className="mt-1 text-sm leading-6 text-[#60717d]">공사 중 발생한 추가 비용을 기록합니다. 실제 마진 계산에 반영됩니다.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-2">
+                  <p className="text-[11px] font-bold text-[#60717d]">추가 비용 합계</p>
+                  <p title={formatMoney(totals.additionalCostTotal)} className="text-xl font-bold text-red-600">{formatCompactMoney(totals.additionalCostTotal)}</p>
+                </div>
+                <button type="button" onClick={() => setExtraItems((current) => [...current, emptyExtraItem()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 font-semibold text-white">
+                  <Plus size={16} />
+                  항목 추가
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-lg border border-[#171512]">
+              <h3 className="border-b border-[#171512] py-3 text-center text-2xl font-bold tracking-[0.3em]">추가 사항</h3>
+              <div className="grid gap-3 bg-[#f7fafb] p-3">
+                {extraItems.map((item) => {
+                  const amount = Number(item.quantity || 0) * Number(item.unitPrice || 0);
+                  return (
+                    <article key={item.id} className="rounded-lg border border-[#d5dde2] bg-white p-3">
+                      <div className="grid gap-2 xl:grid-cols-[1.2fr_1fr_90px_90px_120px_120px_140px_1fr_auto] xl:items-end">
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          품명
+                          <input value={item.name} onChange={(event) => updateExtraItem(item.id, { name: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          규격
+                          <input value={item.spec} onChange={(event) => updateExtraItem(item.id, { spec: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          단위
+                          <input value={item.unit} onChange={(event) => updateExtraItem(item.id, { unit: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          수량
+                          <NumberTextInput value={item.quantity} onChange={(value) => updateExtraItem(item.id, { quantity: value })} className="bg-white text-sm font-semibold" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          단가
+                          <NumberTextInput value={item.unitPrice} onChange={(value) => updateExtraItem(item.id, { unitPrice: value })} className="bg-white text-sm font-semibold" />
+                        </label>
+                        <div className="rounded-md border border-[#edf2f5] bg-[#f7fafb] px-3 py-2">
+                          <p className="text-[11px] font-bold text-[#60717d]">금액</p>
+                          <p title={formatMoney(amount)} className="font-semibold">{formatCompactMoney(amount)}</p>
+                        </div>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          날짜
+                          <input type="date" value={item.date} onChange={(event) => updateExtraItem(item.id, { date: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          업체
+                          <input list="estimate-vendors" value={item.vendorName} onChange={(event) => updateExtraItem(item.id, { vendorName: event.target.value })} className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        </label>
+                        <button type="button" onClick={() => deleteExtraItem(item.id)} className="inline-flex h-10 items-center justify-center rounded-md border border-red-200 px-3 text-red-600">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                      <input value={item.note} onChange={(event) => updateExtraItem(item.id, { note: event.target.value })} placeholder="상세 메모" className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    </article>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-[1fr_220px] border-t border-[#171512] bg-[#f8e8da] text-lg font-bold">
+                <div className="px-4 py-3 text-center">합계</div>
+                <div title={formatMoney(totals.additionalCostTotal)} className="border-l border-[#171512] px-4 py-3 text-right">{formatMoney(totals.additionalCostTotal)}</div>
+              </div>
+            </div>
+          </section>
+        )}
+
         {activeTab === 'documents' && (
           <section className="grid gap-5 xl:grid-cols-[0.4fr_1.6fr]">
             <div className="no-print rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
@@ -1659,13 +2069,13 @@ export default function EstimateWorkspacePage() {
   );
 }
 
-function CompactMetric({ title, value, sub, tone = 'default' }: { title: string; value: string; sub?: string; tone?: 'default' | 'positive' | 'negative' }) {
+function CompactMetric({ title, value, fullValue, sub, tone = 'default' }: { title: string; value: string; fullValue?: string; sub?: string; tone?: 'default' | 'positive' | 'negative' }) {
   const toneClass = tone === 'positive' ? 'text-[#217346]' : tone === 'negative' ? 'text-red-600' : 'text-[#171512]';
   return (
     <section className="rounded-md border border-[#d5dde2] bg-white px-4 py-3">
       <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-[#60717d]">{title}</p>
       <div className="mt-1 flex items-end justify-between gap-2">
-        <p className={`truncate text-2xl font-semibold ${toneClass}`}>{value}</p>
+        <p title={fullValue || value} className={`truncate text-2xl font-semibold ${toneClass}`}>{value}</p>
         {sub && <p className="pb-1 text-xs font-semibold text-[#60717d]">{sub}</p>}
       </div>
     </section>
@@ -2698,6 +3108,53 @@ function hydrateScheduleTasks(tasks: Partial<ScheduleTask>[]) {
   });
 }
 
+function clonePurchaseOrders(orders: PurchaseOrder[]) {
+  return orders.map((order, orderIndex) => ({
+    ...order,
+    id: `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
+    items: order.items.map((item, itemIndex) => ({
+      ...item,
+      id: `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
+    })),
+  }));
+}
+
+function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
+  const next = orders.map((order, orderIndex) => ({
+    ...emptyPurchaseOrder(order.title || `발주서 ${orderIndex + 1}`),
+    ...order,
+    id: order.id || `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
+    items: Array.isArray(order.items) && order.items.length
+      ? order.items.map((item, itemIndex) => ({
+          ...emptyPurchaseOrderItem(),
+          ...item,
+          id: item.id || `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
+          quantity: Number(item.quantity || 0),
+          unitPrice: Number(item.unitPrice || 0),
+        }))
+      : [emptyPurchaseOrderItem()],
+  }));
+  return next.length ? next : [emptyPurchaseOrder()];
+}
+
+function cloneExtraItems(items: ExtraItem[]) {
+  return items.map((item, index) => ({
+    ...item,
+    id: `extra-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+  }));
+}
+
+function hydrateExtraItems(items: Partial<ExtraItem>[]) {
+  const next = items.map((item, index) => ({
+    ...emptyExtraItem(),
+    ...item,
+    id: item.id || `extra-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+    quantity: Number(item.quantity || 0),
+    unitPrice: Number(item.unitPrice || 0),
+  }));
+  return next.length ? next : [emptyExtraItem()];
+}
+
 function estimateLineToWorkLine(line: EstimateLine): WorkLine {
   return {
     id: `work-${Date.now()}-${line.id}-${Math.random().toString(16).slice(2)}`,
@@ -2787,15 +3244,16 @@ function groupLinesByCategory(lines: EstimateLine[]) {
   }));
 }
 
-function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = []) {
+function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = []) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0));
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
   const hasWorkLines = workLines.some((line) => line.name || line.category || line.process);
   const actualExecutionCostTotal = hasWorkLines
     ? Math.round(workLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0))
     : 0;
+  const additionalCostTotal = Math.round(extraItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0));
   const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
-  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal : 0;
+  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal - additionalCostTotal : 0;
   const estimatedMarginRate = customerEstimateTotal > 0 ? Math.round((estimatedMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
   const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
   return {
@@ -2803,6 +3261,7 @@ function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = []) {
     estimateExecutionCostTotal,
     actualExecutionCostTotal,
     executionCostTotal: actualExecutionCostTotal,
+    additionalCostTotal,
     estimatedMarginAmount,
     estimatedMarginRate,
     actualMarginAmount,
@@ -2970,4 +3429,23 @@ function parseJson<T>(value: string | undefined, fallback: T): T {
 
 function formatMoney(value: number) {
   return `${Math.round(Number(value || 0)).toLocaleString('ko-KR')}원`;
+}
+
+function formatCompactMoney(value: number) {
+  const amount = Math.round(Number(value || 0));
+  const sign = amount < 0 ? '-' : '';
+  const absolute = Math.abs(amount);
+  if (absolute >= 100000000) {
+    const billion = Math.floor(absolute / 100000000);
+    const tenMillion = Math.floor((absolute % 100000000) / 10000000);
+    const million = Math.floor((absolute % 10000000) / 1000000);
+    return `${sign}${billion}억${tenMillion ? `${tenMillion}천` : ''}${million ? `${million}백` : ''}만원`;
+  }
+  if (absolute >= 10000000) {
+    const tenMillion = Math.floor(absolute / 10000000);
+    const million = Math.floor((absolute % 10000000) / 1000000);
+    return `${sign}${tenMillion}천${million ? `${million}백` : ''}만원`;
+  }
+  if (absolute >= 1000000) return `${sign}${Math.round(absolute / 1000000)}백만원`;
+  return `${sign}${absolute.toLocaleString('ko-KR')}원`;
 }

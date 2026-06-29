@@ -58,6 +58,40 @@ type ScheduleTask = {
   memo?: string;
 };
 
+type PurchaseOrderItem = {
+  id?: string;
+  category?: string;
+  modelName?: string;
+  vendorName?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number | string;
+  unitPrice?: number | string;
+  note?: string;
+};
+
+type PurchaseOrder = {
+  id?: string;
+  title?: string;
+  vendorName?: string;
+  orderDate?: string;
+  deliveryDate?: string;
+  memo?: string;
+  items?: PurchaseOrderItem[];
+};
+
+type ExtraItem = {
+  id?: string;
+  name?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number | string;
+  unitPrice?: number | string;
+  date?: string;
+  vendorName?: string;
+  note?: string;
+};
+
 type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
 
 type MaterialDoc = {
@@ -80,9 +114,10 @@ const estimateQuery = `{
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
+    purchaseOrdersJson, extraItemsJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
-    actualExecutionCostTotal, actualMarginAmount, actualMarginRate,
+    actualExecutionCostTotal, actualMarginAmount, actualMarginRate, additionalCostTotal,
     memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
@@ -177,8 +212,10 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const lines = Array.isArray(body.lines) ? normalizeLines(body.lines as EstimateLine[]) : [];
   const workLines = Array.isArray(body.workLines) ? normalizeWorkLines(body.workLines as WorkLine[]) : [];
   const schedule = Array.isArray(body.schedule) ? normalizeSchedule(body.schedule as ScheduleTask[]) : [];
+  const purchaseOrders = Array.isArray(body.purchaseOrders) ? normalizePurchaseOrders(body.purchaseOrders as PurchaseOrder[]) : [];
+  const extraItems = Array.isArray(body.extraItems) ? normalizeExtraItems(body.extraItems as ExtraItem[]) : [];
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
-  const totals = calculateTotals(lines, workLines);
+  const totals = calculateTotals(lines, workLines, extraItems);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
   const versionType = normalizeVersionType(body.versionType);
@@ -197,6 +234,8 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     workLinesJson: JSON.stringify(workLines),
     scheduleJson: JSON.stringify(schedule),
     holidaysJson: JSON.stringify(holidays),
+    purchaseOrdersJson: JSON.stringify(purchaseOrders),
+    extraItemsJson: JSON.stringify(extraItems),
     customerEstimateTotal: totals.customerEstimateTotal,
     executionCostTotal: totals.executionCostTotal,
     marginAmount: totals.marginAmount,
@@ -207,6 +246,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     actualExecutionCostTotal: totals.actualExecutionCostTotal,
     actualMarginAmount: totals.actualMarginAmount,
     actualMarginRate: totals.actualMarginRate,
+    additionalCostTotal: totals.additionalCostTotal,
     memo: String(body.memo || '').trim(),
     createdAt: typeof body.createdAt === 'string' ? body.createdAt : now,
     updatedAt: now,
@@ -419,6 +459,65 @@ function normalizeSchedule(schedule: ScheduleTask[]) {
     .filter((task) => task.name);
 }
 
+function normalizePurchaseOrders(orders: PurchaseOrder[]) {
+  return orders
+    .map((order, index) => {
+      const id = String(order.id || `purchase-${Date.now()}-${index}`).trim();
+      const items = Array.isArray(order.items)
+        ? order.items
+            .map((item, itemIndex) => {
+              const quantity = toNumber(item.quantity);
+              const unitPrice = toNumber(item.unitPrice);
+              return {
+                id: String(item.id || `${id}-item-${itemIndex}`).trim(),
+                category: String(item.category || '').trim(),
+                modelName: String(item.modelName || '').trim(),
+                vendorName: String(item.vendorName || '').trim(),
+                spec: String(item.spec || '').trim(),
+                unit: String(item.unit || '').trim(),
+                quantity,
+                unitPrice,
+                amount: Math.round(quantity * unitPrice),
+                note: String(item.note || '').trim(),
+              };
+            })
+            .filter((item) => item.category || item.modelName || item.spec || item.quantity || item.unitPrice || item.note)
+        : [];
+
+      return {
+        id,
+        title: String(order.title || '').trim(),
+        vendorName: String(order.vendorName || '').trim(),
+        orderDate: String(order.orderDate || '').trim(),
+        deliveryDate: String(order.deliveryDate || '').trim(),
+        memo: String(order.memo || '').trim(),
+        items,
+      };
+    })
+    .filter((order) => order.title || order.vendorName || order.memo || order.items.length > 0);
+}
+
+function normalizeExtraItems(items: ExtraItem[]) {
+  return items
+    .map((item, index) => {
+      const quantity = toNumber(item.quantity);
+      const unitPrice = toNumber(item.unitPrice);
+      return {
+        id: String(item.id || `extra-${Date.now()}-${index}`).trim(),
+        name: String(item.name || '').trim(),
+        spec: String(item.spec || '').trim(),
+        unit: String(item.unit || '').trim(),
+        quantity,
+        unitPrice,
+        amount: Math.round(quantity * unitPrice),
+        date: String(item.date || '').trim(),
+        vendorName: String(item.vendorName || '').trim(),
+        note: String(item.note || '').trim(),
+      };
+    })
+    .filter((item) => item.name || item.spec || item.vendorName || item.quantity || item.unitPrice || item.note);
+}
+
 function normalizeHolidays(values: unknown[]) {
   return Array.from(
     new Set(
@@ -434,15 +533,20 @@ function normalizeColor(value: unknown) {
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
 }
 
-function calculateTotals(lines: ReturnType<typeof normalizeLines>, workLines: ReturnType<typeof normalizeWorkLines>) {
+function calculateTotals(
+  lines: ReturnType<typeof normalizeLines>,
+  workLines: ReturnType<typeof normalizeWorkLines>,
+  extraItems: ReturnType<typeof normalizeExtraItems> = [],
+) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
   const hasWorkLines = workLines.length > 0;
   const actualExecutionCostTotal = hasWorkLines
     ? Math.round(workLines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0))
     : 0;
+  const additionalCostTotal = Math.round(extraItems.reduce((sum, item) => sum + Number(item.amount || 0), 0));
   const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
-  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal : 0;
+  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal - additionalCostTotal : 0;
   const estimatedMarginRate = customerEstimateTotal > 0 ? Math.round((estimatedMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
   const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
   const executionCostTotal = actualExecutionCostTotal;
@@ -460,6 +564,7 @@ function calculateTotals(lines: ReturnType<typeof normalizeLines>, workLines: Re
     actualExecutionCostTotal,
     actualMarginAmount,
     actualMarginRate,
+    additionalCostTotal,
   };
 }
 
