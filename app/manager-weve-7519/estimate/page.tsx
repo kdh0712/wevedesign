@@ -44,6 +44,7 @@ type EstimateLine = {
 type WorkLine = {
   id: string;
   sourceLineId?: string;
+  date: string;
   space: string;
   category: string;
   process: string;
@@ -52,6 +53,9 @@ type WorkLine = {
   unit: string;
   quantity: number;
   executionUnitPrice: number;
+  income: number;
+  expense: number;
+  payment: number;
   vendor: string;
   status: string;
   note: string;
@@ -95,6 +99,8 @@ type PurchaseOrder = {
   visibleColumns: PurchaseOrderTableColumn[];
   columnWidths?: Partial<Record<PurchaseOrderTableColumn, string>>;
   mergeSameCategory?: boolean;
+  headerMergeLabel?: string;
+  headerMergeColumns?: PurchaseOrderTableColumn[];
   items: PurchaseOrderItem[];
 };
 
@@ -122,6 +128,12 @@ type ExtraItem = {
   note: string;
 };
 
+type LegacyWorkSite = {
+  id: string;
+  siteName: string;
+  rows: WorkLine[];
+};
+
 type Vendor = {
   _id?: string;
   name?: string;
@@ -146,6 +158,7 @@ type SiteEstimate = {
   holidaysJson?: string;
   purchaseOrdersJson?: string;
   extraItemsJson?: string;
+  legacyWorkbooksJson?: string;
   customerEstimateTotal?: number;
   executionCostTotal?: number;
   marginAmount?: number;
@@ -288,6 +301,7 @@ const emptyTask = (): ScheduleTask => ({
 const emptyWorkLine = (): WorkLine => ({
   id: `work-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   sourceLineId: '',
+  date: todayKey(),
   space: '',
   category: '',
   process: '',
@@ -296,6 +310,9 @@ const emptyWorkLine = (): WorkLine => ({
   unit: '',
   quantity: 1,
   executionUnitPrice: 0,
+  income: 0,
+  expense: 0,
+  payment: 0,
   vendor: '',
   status: '예정',
   note: '',
@@ -383,6 +400,8 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
   columnWidths: purchaseOrderColumnWidthValues,
   mergeSameCategory: false,
+  headerMergeLabel: '',
+  headerMergeColumns: [],
   items: [],
 });
 
@@ -417,7 +436,11 @@ export default function EstimateWorkspacePage() {
   const [versionLabel, setVersionLabel] = useState('초안');
   const [memo, setMemo] = useState('');
   const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
+  const [lineDraft, setLineDraft] = useState<EstimateLine>(() => emptyLine());
+  const [editingLineId, setEditingLineId] = useState('');
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
+  const [workLineDraft, setWorkLineDraft] = useState<WorkLine>(() => emptyWorkLine());
+  const [editingWorkLineId, setEditingWorkLineId] = useState('');
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([emptyPurchaseOrder()]);
   const [selectedPurchaseOrderId, setSelectedPurchaseOrderId] = useState('');
@@ -427,6 +450,9 @@ export default function EstimateWorkspacePage() {
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([emptyExtraItem()]);
   const [extraItemDraft, setExtraItemDraft] = useState<ExtraItem>(() => emptyExtraItem());
   const [editingExtraItemId, setEditingExtraItemId] = useState('');
+  const [legacyWorkSites, setLegacyWorkSites] = useState<LegacyWorkSite[]>([]);
+  const [selectedLegacyWorkSiteId, setSelectedLegacyWorkSiteId] = useState('');
+  const [isLegacyWorkModalOpen, setIsLegacyWorkModalOpen] = useState(false);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
@@ -518,6 +544,22 @@ export default function EstimateWorkspacePage() {
       .slice(0, 120);
   }, [materials, lineDbCategory, lineDbSearch]);
   const lineFilterOptions = lineFilterType === 'space' ? lineSpaceOptions : lineFilterType === 'category' ? lineCategoryOptions : [];
+  const lineProcessOptions = useMemo(
+    () => uniqueLineValues(lines, (line) => line.process || line.category || line.name),
+    [lines],
+  );
+  const workLedgerTotals = useMemo(
+    () => ({
+      income: Math.round(workLines.reduce((sum, line) => sum + Number(line.income || 0), 0)),
+      expense: Math.round(workLines.reduce((sum, line) => sum + Number(workLineExpense(line) || 0), 0)),
+      payment: Math.round(workLines.reduce((sum, line) => sum + Number(line.payment || 0), 0)),
+    }),
+    [workLines],
+  );
+  const selectedLegacyWorkSite = useMemo(
+    () => legacyWorkSites.find((site) => site.id === selectedLegacyWorkSiteId) || legacyWorkSites[0],
+    [legacyWorkSites, selectedLegacyWorkSiteId],
+  );
 
   useEffect(() => {
     let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
@@ -565,6 +607,10 @@ export default function EstimateWorkspacePage() {
       const nextLines = site ? [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }] : [emptyLine()];
       setLines(nextLines);
       setWorkLines(deriveWorkLines(nextLines));
+      setLineDraft(emptyLine());
+      setEditingLineId('');
+      setWorkLineDraft(emptyWorkLine());
+      setEditingWorkLineId('');
       setSchedule([emptyTask()]);
       const nextPurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextPurchaseOrders);
@@ -574,6 +620,8 @@ export default function EstimateWorkspacePage() {
       setEditingPurchaseItemId('');
       setExtraItemDraft(emptyExtraItem());
       setEditingExtraItemId('');
+      setLegacyWorkSites([]);
+      setSelectedLegacyWorkSiteId('');
       setHolidays([]);
       setSelectedLineId('');
       return;
@@ -595,10 +643,14 @@ export default function EstimateWorkspacePage() {
     setVersionLabel(estimate?.versionLabel || defaultVersionLabel(nextVersionType, selectedSiteEstimates));
     setMemo(estimate?.memo || '');
     const nextLines = parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]);
-    const nextWorkLines = parseJson<WorkLine[]>(estimate?.workLinesJson, []);
+    const nextWorkLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(estimate?.workLinesJson, []));
     const nextPurchaseOrders = hydratePurchaseOrders(parseJson<Partial<PurchaseOrder>[]>(estimate?.purchaseOrdersJson, [emptyPurchaseOrder()]));
     setLines(nextLines);
     setWorkLines(nextWorkLines.length ? nextWorkLines : deriveWorkLines(nextLines));
+    setLineDraft(emptyLine());
+    setEditingLineId('');
+    setWorkLineDraft(emptyWorkLine());
+    setEditingWorkLineId('');
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
@@ -607,6 +659,9 @@ export default function EstimateWorkspacePage() {
     setEditingPurchaseItemId('');
     setExtraItemDraft(emptyExtraItem());
     setEditingExtraItemId('');
+    const nextLegacyWorkSites = hydrateLegacyWorkSites(parseJson<Partial<LegacyWorkSite>[]>(estimate?.legacyWorkbooksJson, []));
+    setLegacyWorkSites(nextLegacyWorkSites);
+    setSelectedLegacyWorkSiteId(nextLegacyWorkSites[0]?.id || '');
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setSelectedLineId('');
 
@@ -616,6 +671,10 @@ export default function EstimateWorkspacePage() {
       const nextLinesForSite = [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }];
       setLines(nextLinesForSite);
       setWorkLines(deriveWorkLines(nextLinesForSite));
+      setLineDraft(emptyLine());
+      setEditingLineId('');
+      setWorkLineDraft(emptyWorkLine());
+      setEditingWorkLineId('');
       const nextSitePurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextSitePurchaseOrders);
       setSelectedPurchaseOrderId(nextSitePurchaseOrders[0].id);
@@ -624,6 +683,8 @@ export default function EstimateWorkspacePage() {
       setEditingPurchaseItemId('');
       setExtraItemDraft(emptyExtraItem());
       setEditingExtraItemId('');
+      setLegacyWorkSites([]);
+      setSelectedLegacyWorkSiteId('');
       setHolidays([]);
     }
   }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
@@ -714,6 +775,7 @@ export default function EstimateWorkspacePage() {
           schedule,
           purchaseOrders,
           extraItems,
+          legacyWorkSites,
           holidays,
           memo,
           createdAt: selectedEstimate?.createdAt,
@@ -900,6 +962,10 @@ export default function EstimateWorkspacePage() {
         : [{ ...emptyLine(), space: '공용', category: selectedSite.siteType || '', name: `${selectedSite.title || '현장'} ${nextLabel}` }];
     setLines(nextLines);
     setWorkLines(copyCurrent && workLines.some((line) => line.name || line.category || line.process) ? cloneWorkLines(workLines) : deriveWorkLines(nextLines));
+    setLineDraft(emptyLine());
+    setEditingLineId('');
+    setWorkLineDraft(emptyWorkLine());
+    setEditingWorkLineId('');
     setSchedule(copyCurrent && schedule.some((task) => task.name) ? cloneScheduleTasks(schedule) : [emptyTask()]);
     const nextPurchaseOrders = copyCurrent && purchaseOrders.some((order) => order.title || order.vendorName || order.items.some((item) => item.modelName || item.spec))
       ? clonePurchaseOrders(purchaseOrders)
@@ -907,6 +973,9 @@ export default function EstimateWorkspacePage() {
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
     setExtraItems(copyCurrent && extraItems.some((item) => item.name || item.spec || item.vendorName) ? cloneExtraItems(extraItems) : []);
+    const nextLegacyWorkSites = copyCurrent ? cloneLegacyWorkSites(legacyWorkSites) : [];
+    setLegacyWorkSites(nextLegacyWorkSites);
+    setSelectedLegacyWorkSiteId(nextLegacyWorkSites[0]?.id || '');
     setPurchaseItemDraft(emptyPurchaseOrderItem());
     setEditingPurchaseItemId('');
     setExtraItemDraft(emptyExtraItem());
@@ -922,6 +991,33 @@ export default function EstimateWorkspacePage() {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
   };
 
+  const resetLineDraft = () => {
+    setLineDraft(emptyLine());
+    setEditingLineId('');
+  };
+
+  const editLineDraft = (line: EstimateLine) => {
+    setLineDraft({ ...line });
+    setEditingLineId(line.id);
+    setSelectedLineId(line.id);
+  };
+
+  const submitLineDraft = () => {
+    if (!lineDraft.space && !lineDraft.category && !lineDraft.process && !lineDraft.name && !lineDraft.note) {
+      setError('견적 항목 내용을 먼저 입력해주세요.');
+      return;
+    }
+    const nextLine = { ...lineDraft, id: editingLineId || `line-${Date.now()}-${Math.random().toString(16).slice(2)}` };
+    setLines((current) =>
+      editingLineId
+        ? current.map((line) => (line.id === editingLineId ? nextLine : line))
+        : [...current, nextLine],
+    );
+    setSelectedLineId(nextLine.id);
+    resetLineDraft();
+    setError('');
+  };
+
   const deleteLine = (id: string) => {
     setLines((current) => {
       const next = current.filter((line) => line.id !== id);
@@ -929,6 +1025,7 @@ export default function EstimateWorkspacePage() {
     });
     setWorkLines((current) => current.filter((line) => line.sourceLineId !== id));
     setSelectedLineId((current) => (current === id ? '' : current));
+    if (editingLineId === id) resetLineDraft();
   };
 
   const updateTask = (id: string, updates: Partial<ScheduleTask>) => {
@@ -937,6 +1034,75 @@ export default function EstimateWorkspacePage() {
 
   const updateWorkLine = (id: string, updates: Partial<WorkLine>) => {
     setWorkLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
+  };
+
+  const resetWorkLineDraft = () => {
+    setWorkLineDraft(emptyWorkLine());
+    setEditingWorkLineId('');
+  };
+
+  const editWorkLine = (line: WorkLine) => {
+    setWorkLineDraft({ ...line, expense: workLineExpense(line) });
+    setEditingWorkLineId(line.id);
+  };
+
+  const submitWorkLine = () => {
+    if (!workLineDraft.date && !workLineDraft.process && !workLineDraft.income && !workLineDraft.expense && !workLineDraft.payment && !workLineDraft.note) {
+      setError('실행 내역 내용을 먼저 입력해주세요.');
+      return;
+    }
+    const nextLine = {
+      ...workLineDraft,
+      id: editingWorkLineId || `work-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      date: workLineDraft.date || todayKey(),
+    };
+    setWorkLines((current) =>
+      editingWorkLineId
+        ? current.map((line) => (line.id === editingWorkLineId ? nextLine : line))
+        : [...current, nextLine],
+    );
+    resetWorkLineDraft();
+    setError('');
+  };
+
+  const deleteWorkLine = (id: string) => {
+    setWorkLines((current) => current.filter((line) => line.id !== id));
+    if (editingWorkLineId === id) resetWorkLineDraft();
+  };
+
+  const importLegacyWorkExcel = async (file: File | null) => {
+    if (!file) return;
+    try {
+      const XLSX = await import('xlsx');
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const imported = workbook.SheetNames.map((sheetName) => ({
+        id: `legacy-${Date.now()}-${hashString(sheetName)}-${Math.random().toString(16).slice(2)}`,
+        siteName: sheetName,
+        rows: parseLegacyWorkSheet(XLSX.utils.sheet_to_json<Array<string | number | Date>>(workbook.Sheets[sheetName], { header: 1, defval: '' })),
+      })).filter((site) => site.rows.length > 0);
+      if (!imported.length) {
+        setError('가져올 실행 내역서 행을 찾지 못했습니다. 1행에 날짜/공종/수입/지출/결제/비고 머리글이 있는지 확인해주세요.');
+        return;
+      }
+      setLegacyWorkSites((current) => mergeLegacyWorkSites(current, imported));
+      setSelectedLegacyWorkSiteId(imported[0]?.id || '');
+      setIsLegacyWorkModalOpen(true);
+      setStatus(`과거 실행 내역서 ${imported.length}개 시트를 불러왔습니다. 저장 버튼을 눌러 현재 견적 버전에 반영하세요.`);
+      setError('');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '과거 실행 내역서 엑셀을 불러오지 못했습니다.');
+    }
+  };
+
+  const exportWorkExcel = async () => {
+    const XLSX = await import('xlsx');
+    const book = XLSX.utils.book_new();
+    const currentRows = workLines.filter(isMeaningfulWorkLine).map(workLineToExcelRow);
+    XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(currentRows), sheetSafeName(selectedSite?.title || '현재 실행내역'));
+    legacyWorkSites.forEach((site) => {
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(site.rows.map(workLineToExcelRow)), sheetSafeName(site.siteName));
+    });
+    XLSX.writeFile(book, `weve-work-ledger-${todayKey()}.xlsx`);
   };
 
   const addPurchaseOrder = () => {
@@ -961,6 +1127,8 @@ export default function EstimateWorkspacePage() {
               visibleColumns: defaultPurchaseOrderVisibleColumns[templateKey],
               columnWidths: { ...purchaseOrderColumnWidthValues },
               mergeSameCategory: templateKey === 'subType',
+              headerMergeLabel: templateKey === 'subType' ? '구분' : '',
+              headerMergeColumns: templateKey === 'subType' ? ['category', 'modelName'] : [],
             }
           : order,
       ),
@@ -1588,10 +1756,62 @@ export default function EstimateWorkspacePage() {
                       조건 초기화
                     </button>
                   )}
-                  <button type="button" onClick={() => setLines((current) => [...current, emptyLine()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+                  <button type="button" onClick={submitLineDraft} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
                     <Plus size={16} />
-                    항목 추가
+                    {editingLineId ? '수정 반영' : '항목 추가'}
                   </button>
+                </div>
+              </div>
+
+              <div className="sticky top-0 z-20 mb-4 rounded-lg border border-[#cfd9df] bg-white p-3 shadow-sm">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold">{editingLineId ? '견적 항목 수정' : '견적 항목 입력'}</h3>
+                    <p className="mt-1 text-xs text-[#60717d]">공간, 분류, 공종, 품명과 단가를 입력한 뒤 항목 추가를 누르면 아래 내역에 반영됩니다.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    {editingLineId && (
+                      <button type="button" onClick={resetLineDraft} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold">
+                        입력 초기화
+                      </button>
+                    )}
+                    <button type="button" onClick={submitLineDraft} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
+                      <Plus size={16} />
+                      {editingLineId ? '수정 반영' : '항목 추가'}
+                    </button>
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[0.8fr_1fr_1fr_1.2fr_1fr_0.65fr_0.65fr_0.9fr_0.9fr_1.2fr]">
+                  <FieldShell label="공간">
+                    <CellSelect value={lineDraft.space} options={defaultSpaces} onChange={(value) => setLineDraft((current) => ({ ...current, space: value }))} />
+                  </FieldShell>
+                  <FieldShell label="분류">
+                    <CellInput value={lineDraft.category} listId="estimate-categories" onChange={(value) => setLineDraft((current) => ({ ...current, category: value }))} />
+                  </FieldShell>
+                  <FieldShell label="공종">
+                    <CellInput value={lineDraft.process} listId="estimate-processes" onChange={(value) => setLineDraft((current) => ({ ...current, process: value }))} />
+                  </FieldShell>
+                  <FieldShell label="품명">
+                    <CellInput value={lineDraft.name} listId="estimate-material-names" onChange={(value) => setLineDraft((current) => ({ ...current, name: value }))} />
+                  </FieldShell>
+                  <FieldShell label="규격">
+                    <CellInput value={lineDraft.spec} onChange={(value) => setLineDraft((current) => ({ ...current, spec: value }))} />
+                  </FieldShell>
+                  <FieldShell label="단위">
+                    <CellInput value={lineDraft.unit} onChange={(value) => setLineDraft((current) => ({ ...current, unit: value }))} />
+                  </FieldShell>
+                  <FieldShell label="수량">
+                    <CellNumber value={lineDraft.quantity} onChange={(value) => setLineDraft((current) => ({ ...current, quantity: value }))} />
+                  </FieldShell>
+                  <FieldShell label="견적단가">
+                    <CellNumber value={lineDraft.customerUnitPrice} onChange={(value) => setLineDraft((current) => ({ ...current, customerUnitPrice: value }))} />
+                  </FieldShell>
+                  <FieldShell label="실행단가">
+                    <CellNumber value={lineDraft.executionUnitPrice} onChange={(value) => setLineDraft((current) => ({ ...current, executionUnitPrice: value }))} />
+                  </FieldShell>
+                  <FieldShell label="비고">
+                    <CellInput value={lineDraft.note} onChange={(value) => setLineDraft((current) => ({ ...current, note: value }))} />
+                  </FieldShell>
                 </div>
               </div>
 
@@ -1617,7 +1837,7 @@ export default function EstimateWorkspacePage() {
                             {lineGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
                           </div>
                         )}
-                        <article className={`rounded-lg border bg-white p-3 shadow-sm ${selectedLineId === line.id ? 'border-[#f1c76a] ring-2 ring-[#f1c76a]/25' : isPinnedBaseLine ? 'border-[#f1c76a]' : 'border-[#d5dde2]'}`}>
+                        <article onDoubleClick={() => editLineDraft(line)} className={`rounded-lg border bg-white p-3 shadow-sm ${selectedLineId === line.id ? 'border-[#f1c76a] ring-2 ring-[#f1c76a]/25' : isPinnedBaseLine ? 'border-[#f1c76a]' : 'border-[#d5dde2]'}`}>
                           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                             <div className="flex flex-wrap items-center gap-2">
                               <button
@@ -1639,6 +1859,9 @@ export default function EstimateWorkspacePage() {
                             <button type="button" onClick={() => deleteLine(line.id)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50" aria-label="견적 항목 삭제">
                               <Trash2 size={14} />
                               항목 삭제
+                            </button>
+                            <button type="button" onClick={() => editLineDraft(line)} className="inline-flex items-center gap-1 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold text-[#171512] hover:bg-[#f7fafb]">
+                              수정 불러오기
                             </button>
                           </div>
 
@@ -1700,98 +1923,125 @@ export default function EstimateWorkspacePage() {
               <div>
                 <h2 className="text-xl font-semibold">실행 내역서</h2>
                 <p className="mt-1 text-sm leading-6 text-[#60717d]">
-                  실제 실행 원가를 관리하는 내역입니다. 이 합계가 실제 마진 계산에 반영됩니다.
+                  날짜별 수입, 지출, 결제 내역을 기록합니다. 지출 합계는 실제 마진 계산에 반영됩니다.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <select
-                  value={workGroupBy}
-                  onChange={(event) => setWorkGroupBy(event.target.value as typeof workGroupBy)}
-                  aria-label="실행 내역서 정렬 기준"
-                  className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
-                >
-                  <option value="category">분류별 정렬</option>
-                  <option value="space">공간별 정렬</option>
-                </select>
                 <button type="button" onClick={syncWorkLinesFromEstimate} className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
                   <Copy size={16} />
-                  견적에서 불러오기
+                  견적 공종 반영
                 </button>
-                <button type="button" onClick={() => setWorkLines((current) => [...current, emptyWorkLine()])} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-                  <Plus size={16} />
-                  실행 항목 추가
+                <button type="button" onClick={() => setIsLegacyWorkModalOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                  과거 실행 내역서 확인
+                </button>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                  <UploadCloud size={16} />
+                  과거 엑셀 불러오기
+                  <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => importLegacyWorkExcel(event.target.files?.[0] || null)} />
+                </label>
+                <button type="button" onClick={exportWorkExcel} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                  엑셀 내보내기
                 </button>
               </div>
             </div>
 
-            <div className="mb-4 grid gap-3 md:grid-cols-3">
-              <CompactMetric title="실제 실행 원가" value={formatMoney(totals.actualExecutionCostTotal)} />
+            <div className="mb-4 grid gap-3 md:grid-cols-4">
+              <CompactMetric title="수입 합계" value={formatMoney(workLedgerTotals.income)} />
+              <CompactMetric title="지출 합계" value={formatMoney(workLedgerTotals.expense)} />
+              <CompactMetric title="결제 합계" value={formatMoney(workLedgerTotals.payment)} />
               <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
-              <CompactMetric title="실행 항목" value={`${workLines.filter((line) => line.name).length}개`} />
             </div>
 
-            <div className="grid gap-3">
-              {sortedWorkLines.map((line, index) => {
-                const amount = Number(line.quantity || 0) * Number(line.executionUnitPrice || 0);
-                const currentGroup = workLineGroupKey(line, workGroupBy);
-                const previousGroup = index > 0 ? workLineGroupKey(sortedWorkLines[index - 1], workGroupBy) : '';
-                return (
-                  <Fragment key={line.id}>
-                    {currentGroup !== previousGroup && (
-                      <div className="mt-2 rounded-md border border-[#e7d8bd] bg-[#fff8e8] px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#8b6420]">
-                        {workGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
-                      </div>
-                    )}
-                    <article className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] p-3">
-                      <div className="grid gap-2 2xl:grid-cols-[0.75fr_0.9fr_0.9fr_1.2fr_0.9fr_0.45fr_0.45fr_0.75fr_0.8fr_0.65fr_0.9fr_auto]">
-                        <FieldShell label="공간">
-                          <CellSelect value={line.space} options={defaultSpaces} onChange={(value) => updateWorkLine(line.id, { space: value })} />
-                        </FieldShell>
-                        <FieldShell label="분류">
-                          <CellInput value={line.category} listId="estimate-categories" onChange={(value) => updateWorkLine(line.id, { category: value })} />
-                        </FieldShell>
-                        <FieldShell label="공종">
-                          <CellInput value={line.process} listId="estimate-processes" onChange={(value) => updateWorkLine(line.id, { process: value })} />
-                        </FieldShell>
-                        <FieldShell label="품명">
-                          <CellInput value={line.name} listId="estimate-material-names" onChange={(value) => updateWorkLine(line.id, { name: value })} />
-                        </FieldShell>
-                        <FieldShell label="규격">
-                          <CellInput value={line.spec} onChange={(value) => updateWorkLine(line.id, { spec: value })} />
-                        </FieldShell>
-                        <FieldShell label="수량">
-                          <CellNumber value={line.quantity} onChange={(value) => updateWorkLine(line.id, { quantity: value })} />
-                        </FieldShell>
-                        <FieldShell label="단위">
-                          <CellInput value={line.unit} onChange={(value) => updateWorkLine(line.id, { unit: value })} />
-                        </FieldShell>
-                        <FieldShell label="실행단가">
-                          <CellNumber value={line.executionUnitPrice} onChange={(value) => updateWorkLine(line.id, { executionUnitPrice: value })} />
-                        </FieldShell>
-                        <FieldShell label="협력업체">
-                          <CellInput value={line.vendor} onChange={(value) => updateWorkLine(line.id, { vendor: value })} />
-                        </FieldShell>
-                        <FieldShell label="상태">
-                          <CellSelect value={line.status} options={workStatuses} onChange={(value) => updateWorkLine(line.id, { status: value })} />
-                        </FieldShell>
-                        <FieldShell label="메모">
-                          <CellInput value={line.note} onChange={(value) => updateWorkLine(line.id, { note: value })} />
-                        </FieldShell>
-                        <div className="grid grid-cols-[1fr_auto] items-end gap-2 2xl:grid-cols-1">
-                          <div>
-                            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d]">금액</p>
-                            <p className="mt-2 whitespace-nowrap text-sm font-semibold">{formatMoney(amount)}</p>
-                          </div>
-                          <button type="button" onClick={() => setWorkLines((current) => current.filter((item) => item.id !== line.id))} className="inline-flex h-10 items-center justify-center gap-1 rounded-md border border-red-200 px-2 text-red-600" aria-label="공사 항목 삭제">
-                            <Trash2 size={16} />
-                            <span className="text-xs font-semibold">삭제</span>
-                          </button>
-                        </div>
-                      </div>
-                    </article>
-                  </Fragment>
-                );
-              })}
+            <div className="sticky top-0 z-20 mb-4 rounded-lg border border-[#cfd9df] bg-white p-3 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold">{editingWorkLineId ? '실행 항목 수정' : '실행 항목 입력'}</h3>
+                  <p className="mt-1 text-xs text-[#60717d]">날짜는 오늘로 기본 입력됩니다. 공종은 현재 견적 내역에 존재하는 공종을 선택하거나 직접 입력할 수 있습니다.</p>
+                </div>
+                <div className="flex gap-2">
+                  {editingWorkLineId && (
+                    <button type="button" onClick={resetWorkLineDraft} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold">
+                      입력 초기화
+                    </button>
+                  )}
+                  <button type="button" onClick={submitWorkLine} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
+                    <Plus size={16} />
+                    {editingWorkLineId ? '수정 반영' : '항목 추가'}
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[150px_1fr_150px_150px_150px_1.4fr]">
+                <FieldShell label="날짜">
+                  <input type="date" value={workLineDraft.date || todayKey()} onChange={(event) => setWorkLineDraft((current) => ({ ...current, date: event.target.value }))} className="w-full rounded-md border border-[#d5dde2] px-3 py-2 outline-none focus:border-[#38a9bd]" />
+                </FieldShell>
+                <FieldShell label="공종">
+                  <CellInput value={workLineDraft.process} listId="work-process-options" onChange={(value) => setWorkLineDraft((current) => ({ ...current, process: value }))} />
+                  <datalist id="work-process-options">
+                    {lineProcessOptions.map((process) => (
+                      <option key={process} value={process} />
+                    ))}
+                  </datalist>
+                </FieldShell>
+                <FieldShell label="수입">
+                  <CellNumber value={workLineDraft.income} onChange={(value) => setWorkLineDraft((current) => ({ ...current, income: value }))} />
+                </FieldShell>
+                <FieldShell label="지출">
+                  <CellNumber value={workLineDraft.expense} onChange={(value) => setWorkLineDraft((current) => ({ ...current, expense: value }))} />
+                </FieldShell>
+                <FieldShell label="결제">
+                  <CellNumber value={workLineDraft.payment} onChange={(value) => setWorkLineDraft((current) => ({ ...current, payment: value }))} />
+                </FieldShell>
+                <FieldShell label="비고">
+                  <CellInput value={workLineDraft.note} onChange={(value) => setWorkLineDraft((current) => ({ ...current, note: value }))} />
+                </FieldShell>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-[#d5dde2]">
+              <table className="w-full table-fixed border-collapse text-sm">
+                <colgroup>
+                  <col className="w-[13%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[6%]" />
+                </colgroup>
+                <thead className="bg-[#f3f1ec]">
+                  <tr>
+                    {['날짜', '공종', '수입', '지출', '결제', '비고', ''].map((header) => (
+                      <th key={header || 'actions'} className="border-b border-[#d5dde2] px-3 py-2 text-left font-semibold">{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {workLines.filter(isMeaningfulWorkLine).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-10 text-center text-sm text-[#60717d]">등록된 실행 내역이 없습니다.</td>
+                    </tr>
+                  ) : (
+                    [...workLines]
+                      .filter(isMeaningfulWorkLine)
+                      .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.process || '').localeCompare(b.process || '', 'ko-KR'))
+                      .map((line) => (
+                        <tr key={line.id} onDoubleClick={() => editWorkLine(line)} className="cursor-pointer border-t border-[#edf2f5] hover:bg-[#fff8e8]">
+                          <td className="px-3 py-2">{line.date || '-'}</td>
+                          <td className="truncate px-3 py-2 font-semibold">{line.process || '-'}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(line.income || 0)}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(line))}</td>
+                          <td className="px-3 py-2 text-right">{formatMoney(line.payment || 0)}</td>
+                          <td className="truncate px-3 py-2 text-[#60717d]">{line.note || '-'}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button type="button" onClick={(event) => { event.stopPropagation(); deleteWorkLine(line.id); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600" aria-label="실행 항목 삭제">
+                              <Trash2 size={15} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </section>
         )}
@@ -2175,11 +2425,7 @@ export default function EstimateWorkspacePage() {
                         ))}
                       </colgroup>
                       <thead className="bg-[#f3f1ec]">
-                        <tr>
-                          {selectedPurchaseOrderVisibleColumns.map((column) => (
-                            <th key={column} className="border border-[#171512] px-3 py-2 text-center">{purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}</th>
-                          ))}
-                        </tr>
+                        {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
                       </thead>
                       <tbody>
                         {selectedPurchaseOrder.items.length === 0 ? (
@@ -2247,151 +2493,18 @@ export default function EstimateWorkspacePage() {
                           </label>
                           <button
                             type="button"
-                            onClick={() => setIsPurchaseTemplateEditorOpen((current) => !current)}
+                            onClick={() => setIsPurchaseTemplateEditorOpen(true)}
                             className="mt-3 w-full rounded-md border border-[#171512] bg-white px-3 py-2 text-xs font-semibold text-[#171512] transition hover:bg-[#171512] hover:text-white"
                           >
-                            {isPurchaseTemplateEditorOpen ? '템플릿 수정 닫기' : '템플릿 수정'}
+                            템플릿 수정
                           </button>
-                          {isPurchaseTemplateEditorOpen && (
-                            <div className="mt-3 rounded-md border border-[#d5dde2] bg-white p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <div>
-                                  <p className="text-xs font-bold text-[#171512]">템플릿 미리보기 설정</p>
-                                  <p className="mt-1 text-[11px] leading-5 text-[#60717d]">열 이름과 너비를 조정하고, 같은 구분은 출력 표에서 자동 병합합니다.</p>
-                                </div>
-                                <label className="inline-flex items-center gap-2 whitespace-nowrap text-[11px] font-semibold text-[#171512]">
-                                  <input
-                                    type="checkbox"
-                                    checked={Boolean(selectedPurchaseOrder.mergeSameCategory)}
-                                    onChange={(event) => updatePurchaseOrderMergeSameCategory(selectedPurchaseOrder.id, event.target.checked)}
-                                    className="h-4 w-4 rounded border-[#d5dde2]"
-                                  />
-                                  같은 구분 병합
-                                </label>
-                              </div>
-                              <div className="mt-3 overflow-hidden rounded border border-[#171512]">
-                                <table className="w-full table-fixed border-collapse text-[11px]">
-                                  <colgroup>
-                                    {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                      <col key={column} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
-                                    ))}
-                                  </colgroup>
-                                  <thead className="bg-[#f3f1ec]">
-                                    <tr>
-                                      {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                        <th key={column} className="border border-[#171512] px-2 py-1 text-center">
-                                          {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 4) : [purchaseItemDraft]).map((item, index) => (
-                                      <tr key={`template-preview-${item.id || index}`}>
-                                        {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                          <td key={`${item.id || index}-${column}`} className="truncate border border-[#171512] px-2 py-1">
-                                            {renderPurchaseOrderCell(item, column)}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                              <div className="mt-3 grid gap-2">
-                                {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                  <div key={`template-editor-${column}`} className="grid grid-cols-[1fr_72px_auto] items-end gap-2">
-                                    <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
-                                      열 이름
-                                      <input
-                                        value={purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
-                                        onChange={(event) => {
-                                          if (column !== 'note') updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, column as keyof PurchaseOrderColumnLabels, event.target.value);
-                                        }}
-                                        disabled={column === 'note'}
-                                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd] disabled:bg-[#f1f5f7]"
-                                      />
-                                    </label>
-                                    <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
-                                      너비(%)
-                                      <input
-                                        inputMode="decimal"
-                                        value={purchaseOrderColumnWidth(selectedPurchaseOrder, column)}
-                                        onChange={(event) => updatePurchaseOrderColumnWidth(selectedPurchaseOrder.id, column, event.target.value)}
-                                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
-                                      />
-                                    </label>
-                                    <button
-                                      type="button"
-                                      onClick={() => removePurchaseOrderColumn(selectedPurchaseOrder.id, column)}
-                                      disabled={selectedPurchaseOrderVisibleColumns.length <= 1}
-                                      className="rounded-md border border-red-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                      삭제
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                              {hiddenPurchaseOrderColumns.length > 0 && (
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {hiddenPurchaseOrderColumns.map((column) => (
-                                    <button
-                                      key={`hidden-template-${column}`}
-                                      type="button"
-                                      onClick={() => addPurchaseOrderColumn(selectedPurchaseOrder.id, column)}
-                                      className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-[11px] font-semibold text-[#171512]"
-                                    >
-                                      + {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          <div className="mt-2 grid grid-cols-2 gap-2">
-                            {(Object.keys(selectedPurchaseOrderLabels) as Array<keyof PurchaseOrderColumnLabels>).map((key) => (
-                              <label key={key} className="grid gap-1 text-[11px] font-bold text-[#60717d]">
-                                {key === 'category' ? '1열' : key === 'modelName' ? '2열' : key === 'spec' ? '3열' : key === 'quantity' ? '수량열' : key === 'unit' ? '단위열' : key === 'unitPrice' ? '단가열' : '금액열'}
-                                <input value={selectedPurchaseOrderLabels[key]} onChange={(event) => updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, key, event.target.value)} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
-                              </label>
-                            ))}
-                          </div>
-                          <div className="mt-3 rounded-md border border-[#d5dde2] bg-white p-3">
-                            <p className="text-[11px] font-bold text-[#60717d]">표시 열</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                <button
-                                  key={column}
-                                  type="button"
-                                  onClick={() => removePurchaseOrderColumn(selectedPurchaseOrder.id, column)}
-                                  disabled={selectedPurchaseOrderVisibleColumns.length <= 1}
-                                  className="inline-flex items-center gap-1 rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#171512] disabled:cursor-not-allowed disabled:opacity-50"
-                                  title="클릭하면 열을 숨깁니다."
-                                >
-                                  {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
-                                  <X size={12} />
-                                </button>
-                              ))}
-                            </div>
-                            {hiddenPurchaseOrderColumns.length > 0 && (
-                              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
-                                <select id="purchase-hidden-column-select" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs outline-none focus:border-[#38a9bd]">
-                                  {hiddenPurchaseOrderColumns.map((column) => (
-                                    <option key={column} value={column}>{purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}</option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const select = document.getElementById('purchase-hidden-column-select') as HTMLSelectElement | null;
-                                    if (select?.value) addPurchaseOrderColumn(selectedPurchaseOrder.id, select.value as PurchaseOrderTableColumn);
-                                  }}
-                                  className="rounded-md bg-[#171512] px-3 py-2 text-xs font-semibold text-white"
-                                >
-                                  열 추가
-                                </button>
-                              </div>
-                            )}
+                          <div className="mt-3 rounded-md border border-[#d5dde2] bg-white p-3 text-xs leading-5 text-[#60717d]">
+                            <p>
+                              <b className="text-[#171512]">표시 열</b> · {selectedPurchaseOrderVisibleColumns.map((column) => purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)).join(', ')}
+                            </p>
+                            <p>
+                              <b className="text-[#171512]">머리글 병합</b> · {purchaseOrderHeaderMergeRange(selectedPurchaseOrder, selectedPurchaseOrderVisibleColumns)?.label || '없음'}
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -2582,6 +2695,289 @@ export default function EstimateWorkspacePage() {
           onDelete={() => deleteScheduleTask(scheduleEditor.id)}
           onClose={() => setScheduleEditor(null)}
         />
+      )}
+
+      {isLegacyWorkModalOpen && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
+          <section className="flex max-h-[86vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+            <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">LEGACY LEDGER</p>
+                <h2 className="mt-1 text-2xl font-semibold">과거 실행 내역서</h2>
+                <p className="mt-1 text-sm text-[#60717d]">엑셀 시트명을 현장명으로 저장해 두고 필요할 때 실행 내역만 확인합니다.</p>
+              </div>
+              <button type="button" onClick={() => setIsLegacyWorkModalOpen(false)} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[280px_minmax(0,1fr)]">
+              <aside className="min-h-0 overflow-y-auto border-r border-[#edf2f5] bg-[#f7fafb] p-4">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <b className="text-sm">현장 목록</b>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#60717d]">{legacyWorkSites.length}개</span>
+                </div>
+                <div className="grid gap-2">
+                  {legacyWorkSites.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#d5dde2] bg-white p-6 text-center text-sm text-[#60717d]">불러온 과거 실행 내역서가 없습니다.</div>
+                  ) : (
+                    legacyWorkSites.map((site) => (
+                      <button
+                        key={site.id}
+                        type="button"
+                        onClick={() => setSelectedLegacyWorkSiteId(site.id)}
+                        className={`rounded-lg border p-3 text-left ${selectedLegacyWorkSite?.id === site.id ? 'border-[#38a9bd] bg-white shadow-sm' : 'border-[#d5dde2] bg-white/70'}`}
+                      >
+                        <p className="truncate font-semibold">{site.siteName}</p>
+                        <p className="mt-1 text-xs text-[#60717d]">{site.rows.length}개 행</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </aside>
+              <div className="min-h-0 overflow-auto p-5">
+                {selectedLegacyWorkSite ? (
+                  <>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h3 className="text-xl font-semibold">{selectedLegacyWorkSite.siteName}</h3>
+                        <p className="mt-1 text-sm text-[#60717d]">
+                          수입 {formatMoney(selectedLegacyWorkSite.rows.reduce((sum, row) => sum + Number(row.income || 0), 0))} · 지출 {formatMoney(selectedLegacyWorkSite.rows.reduce((sum, row) => sum + Number(workLineExpense(row) || 0), 0))}
+                        </p>
+                      </div>
+                      <button type="button" onClick={exportWorkExcel} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                        전체 엑셀 내보내기
+                      </button>
+                    </div>
+                    <div className="overflow-hidden rounded-lg border border-[#d5dde2]">
+                      <table className="w-full table-fixed border-collapse text-sm">
+                        <colgroup>
+                          <col className="w-[14%]" />
+                          <col className="w-[22%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[22%]" />
+                        </colgroup>
+                        <thead className="bg-[#f3f1ec]">
+                          <tr>
+                            {['날짜', '공종', '수입', '지출', '결제', '비고'].map((header) => (
+                              <th key={header} className="border-b border-[#d5dde2] px-3 py-2 text-left font-semibold">{header}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedLegacyWorkSite.rows.map((row) => (
+                            <tr key={row.id} className="border-t border-[#edf2f5]">
+                              <td className="px-3 py-2">{row.date || '-'}</td>
+                              <td className="truncate px-3 py-2 font-semibold">{row.process || '-'}</td>
+                              <td className="px-3 py-2 text-right">{formatMoney(row.income || 0)}</td>
+                              <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(row))}</td>
+                              <td className="px-3 py-2 text-right">{formatMoney(row.payment || 0)}</td>
+                              <td className="truncate px-3 py-2 text-[#60717d]">{row.note || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-10 text-center text-sm text-[#60717d]">과거 실행 내역서 엑셀을 먼저 불러와주세요.</div>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {isPurchaseTemplateEditorOpen && selectedPurchaseOrder && (
+        <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
+          <section className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+            <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">PURCHASE TEMPLATE</p>
+                <h2 className="mt-1 text-2xl font-semibold">발주서 템플릿 수정</h2>
+                <p className="mt-1 text-sm text-[#60717d]">열 이름, 너비, 표시 여부와 머리글 병합을 조정합니다. 항목 데이터 칸은 병합하지 않습니다.</p>
+              </div>
+              <button type="button" onClick={() => setIsPurchaseTemplateEditorOpen(false)} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
+                <X size={18} />
+              </button>
+            </header>
+            <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[minmax(0,1.3fr)_360px]">
+              <div className="min-h-0 overflow-auto p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold">미리보기</h3>
+                    <p className="mt-1 text-sm text-[#60717d]">머리글 병합은 상단 제목 셀에만 적용됩니다. 행 데이터는 각 열에 그대로 남습니다.</p>
+                  </div>
+                  <label className="inline-flex items-center gap-2 rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-2 text-xs font-semibold text-[#171512]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedPurchaseOrder.mergeSameCategory)}
+                      onChange={(event) => updatePurchaseOrderMergeSameCategory(selectedPurchaseOrder.id, event.target.checked)}
+                      className="h-4 w-4 rounded border-[#d5dde2]"
+                    />
+                    같은 구분 자동 병합
+                  </label>
+                </div>
+                <div className="overflow-hidden rounded-lg border border-[#171512] bg-white">
+                  <div className="grid grid-cols-[1fr_auto] border-b border-[#171512]">
+                    <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
+                    <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
+                  </div>
+                  <table className="w-full table-fixed border-collapse text-sm">
+                    <colgroup>
+                      {selectedPurchaseOrderVisibleColumns.map((column) => (
+                        <col key={column} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
+                      ))}
+                    </colgroup>
+                    <thead className="bg-[#f3f1ec]">
+                      {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
+                    </thead>
+                    <tbody>
+                      {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 6) : [purchaseItemDraft]).map((item, index) => (
+                        <tr key={`purchase-template-preview-${item.id || index}`}>
+                          {selectedPurchaseOrderVisibleColumns.map((column) => (
+                            <td key={`${item.id || index}-${column}`} className={purchaseOrderCellClass(column)}>
+                              {renderPurchaseOrderCell(item, column)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 text-sm leading-6 text-[#60717d]">
+                  <b className="text-[#171512]">사용 방법</b>
+                  <p>열 머리글 병합에서 병합할 열을 2개 이상 선택하고 병합 제목을 입력하면, 표의 머리글만 하나로 합쳐집니다.</p>
+                </div>
+              </div>
+
+              <aside className="min-h-0 overflow-y-auto border-l border-[#edf2f5] bg-[#f7fafb] p-5">
+                <div className="grid gap-4">
+                  <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                    기본 템플릿
+                    <select
+                      value={selectedPurchaseOrder.templateKey}
+                      onChange={(event) => updatePurchaseOrderTemplate(selectedPurchaseOrder.id, event.target.value as PurchaseOrder['templateKey'])}
+                      className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="modelSpec">템플릿1 · 구분/모델명/규격</option>
+                      <option value="subType">템플릿2 · 구분 머리글 병합/종류</option>
+                      <option value="custom">사용자 지정</option>
+                    </select>
+                  </label>
+
+                  <div className="rounded-lg border border-[#d5dde2] bg-white p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold text-[#171512]">열 설정</p>
+                      <span className="text-[11px] font-semibold text-[#60717d]">{selectedPurchaseOrderVisibleColumns.length}열</span>
+                    </div>
+                    <div className="mt-3 grid gap-2">
+                      {selectedPurchaseOrderVisibleColumns.map((column) => (
+                        <div key={`popup-template-editor-${column}`} className="grid grid-cols-[minmax(0,1fr)_72px_auto] items-end gap-2 rounded-md border border-[#edf2f5] bg-[#fbfdfe] p-2">
+                          <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                            열 이름
+                            <input
+                              value={purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                              onChange={(event) => {
+                                if (column !== 'note') updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, column as keyof PurchaseOrderColumnLabels, event.target.value);
+                              }}
+                              disabled={column === 'note'}
+                              className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd] disabled:bg-[#f1f5f7]"
+                            />
+                          </label>
+                          <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                            너비
+                            <input
+                              inputMode="decimal"
+                              value={purchaseOrderColumnWidth(selectedPurchaseOrder, column)}
+                              onChange={(event) => updatePurchaseOrderColumnWidth(selectedPurchaseOrder.id, column, event.target.value)}
+                              className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removePurchaseOrderColumn(selectedPurchaseOrder.id, column)}
+                            disabled={selectedPurchaseOrderVisibleColumns.length <= 1}
+                            className="rounded-md border border-red-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    {hiddenPurchaseOrderColumns.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {hiddenPurchaseOrderColumns.map((column) => (
+                          <button
+                            key={`popup-hidden-template-${column}`}
+                            type="button"
+                            onClick={() => addPurchaseOrderColumn(selectedPurchaseOrder.id, column)}
+                            className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-[11px] font-semibold text-[#171512]"
+                          >
+                            + {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-lg border border-[#d5dde2] bg-white p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-[#171512]">열 머리글 병합</p>
+                      <button
+                        type="button"
+                        onClick={() => updatePurchaseOrder(selectedPurchaseOrder.id, { templateKey: 'custom', headerMergeLabel: '', headerMergeColumns: [] })}
+                        className="rounded-md border border-[#d5dde2] px-2 py-1 text-[11px] font-semibold text-[#60717d]"
+                      >
+                        병합 해제
+                      </button>
+                    </div>
+                    <label className="mt-3 grid gap-1 text-[11px] font-bold text-[#60717d]">
+                      병합 제목
+                      <input
+                        value={selectedPurchaseOrder.headerMergeLabel || ''}
+                        onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { templateKey: 'custom', headerMergeLabel: event.target.value })}
+                        placeholder="예: 구분"
+                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                      />
+                    </label>
+                    <div className="mt-3 grid gap-2">
+                      {selectedPurchaseOrderVisibleColumns.map((column) => {
+                        const checked = Boolean(selectedPurchaseOrder.headerMergeColumns?.includes(column));
+                        return (
+                          <label key={`merge-column-${column}`} className="flex items-center justify-between gap-2 rounded-md border border-[#edf2f5] bg-[#fbfdfe] px-3 py-2 text-xs font-semibold text-[#171512]">
+                            <span>{purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}</span>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(event) => {
+                                const currentColumns = selectedPurchaseOrder.headerMergeColumns || [];
+                                const nextColumns = event.target.checked
+                                  ? Array.from(new Set([...currentColumns, column]))
+                                  : currentColumns.filter((item) => item !== column);
+                                updatePurchaseOrder(selectedPurchaseOrder.id, {
+                                  templateKey: 'custom',
+                                  headerMergeLabel: selectedPurchaseOrder.headerMergeLabel || '구분',
+                                  headerMergeColumns: nextColumns,
+                                });
+                              }}
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </aside>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-[#edf2f5] p-5">
+              <button type="button" onClick={() => setIsPurchaseTemplateEditorOpen(false)} className="rounded-md bg-[#171512] px-5 py-2 text-sm font-semibold text-white">
+                적용 완료
+              </button>
+            </footer>
+          </section>
+        </div>
       )}
 
       {isDocumentBatchOpen && (
@@ -2869,7 +3265,7 @@ function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: 
           ))}
         </colgroup>
         <thead>
-          <tr>{visibleColumns.map((column) => <th key={column}>{purchaseOrderColumnLabel(labels, column)}</th>)}</tr>
+          {renderPurchaseOrderHeaderRows(order, labels, visibleColumns, '')}
         </thead>
         <tbody>
           {order.mergeSameCategory
@@ -4077,6 +4473,68 @@ function purchaseOrderColumnWidth(order: Partial<PurchaseOrder>, column: Purchas
   return Math.min(70, Math.max(5, numericWidth));
 }
 
+function purchaseOrderHeaderMergeRange(order: Partial<PurchaseOrder>, visibleColumns: PurchaseOrderTableColumn[]) {
+  const label = String(order.headerMergeLabel || '').trim();
+  const selected = Array.isArray(order.headerMergeColumns)
+    ? order.headerMergeColumns.filter((column): column is PurchaseOrderTableColumn => visibleColumns.includes(column as PurchaseOrderTableColumn))
+    : [];
+  if (!label || selected.length < 2) return null;
+
+  const indexes = selected
+    .map((column) => visibleColumns.indexOf(column))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b);
+  if (indexes.length < 2) return null;
+  const start = indexes[0];
+  const end = indexes[indexes.length - 1];
+  return {
+    label,
+    start,
+    end,
+    columns: visibleColumns.slice(start, end + 1),
+  };
+}
+
+function renderPurchaseOrderHeaderRows(
+  order: Partial<PurchaseOrder>,
+  labels: PurchaseOrderColumnLabels,
+  visibleColumns: PurchaseOrderTableColumn[],
+  className = 'border border-[#171512] px-3 py-2 text-center',
+) {
+  const mergeRange = purchaseOrderHeaderMergeRange(order, visibleColumns);
+  if (!mergeRange) {
+    return (
+      <tr>
+        {visibleColumns.map((column) => (
+          <th key={column} className={className}>
+            {purchaseOrderColumnLabel(labels, column)}
+          </th>
+        ))}
+      </tr>
+    );
+  }
+
+  return (
+    <tr>
+      {visibleColumns.map((column, index) => {
+        if (index > mergeRange.start && index <= mergeRange.end) return null;
+        if (index === mergeRange.start) {
+          return (
+            <th key={`merged-${mergeRange.columns.join('-')}`} colSpan={mergeRange.end - mergeRange.start + 1} className={className}>
+              {mergeRange.label}
+            </th>
+          );
+        }
+        return (
+          <th key={column} className={className}>
+            {purchaseOrderColumnLabel(labels, column)}
+          </th>
+        );
+      })}
+    </tr>
+  );
+}
+
 function purchaseOrderCellClass(column: PurchaseOrderTableColumn) {
   const base = 'break-words border border-[#171512] px-3 py-2';
   if (column === 'quantity' || column === 'amount') return `${base} break-all text-right tabular-nums`;
@@ -4199,17 +4657,24 @@ function hydrateExtraItems(items: Partial<ExtraItem>[]) {
 }
 
 function estimateLineToWorkLine(line: EstimateLine): WorkLine {
+  const quantity = Number(line.quantity || 0);
+  const executionUnitPrice = Number(line.executionUnitPrice || 0);
+  const expense = quantity * executionUnitPrice;
   return {
     id: `work-${Date.now()}-${line.id}-${Math.random().toString(16).slice(2)}`,
     sourceLineId: line.id,
+    date: todayKey(),
     space: line.space,
     category: line.category,
     process: line.process,
     name: line.name,
     spec: line.spec,
     unit: line.unit,
-    quantity: Number(line.quantity || 0),
-    executionUnitPrice: Number(line.executionUnitPrice || 0),
+    quantity,
+    executionUnitPrice,
+    income: 0,
+    expense,
+    payment: 0,
     vendor: '',
     status: '예정',
     note: line.note,
@@ -4270,6 +4735,152 @@ function sortWorkLines(lines: WorkLine[], groupBy: 'space' | 'category') {
   });
 }
 
+function workLineExpense(line: Partial<WorkLine>) {
+  const explicitExpense = Number(line.expense || 0);
+  if (explicitExpense) return explicitExpense;
+  return Number(line.quantity || 0) * Number(line.executionUnitPrice || 0);
+}
+
+function isMeaningfulWorkLine(line: Partial<WorkLine>) {
+  return Boolean(
+    line.date ||
+      line.process ||
+      line.name ||
+      line.category ||
+      line.income ||
+      line.expense ||
+      line.payment ||
+      line.note,
+  );
+}
+
+function hydrateWorkLines(lines: Partial<WorkLine>[]) {
+  return lines.map((line, index) => ({
+    id: String(line.id || `work-${Date.now()}-${index}`),
+    sourceLineId: String(line.sourceLineId || ''),
+    date: String(line.date || todayKey()),
+    space: String(line.space || ''),
+    category: String(line.category || ''),
+    process: String(line.process || line.category || line.name || ''),
+    name: String(line.name || ''),
+    spec: String(line.spec || ''),
+    unit: String(line.unit || ''),
+    quantity: Number(line.quantity || 0),
+    executionUnitPrice: Number(line.executionUnitPrice || 0),
+    income: Number(line.income || 0),
+    expense: workLineExpense(line),
+    payment: Number(line.payment || 0),
+    vendor: String(line.vendor || ''),
+    status: String(line.status || '예정'),
+    note: String(line.note || ''),
+  })).filter(isMeaningfulWorkLine);
+}
+
+function cloneLegacyWorkSites(sites: LegacyWorkSite[]) {
+  return sites.map((site) => ({
+    ...site,
+    rows: site.rows.map((row) => ({ ...row, id: `work-${Date.now()}-${Math.random().toString(16).slice(2)}` })),
+  }));
+}
+
+function hydrateLegacyWorkSites(sites: Partial<LegacyWorkSite>[]) {
+  return sites
+    .map((site, index) => ({
+      id: String(site.id || `legacy-${Date.now()}-${index}`),
+      siteName: String(site.siteName || `과거 현장 ${index + 1}`),
+      rows: hydrateWorkLines(Array.isArray(site.rows) ? site.rows : []),
+    }))
+    .filter((site) => site.siteName || site.rows.length);
+}
+
+function mergeLegacyWorkSites(current: LegacyWorkSite[], imported: LegacyWorkSite[]) {
+  const map = new Map(current.map((site) => [site.siteName, site]));
+  imported.forEach((site) => map.set(site.siteName, site));
+  return Array.from(map.values());
+}
+
+function workLineToExcelRow(line: WorkLine) {
+  return {
+    날짜: line.date || '',
+    공종: line.process || '',
+    수입: Number(line.income || 0),
+    지출: Number(workLineExpense(line) || 0),
+    결제: Number(line.payment || 0),
+    비고: line.note || '',
+  };
+}
+
+function parseLegacyWorkSheet(rows: Array<Array<string | number | Date>>) {
+  const headerIndex = rows.findIndex((row) => {
+    const labels = row.map((cell) => normalizeHeaderLabel(cell));
+    return labels.includes('날짜') && labels.includes('공종') && (labels.includes('수입') || labels.includes('지출'));
+  });
+  if (headerIndex < 0) return [];
+  const headers = rows[headerIndex].map((cell) => normalizeHeaderLabel(cell));
+  const indexOf = (label: string) => headers.indexOf(label);
+  const dateIndex = indexOf('날짜');
+  const processIndex = indexOf('공종');
+  const incomeIndex = indexOf('수입');
+  const expenseIndex = indexOf('지출');
+  const paymentIndex = indexOf('결제');
+  const noteIndex = indexOf('비고');
+
+  return rows
+    .slice(headerIndex + 1)
+    .map((row, index) => ({
+      ...emptyWorkLine(),
+      id: `legacy-work-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`,
+      date: parseExcelDate(row[dateIndex]) || todayKey(),
+      process: String(row[processIndex] || '').trim(),
+      income: Number(parseMoneyCell(row[incomeIndex]) || 0),
+      expense: Number(parseMoneyCell(row[expenseIndex]) || 0),
+      payment: Number(parseMoneyCell(row[paymentIndex]) || 0),
+      note: String(row[noteIndex] || '').trim(),
+    }))
+    .filter(isMeaningfulWorkLine);
+}
+
+function normalizeHeaderLabel(value: unknown) {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
+function parseMoneyCell(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return Number(String(value || '').replace(/[^0-9.-]/g, '')) || 0;
+}
+
+function parseExcelDate(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return dateKey(value);
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const date = new Date(Math.round((value - 25569) * 86400 * 1000));
+    return dateKey(new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  }
+  const text = String(value || '').trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(text)) {
+    const [year, month, day] = text.split('-').map(Number);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  if (/^\d{4}[./]\d{1,2}[./]\d{1,2}$/.test(text)) {
+    const [year, month, day] = text.split(/[./]/).map(Number);
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  }
+  return '';
+}
+
+function sheetSafeName(value: string) {
+  const cleaned = String(value || 'Sheet').replace(/[\\/?*[\]:]/g, ' ').replace(/\s+/g, ' ').trim() || 'Sheet';
+  return cleaned.slice(0, 31);
+}
+
+function hashString(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash).toString(16);
+}
+
 function groupLinesByCategory(lines: EstimateLine[]) {
   const map = new Map<string, EstimateLine[]>();
 
@@ -4290,9 +4901,9 @@ function groupLinesByCategory(lines: EstimateLine[]) {
 function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = []) {
   const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0));
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
-  const hasWorkLines = workLines.some((line) => line.name || line.category || line.process);
+  const hasWorkLines = workLines.some(isMeaningfulWorkLine);
   const actualExecutionCostTotal = hasWorkLines
-    ? Math.round(workLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0))
+    ? Math.round(workLines.reduce((sum, line) => sum + Number(workLineExpense(line) || 0), 0))
     : 0;
   const additionalCostTotal = Math.round(extraItems.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0));
   const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;

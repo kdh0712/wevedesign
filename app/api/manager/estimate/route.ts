@@ -31,6 +31,7 @@ type EstimateLine = {
 type WorkLine = {
   id?: string;
   sourceLineId?: string;
+  date?: string;
   space?: string;
   category?: string;
   process?: string;
@@ -39,6 +40,9 @@ type WorkLine = {
   unit?: string;
   quantity?: number | string;
   executionUnitPrice?: number | string;
+  income?: number | string;
+  expense?: number | string;
+  payment?: number | string;
   vendor?: string;
   status?: string;
   note?: string;
@@ -80,7 +84,17 @@ type PurchaseOrder = {
   templateKey?: string;
   columnLabels?: Record<string, string>;
   visibleColumns?: string[];
+  columnWidths?: Record<string, string>;
+  mergeSameCategory?: boolean;
+  headerMergeLabel?: string;
+  headerMergeColumns?: string[];
   items?: PurchaseOrderItem[];
+};
+
+type LegacyWorkSite = {
+  id?: string;
+  siteName?: string;
+  rows?: WorkLine[];
 };
 
 type ExtraItem = {
@@ -117,7 +131,7 @@ const estimateQuery = `{
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
-    purchaseOrdersJson, extraItemsJson,
+    purchaseOrdersJson, extraItemsJson, legacyWorkbooksJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
     actualExecutionCostTotal, actualMarginAmount, actualMarginRate, additionalCostTotal,
@@ -217,6 +231,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const schedule = Array.isArray(body.schedule) ? normalizeSchedule(body.schedule as ScheduleTask[]) : [];
   const purchaseOrders = Array.isArray(body.purchaseOrders) ? normalizePurchaseOrders(body.purchaseOrders as PurchaseOrder[]) : [];
   const extraItems = Array.isArray(body.extraItems) ? normalizeExtraItems(body.extraItems as ExtraItem[]) : [];
+  const legacyWorkSites = Array.isArray(body.legacyWorkSites) ? normalizeLegacyWorkSites(body.legacyWorkSites as LegacyWorkSite[]) : [];
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
   const totals = calculateTotals(lines, workLines, extraItems);
   const now = new Date().toISOString();
@@ -239,6 +254,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     holidaysJson: JSON.stringify(holidays),
     purchaseOrdersJson: JSON.stringify(purchaseOrders),
     extraItemsJson: JSON.stringify(extraItems),
+    legacyWorkbooksJson: JSON.stringify(legacyWorkSites),
     customerEstimateTotal: totals.customerEstimateTotal,
     executionCostTotal: totals.executionCostTotal,
     marginAmount: totals.marginAmount,
@@ -424,9 +440,12 @@ function normalizeWorkLines(lines: WorkLine[]) {
     .map((line, index) => {
       const quantity = toNumber(line.quantity);
       const executionUnitPrice = toNumber(line.executionUnitPrice);
+      const fallbackExpense = Math.round(quantity * executionUnitPrice);
+      const expense = toNumber(line.expense) || fallbackExpense;
       return {
         id: line.id || `work-${Date.now()}-${index}`,
         sourceLineId: String(line.sourceLineId || '').trim(),
+        date: String(line.date || '').trim(),
         space: String(line.space || '').trim(),
         category: String(line.category || '').trim(),
         process: String(line.process || '').trim(),
@@ -435,13 +454,16 @@ function normalizeWorkLines(lines: WorkLine[]) {
         unit: String(line.unit || '').trim(),
         quantity,
         executionUnitPrice,
-        executionAmount: Math.round(quantity * executionUnitPrice),
+        income: toNumber(line.income),
+        expense,
+        payment: toNumber(line.payment),
+        executionAmount: expense,
         vendor: String(line.vendor || '').trim(),
         status: String(line.status || '예정').trim(),
         note: String(line.note || '').trim(),
       };
     })
-    .filter((line) => line.name || line.space || line.category || line.process);
+    .filter((line) => line.name || line.space || line.category || line.process || line.date || line.income || line.expense || line.payment || line.note);
 }
 
 function normalizeSchedule(schedule: ScheduleTask[]) {
@@ -522,10 +544,26 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
         templateKey,
         columnLabels,
         visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
+        columnWidths: typeof order.columnWidths === 'object' && order.columnWidths ? order.columnWidths : {},
+        mergeSameCategory: Boolean(order.mergeSameCategory),
+        headerMergeLabel: String(order.headerMergeLabel || '').trim(),
+        headerMergeColumns: Array.isArray(order.headerMergeColumns)
+          ? order.headerMergeColumns.map((column) => String(column || '')).filter((column) => columnKeys.includes(column))
+          : [],
         items,
       };
     })
     .filter((order) => order.title || order.vendorName || order.memo || order.items.length > 0);
+}
+
+function normalizeLegacyWorkSites(sites: LegacyWorkSite[]) {
+  return sites
+    .map((site, index) => ({
+      id: String(site.id || `legacy-${Date.now()}-${index}`).trim(),
+      siteName: String(site.siteName || '').trim(),
+      rows: Array.isArray(site.rows) ? normalizeWorkLines(site.rows) : [],
+    }))
+    .filter((site) => site.siteName || site.rows.length > 0);
 }
 
 function normalizeExtraItems(items: ExtraItem[]) {
@@ -573,7 +611,7 @@ function calculateTotals(
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
   const hasWorkLines = workLines.length > 0;
   const actualExecutionCostTotal = hasWorkLines
-    ? Math.round(workLines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0))
+    ? Math.round(workLines.reduce((sum, line) => sum + Number(line.expense || line.executionAmount || 0), 0))
     : 0;
   const additionalCostTotal = Math.round(extraItems.reduce((sum, item) => sum + Number(item.amount || 0), 0));
   const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
