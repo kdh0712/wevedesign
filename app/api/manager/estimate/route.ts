@@ -79,6 +79,7 @@ type PurchaseOrder = {
   memo?: string;
   templateKey?: string;
   columnLabels?: Record<string, string>;
+  visibleColumns?: string[];
   items?: PurchaseOrderItem[];
 };
 
@@ -471,6 +472,12 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
     unitPrice: '단가',
     amount: '금액',
   };
+  const columnKeys = ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'];
+  const defaultVisibleColumns: Record<string, string[]> = {
+    modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+    subType: ['category', 'modelName', 'quantity', 'unit'],
+    custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+  };
 
   return orders
     .map((order, index) => {
@@ -481,6 +488,9 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
       const columnLabels = Object.fromEntries(
         Object.entries({ ...defaultColumnLabels, ...(order.columnLabels || {}) }).map(([key, value]) => [key, String(value || '').trim() || defaultColumnLabels[key as keyof typeof defaultColumnLabels]]),
       );
+      const visibleColumns = Array.isArray(order.visibleColumns)
+        ? order.visibleColumns.map((column) => String(column || '')).filter((column) => columnKeys.includes(column))
+        : [];
       const items = Array.isArray(order.items)
         ? order.items
             .map((item, itemIndex) => {
@@ -511,6 +521,7 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
         memo: String(order.memo || '').trim(),
         templateKey,
         columnLabels,
+        visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
         items,
       };
     })

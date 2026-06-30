@@ -92,8 +92,11 @@ type PurchaseOrder = {
   memo: string;
   templateKey: 'modelSpec' | 'subType' | 'custom';
   columnLabels: PurchaseOrderColumnLabels;
+  visibleColumns: PurchaseOrderTableColumn[];
   items: PurchaseOrderItem[];
 };
+
+type PurchaseOrderTableColumn = 'category' | 'modelName' | 'spec' | 'quantity' | 'unit' | 'amount' | 'note';
 
 type PurchaseOrderColumnLabels = {
   category: string;
@@ -338,6 +341,24 @@ const purchaseOrderTemplates: Record<PurchaseOrder['templateKey'], PurchaseOrder
   },
 };
 
+const purchaseOrderColumnKeys: PurchaseOrderTableColumn[] = ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'];
+
+const defaultPurchaseOrderVisibleColumns: Record<PurchaseOrder['templateKey'], PurchaseOrderTableColumn[]> = {
+  modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+  subType: ['category', 'modelName', 'quantity', 'unit'],
+  custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+};
+
+const purchaseOrderColumnWidths: Record<PurchaseOrderTableColumn, string> = {
+  category: 'w-[18%]',
+  modelName: 'w-[30%]',
+  spec: 'w-[22%]',
+  quantity: 'w-[10%]',
+  unit: 'w-[10%]',
+  amount: 'w-[14%]',
+  note: 'w-[14%]',
+};
+
 const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   id: `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   title,
@@ -347,6 +368,7 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   memo: '',
   templateKey: 'modelSpec',
   columnLabels: purchaseOrderTemplates.modelSpec,
+  visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
   items: [],
 });
 
@@ -427,6 +449,12 @@ export default function EstimateWorkspacePage() {
     [purchaseOrders, selectedPurchaseOrderId],
   );
   const selectedPurchaseOrderLabels = selectedPurchaseOrder ? getPurchaseOrderLabels(selectedPurchaseOrder) : purchaseOrderTemplates.modelSpec;
+  const selectedPurchaseOrderVisibleColumns = selectedPurchaseOrder ? getPurchaseOrderVisibleColumns(selectedPurchaseOrder) : defaultPurchaseOrderVisibleColumns.modelSpec;
+  const hiddenPurchaseOrderColumns = purchaseOrderColumnKeys.filter((key) => !selectedPurchaseOrderVisibleColumns.includes(key));
+  const purchaseCategoryOptions = useMemo(
+    () => Array.from(new Set((selectedPurchaseOrder?.items || []).map((item) => item.category.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko')),
+    [selectedPurchaseOrder],
+  );
   const purchaseOrderTotal = useMemo(
     () => purchaseOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0), 0),
     [purchaseOrders],
@@ -901,6 +929,7 @@ export default function EstimateWorkspacePage() {
               ...order,
               templateKey,
               columnLabels: templateKey === 'custom' ? order.columnLabels : purchaseOrderTemplates[templateKey],
+              visibleColumns: defaultPurchaseOrderVisibleColumns[templateKey],
             }
           : order,
       ),
@@ -918,6 +947,28 @@ export default function EstimateWorkspacePage() {
             }
           : order,
       ),
+    );
+  };
+
+  const addPurchaseOrderColumn = (id: string, key: PurchaseOrderTableColumn) => {
+    setPurchaseOrders((current) =>
+      current.map((order) => {
+        if (order.id !== id) return order;
+        const visibleColumns = getPurchaseOrderVisibleColumns(order);
+        if (visibleColumns.includes(key)) return order;
+        return { ...order, templateKey: 'custom', visibleColumns: [...visibleColumns, key] };
+      }),
+    );
+  };
+
+  const removePurchaseOrderColumn = (id: string, key: PurchaseOrderTableColumn) => {
+    setPurchaseOrders((current) =>
+      current.map((order) => {
+        if (order.id !== id) return order;
+        const visibleColumns = getPurchaseOrderVisibleColumns(order).filter((column) => column !== key);
+        if (visibleColumns.length === 0) return order;
+        return { ...order, templateKey: 'custom', visibleColumns };
+      }),
     );
   };
 
@@ -1103,11 +1154,12 @@ export default function EstimateWorkspacePage() {
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
-            position: fixed;
-            inset: 0;
+            position: absolute;
+            left: 0;
+            top: 0;
             width: 100%;
-            height: auto;
-            overflow: visible;
+            height: 194mm;
+            overflow: hidden;
             background: white;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
@@ -1977,7 +2029,12 @@ export default function EstimateWorkspacePage() {
                     <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(100px,0.85fr)_minmax(120px,1fr)_minmax(140px,1.2fr)_80px_72px_104px_110px] 2xl:items-end">
                       <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                         {selectedPurchaseOrderLabels.category}
-                        <input value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                        <datalist id="purchase-category-options">
+                          {purchaseCategoryOptions.map((category) => (
+                            <option key={category} value={category} />
+                          ))}
+                        </datalist>
                       </label>
                       <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                         {selectedPurchaseOrderLabels.modelName}
@@ -2015,53 +2072,33 @@ export default function EstimateWorkspacePage() {
                       <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
                     </div>
                     <table className="w-full table-fixed border-collapse text-sm">
-                      {selectedPurchaseOrder.templateKey === 'subType' ? (
-                        <colgroup>
-                          <col className="w-[18%]" />
-                          <col className="w-[34%]" />
-                          <col className="w-[12%]" />
-                          <col className="w-[10%]" />
-                          <col className="w-[16%]" />
-                          <col className="w-[10%]" />
-                        </colgroup>
-                      ) : (
-                        <colgroup>
-                          <col className="w-[16%]" />
-                          <col className="w-[16%]" />
-                          <col className="w-[22%]" />
-                          <col className="w-[12%]" />
-                          <col className="w-[10%]" />
-                          <col className="w-[14%]" />
-                          <col className="w-[10%]" />
-                        </colgroup>
-                      )}
+                      <colgroup>
+                        {selectedPurchaseOrderVisibleColumns.map((column) => (
+                          <col key={column} className={purchaseOrderColumnWidths[column]} />
+                        ))}
+                      </colgroup>
                       <thead className="bg-[#f3f1ec]">
                         <tr>
-                          {(selectedPurchaseOrder.templateKey === 'subType'
-                            ? [selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고']
-                            : [selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.spec, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고']
-                          ).map((header, index) => (
-                            <th key={`${header}-${index}`} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
+                          {selectedPurchaseOrderVisibleColumns.map((column) => (
+                            <th key={column} className="border border-[#171512] px-3 py-2 text-center">{purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {selectedPurchaseOrder.items.length === 0 ? (
                           <tr>
-                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrder.templateKey === 'subType' ? 6 : 7}>작성된 발주 항목이 없습니다.</td>
+                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrderVisibleColumns.length}>작성된 발주 항목이 없습니다.</td>
                           </tr>
                         ) : selectedPurchaseOrder.templateKey === 'subType' ? (
-                          renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem)
+                          renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns)
                         ) : (
                           selectedPurchaseOrder.items.map((item) => (
                             <tr key={`summary-${item.id}`} onDoubleClick={() => editPurchaseOrderItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
-                              <td className="break-words border border-[#171512] px-3 py-2">{item.category}</td>
-                              <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
-                              <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
-                              <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
-                              <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
-                              <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
-                              <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
+                              {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
+                                  {renderPurchaseOrderCell(item, column)}
+                                </td>
+                              ))}
                             </tr>
                           ))
                         )}
@@ -2107,7 +2144,7 @@ export default function EstimateWorkspacePage() {
                             발주서 템플릿
                             <select value={selectedPurchaseOrder.templateKey} onChange={(event) => updatePurchaseOrderTemplate(selectedPurchaseOrder.id, event.target.value as PurchaseOrder['templateKey'])} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]">
                               <option value="modelSpec">템플릿1 · 구분/모델명/규격</option>
-                              <option value="subType">템플릿2 · 구분/소구분/종류</option>
+                              <option value="subType">템플릿2 · 구분 통합/종류</option>
                               <option value="custom">사용자 지정</option>
                             </select>
                           </label>
@@ -2118,6 +2155,43 @@ export default function EstimateWorkspacePage() {
                                 <input value={selectedPurchaseOrderLabels[key]} onChange={(event) => updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, key, event.target.value)} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
                               </label>
                             ))}
+                          </div>
+                          <div className="mt-3 rounded-md border border-[#d5dde2] bg-white p-3">
+                            <p className="text-[11px] font-bold text-[#60717d]">표시 열</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                <button
+                                  key={column}
+                                  type="button"
+                                  onClick={() => removePurchaseOrderColumn(selectedPurchaseOrder.id, column)}
+                                  disabled={selectedPurchaseOrderVisibleColumns.length <= 1}
+                                  className="inline-flex items-center gap-1 rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#171512] disabled:cursor-not-allowed disabled:opacity-50"
+                                  title="클릭하면 열을 숨깁니다."
+                                >
+                                  {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                                  <X size={12} />
+                                </button>
+                              ))}
+                            </div>
+                            {hiddenPurchaseOrderColumns.length > 0 && (
+                              <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                                <select id="purchase-hidden-column-select" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs outline-none focus:border-[#38a9bd]">
+                                  {hiddenPurchaseOrderColumns.map((column) => (
+                                    <option key={column} value={column}>{purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const select = document.getElementById('purchase-hidden-column-select') as HTMLSelectElement | null;
+                                    if (select?.value) addPurchaseOrderColumn(selectedPurchaseOrder.id, select.value as PurchaseOrderTableColumn);
+                                  }}
+                                  className="rounded-md bg-[#171512] px-3 py-2 text-xs font-semibold text-white"
+                                >
+                                  열 추가
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2658,12 +2732,28 @@ function CellNumber({ value, onChange }: { value: number; onChange: (value: numb
 }
 
 function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
+  const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing) setDisplayValue(formatNumberInput(value));
+  }, [isEditing, value]);
+
   return (
     <input
       type="text"
       inputMode="decimal"
-      value={formatNumberInput(value)}
-      onChange={(event) => onChange(parseNumberInput(event.target.value))}
+      value={displayValue}
+      onFocus={() => setIsEditing(true)}
+      onBlur={() => {
+        setIsEditing(false);
+        setDisplayValue(formatNumberInput(value));
+      }}
+      onChange={(event) => {
+        const nextValue = normalizeNumberInputText(event.target.value);
+        setDisplayValue(nextValue);
+        onChange(parseNumberInput(nextValue));
+      }}
       className={`${className} rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]`}
     />
   );
@@ -2753,10 +2843,10 @@ function LandscapeEstimateDocumentPreview({
 
       {view === 'summary' && (
         <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-8 py-7 text-[#111] print:max-w-none print:border print:px-7 print:py-6">
-          <header className="grid grid-cols-[1fr_360px] gap-8 text-sm leading-6">
-            <div className="pt-3">
-              <h1 className="mx-auto w-[330px] border-2 border-[#93bd5b] py-2 text-center text-3xl font-semibold tracking-[0.5em]">견 적 서</h1>
-              <div className="mt-4 grid grid-cols-[145px_1fr] gap-x-4 text-base leading-7">
+          <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-2 text-center text-3xl font-semibold tracking-[0.5em]">견 적 서</h1>
+          <header className="mt-4 grid grid-cols-[1fr_360px] gap-10 text-sm leading-6">
+            <div>
+              <div className="grid grid-cols-[145px_1fr] gap-x-4 text-base leading-7">
                 <span>{today}</span>
                 <span>{customerAddress}</span>
                 <span>{site?.siteType ? `${site.siteType}` : ''}</span>
@@ -2773,7 +2863,7 @@ function LandscapeEstimateDocumentPreview({
                 </div>
               </div>
             </div>
-            <div className="pt-3 text-base leading-7">
+            <div className="pt-8 text-base leading-7">
               <p>등록 번호 <span className="float-right">{company.businessNumber}</span></p>
               <p>{company.address}</p>
               <p>{company.name}</p>
@@ -3362,41 +3452,79 @@ function hydrateScheduleTasks(tasks: Partial<ScheduleTask>[]) {
 
 function getPurchaseOrderLabels(order: Partial<PurchaseOrder>): PurchaseOrderColumnLabels {
   const templateKey = order.templateKey && purchaseOrderTemplates[order.templateKey] ? order.templateKey : 'modelSpec';
-  return {
+  const labels = {
     ...purchaseOrderTemplates[templateKey],
     ...(order.columnLabels || {}),
   };
+  if (templateKey === 'subType') {
+    return { ...labels, category: '구분', modelName: '종류', spec: labels.spec || '상세' };
+  }
+  return labels;
 }
 
-function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: PurchaseOrderItem) => void) {
+function getPurchaseOrderVisibleColumns(order: Partial<PurchaseOrder>): PurchaseOrderTableColumn[] {
+  const templateKey = order.templateKey && purchaseOrderTemplates[order.templateKey] ? order.templateKey : 'modelSpec';
+  const visibleColumns = Array.isArray(order.visibleColumns) ? order.visibleColumns.filter((column): column is PurchaseOrderTableColumn => purchaseOrderColumnKeys.includes(column as PurchaseOrderTableColumn)) : [];
+  return visibleColumns.length ? visibleColumns : defaultPurchaseOrderVisibleColumns[templateKey];
+}
+
+function purchaseOrderColumnLabel(labels: PurchaseOrderColumnLabels, column: PurchaseOrderTableColumn) {
+  if (column === 'note') return '비고';
+  return labels[column];
+}
+
+function purchaseOrderCellClass(column: PurchaseOrderTableColumn) {
+  const base = 'break-words border border-[#171512] px-3 py-2';
+  if (column === 'quantity' || column === 'amount') return `${base} break-all text-right tabular-nums`;
+  if (column === 'unit') return `${base} text-center`;
+  if (column === 'modelName') return `${base} font-semibold`;
+  return base;
+}
+
+function renderPurchaseOrderCell(item: PurchaseOrderItem, column: PurchaseOrderTableColumn) {
+  if (column === 'quantity') return formatNumber(item.quantity);
+  if (column === 'amount') return formatMoney(item.quantity * item.unitPrice);
+  if (column === 'category') return item.category;
+  if (column === 'modelName') return item.modelName;
+  if (column === 'spec') return item.spec;
+  if (column === 'unit') return item.unit;
+  return item.note;
+}
+
+function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: PurchaseOrderItem) => void, visibleColumns: PurchaseOrderTableColumn[]) {
   const groups: Array<{ category: string; items: PurchaseOrderItem[] }> = [];
+  const groupMap = new Map<string, { category: string; items: PurchaseOrderItem[] }>();
   items.forEach((item) => {
-    const category = item.category || '미분류';
-    const last = groups[groups.length - 1];
-    if (last && last.category === category) {
-      last.items.push(item);
-      return;
+    const category = item.category.trim() || '미분류';
+    const key = category.toLocaleLowerCase('ko-KR');
+    let group = groupMap.get(key);
+    if (!group) {
+      group = { category, items: [] };
+      groupMap.set(key, group);
+      groups.push(group);
     }
-    groups.push({ category, items: [item] });
+    group.items.push(item);
   });
 
   return groups.map((group) => (
     <Fragment key={`${group.category}-${group.items[0]?.id}`}>
       {group.items.map((item, index) => (
         <tr key={`summary-${item.id}`} onDoubleClick={() => onEdit(item)} className="cursor-pointer hover:bg-[#fff8e8]">
-          {index === 0 && (
-            <td rowSpan={group.items.length} className="break-words border border-[#171512] px-3 py-2 text-center font-semibold">
-              {group.category}
-            </td>
-          )}
-          <td className="break-words border border-[#171512] px-3 py-2 font-semibold">
-            {item.modelName}
-            {item.spec && <span className="ml-2 font-normal text-[#4d5d66]">{item.spec}</span>}
-          </td>
-          <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
-          <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
-          <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
-          <td className="break-words border border-[#171512] px-3 py-2">{item.note}</td>
+          {visibleColumns.map((column) => {
+            if (column === 'category') {
+              if (index > 0) return null;
+              return (
+                <td key={`${item.id}-${column}`} rowSpan={group.items.length} className="break-words border border-[#171512] px-3 py-2 text-center font-semibold">
+                  {group.category}
+                </td>
+              );
+            }
+            return (
+              <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
+                {renderPurchaseOrderCell(item, column)}
+              </td>
+            );
+          })}
         </tr>
       ))}
     </Fragment>
@@ -3408,6 +3536,7 @@ function clonePurchaseOrders(orders: PurchaseOrder[]) {
     ...order,
     id: `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
     columnLabels: getPurchaseOrderLabels(order),
+    visibleColumns: getPurchaseOrderVisibleColumns(order),
     items: order.items.map((item, itemIndex) => ({
       ...item,
       id: `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
@@ -3424,6 +3553,7 @@ function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
       id: order.id || `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
       templateKey,
       columnLabels: getPurchaseOrderLabels({ ...order, templateKey }),
+      visibleColumns: getPurchaseOrderVisibleColumns({ ...order, templateKey }),
       items: Array.isArray(order.items) && order.items.length
         ? order.items
             .filter((item) => item.category || item.modelName || item.spec || item.note || Number(item.quantity || 0) || Number(item.unitPrice || 0))
@@ -3715,6 +3845,15 @@ function formatNumber(value: number) {
 function formatNumberInput(value: number) {
   if (value === undefined || value === null || Number.isNaN(Number(value))) return '';
   return Number(value).toLocaleString('ko-KR');
+}
+
+function normalizeNumberInputText(value: string) {
+  const cleaned = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
+  const sign = cleaned.startsWith('-') ? '-' : '';
+  const unsigned = cleaned.replace(/-/g, '');
+  const [integer = '', ...decimalParts] = unsigned.split('.');
+  if (cleaned.includes('.')) return `${sign}${integer}.${decimalParts.join('')}`;
+  return `${sign}${integer}`;
 }
 
 function parseNumberInput(value: string) {
