@@ -106,6 +106,18 @@ type PurchaseOrder = {
 
 type PurchaseOrderTableColumn = 'category' | 'modelName' | 'spec' | 'quantity' | 'unit' | 'amount' | 'note';
 
+type PurchaseOrderTemplatePreset = {
+  id: string;
+  name: string;
+  templateKey: PurchaseOrder['templateKey'];
+  columnLabels: PurchaseOrderColumnLabels;
+  visibleColumns: PurchaseOrderTableColumn[];
+  columnWidths: Partial<Record<PurchaseOrderTableColumn, string>>;
+  mergeSameCategory?: boolean;
+  headerMergeLabel?: string;
+  headerMergeColumns?: PurchaseOrderTableColumn[];
+};
+
 type PurchaseOrderColumnLabels = {
   category: string;
   modelName: string;
@@ -157,6 +169,7 @@ type SiteEstimate = {
   scheduleJson?: string;
   holidaysJson?: string;
   purchaseOrdersJson?: string;
+  purchaseOrderTemplatesJson?: string;
   extraItemsJson?: string;
   legacyWorkbooksJson?: string;
   customerEstimateTotal?: number;
@@ -388,6 +401,31 @@ const purchaseOrderColumnWidthValues: Record<PurchaseOrderTableColumn, string> =
   note: '14',
 };
 
+const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
+  {
+    id: 'preset-model-spec',
+    name: '템플릿1 · 모델/규격',
+    templateKey: 'modelSpec',
+    columnLabels: purchaseOrderTemplates.modelSpec,
+    visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
+    columnWidths: purchaseOrderColumnWidthValues,
+    mergeSameCategory: false,
+    headerMergeLabel: '',
+    headerMergeColumns: [],
+  },
+  {
+    id: 'preset-sub-type',
+    name: '템플릿2 · 구분/종류',
+    templateKey: 'subType',
+    columnLabels: purchaseOrderTemplates.subType,
+    visibleColumns: defaultPurchaseOrderVisibleColumns.subType,
+    columnWidths: { ...purchaseOrderColumnWidthValues, category: '26', modelName: '44', quantity: '15', unit: '15' },
+    mergeSameCategory: true,
+    headerMergeLabel: '구분',
+    headerMergeColumns: ['category', 'modelName'],
+  },
+];
+
 const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   id: `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   title,
@@ -447,6 +485,9 @@ export default function EstimateWorkspacePage() {
   const [purchaseItemDraft, setPurchaseItemDraft] = useState<PurchaseOrderItem>(() => emptyPurchaseOrderItem());
   const [editingPurchaseItemId, setEditingPurchaseItemId] = useState('');
   const [isPurchaseTemplateEditorOpen, setIsPurchaseTemplateEditorOpen] = useState(false);
+  const [purchaseOrderTemplatePresets, setPurchaseOrderTemplatePresets] = useState<PurchaseOrderTemplatePreset[]>(defaultPurchaseOrderTemplatePresets);
+  const [selectedPurchaseTemplatePresetId, setSelectedPurchaseTemplatePresetId] = useState(defaultPurchaseOrderTemplatePresets[0].id);
+  const [purchaseTemplateNameDraft, setPurchaseTemplateNameDraft] = useState('');
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([emptyExtraItem()]);
   const [extraItemDraft, setExtraItemDraft] = useState<ExtraItem>(() => emptyExtraItem());
   const [editingExtraItemId, setEditingExtraItemId] = useState('');
@@ -493,6 +534,7 @@ export default function EstimateWorkspacePage() {
   const selectedPurchaseOrderLabels = selectedPurchaseOrder ? getPurchaseOrderLabels(selectedPurchaseOrder) : purchaseOrderTemplates.modelSpec;
   const selectedPurchaseOrderVisibleColumns = selectedPurchaseOrder ? getPurchaseOrderVisibleColumns(selectedPurchaseOrder) : defaultPurchaseOrderVisibleColumns.modelSpec;
   const hiddenPurchaseOrderColumns = purchaseOrderColumnKeys.filter((key) => !selectedPurchaseOrderVisibleColumns.includes(key));
+  const selectedPurchaseOrderInputColumns = selectedPurchaseOrderVisibleColumns.filter((column) => column !== 'amount' && column !== 'note');
   const purchaseCategoryOptions = useMemo(
     () => Array.from(new Set((selectedPurchaseOrder?.items || []).map((item) => item.category.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko')),
     [selectedPurchaseOrder],
@@ -615,6 +657,9 @@ export default function EstimateWorkspacePage() {
       const nextPurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextPurchaseOrders);
       setSelectedPurchaseOrderId(nextPurchaseOrders[0].id);
+      setPurchaseOrderTemplatePresets(defaultPurchaseOrderTemplatePresets);
+      setSelectedPurchaseTemplatePresetId(defaultPurchaseOrderTemplatePresets[0].id);
+      setPurchaseTemplateNameDraft('');
       setExtraItems([]);
       setPurchaseItemDraft(emptyPurchaseOrderItem());
       setEditingPurchaseItemId('');
@@ -645,6 +690,7 @@ export default function EstimateWorkspacePage() {
     const nextLines = parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]);
     const nextWorkLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(estimate?.workLinesJson, []));
     const nextPurchaseOrders = hydratePurchaseOrders(parseJson<Partial<PurchaseOrder>[]>(estimate?.purchaseOrdersJson, [emptyPurchaseOrder()]));
+    const nextPurchaseOrderTemplatePresets = hydratePurchaseOrderTemplatePresets(parseJson<Partial<PurchaseOrderTemplatePreset>[]>(estimate?.purchaseOrderTemplatesJson, defaultPurchaseOrderTemplatePresets));
     setLines(nextLines);
     setWorkLines(nextWorkLines.length ? nextWorkLines : deriveWorkLines(nextLines));
     setLineDraft(emptyLine());
@@ -654,6 +700,9 @@ export default function EstimateWorkspacePage() {
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
+    setPurchaseOrderTemplatePresets(nextPurchaseOrderTemplatePresets);
+    setSelectedPurchaseTemplatePresetId(nextPurchaseOrderTemplatePresets[0]?.id || defaultPurchaseOrderTemplatePresets[0].id);
+    setPurchaseTemplateNameDraft('');
     setExtraItems(hydrateExtraItems(parseJson<Partial<ExtraItem>[]>(estimate?.extraItemsJson, [])));
     setPurchaseItemDraft(emptyPurchaseOrderItem());
     setEditingPurchaseItemId('');
@@ -678,6 +727,9 @@ export default function EstimateWorkspacePage() {
       const nextSitePurchaseOrders = [emptyPurchaseOrder()];
       setPurchaseOrders(nextSitePurchaseOrders);
       setSelectedPurchaseOrderId(nextSitePurchaseOrders[0].id);
+      setPurchaseOrderTemplatePresets(defaultPurchaseOrderTemplatePresets);
+      setSelectedPurchaseTemplatePresetId(defaultPurchaseOrderTemplatePresets[0].id);
+      setPurchaseTemplateNameDraft('');
       setExtraItems([]);
       setPurchaseItemDraft(emptyPurchaseOrderItem());
       setEditingPurchaseItemId('');
@@ -774,6 +826,7 @@ export default function EstimateWorkspacePage() {
           workLines,
           schedule,
           purchaseOrders,
+          purchaseOrderTemplatePresets,
           extraItems,
           legacyWorkSites,
           holidays,
@@ -1133,6 +1186,75 @@ export default function EstimateWorkspacePage() {
           : order,
       ),
     );
+  };
+
+  const applyPurchaseOrderPreset = (orderId: string, presetId: string) => {
+    const preset = purchaseOrderTemplatePresets.find((item) => item.id === presetId);
+    if (!preset) return;
+    setSelectedPurchaseTemplatePresetId(preset.id);
+    setPurchaseTemplateNameDraft(preset.name);
+    updatePurchaseOrder(orderId, {
+      templateKey: preset.templateKey,
+      columnLabels: { ...preset.columnLabels },
+      visibleColumns: [...preset.visibleColumns],
+      columnWidths: { ...preset.columnWidths },
+      mergeSameCategory: Boolean(preset.mergeSameCategory),
+      headerMergeLabel: preset.headerMergeLabel || '',
+      headerMergeColumns: [...(preset.headerMergeColumns || [])],
+    });
+  };
+
+  const savePurchaseOrderPreset = (order: PurchaseOrder) => {
+    const name = (purchaseTemplateNameDraft || order.title || '사용자 템플릿').trim();
+    const id = selectedPurchaseTemplatePresetId || `purchase-template-${Date.now()}`;
+    const preset: PurchaseOrderTemplatePreset = {
+      id,
+      name,
+      templateKey: order.templateKey,
+      columnLabels: getPurchaseOrderLabels(order),
+      visibleColumns: getPurchaseOrderVisibleColumns(order),
+      columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      mergeSameCategory: Boolean(order.mergeSameCategory),
+      headerMergeLabel: order.headerMergeLabel || '',
+      headerMergeColumns: [...(order.headerMergeColumns || [])],
+    };
+    setPurchaseOrderTemplatePresets((current) => {
+      const exists = current.some((item) => item.id === id);
+      return exists ? current.map((item) => (item.id === id ? preset : item)) : [...current, preset];
+    });
+    setSelectedPurchaseTemplatePresetId(id);
+    setPurchaseTemplateNameDraft(name);
+    setStatus(`${name} 템플릿을 저장했습니다. 견적 저장을 누르면 서버에 반영됩니다.`);
+  };
+
+  const addPurchaseOrderPreset = (order: PurchaseOrder) => {
+    const id = `purchase-template-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const name = `새 템플릿 ${purchaseOrderTemplatePresets.length + 1}`;
+    const preset: PurchaseOrderTemplatePreset = {
+      id,
+      name,
+      templateKey: order.templateKey,
+      columnLabels: getPurchaseOrderLabels(order),
+      visibleColumns: getPurchaseOrderVisibleColumns(order),
+      columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      mergeSameCategory: Boolean(order.mergeSameCategory),
+      headerMergeLabel: order.headerMergeLabel || '',
+      headerMergeColumns: [...(order.headerMergeColumns || [])],
+    };
+    setPurchaseOrderTemplatePresets((current) => [...current, preset]);
+    setSelectedPurchaseTemplatePresetId(id);
+    setPurchaseTemplateNameDraft(name);
+  };
+
+  const deletePurchaseOrderPreset = (presetId: string) => {
+    setPurchaseOrderTemplatePresets((current) => {
+      if (current.length <= 1) return current;
+      const next = current.filter((item) => item.id !== presetId);
+      const fallback = next[0] || defaultPurchaseOrderTemplatePresets[0];
+      setSelectedPurchaseTemplatePresetId(fallback.id);
+      setPurchaseTemplateNameDraft(fallback.name);
+      return next.length ? next : [fallback];
+    });
   };
 
   const updatePurchaseOrderColumnLabel = (id: string, key: keyof PurchaseOrderColumnLabels, value: string) => {
@@ -2373,32 +2495,36 @@ export default function EstimateWorkspacePage() {
                         </button>
                       </div>
                     </div>
-                    <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[minmax(100px,0.85fr)_minmax(120px,1fr)_minmax(140px,1.2fr)_80px_72px_104px_110px] 2xl:items-end">
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.category}
-                        <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                        <datalist id="purchase-category-options">
-                          {purchaseCategoryOptions.map((category) => (
-                            <option key={category} value={category} />
-                          ))}
-                        </datalist>
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.modelName}
-                        <input value={purchaseItemDraft.modelName} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, modelName: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.spec}
-                        <input value={purchaseItemDraft.spec} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, spec: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.quantity}
-                        <NumberTextInput value={purchaseItemDraft.quantity} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                      </label>
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.unit}
-                        <input value={purchaseItemDraft.unit} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, unit: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
-                      </label>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[repeat(auto-fit,minmax(88px,1fr))] 2xl:items-end">
+                      {selectedPurchaseOrderInputColumns.map((column) => (
+                        <label key={`purchase-draft-${column}`} className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                          {column === 'quantity' ? (
+                            <NumberTextInput value={purchaseItemDraft.quantity} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                          ) : column === 'category' ? (
+                            <>
+                              <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <datalist id="purchase-category-options">
+                                {purchaseCategoryOptions.map((category) => (
+                                  <option key={category} value={category} />
+                                ))}
+                              </datalist>
+                            </>
+                          ) : (
+                            <input
+                              value={column === 'modelName' ? purchaseItemDraft.modelName : column === 'spec' ? purchaseItemDraft.spec : purchaseItemDraft.unit}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setPurchaseItemDraft((current) => ({
+                                  ...current,
+                                  ...(column === 'modelName' ? { modelName: value } : column === 'spec' ? { spec: value } : { unit: value }),
+                                }));
+                              }}
+                              className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                            />
+                          )}
+                        </label>
+                      ))}
                       <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                         {selectedPurchaseOrderLabels.unitPrice}
                         <NumberTextInput value={purchaseItemDraft.unitPrice} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, unitPrice: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
@@ -2493,7 +2619,11 @@ export default function EstimateWorkspacePage() {
                           </label>
                           <button
                             type="button"
-                            onClick={() => setIsPurchaseTemplateEditorOpen(true)}
+                            onClick={() => {
+                              const preset = purchaseOrderTemplatePresets.find((item) => item.id === selectedPurchaseTemplatePresetId);
+                              setPurchaseTemplateNameDraft(preset?.name || selectedPurchaseOrder.title || '');
+                              setIsPurchaseTemplateEditorOpen(true);
+                            }}
                             className="mt-3 w-full rounded-md border border-[#171512] bg-white px-3 py-2 text-xs font-semibold text-[#171512] transition hover:bg-[#171512] hover:text-white"
                           >
                             템플릿 수정
@@ -2854,6 +2984,70 @@ export default function EstimateWorkspacePage() {
 
               <aside className="min-h-0 overflow-y-auto border-l border-[#edf2f5] bg-[#f7fafb] p-5">
                 <div className="grid gap-4">
+                  <div className="rounded-lg border border-[#d5dde2] bg-white p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-bold text-[#171512]">저장 템플릿</p>
+                      <span className="text-[11px] font-semibold text-[#60717d]">{purchaseOrderTemplatePresets.length}개</span>
+                    </div>
+                    <label className="mt-3 grid gap-1 text-[11px] font-bold text-[#60717d]">
+                      템플릿 선택
+                      <select
+                        value={selectedPurchaseTemplatePresetId}
+                        onChange={(event) => {
+                          const presetId = event.target.value;
+                          const preset = purchaseOrderTemplatePresets.find((item) => item.id === presetId);
+                          setSelectedPurchaseTemplatePresetId(presetId);
+                          setPurchaseTemplateNameDraft(preset?.name || '');
+                        }}
+                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                      >
+                        {purchaseOrderTemplatePresets.map((preset) => (
+                          <option key={preset.id} value={preset.id}>{preset.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="mt-2 grid gap-1 text-[11px] font-bold text-[#60717d]">
+                      템플릿 이름
+                      <input
+                        value={purchaseTemplateNameDraft}
+                        onChange={(event) => setPurchaseTemplateNameDraft(event.target.value)}
+                        placeholder="예: 욕실 발주 템플릿"
+                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                      />
+                    </label>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => applyPurchaseOrderPreset(selectedPurchaseOrder.id, selectedPurchaseTemplatePresetId)}
+                        className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-2 py-2 text-[11px] font-semibold text-[#171512]"
+                      >
+                        불러오기
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => savePurchaseOrderPreset(selectedPurchaseOrder)}
+                        className="rounded-md bg-[#171512] px-2 py-2 text-[11px] font-semibold text-white"
+                      >
+                        저장/수정
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => addPurchaseOrderPreset(selectedPurchaseOrder)}
+                        className="rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-[11px] font-semibold text-[#171512]"
+                      >
+                        추가
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deletePurchaseOrderPreset(selectedPurchaseTemplatePresetId)}
+                        disabled={purchaseOrderTemplatePresets.length <= 1}
+                        className="rounded-md border border-red-200 bg-white px-2 py-2 text-[11px] font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+
                   <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                     기본 템플릿
                     <select
@@ -4470,7 +4664,7 @@ function purchaseOrderColumnWidth(order: Partial<PurchaseOrder>, column: Purchas
   const rawWidth = order.columnWidths?.[column] || purchaseOrderColumnWidthValues[column];
   const numericWidth = Number(String(rawWidth).replace(/[^0-9.]/g, ''));
   if (!Number.isFinite(numericWidth) || numericWidth <= 0) return Number(purchaseOrderColumnWidthValues[column]);
-  return Math.min(70, Math.max(5, numericWidth));
+  return Math.min(100, Math.max(1, numericWidth));
 }
 
 function purchaseOrderHeaderMergeRange(order: Partial<PurchaseOrder>, visibleColumns: PurchaseOrderTableColumn[]) {
@@ -4634,6 +4828,46 @@ function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
     };
   });
   return next.length ? next : [emptyPurchaseOrder()];
+}
+
+function hydratePurchaseOrderTemplatePresets(presets: Partial<PurchaseOrderTemplatePreset>[]) {
+  const input = Array.isArray(presets) ? presets : [];
+  const hydrated = input
+    .map((preset, index) => {
+      const templateKey = preset.templateKey && purchaseOrderTemplates[preset.templateKey] ? preset.templateKey : 'custom';
+      const orderLike = {
+        templateKey,
+        columnLabels: preset.columnLabels,
+        visibleColumns: preset.visibleColumns,
+        columnWidths: preset.columnWidths,
+        mergeSameCategory: preset.mergeSameCategory,
+        headerMergeLabel: preset.headerMergeLabel,
+        headerMergeColumns: preset.headerMergeColumns,
+      };
+      const visibleColumns = getPurchaseOrderVisibleColumns(orderLike);
+      return {
+        id: String(preset.id || `purchase-template-${Date.now()}-${index}-${Math.random().toString(16).slice(2)}`),
+        name: String(preset.name || `템플릿 ${index + 1}`).trim(),
+        templateKey,
+        columnLabels: getPurchaseOrderLabels(orderLike),
+        visibleColumns,
+        columnWidths: { ...purchaseOrderColumnWidthValues, ...(preset.columnWidths || {}) },
+        mergeSameCategory: Boolean(preset.mergeSameCategory),
+        headerMergeLabel: String(preset.headerMergeLabel || '').trim(),
+        headerMergeColumns: Array.isArray(preset.headerMergeColumns)
+          ? preset.headerMergeColumns.filter((column): column is PurchaseOrderTableColumn => purchaseOrderColumnKeys.includes(column as PurchaseOrderTableColumn) && visibleColumns.includes(column as PurchaseOrderTableColumn))
+          : [],
+      };
+    })
+    .filter((preset) => preset.name);
+
+  const merged = [...defaultPurchaseOrderTemplatePresets];
+  hydrated.forEach((preset) => {
+    const existingIndex = merged.findIndex((item) => item.id === preset.id);
+    if (existingIndex >= 0) merged[existingIndex] = preset;
+    else merged.push(preset);
+  });
+  return merged.length ? merged : defaultPurchaseOrderTemplatePresets;
 }
 
 function cloneExtraItems(items: ExtraItem[]) {

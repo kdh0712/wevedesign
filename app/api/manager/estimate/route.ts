@@ -91,6 +91,18 @@ type PurchaseOrder = {
   items?: PurchaseOrderItem[];
 };
 
+type PurchaseOrderTemplatePreset = {
+  id?: string;
+  name?: string;
+  templateKey?: string;
+  columnLabels?: Record<string, string>;
+  visibleColumns?: string[];
+  columnWidths?: Record<string, string>;
+  mergeSameCategory?: boolean;
+  headerMergeLabel?: string;
+  headerMergeColumns?: string[];
+};
+
 type LegacyWorkSite = {
   id?: string;
   siteName?: string;
@@ -131,7 +143,7 @@ const estimateQuery = `{
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
-    purchaseOrdersJson, extraItemsJson, legacyWorkbooksJson,
+    purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
     actualExecutionCostTotal, actualMarginAmount, actualMarginRate, additionalCostTotal,
@@ -230,6 +242,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const workLines = Array.isArray(body.workLines) ? normalizeWorkLines(body.workLines as WorkLine[]) : [];
   const schedule = Array.isArray(body.schedule) ? normalizeSchedule(body.schedule as ScheduleTask[]) : [];
   const purchaseOrders = Array.isArray(body.purchaseOrders) ? normalizePurchaseOrders(body.purchaseOrders as PurchaseOrder[]) : [];
+  const purchaseOrderTemplatePresets = Array.isArray(body.purchaseOrderTemplatePresets) ? normalizePurchaseOrderTemplatePresets(body.purchaseOrderTemplatePresets as PurchaseOrderTemplatePreset[]) : [];
   const extraItems = Array.isArray(body.extraItems) ? normalizeExtraItems(body.extraItems as ExtraItem[]) : [];
   const legacyWorkSites = Array.isArray(body.legacyWorkSites) ? normalizeLegacyWorkSites(body.legacyWorkSites as LegacyWorkSite[]) : [];
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
@@ -253,6 +266,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     scheduleJson: JSON.stringify(schedule),
     holidaysJson: JSON.stringify(holidays),
     purchaseOrdersJson: JSON.stringify(purchaseOrders),
+    purchaseOrderTemplatesJson: JSON.stringify(purchaseOrderTemplatePresets),
     extraItemsJson: JSON.stringify(extraItems),
     legacyWorkbooksJson: JSON.stringify(legacyWorkSites),
     customerEstimateTotal: totals.customerEstimateTotal,
@@ -554,6 +568,59 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
       };
     })
     .filter((order) => order.title || order.vendorName || order.memo || order.items.length > 0);
+}
+
+function normalizePurchaseOrderTemplatePresets(presets: PurchaseOrderTemplatePreset[]) {
+  const defaultColumnLabels = {
+    category: '구분',
+    modelName: '모델명',
+    spec: '규격',
+    quantity: '수량',
+    unit: '단위',
+    unitPrice: '단가',
+    amount: '금액',
+  };
+  const columnKeys = ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'];
+  const defaultVisibleColumns: Record<string, string[]> = {
+    modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+    subType: ['category', 'modelName', 'quantity', 'unit'],
+    custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
+  };
+
+  return presets
+    .map((preset, index) => {
+      const templateKey = ['modelSpec', 'subType', 'custom'].includes(String(preset.templateKey || ''))
+        ? String(preset.templateKey)
+        : 'custom';
+      const visibleColumns = Array.isArray(preset.visibleColumns)
+        ? preset.visibleColumns.map((column) => String(column || '')).filter((column) => columnKeys.includes(column))
+        : [];
+      const columnWidths = Object.fromEntries(
+        Object.entries(preset.columnWidths || {})
+          .map(([key, value]) => {
+            const numericWidth = String(value || '').replace(/[^0-9.]/g, '');
+            return [key, numericWidth || ''];
+          })
+          .filter(([key, value]) => columnKeys.includes(key) && value),
+      );
+
+      return {
+        id: String(preset.id || `purchase-template-${Date.now()}-${index}`).trim(),
+        name: String(preset.name || `템플릿 ${index + 1}`).trim(),
+        templateKey,
+        columnLabels: Object.fromEntries(
+          Object.entries({ ...defaultColumnLabels, ...(preset.columnLabels || {}) }).map(([key, value]) => [key, String(value || '').trim() || defaultColumnLabels[key as keyof typeof defaultColumnLabels]]),
+        ),
+        visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
+        columnWidths,
+        mergeSameCategory: Boolean(preset.mergeSameCategory),
+        headerMergeLabel: String(preset.headerMergeLabel || '').trim(),
+        headerMergeColumns: Array.isArray(preset.headerMergeColumns)
+          ? preset.headerMergeColumns.map((column) => String(column || '')).filter((column) => columnKeys.includes(column))
+          : [],
+      };
+    })
+    .filter((preset) => preset.name);
 }
 
 function normalizeLegacyWorkSites(sites: LegacyWorkSite[]) {
