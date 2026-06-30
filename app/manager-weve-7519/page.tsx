@@ -633,6 +633,8 @@ export default function ManagerPage() {
   const [results, setResults] = useState<UploadResult[]>([]);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
+  const [alimtalkCustomer, setAlimtalkCustomer] = useState<Customer | null>(null);
+  const [sendingAlimtalk, setSendingAlimtalk] = useState(false);
   const [pendingConsultationForCustomer, setPendingConsultationForCustomer] = useState<Consultation | null>(null);
   const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
@@ -1188,6 +1190,38 @@ export default function ManagerPage() {
       setError(caught instanceof Error ? caught.message : '삭제 중 오류가 발생했습니다.');
     } finally {
       setSavingOffice(false);
+    }
+  };
+
+  const sendContractAlimtalk = async (customer: Customer) => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    setSendingAlimtalk(true);
+    try {
+      const response = await fetch('/api/integrations/aligo-alimtalk/send', {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'contract-complete',
+          customerId: customer._id,
+          customerName: customer.name || '',
+          customerPhone: customer.phone || '',
+        }),
+      });
+      const data = await readJsonResponse<{ error?: string; providerMessage?: string }>(response);
+      if (!response.ok) throw new Error(data.error || data.providerMessage || '알림톡 발송에 실패했습니다.');
+
+      setAlimtalkCustomer(null);
+      setStatus(`${customer.name || '고객'}님에게 계약 완료 안내 알림톡을 발송했습니다.`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '알림톡 발송 중 오류가 발생했습니다.');
+    } finally {
+      setSendingAlimtalk(false);
     }
   };
 
@@ -2191,6 +2225,9 @@ export default function ManagerPage() {
                   body: item.memo,
                   action: (
                     <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                      <button onClick={() => setAlimtalkCustomer(item)} className="rounded-md bg-[#ffe812] px-3 py-1 text-xs font-semibold text-[#171512]">
+                        알림톡
+                      </button>
                       <button onClick={() => editCustomer(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
@@ -3195,6 +3232,23 @@ export default function ManagerPage() {
             onRegisterCustomer={() => completeConsultation(completionConsultation, true)}
           />
         )}
+        {alimtalkCustomer && (
+          <AlimtalkActionModal
+            customer={alimtalkCustomer}
+            sending={sendingAlimtalk}
+            kakaoManagerUrl={homepageSettings.kakaoChannelManagerUrl || homepageSettings.kakaoUrl}
+            onClose={() => setAlimtalkCustomer(null)}
+            onSendContract={() => sendContractAlimtalk(alimtalkCustomer)}
+            onOpenChat={(url) => {
+              if (url) {
+                window.open(url, '_blank', 'noreferrer');
+                setAlimtalkCustomer(null);
+                return;
+              }
+              setStatus('카카오 채팅방 이동은 홈페이지·채널 설정에서 카카오 채널 관리 링크를 입력한 뒤 사용할 수 있습니다.');
+            }}
+          />
+        )}
         </section>
       </div>
     </main>
@@ -4077,6 +4131,77 @@ function ConsultationCompleteModal({
           </button>
           <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
             고객 + 현장 등록
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AlimtalkActionModal({
+  customer,
+  sending,
+  kakaoManagerUrl,
+  onClose,
+  onSendContract,
+  onOpenChat,
+}: {
+  customer: Customer;
+  sending: boolean;
+  kakaoManagerUrl?: string;
+  onClose: () => void;
+  onSendContract: () => void;
+  onOpenChat: (url?: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Kakao Alimtalk</p>
+            <h2 className="mt-2 text-2xl font-semibold">고객 안내 발송</h2>
+            <p className="mt-2 text-sm text-[#60717d]">
+              {customer.name || '이름 없음'} · {customer.phone || '연락처 없음'}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-[#edf2f5] text-lg">
+            ×
+          </button>
+        </div>
+        <div className="mt-6 grid gap-3">
+          <button
+            type="button"
+            onClick={onSendContract}
+            disabled={sending}
+            className="flex items-center justify-between gap-4 rounded-lg border border-[#e2c06d] bg-[#ffe29a] px-5 py-4 text-left font-semibold text-[#171512] shadow-[0_10px_24px_rgba(191,143,51,0.18)] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-70"
+          >
+            <span>
+              <span className="block text-base">1. 계약 완료 안내</span>
+              <span className="mt-1 block text-xs font-medium text-[#7d6740]">승인된 알리고 알림톡 템플릿으로 발송합니다.</span>
+            </span>
+            {sending ? <Loader2 className="animate-spin" size={20} /> : <MessageCircle size={20} />}
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChat(kakaoManagerUrl)}
+            className="flex items-center justify-between gap-4 rounded-lg border border-[#d8d1c5] bg-white px-5 py-4 text-left font-semibold text-[#171512] transition hover:bg-[#f7fafb]"
+          >
+            <span>
+              <span className="block text-base">2. 채팅방 이동</span>
+              <span className="mt-1 block text-xs font-medium text-[#60717d]">카카오 채널 관리 화면으로 이동합니다.</span>
+            </span>
+            <ExternalLink size={18} />
+          </button>
+          <button
+            type="button"
+            disabled
+            className="flex items-center justify-between gap-4 rounded-lg border border-[#d8d1c5] bg-[#f7fafb] px-5 py-4 text-left font-semibold text-[#8a8f94]"
+          >
+            <span>
+              <span className="block text-base">3. 공사 완료 안내</span>
+              <span className="mt-1 block text-xs font-medium">템플릿 승인 후 연결할 수 있습니다.</span>
+            </span>
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#60717d]">준비 중</span>
           </button>
         </div>
       </div>
