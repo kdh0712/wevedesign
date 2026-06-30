@@ -93,6 +93,8 @@ type PurchaseOrder = {
   templateKey: 'modelSpec' | 'subType' | 'custom';
   columnLabels: PurchaseOrderColumnLabels;
   visibleColumns: PurchaseOrderTableColumn[];
+  columnWidths?: Partial<Record<PurchaseOrderTableColumn, string>>;
+  mergeSameCategory?: boolean;
   items: PurchaseOrderItem[];
 };
 
@@ -359,6 +361,16 @@ const purchaseOrderColumnWidths: Record<PurchaseOrderTableColumn, string> = {
   note: 'w-[14%]',
 };
 
+const purchaseOrderColumnWidthValues: Record<PurchaseOrderTableColumn, string> = {
+  category: '18',
+  modelName: '30',
+  spec: '22',
+  quantity: '10',
+  unit: '10',
+  amount: '14',
+  note: '14',
+};
+
 const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   id: `purchase-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   title,
@@ -369,6 +381,8 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   templateKey: 'modelSpec',
   columnLabels: purchaseOrderTemplates.modelSpec,
   visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
+  columnWidths: purchaseOrderColumnWidthValues,
+  mergeSameCategory: false,
   items: [],
 });
 
@@ -409,6 +423,7 @@ export default function EstimateWorkspacePage() {
   const [selectedPurchaseOrderId, setSelectedPurchaseOrderId] = useState('');
   const [purchaseItemDraft, setPurchaseItemDraft] = useState<PurchaseOrderItem>(() => emptyPurchaseOrderItem());
   const [editingPurchaseItemId, setEditingPurchaseItemId] = useState('');
+  const [isPurchaseTemplateEditorOpen, setIsPurchaseTemplateEditorOpen] = useState(false);
   const [extraItems, setExtraItems] = useState<ExtraItem[]>([emptyExtraItem()]);
   const [extraItemDraft, setExtraItemDraft] = useState<ExtraItem>(() => emptyExtraItem());
   const [editingExtraItemId, setEditingExtraItemId] = useState('');
@@ -425,6 +440,7 @@ export default function EstimateWorkspacePage() {
   const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
   const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
+  const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
   const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
   const [lineFilterType, setLineFilterType] = useState<'all' | 'space' | 'category'>('all');
   const [lineFilterValue, setLineFilterValue] = useState('');
@@ -470,6 +486,17 @@ export default function EstimateWorkspacePage() {
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
   const materialCategories = useMemo(() => Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort(), [materials]);
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
+  const editingMaterialProcessOptions = useMemo(() => {
+    const category = (editingMaterial.category || '').trim();
+    return Array.from(
+      new Set(
+        materials
+          .filter((item) => !category || (item.category || '미분류') === category)
+          .map((item) => item.process || item.category || '')
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  }, [editingMaterial.category, materials]);
   const materialNames = useMemo(() => Array.from(new Set(materials.map((item) => item.name || '').filter(Boolean))).sort(), [materials]);
   const vendorNames = useMemo(() => Array.from(new Set(vendors.map((vendor) => vendor.name || '').filter(Boolean))).sort(), [vendors]);
   const filteredMaterials = useMemo(() => {
@@ -604,6 +631,7 @@ export default function EstimateWorkspacePage() {
   useEffect(() => {
     setPurchaseItemDraft(emptyPurchaseOrderItem());
     setEditingPurchaseItemId('');
+    setIsPurchaseTemplateEditorOpen(false);
   }, [selectedPurchaseOrderId]);
 
   const authHeaders = (nextPassword = password, nextFirebaseToken = firebaseToken) => ({
@@ -772,20 +800,21 @@ export default function EstimateWorkspacePage() {
     }
   };
 
-  const saveMaterial = async () => {
+  const saveMaterial = async (materialOverride?: Material) => {
     setIsSaving(true);
     setError('');
 
     try {
+      const materialToSave = materialOverride || editingMaterial;
       const response = await fetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveMaterial', material: editingMaterial }),
+        body: JSON.stringify({ action: 'saveMaterial', material: materialToSave }),
       });
       const data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '자재 단가 저장에 실패했습니다.');
 
-      setEditingMaterial({});
+      if (!materialOverride) setEditingMaterial({});
       setStatus('자재 단가를 저장했습니다.');
       clearMaterialCache();
       await loadData(password, selectedSiteId, selectedEstimateId, firebaseToken, true);
@@ -930,6 +959,8 @@ export default function EstimateWorkspacePage() {
               templateKey,
               columnLabels: templateKey === 'custom' ? order.columnLabels : purchaseOrderTemplates[templateKey],
               visibleColumns: defaultPurchaseOrderVisibleColumns[templateKey],
+              columnWidths: { ...purchaseOrderColumnWidthValues },
+              mergeSameCategory: templateKey === 'subType',
             }
           : order,
       ),
@@ -944,6 +975,35 @@ export default function EstimateWorkspacePage() {
               ...order,
               templateKey: 'custom',
               columnLabels: { ...order.columnLabels, [key]: value },
+            }
+          : order,
+      ),
+    );
+  };
+
+  const updatePurchaseOrderColumnWidth = (id: string, key: PurchaseOrderTableColumn, value: string) => {
+    const width = value.replace(/[^0-9.]/g, '').slice(0, 5);
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              templateKey: 'custom',
+              columnWidths: { ...(order.columnWidths || {}), [key]: width },
+            }
+          : order,
+      ),
+    );
+  };
+
+  const updatePurchaseOrderMergeSameCategory = (id: string, value: boolean) => {
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              templateKey: 'custom',
+              mergeSameCategory: value,
             }
           : order,
       ),
@@ -1150,6 +1210,8 @@ export default function EstimateWorkspacePage() {
       <style>{`
         @media print {
           @page { size: A4 landscape; margin: 8mm 10mm; }
+          @page portraitPage { size: A4 portrait; margin: 10mm 12mm; }
+          @page landscapePage { size: A4 landscape; margin: 8mm 10mm; }
           html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
@@ -1176,6 +1238,31 @@ export default function EstimateWorkspacePage() {
             page-break-after: avoid;
             break-inside: avoid;
             page-break-inside: avoid;
+          }
+          #estimate-print.batch-print {
+            height: auto !important;
+            overflow: visible !important;
+          }
+          #estimate-print.batch-print > section {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            break-after: page;
+            page-break-after: always;
+          }
+          #estimate-print.batch-print > section:last-child {
+            break-after: auto;
+            page-break-after: auto;
+          }
+          #estimate-print.batch-print > .print-portrait {
+            page: portraitPage;
+            width: 186mm !important;
+            max-width: none !important;
+          }
+          #estimate-print.batch-print > .print-landscape {
+            page: landscapePage;
+            width: 277mm !important;
+            max-width: none !important;
           }
           .estimate-title-strip {
             background: #d9d9d9 !important;
@@ -1230,7 +1317,7 @@ export default function EstimateWorkspacePage() {
         )}
 
         <section className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
-          <div className="grid gap-3 2xl:grid-cols-[minmax(220px,0.85fr)_minmax(260px,0.85fr)_repeat(6,minmax(150px,0.55fr))]">
+          <div className="grid gap-3 2xl:grid-cols-[minmax(260px,0.8fr)_minmax(300px,0.8fr)_minmax(560px,1.4fr)]">
             <div className="rounded-md bg-[#f7fafb] px-4 py-3">
               <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
               <h2 className="mt-1 truncate text-lg font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
@@ -1264,12 +1351,12 @@ export default function EstimateWorkspacePage() {
                 className="min-w-0 resize-none rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]"
               />
             </div>
-            <CompactMetric title="견적 금액" value={formatCompactMoney(totals.customerEstimateTotal)} fullValue={formatMoney(totals.customerEstimateTotal)} />
-            <CompactMetric title="견적 예상원가" value={formatCompactMoney(totals.estimateExecutionCostTotal)} fullValue={formatMoney(totals.estimateExecutionCostTotal)} />
-            <CompactMetric title="추가 비용" value={formatCompactMoney(totals.additionalCostTotal)} fullValue={formatMoney(totals.additionalCostTotal)} tone={totals.additionalCostTotal > 0 ? 'negative' : 'default'} />
-            <CompactMetric title="예상 마진" value={formatCompactMoney(totals.estimatedMarginAmount)} fullValue={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
-            <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatCompactMoney(totals.actualMarginAmount) : '미작성'} fullValue={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '실행 내역서 기준'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
-            <CompactMetric title="내역 수" value={`${lines.filter((line) => line.name).length}개`} />
+            <div className="grid gap-2 md:grid-cols-2">
+              <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
+              <CompactMetric title="예상 마진" value={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
+              <CompactMetric title="견적 예상원가" value={formatMoney(totals.estimateExecutionCostTotal)} />
+              <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+            </div>
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
             <div className="grid gap-2 md:grid-cols-[minmax(220px,360px)_minmax(0,1fr)] md:items-end">
@@ -1724,17 +1811,27 @@ export default function EstimateWorkspacePage() {
               </button>
 
               <div className="mt-6 grid gap-3">
-                <input value={editingMaterial.category || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                <input value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] px-3 py-2" />
+                <input list="estimate-material-categories" value={editingMaterial.category || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] px-3 py-2" />
+                <input list="estimate-material-processes" value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <input value={editingMaterial.name || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <input value={editingMaterial.spec || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <div className="grid grid-cols-2 gap-2">
                   <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                   <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} />
                 </div>
-                <button type="button" onClick={saveMaterial} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-3 font-semibold disabled:opacity-60">
+                <button type="button" onClick={() => saveMaterial()} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-3 font-semibold disabled:opacity-60">
                   단가 저장
                 </button>
+                <datalist id="estimate-material-categories">
+                  {materialCategories.map((category) => (
+                    <option key={category} value={category} />
+                  ))}
+                </datalist>
+                <datalist id="estimate-material-processes">
+                  {editingMaterialProcessOptions.map((process) => (
+                    <option key={process} value={process} />
+                  ))}
+                </datalist>
               </div>
             </div>
 
@@ -2074,7 +2171,7 @@ export default function EstimateWorkspacePage() {
                     <table className="w-full table-fixed border-collapse text-sm">
                       <colgroup>
                         {selectedPurchaseOrderVisibleColumns.map((column) => (
-                          <col key={column} className={purchaseOrderColumnWidths[column]} />
+                          <col key={column} className={purchaseOrderColumnWidths[column]} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
                         ))}
                       </colgroup>
                       <thead className="bg-[#f3f1ec]">
@@ -2089,7 +2186,7 @@ export default function EstimateWorkspacePage() {
                           <tr>
                             <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrderVisibleColumns.length}>작성된 발주 항목이 없습니다.</td>
                           </tr>
-                        ) : selectedPurchaseOrder.templateKey === 'subType' ? (
+                        ) : selectedPurchaseOrder.mergeSameCategory ? (
                           renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns)
                         ) : (
                           selectedPurchaseOrder.items.map((item) => (
@@ -2148,6 +2245,109 @@ export default function EstimateWorkspacePage() {
                               <option value="custom">사용자 지정</option>
                             </select>
                           </label>
+                          <button
+                            type="button"
+                            onClick={() => setIsPurchaseTemplateEditorOpen((current) => !current)}
+                            className="mt-3 w-full rounded-md border border-[#171512] bg-white px-3 py-2 text-xs font-semibold text-[#171512] transition hover:bg-[#171512] hover:text-white"
+                          >
+                            {isPurchaseTemplateEditorOpen ? '템플릿 수정 닫기' : '템플릿 수정'}
+                          </button>
+                          {isPurchaseTemplateEditorOpen && (
+                            <div className="mt-3 rounded-md border border-[#d5dde2] bg-white p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-xs font-bold text-[#171512]">템플릿 미리보기 설정</p>
+                                  <p className="mt-1 text-[11px] leading-5 text-[#60717d]">열 이름과 너비를 조정하고, 같은 구분은 출력 표에서 자동 병합합니다.</p>
+                                </div>
+                                <label className="inline-flex items-center gap-2 whitespace-nowrap text-[11px] font-semibold text-[#171512]">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(selectedPurchaseOrder.mergeSameCategory)}
+                                    onChange={(event) => updatePurchaseOrderMergeSameCategory(selectedPurchaseOrder.id, event.target.checked)}
+                                    className="h-4 w-4 rounded border-[#d5dde2]"
+                                  />
+                                  같은 구분 병합
+                                </label>
+                              </div>
+                              <div className="mt-3 overflow-hidden rounded border border-[#171512]">
+                                <table className="w-full table-fixed border-collapse text-[11px]">
+                                  <colgroup>
+                                    {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                      <col key={column} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
+                                    ))}
+                                  </colgroup>
+                                  <thead className="bg-[#f3f1ec]">
+                                    <tr>
+                                      {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                        <th key={column} className="border border-[#171512] px-2 py-1 text-center">
+                                          {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                                        </th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 4) : [purchaseItemDraft]).map((item, index) => (
+                                      <tr key={`template-preview-${item.id || index}`}>
+                                        {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                          <td key={`${item.id || index}-${column}`} className="truncate border border-[#171512] px-2 py-1">
+                                            {renderPurchaseOrderCell(item, column)}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                              <div className="mt-3 grid gap-2">
+                                {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                  <div key={`template-editor-${column}`} className="grid grid-cols-[1fr_72px_auto] items-end gap-2">
+                                    <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                      열 이름
+                                      <input
+                                        value={purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                                        onChange={(event) => {
+                                          if (column !== 'note') updatePurchaseOrderColumnLabel(selectedPurchaseOrder.id, column as keyof PurchaseOrderColumnLabels, event.target.value);
+                                        }}
+                                        disabled={column === 'note'}
+                                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd] disabled:bg-[#f1f5f7]"
+                                      />
+                                    </label>
+                                    <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                      너비(%)
+                                      <input
+                                        inputMode="decimal"
+                                        value={purchaseOrderColumnWidth(selectedPurchaseOrder, column)}
+                                        onChange={(event) => updatePurchaseOrderColumnWidth(selectedPurchaseOrder.id, column, event.target.value)}
+                                        className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => removePurchaseOrderColumn(selectedPurchaseOrder.id, column)}
+                                      disabled={selectedPurchaseOrderVisibleColumns.length <= 1}
+                                      className="rounded-md border border-red-200 bg-white px-2 py-1.5 text-[11px] font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      삭제
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                              {hiddenPurchaseOrderColumns.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {hiddenPurchaseOrderColumns.map((column) => (
+                                    <button
+                                      key={`hidden-template-${column}`}
+                                      type="button"
+                                      onClick={() => addPurchaseOrderColumn(selectedPurchaseOrder.id, column)}
+                                      className="rounded-full border border-[#d5dde2] bg-[#f7fafb] px-3 py-1 text-[11px] font-semibold text-[#171512]"
+                                    >
+                                      + {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div className="mt-2 grid grid-cols-2 gap-2">
                             {(Object.keys(selectedPurchaseOrderLabels) as Array<keyof PurchaseOrderColumnLabels>).map((key) => (
                               <label key={key} className="grid gap-1 text-[11px] font-bold text-[#60717d]">
@@ -2349,8 +2549,12 @@ export default function EstimateWorkspacePage() {
                 <Printer size={17} />
                 현재 서류 인쇄
               </button>
+              <button type="button" onClick={() => setIsDocumentBatchOpen(true)} className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#171512] bg-white px-5 py-3 font-semibold text-[#171512]">
+                <FileSpreadsheet size={17} />
+                여러 서류 선택 출력
+              </button>
             </div>
-            <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
+            {!isDocumentBatchOpen && <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />}
           </section>
         )}
       </section>
@@ -2363,6 +2567,7 @@ export default function EstimateWorkspacePage() {
           onChooseCategory={choosePickerCategory}
           onChooseProcess={choosePickerProcess}
           onChooseMaterial={choosePickerMaterial}
+          onSaveMaterial={saveMaterial}
           onClose={() => setMaterialPicker(null)}
         />
       )}
@@ -2376,6 +2581,20 @@ export default function EstimateWorkspacePage() {
           onSave={saveScheduleEditor}
           onDelete={() => deleteScheduleTask(scheduleEditor.id)}
           onClose={() => setScheduleEditor(null)}
+        />
+      )}
+
+      {isDocumentBatchOpen && (
+        <DocumentBatchPrintModal
+          site={selectedSite}
+          lines={lines}
+          totals={totals}
+          versionLabel={versionLabel}
+          schedule={schedule}
+          holidays={holidays}
+          purchaseOrders={purchaseOrders}
+          extraItems={extraItems}
+          onClose={() => setIsDocumentBatchOpen(false)}
         />
       )}
     </main>
@@ -2419,6 +2638,329 @@ function PickerCell({ value, placeholder, onClick }: { value: string; placeholde
   );
 }
 
+function DocumentBatchPrintModal({
+  site,
+  lines,
+  totals,
+  versionLabel,
+  schedule,
+  holidays,
+  purchaseOrders,
+  extraItems,
+  onClose,
+}: {
+  site?: Site;
+  lines: EstimateLine[];
+  totals: ReturnType<typeof calculateTotals>;
+  versionLabel: string;
+  schedule: ScheduleTask[];
+  holidays: string[];
+  purchaseOrders: PurchaseOrder[];
+  extraItems: ExtraItem[];
+  onClose: () => void;
+}) {
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(['cover', 'summary', 'detail']);
+  const [scheduleMonth, setScheduleMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const documentOptions = [
+    { key: 'cover', label: '견적 표지' },
+    { key: 'summary', label: '견적 갑지' },
+    { key: 'detail', label: '세부내역서' },
+    { key: 'schedule', label: `공정표 (${formatMonthLabel(scheduleMonth)})` },
+    { key: 'extras', label: '추가 사항' },
+    ...purchaseOrders.map((order) => ({ key: `purchase:${order.id}`, label: `발주서 - ${order.title || order.vendorName || '무제'}` })),
+  ];
+
+  const toggleKey = (key: string) => {
+    setSelectedKeys((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex bg-[#e6eef2] text-[#171512]">
+      <aside className="no-print w-[320px] shrink-0 overflow-auto border-r border-[#c7d3da] bg-white p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">PRINT SET</p>
+            <h2 className="mt-1 text-2xl font-bold">여러 서류 출력</h2>
+            <p className="mt-2 text-sm leading-6 text-[#60717d]">출력할 서류를 선택하고 오른쪽 미리보기에서 한 번에 인쇄합니다.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d]">
+            <X size={18} />
+          </button>
+        </div>
+        <label className="mt-5 block text-xs font-bold text-[#60717d]">공정표 출력 월</label>
+        <input type="month" value={scheduleMonth} onChange={(event) => setScheduleMonth(event.target.value)} className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2" />
+        <div className="mt-5 grid gap-2">
+          {documentOptions.map((option) => (
+            <label key={option.key} className="flex cursor-pointer items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f8fbfc] px-3 py-3 text-sm font-semibold">
+              <input type="checkbox" checked={selectedKeys.includes(option.key)} onChange={() => toggleKey(option.key)} />
+              <span>{option.label}</span>
+            </label>
+          ))}
+        </div>
+        <button type="button" onClick={() => window.print()} disabled={selectedKeys.length === 0} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-50">
+          <Printer size={17} />
+          선택 서류 한 번에 출력
+        </button>
+      </aside>
+      <section className="flex-1 overflow-auto p-6">
+        <div className="no-print mb-4 flex items-center justify-between rounded-lg border border-[#c7d3da] bg-white px-4 py-3 shadow-sm">
+          <span className="text-sm font-semibold text-[#60717d]">선택 {selectedKeys.length}개</span>
+          <button type="button" onClick={() => window.print()} disabled={selectedKeys.length === 0} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-bold disabled:opacity-50">
+            전체 인쇄
+          </button>
+        </div>
+        <article id="estimate-print" className="batch-print mx-auto grid gap-6">
+          {selectedKeys.length === 0 && (
+            <section className="print-portrait rounded-lg bg-white p-10 text-center text-sm text-[#60717d]">왼쪽에서 출력할 서류를 선택해주세요.</section>
+          )}
+          {selectedKeys.map((key) => {
+            if (key === 'cover') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="cover" />;
+            if (key === 'summary') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="summary" />;
+            if (key === 'detail') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="detail" />;
+            if (key === 'schedule') return <SchedulePrintPage key={key} monthKey={scheduleMonth} tasks={schedule} holidays={holidays} site={site} />;
+            if (key === 'extras') return <ExtraItemsPrintPage key={key} items={extraItems} site={site} />;
+            if (key.startsWith('purchase:')) {
+              const order = purchaseOrders.find((item) => item.id === key.replace('purchase:', ''));
+              return order ? <PurchaseOrderPrintPage key={key} order={order} site={site} /> : null;
+            }
+            return null;
+          })}
+        </article>
+      </section>
+    </div>
+  );
+}
+
+function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?: Site; lines: EstimateLine[]; totals: ReturnType<typeof calculateTotals>; versionLabel: string; view: 'cover' | 'summary' | 'detail' }) {
+  const visibleLines = lines.filter((line) => line.name || line.category || line.process);
+  const grouped = groupLinesByCategory(visibleLines);
+  const title = view === 'cover' ? '견적 표지' : view === 'summary' ? '견적서' : '세부내역서';
+
+  return (
+    <section className="print-portrait rounded-lg bg-white p-8 shadow-sm">
+      <DocumentPrintHeader title={title} site={site} />
+      {view === 'cover' ? (
+        <div className="mt-10 grid gap-5 text-base">
+          <DocumentInfoRow label="고객명" value={`${site?.address || site?.title || ''} · ${site?.customerName || '고객'} 귀하`} />
+          <DocumentInfoRow label="공사명" value={site?.title || `${site?.siteType || '인테리어'} 공사`} />
+          <DocumentInfoRow label="견적금액" value={`${formatMoney(totals.customerEstimateTotal)} (부가세 별도)`} />
+          <p className="border-y-4 border-[#c9c9c9] py-6 font-bold">상기와 같이 견적을 제출합니다.</p>
+          <div className="mt-8 grid grid-cols-2 gap-10">
+            <div className="text-sm leading-8">
+              <p>*견적 외 사항은 별도입니다.</p>
+              <p>*견적서 유효기간은 발행일로부터 30일간 유효합니다.</p>
+            </div>
+            <CompanyInfoBlock />
+          </div>
+        </div>
+      ) : view === 'summary' ? (
+        <DocumentTable className="mt-6">
+          <thead>
+            <tr>{['공정', '규격', '산식', '단위', '금액', '세액'].map((label) => <th key={label}>{label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {grouped.map((group, index) => (
+              <tr key={group.category}>
+                <td>{index + 1}. {group.category}</td>
+                <td />
+                <td className="text-center">1</td>
+                <td className="text-center">식</td>
+                <td className="text-right">{formatMoney(group.customerAmount)}</td>
+                <td />
+              </tr>
+            ))}
+            <tr className="bg-[#f8e8da] font-bold">
+              <td colSpan={4} className="text-center">합계 (부가세 별도)</td>
+              <td className="text-right">{formatMoney(totals.customerEstimateTotal)}</td>
+              <td />
+            </tr>
+          </tbody>
+        </DocumentTable>
+      ) : (
+        <DocumentTable className="mt-6 text-xs">
+          <thead>
+            <tr>{['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((label) => <th key={label}>{label}</th>)}</tr>
+          </thead>
+          <tbody>
+            {grouped.map((group, groupIndex) => (
+              <Fragment key={group.category}>
+                <tr className="bg-[#f4f4f4] font-bold"><td colSpan={7}>{groupIndex + 1}. {group.category}</td></tr>
+                {group.lines.map((line) => (
+                  <tr key={line.id}>
+                    <td>{line.name}</td>
+                    <td>{line.spec}</td>
+                    <td className="text-center">{line.unit}</td>
+                    <td className="text-right">{formatNumber(line.quantity)}</td>
+                    <td className="text-right">{formatMoney(line.customerUnitPrice)}</td>
+                    <td className="text-right">{formatMoney(line.quantity * line.customerUnitPrice)}</td>
+                    <td>{line.note}</td>
+                  </tr>
+                ))}
+                <tr className="font-bold"><td colSpan={5} className="text-center">소계</td><td className="text-right">{formatMoney(group.customerAmount)}</td><td /></tr>
+              </Fragment>
+            ))}
+          </tbody>
+        </DocumentTable>
+      )}
+      <p className="mt-5 text-right text-xs text-[#60717d]">{versionLabel}</p>
+    </section>
+  );
+}
+
+function SchedulePrintPage({ monthKey, tasks, holidays, site }: { monthKey: string; tasks: ScheduleTask[]; holidays: string[]; site?: Site }) {
+  const holidaySet = new Set(holidays);
+  const days = buildCalendarDays(monthKey);
+  const weeks = Array.from({ length: 6 }).map((_, index) => days.slice(index * 7, index * 7 + 7));
+
+  return (
+    <section className="print-landscape rounded-lg bg-white p-6 shadow-sm">
+      <DocumentPrintHeader title={`${formatMonthLabel(monthKey)} 공정표`} site={site} compact />
+      <table className="mt-5 w-full table-fixed border-collapse text-xs">
+        <thead>
+          <tr>{['월', '화', '수', '목', '금', '토', '일'].map((day) => <th key={day} className="border border-[#171512] bg-[#f4f1ec] py-2">{day}</th>)}</tr>
+        </thead>
+        <tbody>
+          {weeks.map((week, weekIndex) => (
+            <tr key={weekIndex}>
+              {week.map((day) => {
+                const dayTasks = tasksForDate(tasks, day.key, holidaySet);
+                return (
+                  <td key={day.key} className={`h-[28mm] align-top border border-[#171512] p-1 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f5f5f5] text-[#9aa6ad]'}`}>
+                    <div className="flex justify-between text-[10px] font-bold">
+                      <span>{day.day}</span>
+                      {holidaySet.has(day.key) && <span className="text-red-600">휴일</span>}
+                    </div>
+                    <div className="mt-1 space-y-1">
+                      {dayTasks.slice(0, 4).map((task) => (
+                        <div key={`${day.key}-${task.id}`} className="truncate rounded px-1 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: normalizeColor(task.color || '#38a9bd') }}>
+                          {task.name} {task.vendorName ? `· ${task.vendorName}` : ''}
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: Site }) {
+  const labels = getPurchaseOrderLabels(order);
+  const visibleColumns = getPurchaseOrderVisibleColumns(order);
+  const total = order.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+
+  return (
+    <section className="print-portrait rounded-lg bg-white p-6 shadow-sm">
+      <DocumentPrintHeader title="발주서" site={site} compact />
+      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <DocumentInfoRow label="발주서명" value={order.title || '-'} />
+        <DocumentInfoRow label="업체명" value={order.vendorName || '-'} />
+        <DocumentInfoRow label="발주일" value={formatShortDate(order.orderDate)} />
+        <DocumentInfoRow label="입고 예정일" value={formatShortDate(order.deliveryDate)} />
+      </div>
+      <DocumentTable className="mt-5 text-xs">
+        <colgroup>
+          {visibleColumns.map((column) => (
+            <col key={column} style={{ width: `${purchaseOrderColumnWidth(order, column)}%` }} />
+          ))}
+        </colgroup>
+        <thead>
+          <tr>{visibleColumns.map((column) => <th key={column}>{purchaseOrderColumnLabel(labels, column)}</th>)}</tr>
+        </thead>
+        <tbody>
+          {order.mergeSameCategory
+            ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns)
+            : order.items.map((item) => (
+                <tr key={item.id}>
+                  {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>{renderPurchaseOrderCell(item, column)}</td>)}
+                </tr>
+              ))}
+          <tr className="bg-[#f8e8da] font-bold"><td colSpan={Math.max(1, visibleColumns.length - 1)} className="text-center">합계</td><td className="text-right">{formatMoney(total)}</td></tr>
+        </tbody>
+      </DocumentTable>
+      {order.memo && <p className="mt-4 rounded border border-[#d5dde2] p-3 text-sm">메모: {order.memo}</p>}
+    </section>
+  );
+}
+
+function ExtraItemsPrintPage({ items, site }: { items: ExtraItem[]; site?: Site }) {
+  const total = items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
+
+  return (
+    <section className="print-portrait rounded-lg bg-white p-6 shadow-sm">
+      <DocumentPrintHeader title="추가 사항" site={site} compact />
+      <DocumentTable className="mt-5 text-sm">
+        <thead>
+          <tr>{['품명', '규격', '단위', '수량', '단가', '금액'].map((label) => <th key={label}>{label}</th>)}</tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td>{item.name}</td>
+              <td>{item.spec}</td>
+              <td className="text-center">{item.unit}</td>
+              <td className="text-right">{formatNumber(item.quantity)}</td>
+              <td className="text-right">{formatMoney(item.unitPrice)}</td>
+              <td className="text-right">{formatMoney(item.quantity * item.unitPrice)}</td>
+            </tr>
+          ))}
+          <tr className="bg-[#f8e8da] font-bold"><td colSpan={5} className="text-center">총합계</td><td className="text-right">{formatMoney(total)}</td></tr>
+        </tbody>
+      </DocumentTable>
+    </section>
+  );
+}
+
+function DocumentPrintHeader({ title, site, compact = false }: { title: string; site?: Site; compact?: boolean }) {
+  return (
+    <header className={compact ? 'text-sm' : 'text-base'}>
+      <div className="mx-auto w-[300px] border-2 border-[#99bf5a] py-2 text-center text-2xl font-bold tracking-[0.25em]">{title}</div>
+      <div className="mt-5 grid grid-cols-2 gap-6">
+        <div className="leading-7">
+          <p>{formatShortDate(todayKey())}</p>
+          <p>{site?.address || site?.title || '-'}</p>
+          <p>{site?.customerName || '고객'} 님 귀하</p>
+        </div>
+        <CompanyInfoBlock compact />
+      </div>
+    </header>
+  );
+}
+
+function DocumentInfoRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="grid grid-cols-[90px_1fr] border-b border-[#171512] py-3">
+      <span className="font-semibold text-[#4d5d66]">{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function CompanyInfoBlock({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`leading-7 ${compact ? 'text-sm' : 'text-base'}`}>
+      <p className="font-bold tracking-[0.25em]">위 브 디 자 인</p>
+      <p>경기도 의왕시 오리나무1길 12, 1층</p>
+      <p>대표 : 김현종</p>
+      <p>☎ 031.381.0489&nbsp;&nbsp;&nbsp; FAX 031.422.2915</p>
+      <p>✉ weve0489@gmail.com</p>
+      <p>담당자 : 김현종&nbsp;&nbsp;010.6346.3882</p>
+    </div>
+  );
+}
+
+function DocumentTable({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <table className={`${className} w-full table-fixed border-collapse [&_td]:border [&_td]:border-[#171512] [&_td]:px-2 [&_td]:py-2 [&_th]:border [&_th]:border-[#171512] [&_th]:bg-[#f4f1ec] [&_th]:px-2 [&_th]:py-2`}>
+      {children}
+    </table>
+  );
+}
+
 function MaterialPickerModal({
   state,
   materials,
@@ -2426,6 +2968,7 @@ function MaterialPickerModal({
   onChooseCategory,
   onChooseProcess,
   onChooseMaterial,
+  onSaveMaterial,
   onClose,
 }: {
   state: MaterialPickerState;
@@ -2434,8 +2977,10 @@ function MaterialPickerModal({
   onChooseCategory: (category: string) => void;
   onChooseProcess: (process: string) => void;
   onChooseMaterial: (material: Material) => void;
+  onSaveMaterial: (material: Material) => Promise<void>;
   onClose: () => void;
 }) {
+  const [editingPickerMaterial, setEditingPickerMaterial] = useState<Material | null>(null);
   const keyword = state.search.trim().toLowerCase();
   const categoryGroups = countBy(materials, (item) => item.category || '미분류')
     .filter((item) => !keyword || item.label.toLowerCase().includes(keyword))
@@ -2452,12 +2997,31 @@ function MaterialPickerModal({
       return category === state.category && process === state.process && (!keyword || haystack.includes(keyword));
     })
     .slice(0, 160);
+  const pickerCategoryOptions = Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort((a, b) => a.localeCompare(b, 'ko-KR'));
+  const pickerProcessOptions = Array.from(
+    new Set(
+      materials
+        .filter((item) => !editingPickerMaterial?.category || (item.category || '미분류') === editingPickerMaterial.category)
+        .map((item) => item.process || item.category || '')
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b, 'ko-KR'));
 
   const stepLabel = state.step === 'category' ? '분류 선택' : state.step === 'process' ? '공종 선택' : '품명 선택';
 
   return (
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
       <section className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+        <datalist id="picker-material-categories">
+          {pickerCategoryOptions.map((category) => (
+            <option key={category} value={category} />
+          ))}
+        </datalist>
+        <datalist id="picker-material-processes">
+          {pickerProcessOptions.map((process) => (
+            <option key={process} value={process} />
+          ))}
+        </datalist>
         <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">MATERIAL DB</p>
@@ -2521,22 +3085,55 @@ function MaterialPickerModal({
                 <span>·</span>
                 <span>공종 <b className="text-[#171512]">{state.process}</b></span>
               </div>
+              {editingPickerMaterial && (
+                <div className="mb-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <b className="text-sm">자재 단가 DB 수정</b>
+                    <button type="button" onClick={() => setEditingPickerMaterial(null)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
+                      닫기
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 md:grid-cols-3">
+                    <input list="picker-material-categories" value={editingPickerMaterial.category || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <input list="picker-material-processes" value={editingPickerMaterial.process || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <input value={editingPickerMaterial.name || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <input value={editingPickerMaterial.spec || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <input value={editingPickerMaterial.unit || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} className="bg-white text-sm" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await onSaveMaterial(editingPickerMaterial);
+                      setEditingPickerMaterial(null);
+                    }}
+                    className="mt-3 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    서버 DB 저장
+                  </button>
+                </div>
+              )}
               <div className="grid gap-2">
                 {materialResults.map((material) => (
-                  <button
+                  <article
                     key={material._id || `${material.category}-${material.process}-${material.name}-${material.spec}`}
-                    type="button"
-                    onClick={() => onChooseMaterial(material)}
                     className="grid gap-2 rounded-lg border border-[#d5dde2] bg-white p-4 text-left transition hover:border-[#38a9bd] hover:bg-[#edf8fb] md:grid-cols-[1.2fr_1fr_90px_130px]"
                   >
-                    <span>
+                    <button type="button" onClick={() => onChooseMaterial(material)} className="min-w-0 text-left md:col-span-3">
                       <b className="block truncate">{material.name || '품명 없음'}</b>
-                      <small className="mt-1 block text-[#60717d]">{material.note || material.sourceSheet || ''}</small>
-                    </span>
-                    <span className="text-sm text-[#4d5d66]">{material.spec || '규격 없음'}</span>
-                    <span className="text-sm text-[#4d5d66]">{material.unit || '-'}</span>
-                    <span className="font-semibold md:text-right">{formatMoney(Number(material.unitPrice || 0))}</span>
-                  </button>
+                      <small className="mt-1 block text-[#60717d]">{[material.category, material.process, material.spec, material.unit].filter(Boolean).join(' · ') || material.note || material.sourceSheet || ''}</small>
+                    </button>
+                    <div className="flex items-center justify-between gap-2 md:justify-end">
+                      <span className="font-semibold">{formatMoney(Number(material.unitPrice || 0))}</span>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPickerMaterial(material)}
+                        className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold hover:border-[#38a9bd]"
+                      >
+                        DB 수정
+                      </button>
+                    </div>
+                  </article>
                 ))}
               </div>
             </div>
@@ -3473,6 +4070,13 @@ function purchaseOrderColumnLabel(labels: PurchaseOrderColumnLabels, column: Pur
   return labels[column];
 }
 
+function purchaseOrderColumnWidth(order: Partial<PurchaseOrder>, column: PurchaseOrderTableColumn) {
+  const rawWidth = order.columnWidths?.[column] || purchaseOrderColumnWidthValues[column];
+  const numericWidth = Number(String(rawWidth).replace(/[^0-9.]/g, ''));
+  if (!Number.isFinite(numericWidth) || numericWidth <= 0) return Number(purchaseOrderColumnWidthValues[column]);
+  return Math.min(70, Math.max(5, numericWidth));
+}
+
 function purchaseOrderCellClass(column: PurchaseOrderTableColumn) {
   const base = 'break-words border border-[#171512] px-3 py-2';
   if (column === 'quantity' || column === 'amount') return `${base} break-all text-right tabular-nums`;
@@ -3537,6 +4141,8 @@ function clonePurchaseOrders(orders: PurchaseOrder[]) {
     id: `purchase-${Date.now()}-${orderIndex}-${Math.random().toString(16).slice(2)}`,
     columnLabels: getPurchaseOrderLabels(order),
     visibleColumns: getPurchaseOrderVisibleColumns(order),
+    columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+    mergeSameCategory: Boolean(order.mergeSameCategory),
     items: order.items.map((item, itemIndex) => ({
       ...item,
       id: `po-item-${Date.now()}-${orderIndex}-${itemIndex}-${Math.random().toString(16).slice(2)}`,
@@ -3554,6 +4160,8 @@ function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
       templateKey,
       columnLabels: getPurchaseOrderLabels({ ...order, templateKey }),
       visibleColumns: getPurchaseOrderVisibleColumns({ ...order, templateKey }),
+      columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      mergeSameCategory: order.mergeSameCategory ?? templateKey === 'subType',
       items: Array.isArray(order.items) && order.items.length
         ? order.items
             .filter((item) => item.category || item.modelName || item.spec || item.note || Number(item.quantity || 0) || Number(item.unitPrice || 0))

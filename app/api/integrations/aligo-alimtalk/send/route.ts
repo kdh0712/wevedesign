@@ -18,6 +18,11 @@ type AligoResponse = {
 };
 
 const ALIGO_API_URL = process.env.ALIGO_API_URL || 'https://kakaoapi.aligo.in/akv10/alimtalk/send/';
+const DEFAULT_CONTRACT_BUTTON = {
+  name: '계약 정보 확인',
+  linkType: 'BK',
+  linkTypeName: '봇키워드',
+};
 
 function requireEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -83,6 +88,7 @@ export async function POST(request: Request) {
     form.set('recvname_1', customerName);
     form.set('subject_1', process.env.ALIGO_CONTRACT_SUBJECT?.trim() || '계약 완료 안내');
     form.set('message_1', fillTemplate(messageTemplate, { customerName, customerPhone }));
+    form.set('button_1', process.env.ALIGO_CONTRACT_BUTTON_JSON?.trim() || JSON.stringify(DEFAULT_CONTRACT_BUTTON));
 
     if (process.env.ALIGO_TEST_MODE === 'Y') form.set('testMode', 'Y');
 
