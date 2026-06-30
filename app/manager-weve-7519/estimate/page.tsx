@@ -320,8 +320,8 @@ const purchaseOrderTemplates: Record<PurchaseOrder['templateKey'], PurchaseOrder
   },
   subType: {
     category: '구분',
-    modelName: '소구분',
-    spec: '종류',
+    modelName: '종류',
+    spec: '상세',
     quantity: '수량',
     unit: '단위',
     unitPrice: '단가',
@@ -1098,29 +1098,32 @@ export default function EstimateWorkspacePage() {
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
       <style>{`
         @media print {
-          @page { size: A4 landscape; margin: 0; }
+          @page { size: A4 landscape; margin: 8mm 10mm; }
           html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
-            position: absolute;
+            position: fixed;
             inset: 0;
-            width: 297mm;
-            height: 210mm;
-            overflow: hidden;
+            width: 100%;
+            height: auto;
+            overflow: visible;
             background: white;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
           #estimate-print > section {
-            width: 297mm !important;
-            height: 210mm !important;
+            width: 277mm !important;
+            height: 194mm !important;
             max-width: none !important;
             min-height: 0 !important;
             overflow: hidden !important;
             box-sizing: border-box !important;
+            margin: 0 auto !important;
             break-after: avoid-page;
             page-break-after: avoid;
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .estimate-title-strip {
             background: #d9d9d9 !important;
@@ -2012,18 +2015,32 @@ export default function EstimateWorkspacePage() {
                       <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
                     </div>
                     <table className="w-full table-fixed border-collapse text-sm">
-                      <colgroup>
-                        <col className="w-[16%]" />
-                        <col className="w-[16%]" />
-                        <col className="w-[22%]" />
-                        <col className="w-[12%]" />
-                        <col className="w-[10%]" />
-                        <col className="w-[14%]" />
-                        <col className="w-[10%]" />
-                      </colgroup>
+                      {selectedPurchaseOrder.templateKey === 'subType' ? (
+                        <colgroup>
+                          <col className="w-[18%]" />
+                          <col className="w-[34%]" />
+                          <col className="w-[12%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[16%]" />
+                          <col className="w-[10%]" />
+                        </colgroup>
+                      ) : (
+                        <colgroup>
+                          <col className="w-[16%]" />
+                          <col className="w-[16%]" />
+                          <col className="w-[22%]" />
+                          <col className="w-[12%]" />
+                          <col className="w-[10%]" />
+                          <col className="w-[14%]" />
+                          <col className="w-[10%]" />
+                        </colgroup>
+                      )}
                       <thead className="bg-[#f3f1ec]">
                         <tr>
-                          {[selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.spec, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고'].map((header, index) => (
+                          {(selectedPurchaseOrder.templateKey === 'subType'
+                            ? [selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고']
+                            : [selectedPurchaseOrderLabels.category, selectedPurchaseOrderLabels.modelName, selectedPurchaseOrderLabels.spec, selectedPurchaseOrderLabels.quantity, selectedPurchaseOrderLabels.unit, selectedPurchaseOrderLabels.amount, '비고']
+                          ).map((header, index) => (
                             <th key={`${header}-${index}`} className="border border-[#171512] px-3 py-2 text-center">{header}</th>
                           ))}
                         </tr>
@@ -2031,7 +2048,7 @@ export default function EstimateWorkspacePage() {
                       <tbody>
                         {selectedPurchaseOrder.items.length === 0 ? (
                           <tr>
-                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={7}>작성된 발주 항목이 없습니다.</td>
+                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrder.templateKey === 'subType' ? 6 : 7}>작성된 발주 항목이 없습니다.</td>
                           </tr>
                         ) : selectedPurchaseOrder.templateKey === 'subType' ? (
                           renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem)
@@ -2735,20 +2752,25 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'summary' && (
-        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
-          <header className="grid grid-cols-[1fr_390px] gap-8">
-            <div>
-              <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-3 text-center text-3xl font-semibold tracking-[0.65em]">견 적 서</h1>
-              <div className="mt-4 grid grid-cols-[140px_1fr] gap-x-4 text-base leading-7">
+        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-8 py-7 text-[#111] print:max-w-none print:border print:px-7 print:py-6">
+          <header className="grid grid-cols-[1fr_360px] gap-8 text-sm leading-6">
+            <div className="pt-3">
+              <h1 className="mx-auto w-[330px] border-2 border-[#93bd5b] py-2 text-center text-3xl font-semibold tracking-[0.5em]">견 적 서</h1>
+              <div className="mt-4 grid grid-cols-[145px_1fr] gap-x-4 text-base leading-7">
                 <span>{today}</span>
                 <span>{customerAddress}</span>
-                <span></span>
+                <span>{site?.siteType ? `${site.siteType}` : ''}</span>
                 <span>{customerName} 님 귀하</span>
               </div>
-              <div className="mt-2 border-t border-[#111] pt-2 text-center">
-                <p className="text-xl font-semibold">합계금액</p>
-                <p className="mt-1 text-lg">(부가세 별도) &nbsp; 일금 {estimateAmountText} 원정</p>
-                <p className="mt-1 text-xl font-semibold">({formatWonAmount(totals.customerEstimateTotal)})</p>
+              <div className="mt-2 grid grid-cols-[145px_1fr] border-t border-[#111] pt-2 text-base">
+                <div className="text-center text-lg font-semibold leading-7">
+                  <p>합계금액</p>
+                  <p className="text-base font-normal">(부가세 별도)</p>
+                </div>
+                <div className="flex items-end justify-between gap-4 font-semibold">
+                  <span>일금&nbsp;&nbsp; {estimateAmountText} 원정</span>
+                  <span>({formatWonAmount(totals.customerEstimateTotal)})</span>
+                </div>
               </div>
             </div>
             <div className="pt-3 text-base leading-7">
@@ -2759,7 +2781,15 @@ function LandscapeEstimateDocumentPreview({
               <p>T-{company.phone} <span className="float-right">FAX-{company.fax}</span></p>
             </div>
           </header>
-          <table className="mt-3 w-full border-collapse text-base">
+          <table className="mt-2 w-full table-fixed border-collapse text-base">
+            <colgroup>
+              <col className="w-[30%]" />
+              <col className="w-[20%]" />
+              <col className="w-[8%]" />
+              <col className="w-[8%]" />
+              <col className="w-[19%]" />
+              <col className="w-[15%]" />
+            </colgroup>
             <thead>
               <tr className="bg-[#f3f1ec]">
                 {['공정', '규격', '산식', '단위', '금액', '세액'].map((header) => (
@@ -2774,7 +2804,7 @@ function LandscapeEstimateDocumentPreview({
                   <td className="border border-[#111] px-3 py-1.5"></td>
                   <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
                   <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
-                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(group.customerAmount)}</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(group.customerAmount)}</td>
                   <td className="border border-[#111] px-3 py-1.5"></td>
                 </tr>
               ))}
@@ -2790,7 +2820,7 @@ function LandscapeEstimateDocumentPreview({
               ))}
               <tr className="bg-[#f8e8da] text-lg font-semibold">
                 <td className="border border-[#111] px-3 py-2 text-center" colSpan={4}>합계 (부가세 별도)</td>
-                <td className="border border-[#111] px-3 py-2 text-right">{formatWonAmount(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-2 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
                 <td className="border border-[#111] px-3 py-2"></td>
               </tr>
             </tbody>
@@ -3359,8 +3389,10 @@ function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: Pu
               {group.category}
             </td>
           )}
-          <td className="break-words border border-[#171512] px-3 py-2 font-semibold">{item.modelName}</td>
-          <td className="break-words border border-[#171512] px-3 py-2">{item.spec}</td>
+          <td className="break-words border border-[#171512] px-3 py-2 font-semibold">
+            {item.modelName}
+            {item.spec && <span className="ml-2 font-normal text-[#4d5d66]">{item.spec}</span>}
+          </td>
           <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatNumber(item.quantity)}</td>
           <td className="break-words border border-[#171512] px-3 py-2 text-center">{item.unit}</td>
           <td className="break-all border border-[#171512] px-3 py-2 text-right tabular-nums">{formatMoney(item.quantity * item.unitPrice)}</td>
