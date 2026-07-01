@@ -31,7 +31,7 @@ const query = `{
     postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {
-    _id, name, phone, siteType, address, status, memo, createdAt
+    _id, name, phone, chatRoomUrl, siteType, address, status, memo, createdAt
   },
   "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...200] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt

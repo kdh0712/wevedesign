@@ -10,7 +10,7 @@ const migrationQuery = `{
     postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt, updatedAt
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...1000] {
-    _id, _type, name, phone, siteType, address, status, memo, createdAt, updatedAt
+    _id, _type, name, phone, chatRoomUrl, siteType, address, status, memo, createdAt, updatedAt
   },
   "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...1000] {
     _id, _type, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt, updatedAt
@@ -80,4 +80,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

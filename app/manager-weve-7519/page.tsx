@@ -132,6 +132,7 @@ type Customer = {
   _id: string;
   name?: string;
   phone?: string;
+  chatRoomUrl?: string;
   siteType?: string;
   address?: string;
   status?: string;
@@ -658,7 +659,7 @@ export default function ManagerPage() {
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
   const [surveyEditorTab, setSurveyEditorTab] = useState(0);
   const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
+  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
   const [siteForm, setSiteForm] = useState({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
@@ -1303,7 +1304,7 @@ export default function ManagerPage() {
   const resetCustomerForm = () => {
     setEditingCustomerId('');
     setPendingConsultationForCustomer(null);
-    setCustomerForm({ name: '', phone: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
+    setCustomerForm({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
   };
 
   const resetSiteForm = () => {
@@ -1356,6 +1357,7 @@ export default function ManagerPage() {
     setCustomerForm({
       name: consultation.name || '',
       phone: consultation.phone || '',
+      chatRoomUrl: '',
       siteType: consultation.propertyType || consultation.siteType || '아파트',
       address: consultation.fullAddress || consultation.address || '',
       status: completeAfterSave ? '상담완료' : '상담중',
@@ -1376,6 +1378,7 @@ export default function ManagerPage() {
     setCustomerForm({
       name: customer.name || '',
       phone: customer.phone || '',
+      chatRoomUrl: customer.chatRoomUrl || '',
       siteType: customer.siteType || '아파트',
       address: customer.address || '',
       status: customer.status || '상담중',
@@ -2223,6 +2226,12 @@ export default function ManagerPage() {
                 fields={[
                   { group: '고객 정보', label: '고객명', value: customerForm.name, onChange: (value) => setCustomerForm({ ...customerForm, name: value }) },
                   { label: '연락처', value: customerForm.phone, onChange: (value) => setCustomerForm({ ...customerForm, phone: formatPhoneNumber(value) }) },
+                  {
+                    label: '카카오 채팅방 URL',
+                    value: customerForm.chatRoomUrl,
+                    onChange: (value) => setCustomerForm({ ...customerForm, chatRoomUrl: value }),
+                    placeholder: '고객 채팅방 실제 주소를 한 번만 저장',
+                  },
                   { label: '고객 상태', value: customerForm.status, onChange: (value) => setCustomerForm({ ...customerForm, status: value }) },
                   { label: '고객 메모', value: customerForm.memo, onChange: (value) => setCustomerForm({ ...customerForm, memo: value }), textarea: true },
                   {
@@ -2300,6 +2309,11 @@ export default function ManagerPage() {
                       <button onClick={() => setAlimtalkCustomer(item)} className="rounded-md bg-[#ffe812] px-3 py-1 text-xs font-semibold text-[#171512]">
                         알림톡
                       </button>
+                      {item.chatRoomUrl && (
+                        <a href={item.chatRoomUrl} target="_blank" rel="noreferrer" className="rounded-md border border-[#ffe812] bg-[#fffbe8] px-3 py-1 text-xs font-semibold text-[#171512]">
+                          채팅방
+                        </a>
+                      )}
                       <button onClick={() => editCustomer(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
                         수정
                       </button>
@@ -3794,6 +3808,7 @@ function DailyReportModal({
   const [processFilter, setProcessFilter] = useState('전체');
   const [photos, setPhotos] = useState<ReportPhoto[]>([]);
   const [reportRecords, setReportRecords] = useState<DailyReportRecord[]>([]);
+  const [previewReport, setPreviewReport] = useState<DailyReportRecord | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
   const [logoDataUrl, setLogoDataUrl] = useState('');
@@ -3806,6 +3821,7 @@ function DailyReportModal({
     });
     return ['전체', ...Array.from(values)];
   }, [lines]);
+  const customerChatUrl = customer?.chatRoomUrl || kakaoManagerUrl || '';
 
   useEffect(() => {
     try {
@@ -3995,21 +4011,16 @@ function DailyReportModal({
               {reportRecords.length === 0 ? (
                 <p className="rounded-md bg-[#f7fafb] px-3 py-4 text-sm leading-6 text-[#60717d]">아직 생성된 보고서 이미지가 없습니다.</p>
               ) : (
-                <div className="grid gap-3">
+                <div className="grid gap-2">
                   {reportRecords.map((record) => (
-                    <article key={record.id} className="rounded-lg border border-[#d5dde2] bg-[#fffdf8] p-3">
-                      <img src={record.imageDataUrl} alt="" className="aspect-[4/3] w-full rounded-md border border-[#e5ded2] object-cover" />
-                      <p className="mt-2 text-sm font-bold">{record.title}</p>
-                      <p className="mt-1 text-xs text-[#60717d]">{record.siteTitle || site.title}</p>
-                      <div className="mt-2 flex gap-2">
-                        <button type="button" onClick={() => downloadDataUrl(record.imageDataUrl, `${record.siteTitle || 'site'}-${record.reportDate}-daily-report.png`)} className="flex-1 rounded-md bg-[#273541] px-2 py-1.5 text-xs font-bold text-white">
-                          다운로드
-                        </button>
-                        <button type="button" onClick={() => deleteReportRecord(record.id)} className="rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600">
-                          삭제
-                        </button>
-                      </div>
-                    </article>
+                    <button
+                      key={record.id}
+                      type="button"
+                      onClick={() => setPreviewReport(record)}
+                      className="rounded-lg border border-[#d5dde2] bg-[#fffdf8] px-3 py-2.5 text-left text-sm font-bold text-[#171512] transition hover:border-[#38a9bd] hover:bg-white"
+                    >
+                      {formatDailyReportDate(record.reportDate)}
+                    </button>
                   ))}
                 </div>
               )}
@@ -4095,8 +4106,8 @@ function DailyReportModal({
                 <button type="button" onClick={exportProgress} className="rounded-md bg-[#273541] px-4 py-2 text-sm font-bold text-white">
                   진행사항 내보내기
                 </button>
-                {kakaoManagerUrl && (
-                  <a href={kakaoManagerUrl} target="_blank" rel="noreferrer" className="rounded-md bg-[#ffe812] px-4 py-2 text-sm font-bold text-[#171512]">
+                {customerChatUrl && (
+                  <a href={customerChatUrl} target="_blank" rel="noreferrer" className="rounded-md bg-[#ffe812] px-4 py-2 text-sm font-bold text-[#171512]">
                     카카오 고객 채팅방
                   </a>
                 )}
@@ -4167,6 +4178,47 @@ function DailyReportModal({
           </aside>
         </div>
       </section>
+      {previewReport && (
+        <div
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-[#17212b]/70 px-4 py-6 backdrop-blur-sm"
+          onClick={(event) => {
+            event.stopPropagation();
+            setPreviewReport(null);
+          }}
+        >
+          <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5ded2] pb-3">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Generated Report</p>
+                <h3 className="mt-1 text-lg font-semibold">{formatDailyReportDate(previewReport.reportDate)}</h3>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadDataUrl(previewReport.imageDataUrl, `${previewReport.siteTitle || 'site'}-${previewReport.reportDate}-daily-report.jpg`)}
+                  className="rounded-md bg-[#273541] px-3 py-2 text-xs font-bold text-white"
+                >
+                  다운로드
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deleteReportRecord(previewReport.id);
+                    setPreviewReport(null);
+                  }}
+                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-bold text-red-600"
+                >
+                  삭제
+                </button>
+                <button type="button" onClick={() => setPreviewReport(null)} className="rounded-md border border-[#d8d1c5] px-3 py-2 text-xs font-bold">
+                  닫기
+                </button>
+              </div>
+            </div>
+            <img src={previewReport.imageDataUrl} alt="" className="mt-4 max-h-[78vh] w-full rounded-lg border border-[#d5dde2] bg-[#f7fafb] object-contain" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -4676,6 +4728,8 @@ function AlimtalkActionModal({
   onSendContract: () => void;
   onOpenChat: (url?: string) => void;
 }) {
+  const chatUrl = customer.chatRoomUrl || kakaoManagerUrl || '';
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-xl rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
@@ -4706,12 +4760,15 @@ function AlimtalkActionModal({
           </button>
           <button
             type="button"
-            onClick={() => onOpenChat(kakaoManagerUrl)}
-            className="flex items-center justify-between gap-4 rounded-lg border border-[#d8d1c5] bg-white px-5 py-4 text-left font-semibold text-[#171512] transition hover:bg-[#f7fafb]"
+            onClick={() => onOpenChat(chatUrl)}
+            disabled={!chatUrl}
+            className="flex items-center justify-between gap-4 rounded-lg border border-[#d8d1c5] bg-white px-5 py-4 text-left font-semibold text-[#171512] transition hover:bg-[#f7fafb] disabled:cursor-not-allowed disabled:bg-[#f7fafb] disabled:text-[#8a8f94]"
           >
             <span>
               <span className="block text-base">2. 채팅방 이동</span>
-              <span className="mt-1 block text-xs font-medium text-[#60717d]">카카오 채널 관리 화면으로 이동합니다.</span>
+              <span className="mt-1 block text-xs font-medium text-[#60717d]">
+                {customer.chatRoomUrl ? '저장된 고객 채팅방으로 바로 이동합니다.' : '고객 채팅방 URL이 없으면 채널 관리 화면으로 이동합니다.'}
+              </span>
             </span>
             <ExternalLink size={18} />
           </button>
