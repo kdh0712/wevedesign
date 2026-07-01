@@ -101,6 +101,7 @@ type PurchaseOrder = {
   columnLabels: PurchaseOrderColumnLabels;
   visibleColumns: PurchaseOrderTableColumn[];
   columnWidths?: Partial<Record<PurchaseOrderTableColumn, string>>;
+  cellAlignments?: Partial<Record<PurchaseOrderTableColumn, PurchaseOrderCellAlign>>;
   mergeSameCategory?: boolean;
   headerMergeLabel?: string;
   headerMergeColumns?: PurchaseOrderTableColumn[];
@@ -108,6 +109,7 @@ type PurchaseOrder = {
 };
 
 type PurchaseOrderTableColumn = 'category' | 'modelName' | 'spec' | 'quantity' | 'unit' | 'amount' | 'note';
+type PurchaseOrderCellAlign = 'left' | 'center' | 'right';
 
 type PurchaseOrderTemplatePreset = {
   id: string;
@@ -116,6 +118,7 @@ type PurchaseOrderTemplatePreset = {
   columnLabels: PurchaseOrderColumnLabels;
   visibleColumns: PurchaseOrderTableColumn[];
   columnWidths: Partial<Record<PurchaseOrderTableColumn, string>>;
+  cellAlignments?: Partial<Record<PurchaseOrderTableColumn, PurchaseOrderCellAlign>>;
   mergeSameCategory?: boolean;
   headerMergeLabel?: string;
   headerMergeColumns?: PurchaseOrderTableColumn[];
@@ -358,8 +361,8 @@ const purchaseOrderTemplates: Record<PurchaseOrder['templateKey'], PurchaseOrder
   },
   subType: {
     category: '구분',
-    modelName: '종류',
-    spec: '상세',
+    modelName: '소구분',
+    spec: '종류',
     quantity: '수량',
     unit: '단위',
     unitPrice: '단가',
@@ -389,7 +392,7 @@ const purchaseOrderColumnKeys: PurchaseOrderTableColumn[] = ['category', 'modelN
 
 const defaultPurchaseOrderVisibleColumns: Record<PurchaseOrder['templateKey'], PurchaseOrderTableColumn[]> = {
   modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
-  subType: ['category', 'modelName', 'quantity', 'unit'],
+  subType: ['category', 'modelName', 'spec', 'quantity', 'unit'],
   doorSet: ['category', 'modelName', 'spec', 'unit', 'quantity', 'note'],
   custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
 };
@@ -414,6 +417,18 @@ const purchaseOrderColumnWidthValues: Record<PurchaseOrderTableColumn, string> =
   note: '14',
 };
 
+const purchaseUnitOptions = ['평', 'EA', 'SET', '식', '개'];
+
+const purchaseOrderDefaultCellAlignments: Record<PurchaseOrderTableColumn, PurchaseOrderCellAlign> = {
+  category: 'left',
+  modelName: 'left',
+  spec: 'left',
+  quantity: 'right',
+  unit: 'center',
+  amount: 'right',
+  note: 'left',
+};
+
 const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
   {
     id: 'preset-model-spec',
@@ -422,6 +437,7 @@ const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
     columnLabels: purchaseOrderTemplates.modelSpec,
     visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
     columnWidths: purchaseOrderColumnWidthValues,
+    cellAlignments: purchaseOrderDefaultCellAlignments,
     mergeSameCategory: false,
     headerMergeLabel: '',
     headerMergeColumns: [],
@@ -432,7 +448,8 @@ const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
     templateKey: 'subType',
     columnLabels: purchaseOrderTemplates.subType,
     visibleColumns: defaultPurchaseOrderVisibleColumns.subType,
-    columnWidths: { ...purchaseOrderColumnWidthValues, category: '26', modelName: '44', quantity: '15', unit: '15' },
+    columnWidths: { ...purchaseOrderColumnWidthValues, category: '20', modelName: '20', spec: '36', quantity: '12', unit: '12' },
+    cellAlignments: { ...purchaseOrderDefaultCellAlignments, category: 'center', modelName: 'center', spec: 'center' },
     mergeSameCategory: true,
     headerMergeLabel: '구분',
     headerMergeColumns: ['category', 'modelName'],
@@ -444,6 +461,7 @@ const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
     columnLabels: purchaseOrderTemplates.doorSet,
     visibleColumns: defaultPurchaseOrderVisibleColumns.doorSet,
     columnWidths: { ...purchaseOrderColumnWidthValues, category: '16', modelName: '24', spec: '24', unit: '16', quantity: '12', note: '20' },
+    cellAlignments: { ...purchaseOrderDefaultCellAlignments, category: 'left', modelName: 'center', spec: 'center', unit: 'center', quantity: 'center', note: 'center' },
     mergeSameCategory: false,
     headerMergeLabel: '',
     headerMergeColumns: [],
@@ -464,6 +482,7 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   columnLabels: purchaseOrderTemplates.modelSpec,
   visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
   columnWidths: purchaseOrderColumnWidthValues,
+  cellAlignments: purchaseOrderDefaultCellAlignments,
   mergeSameCategory: false,
   headerMergeLabel: '',
   headerMergeColumns: [],
@@ -520,6 +539,7 @@ export default function EstimateWorkspacePage() {
   const [editingExtraItemId, setEditingExtraItemId] = useState('');
   const [legacyWorkSites, setLegacyWorkSites] = useState<LegacyWorkSite[]>([]);
   const [selectedLegacyWorkSiteId, setSelectedLegacyWorkSiteId] = useState('');
+  const [legacyWorkSearch, setLegacyWorkSearch] = useState('');
   const [isLegacyWorkModalOpen, setIsLegacyWorkModalOpen] = useState(false);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
@@ -629,6 +649,14 @@ export default function EstimateWorkspacePage() {
     () => legacyWorkSites.find((site) => site.id === selectedLegacyWorkSiteId) || legacyWorkSites[0],
     [legacyWorkSites, selectedLegacyWorkSiteId],
   );
+  const filteredLegacyWorkSites = useMemo(() => {
+    const keyword = legacyWorkSearch.trim().toLowerCase();
+    if (!keyword) return legacyWorkSites;
+    return legacyWorkSites.filter((site) => {
+      const haystack = [site.siteName, `${site.rows.length}`].join(' ').toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [legacyWorkSearch, legacyWorkSites]);
 
   useEffect(() => {
     let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
@@ -1209,6 +1237,7 @@ export default function EstimateWorkspacePage() {
                 templateKey === 'doorSet'
                   ? { ...purchaseOrderColumnWidthValues, category: '16', modelName: '24', spec: '24', unit: '16', quantity: '12', note: '20' }
                   : { ...purchaseOrderColumnWidthValues },
+              cellAlignments: { ...purchaseOrderDefaultCellAlignments },
               mergeSameCategory: templateKey === 'subType',
               headerMergeLabel: templateKey === 'subType' ? '구분' : '',
               headerMergeColumns: templateKey === 'subType' ? ['category', 'modelName'] : [],
@@ -1229,6 +1258,7 @@ export default function EstimateWorkspacePage() {
       columnLabels: { ...preset.columnLabels },
       visibleColumns: [...preset.visibleColumns],
       columnWidths: { ...preset.columnWidths },
+      cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(preset.cellAlignments || {}) },
       mergeSameCategory: Boolean(preset.mergeSameCategory),
       headerMergeLabel: preset.headerMergeLabel || '',
       headerMergeColumns: [...(preset.headerMergeColumns || [])],
@@ -1246,6 +1276,7 @@ export default function EstimateWorkspacePage() {
       columnLabels: getPurchaseOrderLabels(order),
       visibleColumns: getPurchaseOrderVisibleColumns(order),
       columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(order.cellAlignments || {}) },
       mergeSameCategory: Boolean(order.mergeSameCategory),
       headerMergeLabel: order.headerMergeLabel || '',
       headerMergeColumns: [...(order.headerMergeColumns || [])],
@@ -1269,6 +1300,7 @@ export default function EstimateWorkspacePage() {
       columnLabels: getPurchaseOrderLabels(order),
       visibleColumns: getPurchaseOrderVisibleColumns(order),
       columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(order.cellAlignments || {}) },
       mergeSameCategory: Boolean(order.mergeSameCategory),
       headerMergeLabel: order.headerMergeLabel || '',
       headerMergeColumns: [...(order.headerMergeColumns || [])],
@@ -1312,6 +1344,24 @@ export default function EstimateWorkspacePage() {
               ...order,
               templateKey: 'custom',
               columnWidths: { ...(order.columnWidths || {}), [key]: width },
+            }
+          : order,
+      ),
+    );
+  };
+
+  const updatePurchaseOrderCellAlignment = (id: string, key: PurchaseOrderTableColumn, value: PurchaseOrderCellAlign) => {
+    setPurchaseOrders((current) =>
+      current.map((order) =>
+        order.id === id
+          ? {
+              ...order,
+              templateKey: 'custom',
+              cellAlignments: {
+                ...purchaseOrderDefaultCellAlignments,
+                ...(order.cellAlignments || {}),
+                [key]: value,
+              },
             }
           : order,
       ),
@@ -1538,37 +1588,33 @@ export default function EstimateWorkspacePage() {
           body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 194mm;
-            overflow: hidden;
+            position: static !important;
+            left: auto !important;
+            top: auto !important;
+            width: auto !important;
+            height: auto !important;
+            overflow: visible !important;
             background: white;
             -webkit-print-color-adjust: exact;
             print-color-adjust: exact;
           }
           #estimate-print > section {
-            width: 277mm !important;
-            height: 194mm !important;
-            max-width: none !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
+            aspect-ratio: auto !important;
             box-sizing: border-box !important;
             margin: 0 auto !important;
-            break-after: avoid-page;
-            page-break-after: avoid;
+            max-width: none !important;
+            overflow: hidden !important;
             break-inside: avoid;
             page-break-inside: avoid;
           }
+          #estimate-print:not(.batch-print) > section {
+            break-after: auto;
+            page-break-after: auto;
+          }
           #estimate-print.batch-print {
-            height: auto !important;
-            overflow: visible !important;
+            display: block !important;
           }
           #estimate-print.batch-print > section {
-            height: auto !important;
-            min-height: 0 !important;
-            overflow: hidden !important;
             break-after: page;
             page-break-after: always;
           }
@@ -1576,14 +1622,17 @@ export default function EstimateWorkspacePage() {
             break-after: auto;
             page-break-after: auto;
           }
-          #estimate-print.batch-print > .print-portrait {
+          #estimate-print > .print-portrait {
             page: portraitPage;
             width: 186mm !important;
+            min-height: 267mm !important;
             max-width: none !important;
           }
-          #estimate-print.batch-print > .print-landscape {
+          #estimate-print > .print-landscape {
             page: landscapePage;
             width: 277mm !important;
+            height: 190mm !important;
+            min-height: 0 !important;
             max-width: none !important;
           }
           .estimate-title-strip {
@@ -2542,14 +2591,29 @@ export default function EstimateWorkspacePage() {
                                 ))}
                               </datalist>
                             </>
+                          ) : column === 'unit' ? (
+                            <>
+                              <input
+                                list="purchase-unit-options"
+                                value={purchaseItemDraft.unit}
+                                onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, unit: event.target.value }))}
+                                placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '?꾨젅???듭뀡' : undefined}
+                                className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                              />
+                              <datalist id="purchase-unit-options">
+                                {purchaseUnitOptions.map((unit) => (
+                                  <option key={unit} value={unit} />
+                                ))}
+                              </datalist>
+                            </>
                           ) : (
                             <input
-                              value={column === 'modelName' ? purchaseItemDraft.modelName : column === 'spec' ? purchaseItemDraft.spec : purchaseItemDraft.unit}
+                              value={column === 'modelName' ? purchaseItemDraft.modelName : purchaseItemDraft.spec}
                               onChange={(event) => {
                                 const value = event.target.value;
                                 setPurchaseItemDraft((current) => ({
                                   ...current,
-                                  ...(column === 'modelName' ? { modelName: value } : column === 'spec' ? { spec: value } : { unit: value }),
+                                  ...(column === 'modelName' ? { modelName: value } : { spec: value }),
                                 }));
                               }}
                               placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? (column === 'modelName' ? '프레임 규격' : column === 'spec' ? '도어 규격' : '프레임 옵션') : undefined}
@@ -2599,12 +2663,12 @@ export default function EstimateWorkspacePage() {
                               <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrderVisibleColumns.length}>작성된 발주 항목이 없습니다.</td>
                             </tr>
                           ) : selectedPurchaseOrder.mergeSameCategory ? (
-                            renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns)
+                            renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns, selectedPurchaseOrder)
                           ) : (
                             selectedPurchaseOrder.items.map((item) => (
                               <tr key={`summary-${item.id}`} onDoubleClick={() => editPurchaseOrderItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
                                 {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                  <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
+                                  <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column, selectedPurchaseOrder)}>
                                     {renderPurchaseOrderCell(item, column)}
                                   </td>
                                 ))}
@@ -2856,7 +2920,20 @@ export default function EstimateWorkspacePage() {
                 여러 서류 선택 출력
               </button>
             </div>
-            {!isDocumentBatchOpen && <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />}
+            {!isDocumentBatchOpen && (
+              <>
+                <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
+                {documentView === 'detail' && (
+                  <div className="mt-4 rounded-lg border border-dashed border-[#cbd6dc] bg-white p-4 text-sm text-[#60717d]">
+                    <button type="button" onClick={() => setIsDocumentBatchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-[#171512] bg-white px-4 py-2 font-semibold text-[#171512]">
+                      <FileSpreadsheet size={16} />
+                      서류 불러오기
+                    </button>
+                    <span className="ml-3">공정 일정, 발주서, 추가 사항을 선택해 같은 디자인으로 함께 출력합니다.</span>
+                  </div>
+                )}
+              </>
+            )}
           </section>
         )}
       </section>
@@ -2905,11 +2982,19 @@ export default function EstimateWorkspacePage() {
                   <b className="text-sm">현장 목록</b>
                   <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#60717d]">{legacyWorkSites.length}개</span>
                 </div>
+                <input
+                  value={legacyWorkSearch}
+                  onChange={(event) => setLegacyWorkSearch(event.target.value)}
+                  placeholder="현장명 검색"
+                  className="mb-3 w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]"
+                />
                 <div className="grid gap-2">
                   {legacyWorkSites.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-[#d5dde2] bg-white p-6 text-center text-sm text-[#60717d]">불러온 과거 실행 내역서가 없습니다.</div>
+                  ) : filteredLegacyWorkSites.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-[#d5dde2] bg-white p-6 text-center text-sm text-[#60717d]">검색 결과가 없습니다.</div>
                   ) : (
-                    legacyWorkSites.map((site) => (
+                    filteredLegacyWorkSites.map((site) => (
                       <button
                         key={site.id}
                         type="button"
@@ -3029,7 +3114,7 @@ export default function EstimateWorkspacePage() {
                         {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 6) : [purchaseItemDraft]).map((item, index) => (
                           <tr key={`purchase-template-preview-${item.id || index}`}>
                             {selectedPurchaseOrderVisibleColumns.map((column) => (
-                              <td key={`${item.id || index}-${column}`} className={purchaseOrderCellClass(column)}>
+                              <td key={`${item.id || index}-${column}`} className={purchaseOrderCellClass(column, selectedPurchaseOrder)}>
                                 {renderPurchaseOrderCell(item, column)}
                               </td>
                             ))}
@@ -3132,7 +3217,7 @@ export default function EstimateWorkspacePage() {
                     </div>
                     <div className="mt-3 grid gap-2">
                       {selectedPurchaseOrderVisibleColumns.map((column) => (
-                        <div key={`popup-template-editor-${column}`} className="grid grid-cols-[minmax(0,1fr)_72px_auto] items-end gap-2 rounded-md border border-[#edf2f5] bg-[#fbfdfe] p-2">
+                        <div key={`popup-template-editor-${column}`} className="grid grid-cols-[minmax(0,1fr)_72px_86px_auto] items-end gap-2 rounded-md border border-[#edf2f5] bg-[#fbfdfe] p-2">
                           <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
                             열 이름
                             <input
@@ -3152,6 +3237,18 @@ export default function EstimateWorkspacePage() {
                               onChange={(event) => updatePurchaseOrderColumnWidth(selectedPurchaseOrder.id, column, event.target.value)}
                               className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
                             />
+                          </label>
+                          <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                            정렬
+                            <select
+                              value={purchaseOrderColumnAlign(selectedPurchaseOrder, column)}
+                              onChange={(event) => updatePurchaseOrderCellAlignment(selectedPurchaseOrder.id, column, event.target.value as PurchaseOrderCellAlign)}
+                              className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
+                            >
+                              <option value="left">왼쪽</option>
+                              <option value="center">중앙</option>
+                              <option value="right">오른쪽</option>
+                            </select>
                           </label>
                           <button
                             type="button"
@@ -3368,9 +3465,9 @@ function DocumentBatchPrintModal({
             <section className="print-portrait rounded-lg bg-white p-10 text-center text-sm text-[#60717d]">왼쪽에서 출력할 서류를 선택해주세요.</section>
           )}
           {selectedKeys.map((key) => {
-            if (key === 'cover') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="cover" />;
-            if (key === 'summary') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="summary" />;
-            if (key === 'detail') return <BatchEstimatePage key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="detail" />;
+            if (key === 'cover') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="cover" unwrap />;
+            if (key === 'summary') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="summary" unwrap />;
+            if (key === 'detail') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="detail" unwrap />;
             if (key === 'schedule') return <SchedulePrintPage key={key} monthKey={scheduleMonth} tasks={schedule} holidays={holidays} site={site} />;
             if (key === 'extras') return <ExtraItemsPrintPage key={key} items={extraItems} site={site} />;
             if (key.startsWith('purchase:')) {
@@ -3634,10 +3731,10 @@ function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: 
           </thead>
           <tbody>
             {order.mergeSameCategory
-              ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns)
+              ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns, order)
               : order.items.map((item) => (
                   <tr key={item.id}>
-                    {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>{renderPurchaseOrderCell(item, column)}</td>)}
+                    {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column, order)}>{renderPurchaseOrderCell(item, column)}</td>)}
                   </tr>
                 ))}
             <tr className="bg-[#f8e8da] font-bold"><td colSpan={Math.max(1, visibleColumns.length - 1)} className="text-center">합계</td><td className="text-right">{formatMoney(total)}</td></tr>
@@ -4135,12 +4232,14 @@ function LandscapeEstimateDocumentPreview({
   totals,
   versionLabel,
   view,
+  unwrap = false,
 }: {
   site?: Site;
   lines: EstimateLine[];
   totals: ReturnType<typeof calculateTotals>;
   versionLabel: string;
   view: 'cover' | 'summary' | 'detail';
+  unwrap?: boolean;
 }) {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
@@ -4163,10 +4262,10 @@ function LandscapeEstimateDocumentPreview({
     businessNumber: '138-05-48056',
   };
 
-  return (
-    <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+  const content = (
+    <>
       {view === 'cover' && (
-        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-16 py-10 text-[#111] print:max-w-none print:border-0 print:px-10 print:py-8">
+        <section className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-16 py-10 text-[#111] print:max-w-none print:border-0 print:px-10 print:py-8">
           <div className="mx-auto max-w-[940px]">
             <div className="estimate-title-strip grid grid-cols-3 bg-[#d9d9d9] py-4 text-center text-3xl font-semibold tracking-[0.65em]">
               <span>견</span>
@@ -4201,7 +4300,7 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'summary' && (
-        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-8 py-7 text-[#111] print:max-w-none print:border print:px-7 print:py-6">
+        <section className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-8 py-7 text-[#111] print:max-w-none print:border print:px-7 print:py-6">
           <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-2 text-center text-3xl font-semibold tracking-[0.5em]">견 적 서</h1>
           <header className="mt-4 grid grid-cols-[1fr_360px] gap-10 text-sm leading-6">
             <div>
@@ -4279,7 +4378,7 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'detail' && (
-        <section className="mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
+        <section className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
           <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
           <table className="w-full border-collapse text-sm">
             <thead>
@@ -4341,6 +4440,14 @@ function LandscapeEstimateDocumentPreview({
           <p className="sr-only">{documentTitle}</p>
         </section>
       )}
+    </>
+  );
+
+  if (unwrap) return content;
+
+  return (
+    <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+      {content}
     </article>
   );
 }
@@ -4816,7 +4923,7 @@ function getPurchaseOrderLabels(order: Partial<PurchaseOrder>): PurchaseOrderCol
     ...(order.columnLabels || {}),
   };
   if (templateKey === 'subType') {
-    return { ...labels, category: '구분', modelName: '종류', spec: labels.spec || '상세' };
+    return { ...labels, category: '구분', modelName: '소구분', spec: '종류' };
   }
   return labels;
 }
@@ -4901,12 +5008,19 @@ function renderPurchaseOrderHeaderRows(
   );
 }
 
-function purchaseOrderCellClass(column: PurchaseOrderTableColumn) {
-  const base = 'break-words border border-[#171512] px-3 py-2';
-  if (column === 'quantity' || column === 'amount') return `${base} break-all text-right tabular-nums`;
-  if (column === 'unit') return `${base} text-center`;
-  if (column === 'modelName') return `${base} font-semibold`;
-  return base;
+function purchaseOrderColumnAlign(order: Partial<PurchaseOrder>, column: PurchaseOrderTableColumn): PurchaseOrderCellAlign {
+  const value = order.cellAlignments?.[column];
+  if (value === 'left' || value === 'center' || value === 'right') return value;
+  return purchaseOrderDefaultCellAlignments[column];
+}
+
+function purchaseOrderCellClass(column: PurchaseOrderTableColumn, order: Partial<PurchaseOrder> = {}) {
+  const base = 'break-words border border-[#171512] px-3 py-2 align-middle';
+  const align = purchaseOrderColumnAlign(order, column);
+  const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right tabular-nums' : 'text-left';
+  const numeric = column === 'quantity' || column === 'amount' ? 'break-all tabular-nums' : '';
+  const weight = column === 'modelName' ? 'font-semibold' : '';
+  return [base, alignClass, numeric, weight].filter(Boolean).join(' ');
 }
 
 function renderPurchaseOrderCell(item: PurchaseOrderItem, column: PurchaseOrderTableColumn) {
@@ -4919,7 +5033,34 @@ function renderPurchaseOrderCell(item: PurchaseOrderItem, column: PurchaseOrderT
   return item.note;
 }
 
-function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: PurchaseOrderItem) => void, visibleColumns: PurchaseOrderTableColumn[]) {
+const purchaseOrderAutoMergeColumns = new Set<PurchaseOrderTableColumn>(['modelName', 'spec', 'quantity', 'unit']);
+
+function purchaseOrderCellMergeKey(item: PurchaseOrderItem, column: PurchaseOrderTableColumn) {
+  if (!purchaseOrderAutoMergeColumns.has(column)) return '';
+  const modelName = (item.modelName || '').trim().toLocaleLowerCase('ko-KR');
+  const spec = (item.spec || '').trim().toLocaleLowerCase('ko-KR');
+  const quantity = String(Number(item.quantity || 0));
+  const unit = (item.unit || '').trim().toLocaleLowerCase('ko-KR');
+  const itemName = spec || modelName;
+  if (!itemName || !unit) return '';
+  return [modelName, spec, quantity, unit].join('|');
+}
+
+function purchaseOrderColumnRowSpan(groupItems: PurchaseOrderItem[], index: number, column: PurchaseOrderTableColumn) {
+  if (!purchaseOrderAutoMergeColumns.has(column)) return 1;
+  const key = purchaseOrderCellMergeKey(groupItems[index], column);
+  if (!key) return 1;
+  if (index > 0 && purchaseOrderCellMergeKey(groupItems[index - 1], column) === key) return 0;
+
+  let span = 1;
+  for (let nextIndex = index + 1; nextIndex < groupItems.length; nextIndex += 1) {
+    if (purchaseOrderCellMergeKey(groupItems[nextIndex], column) !== key) break;
+    span += 1;
+  }
+  return span;
+}
+
+function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: PurchaseOrderItem) => void, visibleColumns: PurchaseOrderTableColumn[], order: Partial<PurchaseOrder> = {}) {
   const groups: Array<{ category: string; items: PurchaseOrderItem[] }> = [];
   const groupMap = new Map<string, { category: string; items: PurchaseOrderItem[] }>();
   items.forEach((item) => {
@@ -4947,8 +5088,10 @@ function renderGroupedPurchaseRows(items: PurchaseOrderItem[], onEdit: (item: Pu
                 </td>
               );
             }
+            const rowSpan = purchaseOrderColumnRowSpan(group.items, index, column);
+            if (rowSpan === 0) return null;
             return (
-              <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
+              <td key={`${item.id}-${column}`} rowSpan={rowSpan > 1 ? rowSpan : undefined} className={purchaseOrderCellClass(column, order)}>
                 {renderPurchaseOrderCell(item, column)}
               </td>
             );
@@ -4966,6 +5109,7 @@ function clonePurchaseOrders(orders: PurchaseOrder[]) {
     columnLabels: getPurchaseOrderLabels(order),
     visibleColumns: getPurchaseOrderVisibleColumns(order),
     columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+    cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(order.cellAlignments || {}) },
     mergeSameCategory: Boolean(order.mergeSameCategory),
     items: order.items.map((item, itemIndex) => ({
       ...item,
@@ -4985,6 +5129,7 @@ function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
       columnLabels: getPurchaseOrderLabels({ ...order, templateKey }),
       visibleColumns: getPurchaseOrderVisibleColumns({ ...order, templateKey }),
       columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
+      cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(order.cellAlignments || {}) },
       mergeSameCategory: order.mergeSameCategory ?? templateKey === 'subType',
       doorModelName: String(order.doorModelName || ''),
       doorFinish: String(order.doorFinish || (templateKey === 'doorSet' ? '필름' : '')),
@@ -5015,6 +5160,7 @@ function hydratePurchaseOrderTemplatePresets(presets: Partial<PurchaseOrderTempl
         columnLabels: preset.columnLabels,
         visibleColumns: preset.visibleColumns,
         columnWidths: preset.columnWidths,
+        cellAlignments: preset.cellAlignments,
         mergeSameCategory: preset.mergeSameCategory,
         headerMergeLabel: preset.headerMergeLabel,
         headerMergeColumns: preset.headerMergeColumns,
@@ -5027,6 +5173,7 @@ function hydratePurchaseOrderTemplatePresets(presets: Partial<PurchaseOrderTempl
         columnLabels: getPurchaseOrderLabels(orderLike),
         visibleColumns,
         columnWidths: { ...purchaseOrderColumnWidthValues, ...(preset.columnWidths || {}) },
+        cellAlignments: { ...purchaseOrderDefaultCellAlignments, ...(preset.cellAlignments || {}) },
         mergeSameCategory: Boolean(preset.mergeSameCategory),
         headerMergeLabel: String(preset.headerMergeLabel || '').trim(),
         headerMergeColumns: Array.isArray(preset.headerMergeColumns)

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { gzipSync, gunzipSync } from 'zlib';
 import * as XLSX from 'xlsx';
 import { assertManager, hashId, managerClient } from '../_utils';
 import {
@@ -88,6 +89,7 @@ type PurchaseOrder = {
   columnLabels?: Record<string, string>;
   visibleColumns?: string[];
   columnWidths?: Record<string, string>;
+  cellAlignments?: Record<string, string>;
   mergeSameCategory?: boolean;
   headerMergeLabel?: string;
   headerMergeColumns?: string[];
@@ -101,6 +103,7 @@ type PurchaseOrderTemplatePreset = {
   columnLabels?: Record<string, string>;
   visibleColumns?: string[];
   columnWidths?: Record<string, string>;
+  cellAlignments?: Record<string, string>;
   mergeSameCategory?: boolean;
   headerMergeLabel?: string;
   headerMergeColumns?: string[];
@@ -146,7 +149,7 @@ const estimateQuery = `{
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
-    purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson,
+    purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson, legacyWorkbooksCompressedJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
     actualExecutionCostTotal, actualMarginAmount, actualMarginRate, additionalCostTotal,
@@ -169,10 +172,11 @@ export async function GET(request: Request) {
     const includeMaterials = url.searchParams.get('materials') !== 'skip';
 
     if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      return NextResponse.json(await readEstimateDataFromFirestore(request, { includeMaterials }));
+      const data = await readEstimateDataFromFirestore(request, { includeMaterials });
+      return NextResponse.json(decodeEstimatePayload(data as Record<string, unknown>));
     }
 
-    const data = await managerClient.fetch(estimateQuery);
+    const data = decodeEstimatePayload(await managerClient.fetch(estimateQuery));
     if (!includeMaterials) {
       const rest = { ...(data || {}) };
       delete rest.materials;
@@ -248,6 +252,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const purchaseOrderTemplatePresets = Array.isArray(body.purchaseOrderTemplatePresets) ? normalizePurchaseOrderTemplatePresets(body.purchaseOrderTemplatePresets as PurchaseOrderTemplatePreset[]) : [];
   const extraItems = Array.isArray(body.extraItems) ? normalizeExtraItems(body.extraItems as ExtraItem[]) : [];
   const legacyWorkSites = Array.isArray(body.legacyWorkSites) ? normalizeLegacyWorkSites(body.legacyWorkSites as LegacyWorkSite[]) : [];
+  const legacyWorkbookFields = encodeLegacyWorkbooks(legacyWorkSites);
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
   const totals = calculateTotals(lines, workLines, extraItems);
   const now = new Date().toISOString();
@@ -271,7 +276,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     purchaseOrdersJson: JSON.stringify(purchaseOrders),
     purchaseOrderTemplatesJson: JSON.stringify(purchaseOrderTemplatePresets),
     extraItemsJson: JSON.stringify(extraItems),
-    legacyWorkbooksJson: JSON.stringify(legacyWorkSites),
+    ...legacyWorkbookFields,
     customerEstimateTotal: totals.customerEstimateTotal,
     executionCostTotal: totals.executionCostTotal,
     marginAmount: totals.marginAmount,
@@ -295,6 +300,45 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
 
   await managerClient.createOrReplace(doc);
   return NextResponse.json({ record: doc });
+}
+
+const LEGACY_WORKBOOKS_INLINE_LIMIT = 850000;
+
+function encodeLegacyWorkbooks(legacyWorkSites: LegacyWorkSite[]) {
+  const json = JSON.stringify(legacyWorkSites);
+  if (json.length <= LEGACY_WORKBOOKS_INLINE_LIMIT) {
+    return {
+      legacyWorkbooksJson: json,
+      legacyWorkbooksCompressedJson: '',
+    };
+  }
+
+  return {
+    legacyWorkbooksJson: '[]',
+    legacyWorkbooksCompressedJson: gzipSync(Buffer.from(json, 'utf8')).toString('base64'),
+  };
+}
+
+function decodeEstimatePayload(data: Record<string, unknown> | null | undefined) {
+  if (!data || !Array.isArray(data.estimates)) return data || {};
+  return {
+    ...data,
+    estimates: data.estimates.map((estimate) => decodeLegacyWorkbooksRecord(estimate as Record<string, unknown>)),
+  };
+}
+
+function decodeLegacyWorkbooksRecord(record: Record<string, unknown>) {
+  const compressed = typeof record.legacyWorkbooksCompressedJson === 'string' ? record.legacyWorkbooksCompressedJson : '';
+  if (!compressed) return record;
+
+  try {
+    return {
+      ...record,
+      legacyWorkbooksJson: gunzipSync(Buffer.from(compressed, 'base64')).toString('utf8'),
+    };
+  } catch {
+    return record;
+  }
 }
 
 function normalizeVersionType(value: unknown): EstimateVersionType {
@@ -512,6 +556,7 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
     amount: '금액',
   };
   const columnKeys = ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'];
+  const alignValues = ['left', 'center', 'right'];
   const defaultVisibleColumns: Record<string, string[]> = {
     modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
     subType: ['category', 'modelName', 'quantity', 'unit'],
@@ -531,6 +576,11 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
       const visibleColumns = Array.isArray(order.visibleColumns)
         ? order.visibleColumns.map((column) => String(column || '')).filter((column) => columnKeys.includes(column))
         : [];
+      const cellAlignments = Object.fromEntries(
+        Object.entries(order.cellAlignments || {})
+          .map(([key, value]) => [key, String(value || '').trim()])
+          .filter(([key, value]) => columnKeys.includes(key) && alignValues.includes(value)),
+      );
       const items = Array.isArray(order.items)
         ? order.items
             .map((item, itemIndex) => {
@@ -566,6 +616,7 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
         columnLabels,
         visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
         columnWidths: typeof order.columnWidths === 'object' && order.columnWidths ? order.columnWidths : {},
+        cellAlignments,
         mergeSameCategory: Boolean(order.mergeSameCategory),
         headerMergeLabel: String(order.headerMergeLabel || '').trim(),
         headerMergeColumns: Array.isArray(order.headerMergeColumns)
@@ -588,6 +639,7 @@ function normalizePurchaseOrderTemplatePresets(presets: PurchaseOrderTemplatePre
     amount: '금액',
   };
   const columnKeys = ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'];
+  const alignValues = ['left', 'center', 'right'];
   const defaultVisibleColumns: Record<string, string[]> = {
     modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
     subType: ['category', 'modelName', 'quantity', 'unit'],
@@ -611,6 +663,11 @@ function normalizePurchaseOrderTemplatePresets(presets: PurchaseOrderTemplatePre
           })
           .filter(([key, value]) => columnKeys.includes(key) && value),
       );
+      const cellAlignments = Object.fromEntries(
+        Object.entries(preset.cellAlignments || {})
+          .map(([key, value]) => [key, String(value || '').trim()])
+          .filter(([key, value]) => columnKeys.includes(key) && alignValues.includes(value)),
+      );
 
       return {
         id: String(preset.id || `purchase-template-${Date.now()}-${index}`).trim(),
@@ -621,6 +678,7 @@ function normalizePurchaseOrderTemplatePresets(presets: PurchaseOrderTemplatePre
         ),
         visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
         columnWidths,
+        cellAlignments,
         mergeSameCategory: Boolean(preset.mergeSameCategory),
         headerMergeLabel: String(preset.headerMergeLabel || '').trim(),
         headerMergeColumns: Array.isArray(preset.headerMergeColumns)
