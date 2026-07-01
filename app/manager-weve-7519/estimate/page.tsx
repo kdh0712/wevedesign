@@ -94,7 +94,10 @@ type PurchaseOrder = {
   orderDate: string;
   deliveryDate: string;
   memo: string;
-  templateKey: 'modelSpec' | 'subType' | 'custom';
+  templateKey: 'modelSpec' | 'subType' | 'doorSet' | 'custom';
+  doorModelName?: string;
+  doorFinish?: string;
+  doorBrand?: string;
   columnLabels: PurchaseOrderColumnLabels;
   visibleColumns: PurchaseOrderTableColumn[];
   columnWidths?: Partial<Record<PurchaseOrderTableColumn, string>>;
@@ -362,6 +365,15 @@ const purchaseOrderTemplates: Record<PurchaseOrder['templateKey'], PurchaseOrder
     unitPrice: '단가',
     amount: '금액',
   },
+  doorSet: {
+    category: '번호/항목',
+    modelName: '프레임 규격',
+    spec: '도어 규격',
+    quantity: '세트 수량',
+    unit: '프레임 옵션',
+    unitPrice: '단가',
+    amount: '금액',
+  },
   custom: {
     category: '구분',
     modelName: '모델명',
@@ -378,6 +390,7 @@ const purchaseOrderColumnKeys: PurchaseOrderTableColumn[] = ['category', 'modelN
 const defaultPurchaseOrderVisibleColumns: Record<PurchaseOrder['templateKey'], PurchaseOrderTableColumn[]> = {
   modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
   subType: ['category', 'modelName', 'quantity', 'unit'],
+  doorSet: ['category', 'modelName', 'spec', 'unit', 'quantity', 'note'],
   custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
 };
 
@@ -424,6 +437,17 @@ const defaultPurchaseOrderTemplatePresets: PurchaseOrderTemplatePreset[] = [
     headerMergeLabel: '구분',
     headerMergeColumns: ['category', 'modelName'],
   },
+  {
+    id: 'preset-door-set',
+    name: '도어 발주 템플릿',
+    templateKey: 'doorSet',
+    columnLabels: purchaseOrderTemplates.doorSet,
+    visibleColumns: defaultPurchaseOrderVisibleColumns.doorSet,
+    columnWidths: { ...purchaseOrderColumnWidthValues, category: '16', modelName: '24', spec: '24', unit: '16', quantity: '12', note: '20' },
+    mergeSameCategory: false,
+    headerMergeLabel: '',
+    headerMergeColumns: [],
+  },
 ];
 
 const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
@@ -434,6 +458,9 @@ const emptyPurchaseOrder = (title = '새 발주서'): PurchaseOrder => ({
   deliveryDate: '',
   memo: '',
   templateKey: 'modelSpec',
+  doorModelName: '',
+  doorFinish: '필름',
+  doorBrand: '',
   columnLabels: purchaseOrderTemplates.modelSpec,
   visibleColumns: defaultPurchaseOrderVisibleColumns.modelSpec,
   columnWidths: purchaseOrderColumnWidthValues,
@@ -1178,10 +1205,14 @@ export default function EstimateWorkspacePage() {
               templateKey,
               columnLabels: templateKey === 'custom' ? order.columnLabels : purchaseOrderTemplates[templateKey],
               visibleColumns: defaultPurchaseOrderVisibleColumns[templateKey],
-              columnWidths: { ...purchaseOrderColumnWidthValues },
+              columnWidths:
+                templateKey === 'doorSet'
+                  ? { ...purchaseOrderColumnWidthValues, category: '16', modelName: '24', spec: '24', unit: '16', quantity: '12', note: '20' }
+                  : { ...purchaseOrderColumnWidthValues },
               mergeSameCategory: templateKey === 'subType',
               headerMergeLabel: templateKey === 'subType' ? '구분' : '',
               headerMergeColumns: templateKey === 'subType' ? ['category', 'modelName'] : [],
+              doorFinish: templateKey === 'doorSet' ? order.doorFinish || '필름' : order.doorFinish,
             }
           : order,
       ),
@@ -1201,6 +1232,7 @@ export default function EstimateWorkspacePage() {
       mergeSameCategory: Boolean(preset.mergeSameCategory),
       headerMergeLabel: preset.headerMergeLabel || '',
       headerMergeColumns: [...(preset.headerMergeColumns || [])],
+      doorFinish: preset.templateKey === 'doorSet' ? '필름' : undefined,
     });
   };
 
@@ -2503,7 +2535,7 @@ export default function EstimateWorkspacePage() {
                             <NumberTextInput value={purchaseItemDraft.quantity} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
                           ) : column === 'category' ? (
                             <>
-                              <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '예: 1 또는 평판' : undefined} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                               <datalist id="purchase-category-options">
                                 {purchaseCategoryOptions.map((category) => (
                                   <option key={category} value={category} />
@@ -2520,23 +2552,28 @@ export default function EstimateWorkspacePage() {
                                   ...(column === 'modelName' ? { modelName: value } : column === 'spec' ? { spec: value } : { unit: value }),
                                 }));
                               }}
+                              placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? (column === 'modelName' ? '프레임 규격' : column === 'spec' ? '도어 규격' : '프레임 옵션') : undefined}
                               className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                             />
                           )}
                         </label>
                       ))}
-                      <label className="grid gap-1 text-xs font-bold text-[#60717d]">
-                        {selectedPurchaseOrderLabels.unitPrice}
-                        <NumberTextInput value={purchaseItemDraft.unitPrice} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, unitPrice: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
-                      </label>
-                      <div className="min-w-0 rounded-md border border-[#edf2f5] bg-white px-3 py-2">
-                        <p className="text-[11px] font-bold text-[#60717d]">{selectedPurchaseOrderLabels.amount}</p>
-                        <p title={formatMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)} className="mt-1 truncate font-semibold">
-                          {formatCompactMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)}
-                        </p>
-                      </div>
+                      {selectedPurchaseOrder.templateKey !== 'doorSet' && (
+                        <>
+                          <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                            {selectedPurchaseOrderLabels.unitPrice}
+                            <NumberTextInput value={purchaseItemDraft.unitPrice} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, unitPrice: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
+                          </label>
+                          <div className="min-w-0 rounded-md border border-[#edf2f5] bg-white px-3 py-2">
+                            <p className="text-[11px] font-bold text-[#60717d]">{selectedPurchaseOrderLabels.amount}</p>
+                            <p title={formatMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)} className="mt-1 truncate font-semibold">
+                              {formatCompactMoney(purchaseItemDraft.quantity * purchaseItemDraft.unitPrice)}
+                            </p>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    <input value={purchaseItemDraft.note} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, note: event.target.value }))} placeholder="비고" className="mt-2 w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <input value={purchaseItemDraft.note} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, note: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '도어 옵션/비고 예: 실린더타공' : '비고'} className="mt-2 w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
                   </div>
 
                   <div className="mt-5 overflow-hidden rounded-lg border border-[#171512] bg-white">
@@ -2544,35 +2581,39 @@ export default function EstimateWorkspacePage() {
                       <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
                       <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
                     </div>
-                    <table className="w-full table-fixed border-collapse text-sm">
-                      <colgroup>
-                        {selectedPurchaseOrderVisibleColumns.map((column) => (
-                          <col key={column} className={purchaseOrderColumnWidths[column]} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
-                        ))}
-                      </colgroup>
-                      <thead className="bg-[#f3f1ec]">
-                        {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
-                      </thead>
-                      <tbody>
-                        {selectedPurchaseOrder.items.length === 0 ? (
-                          <tr>
-                            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrderVisibleColumns.length}>작성된 발주 항목이 없습니다.</td>
-                          </tr>
-                        ) : selectedPurchaseOrder.mergeSameCategory ? (
-                          renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns)
-                        ) : (
-                          selectedPurchaseOrder.items.map((item) => (
-                            <tr key={`summary-${item.id}`} onDoubleClick={() => editPurchaseOrderItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
-                              {selectedPurchaseOrderVisibleColumns.map((column) => (
-                                <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
-                                  {renderPurchaseOrderCell(item, column)}
-                                </td>
-                              ))}
+                    {selectedPurchaseOrder.templateKey === 'doorSet' ? (
+                      <DoorPurchaseOrderTable order={selectedPurchaseOrder} onEdit={editPurchaseOrderItem} />
+                    ) : (
+                      <table className="w-full table-fixed border-collapse text-sm">
+                        <colgroup>
+                          {selectedPurchaseOrderVisibleColumns.map((column) => (
+                            <col key={column} className={purchaseOrderColumnWidths[column]} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
+                          ))}
+                        </colgroup>
+                        <thead className="bg-[#f3f1ec]">
+                          {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
+                        </thead>
+                        <tbody>
+                          {selectedPurchaseOrder.items.length === 0 ? (
+                            <tr>
+                              <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={selectedPurchaseOrderVisibleColumns.length}>작성된 발주 항목이 없습니다.</td>
                             </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
+                          ) : selectedPurchaseOrder.mergeSameCategory ? (
+                            renderGroupedPurchaseRows(selectedPurchaseOrder.items, editPurchaseOrderItem, selectedPurchaseOrderVisibleColumns)
+                          ) : (
+                            selectedPurchaseOrder.items.map((item) => (
+                              <tr key={`summary-${item.id}`} onDoubleClick={() => editPurchaseOrderItem(item)} className="cursor-pointer hover:bg-[#fff8e8]">
+                                {selectedPurchaseOrderVisibleColumns.map((column) => (
+                                  <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>
+                                    {renderPurchaseOrderCell(item, column)}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                     </div>
 
@@ -2614,9 +2655,27 @@ export default function EstimateWorkspacePage() {
                             <select value={selectedPurchaseOrder.templateKey} onChange={(event) => updatePurchaseOrderTemplate(selectedPurchaseOrder.id, event.target.value as PurchaseOrder['templateKey'])} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm text-[#171512] outline-none focus:border-[#38a9bd]">
                               <option value="modelSpec">템플릿1 · 구분/모델명/규격</option>
                               <option value="subType">템플릿2 · 구분 통합/종류</option>
+                              <option value="doorSet">도어 템플릿 · 프레임/도어 세트</option>
                               <option value="custom">사용자 지정</option>
                             </select>
                           </label>
+                          {selectedPurchaseOrder.templateKey === 'doorSet' && (
+                            <div className="mt-3 grid gap-2 rounded-md border border-[#d5dde2] bg-white p-3">
+                              <p className="text-xs font-bold text-[#171512]">도어 상단 정보</p>
+                              <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                모델명
+                                <input value={selectedPurchaseOrder.doorModelName || ''} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { doorModelName: event.target.value })} placeholder="예: TA-13" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
+                              </label>
+                              <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                마감/필름
+                                <input value={selectedPurchaseOrder.doorFinish || ''} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { doorFinish: event.target.value })} placeholder="예: 필름" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
+                              </label>
+                              <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
+                                업체/코드
+                                <input value={selectedPurchaseOrder.doorBrand || ''} onChange={(event) => updatePurchaseOrder(selectedPurchaseOrder.id, { doorBrand: event.target.value })} placeholder="예: 영림83" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-xs text-[#171512] outline-none focus:border-[#38a9bd]" />
+                              </label>
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -2954,27 +3013,31 @@ export default function EstimateWorkspacePage() {
                     <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
                     <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
                   </div>
-                  <table className="w-full table-fixed border-collapse text-sm">
-                    <colgroup>
-                      {selectedPurchaseOrderVisibleColumns.map((column) => (
-                        <col key={column} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
-                      ))}
-                    </colgroup>
-                    <thead className="bg-[#f3f1ec]">
-                      {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
-                    </thead>
-                    <tbody>
-                      {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 6) : [purchaseItemDraft]).map((item, index) => (
-                        <tr key={`purchase-template-preview-${item.id || index}`}>
-                          {selectedPurchaseOrderVisibleColumns.map((column) => (
-                            <td key={`${item.id || index}-${column}`} className={purchaseOrderCellClass(column)}>
-                              {renderPurchaseOrderCell(item, column)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  {selectedPurchaseOrder.templateKey === 'doorSet' ? (
+                    <DoorPurchaseOrderTable order={{ ...selectedPurchaseOrder, items: selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 4) : [purchaseItemDraft] }} />
+                  ) : (
+                    <table className="w-full table-fixed border-collapse text-sm">
+                      <colgroup>
+                        {selectedPurchaseOrderVisibleColumns.map((column) => (
+                          <col key={column} style={{ width: `${purchaseOrderColumnWidth(selectedPurchaseOrder, column)}%` }} />
+                        ))}
+                      </colgroup>
+                      <thead className="bg-[#f3f1ec]">
+                        {renderPurchaseOrderHeaderRows(selectedPurchaseOrder, selectedPurchaseOrderLabels, selectedPurchaseOrderVisibleColumns)}
+                      </thead>
+                      <tbody>
+                        {(selectedPurchaseOrder.items.length ? selectedPurchaseOrder.items.slice(0, 6) : [purchaseItemDraft]).map((item, index) => (
+                          <tr key={`purchase-template-preview-${item.id || index}`}>
+                            {selectedPurchaseOrderVisibleColumns.map((column) => (
+                              <td key={`${item.id || index}-${column}`} className={purchaseOrderCellClass(column)}>
+                                {renderPurchaseOrderCell(item, column)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
                 </div>
                 <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 text-sm leading-6 text-[#60717d]">
                   <b className="text-[#171512]">사용 방법</b>
@@ -3057,6 +3120,7 @@ export default function EstimateWorkspacePage() {
                     >
                       <option value="modelSpec">템플릿1 · 구분/모델명/규격</option>
                       <option value="subType">템플릿2 · 구분 머리글 병합/종류</option>
+                      <option value="doorSet">도어 템플릿 · 프레임/도어 세트</option>
                       <option value="custom">사용자 지정</option>
                     </select>
                   </label>
@@ -3438,6 +3502,104 @@ function SchedulePrintPage({ monthKey, tasks, holidays, site }: { monthKey: stri
   );
 }
 
+function DoorPurchaseOrderTable({ order, onEdit }: { order: PurchaseOrder; onEdit?: (item: PurchaseOrderItem) => void }) {
+  const cellClass = 'break-words border border-[#171512] px-3 py-2 align-middle';
+  const centerClass = `${cellClass} text-center`;
+  const items = order.items || [];
+  const fillerRows = Math.max(0, 3 - items.length);
+
+  return (
+    <table className="w-full table-fixed border-collapse text-sm">
+      <colgroup>
+        <col style={{ width: '20%' }} />
+        <col style={{ width: '28%' }} />
+        <col style={{ width: '24%' }} />
+        <col style={{ width: '14%' }} />
+        <col style={{ width: '14%' }} />
+      </colgroup>
+      <thead className="bg-[#f3f1ec]">
+        <tr>
+          <th className={centerClass}></th>
+          <th className={centerClass}>모델명</th>
+          <td className={`${centerClass} font-semibold`}>{order.doorModelName || '-'}</td>
+          <th className={centerClass}>{order.doorFinish || '필름'}</th>
+          <td className={centerClass}>{order.doorBrand || order.vendorName || '-'}</td>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length === 0 ? (
+          <tr>
+            <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={5}>작성된 도어 발주 항목이 없습니다.</td>
+          </tr>
+        ) : (
+          items.map((item, index) => renderDoorPurchaseOrderRows(item, index, onEdit))
+        )}
+        {Array.from({ length: fillerRows }).map((_, index) => (
+          <tr key={`door-filler-${index}`}>
+            <td className={cellClass}>&nbsp;</td>
+            <td className={cellClass}></td>
+            <td className={cellClass}></td>
+            <td className={cellClass}></td>
+            <td className={cellClass}></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function renderDoorPurchaseOrderRows(item: PurchaseOrderItem, index: number, onEdit?: (item: PurchaseOrderItem) => void) {
+  const cellClass = 'break-words border border-[#171512] px-3 py-2 align-middle';
+  const centerClass = `${cellClass} text-center`;
+  const rowClass = onEdit ? 'cursor-pointer hover:bg-[#fff8e8]' : '';
+  const rawCategory = (item.category || '').trim();
+  const numberedMatch = rawCategory.match(/^(\d+)(?:[.\s-]+)?(.*)$/);
+  const numberLabel = numberedMatch?.[1] || String(index + 1);
+  const explicitLabel = (numberedMatch?.[2] || '').trim();
+  const quantityLabel = item.quantity ? `${formatNumber(item.quantity)}SET` : '';
+  const accessoryLabel = rawCategory || item.modelName || `항목 ${index + 1}`;
+  const isDoorPair = !explicitLabel && Boolean(numberedMatch);
+
+  if (rawCategory === '기타') {
+    return (
+      <tr key={`door-extra-${item.id}`} onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+        <td className={`${centerClass} font-semibold`}>기타</td>
+        <td className={cellClass} colSpan={4}>{item.note || item.modelName || item.spec}</td>
+      </tr>
+    );
+  }
+
+  if (!isDoorPair) {
+    const label = explicitLabel ? `${numberLabel}. ${explicitLabel}` : accessoryLabel;
+    const tail = [item.quantity ? formatNumber(item.quantity) : '', item.unit || ''].filter(Boolean).join('');
+    return (
+      <tr key={`door-single-${item.id}`} onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+        <td className={cellClass}>{label}</td>
+        <td className={centerClass}>{item.modelName}</td>
+        <td className={centerClass}>{item.spec}</td>
+        <td className={centerClass}>{item.unit}</td>
+        <td className={centerClass}>{item.note || tail}</td>
+      </tr>
+    );
+  }
+
+  return (
+    <Fragment key={`door-pair-${item.id}`}>
+      <tr onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+        <td className={cellClass}>{numberLabel}. 프레임</td>
+        <td className={centerClass} colSpan={2}>{item.modelName}</td>
+        <td className={centerClass}>{item.unit}</td>
+        <td className={centerClass}>{quantityLabel}</td>
+      </tr>
+      <tr onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+        <td className={cellClass}>{numberLabel}. 도어</td>
+        <td className={centerClass} colSpan={2}>{item.spec}</td>
+        <td className={centerClass} colSpan={2}>{item.note}</td>
+      </tr>
+    </Fragment>
+  );
+}
+
 function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: Site }) {
   const labels = getPurchaseOrderLabels(order);
   const visibleColumns = getPurchaseOrderVisibleColumns(order);
@@ -3452,26 +3614,36 @@ function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: 
         <DocumentInfoRow label="발주일" value={formatShortDate(order.orderDate)} />
         <DocumentInfoRow label="입고 예정일" value={formatShortDate(order.deliveryDate)} />
       </div>
-      <DocumentTable className="mt-5 text-xs">
-        <colgroup>
-          {visibleColumns.map((column) => (
-            <col key={column} style={{ width: `${purchaseOrderColumnWidth(order, column)}%` }} />
-          ))}
-        </colgroup>
-        <thead>
-          {renderPurchaseOrderHeaderRows(order, labels, visibleColumns, '')}
-        </thead>
-        <tbody>
-          {order.mergeSameCategory
-            ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns)
-            : order.items.map((item) => (
-                <tr key={item.id}>
-                  {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>{renderPurchaseOrderCell(item, column)}</td>)}
-                </tr>
-              ))}
-          <tr className="bg-[#f8e8da] font-bold"><td colSpan={Math.max(1, visibleColumns.length - 1)} className="text-center">합계</td><td className="text-right">{formatMoney(total)}</td></tr>
-        </tbody>
-      </DocumentTable>
+      {order.templateKey === 'doorSet' ? (
+        <div className="mt-5 overflow-hidden border border-[#171512]">
+          <div className="grid grid-cols-[1fr_auto] border-b border-[#171512]">
+            <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
+            <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
+          </div>
+          <DoorPurchaseOrderTable order={order} />
+        </div>
+      ) : (
+        <DocumentTable className="mt-5 text-xs">
+          <colgroup>
+            {visibleColumns.map((column) => (
+              <col key={column} style={{ width: `${purchaseOrderColumnWidth(order, column)}%` }} />
+            ))}
+          </colgroup>
+          <thead>
+            {renderPurchaseOrderHeaderRows(order, labels, visibleColumns, '')}
+          </thead>
+          <tbody>
+            {order.mergeSameCategory
+              ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns)
+              : order.items.map((item) => (
+                  <tr key={item.id}>
+                    {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column)}>{renderPurchaseOrderCell(item, column)}</td>)}
+                  </tr>
+                ))}
+            <tr className="bg-[#f8e8da] font-bold"><td colSpan={Math.max(1, visibleColumns.length - 1)} className="text-center">합계</td><td className="text-right">{formatMoney(total)}</td></tr>
+          </tbody>
+        </DocumentTable>
+      )}
       {order.memo && <p className="mt-4 rounded border border-[#d5dde2] p-3 text-sm">메모: {order.memo}</p>}
     </section>
   );
@@ -4814,6 +4986,9 @@ function hydratePurchaseOrders(orders: Partial<PurchaseOrder>[]) {
       visibleColumns: getPurchaseOrderVisibleColumns({ ...order, templateKey }),
       columnWidths: { ...purchaseOrderColumnWidthValues, ...(order.columnWidths || {}) },
       mergeSameCategory: order.mergeSameCategory ?? templateKey === 'subType',
+      doorModelName: String(order.doorModelName || ''),
+      doorFinish: String(order.doorFinish || (templateKey === 'doorSet' ? '필름' : '')),
+      doorBrand: String(order.doorBrand || ''),
       items: Array.isArray(order.items) && order.items.length
         ? order.items
             .filter((item) => item.category || item.modelName || item.spec || item.note || Number(item.quantity || 0) || Number(item.unitPrice || 0))

@@ -3808,7 +3808,7 @@ function DailyReportModal({
   const [processFilter, setProcessFilter] = useState('전체');
   const [photos, setPhotos] = useState<ReportPhoto[]>([]);
   const [reportRecords, setReportRecords] = useState<DailyReportRecord[]>([]);
-  const [previewReport, setPreviewReport] = useState<DailyReportRecord | null>(null);
+  const [previewReportGroup, setPreviewReportGroup] = useState<{ reportDate: string; records: DailyReportRecord[] } | null>(null);
   const [generatingReport, setGeneratingReport] = useState(false);
   const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
   const [logoDataUrl, setLogoDataUrl] = useState('');
@@ -3821,6 +3821,17 @@ function DailyReportModal({
     });
     return ['전체', ...Array.from(values)];
   }, [lines]);
+  const reportGroups = useMemo(() => {
+    const grouped = new Map<string, DailyReportRecord[]>();
+    reportRecords.forEach((record) => {
+      const key = record.reportDate || record.createdAt?.slice(0, 10) || '날짜 없음';
+      grouped.set(key, [...(grouped.get(key) || []), record]);
+    });
+    return Array.from(grouped.entries()).map(([reportDate, records]) => ({
+      reportDate,
+      records: records.sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || '')),
+    }));
+  }, [reportRecords]);
   const customerChatUrl = customer?.chatRoomUrl || kakaoManagerUrl || '';
 
   useEffect(() => {
@@ -4005,21 +4016,21 @@ function DailyReportModal({
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">Reports</p>
                 <h3 className="mt-1 text-lg font-semibold">생성 보고서</h3>
               </div>
-              <span className="rounded-full bg-[#edf8fb] px-2.5 py-1 text-xs font-bold text-[#267d8c]">{reportRecords.length}</span>
+              <span className="rounded-full bg-[#edf8fb] px-2.5 py-1 text-xs font-bold text-[#267d8c]">{reportGroups.length}</span>
             </div>
             <div className="mt-4 max-h-[620px] overflow-y-auto pr-1">
-              {reportRecords.length === 0 ? (
+              {reportGroups.length === 0 ? (
                 <p className="rounded-md bg-[#f7fafb] px-3 py-4 text-sm leading-6 text-[#60717d]">아직 생성된 보고서 이미지가 없습니다.</p>
               ) : (
                 <div className="grid gap-2">
-                  {reportRecords.map((record) => (
+                  {reportGroups.map((group) => (
                     <button
-                      key={record.id}
+                      key={group.reportDate}
                       type="button"
-                      onClick={() => setPreviewReport(record)}
+                      onClick={() => setPreviewReportGroup(group)}
                       className="rounded-lg border border-[#d5dde2] bg-[#fffdf8] px-3 py-2.5 text-left text-sm font-bold text-[#171512] transition hover:border-[#38a9bd] hover:bg-white"
                     >
-                      {formatDailyReportDate(record.reportDate)}
+                      {formatDailyReportDate(group.reportDate)}
                     </button>
                   ))}
                 </div>
@@ -4178,44 +4189,66 @@ function DailyReportModal({
           </aside>
         </div>
       </section>
-      {previewReport && (
+      {previewReportGroup && (
         <div
           className="fixed inset-0 z-[95] flex items-center justify-center bg-[#17212b]/70 px-4 py-6 backdrop-blur-sm"
           onClick={(event) => {
             event.stopPropagation();
-            setPreviewReport(null);
+            setPreviewReportGroup(null);
           }}
         >
           <div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e5ded2] pb-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Generated Report</p>
-                <h3 className="mt-1 text-lg font-semibold">{formatDailyReportDate(previewReport.reportDate)}</h3>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold">{formatDailyReportDate(previewReportGroup.reportDate)}</h3>
+                  <span className="rounded-full bg-[#edf8fb] px-2.5 py-1 text-xs font-bold text-[#267d8c]">{previewReportGroup.records.length}장</span>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => downloadDataUrl(previewReport.imageDataUrl, `${previewReport.siteTitle || 'site'}-${previewReport.reportDate}-daily-report.jpg`)}
+                  onClick={() =>
+                    previewReportGroup.records.forEach((record, index) =>
+                      downloadDataUrl(record.imageDataUrl, `${record.siteTitle || 'site'}-${record.reportDate}-daily-report-${String(index + 1).padStart(2, '0')}.jpg`),
+                    )
+                  }
                   className="rounded-md bg-[#273541] px-3 py-2 text-xs font-bold text-white"
                 >
-                  다운로드
+                  전체 다운로드
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    deleteReportRecord(previewReport.id);
-                    setPreviewReport(null);
-                  }}
-                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-bold text-red-600"
-                >
-                  삭제
-                </button>
-                <button type="button" onClick={() => setPreviewReport(null)} className="rounded-md border border-[#d8d1c5] px-3 py-2 text-xs font-bold">
+                <button type="button" onClick={() => setPreviewReportGroup(null)} className="rounded-md border border-[#d8d1c5] px-3 py-2 text-xs font-bold">
                   닫기
                 </button>
               </div>
             </div>
-            <img src={previewReport.imageDataUrl} alt="" className="mt-4 max-h-[78vh] w-full rounded-lg border border-[#d5dde2] bg-[#f7fafb] object-contain" />
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {previewReportGroup.records.map((record, index) => (
+                <article key={record.id} className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
+                  <img src={record.imageDataUrl} alt="" className="max-h-[68vh] w-full rounded-md border border-[#e5ded2] bg-white object-contain" />
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-bold text-[#273541]">{index + 1}번째 보고서</p>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => downloadDataUrl(record.imageDataUrl, `${record.siteTitle || 'site'}-${record.reportDate}-daily-report-${String(index + 1).padStart(2, '0')}.jpg`)} className="rounded-md bg-[#273541] px-3 py-1.5 text-xs font-bold text-white">
+                        다운로드
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextRecords = previewReportGroup.records.filter((item) => item.id !== record.id);
+                          deleteReportRecord(record.id);
+                          setPreviewReportGroup(nextRecords.length ? { ...previewReportGroup, records: nextRecords } : null);
+                        }}
+                        className="rounded-md border border-red-200 px-3 py-1.5 text-xs font-bold text-red-600"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
           </div>
         </div>
       )}

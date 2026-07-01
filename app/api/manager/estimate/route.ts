@@ -82,6 +82,9 @@ type PurchaseOrder = {
   deliveryDate?: string;
   memo?: string;
   templateKey?: string;
+  doorModelName?: string;
+  doorFinish?: string;
+  doorBrand?: string;
   columnLabels?: Record<string, string>;
   visibleColumns?: string[];
   columnWidths?: Record<string, string>;
@@ -512,13 +515,14 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
   const defaultVisibleColumns: Record<string, string[]> = {
     modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
     subType: ['category', 'modelName', 'quantity', 'unit'],
+    doorSet: ['category', 'modelName', 'spec', 'unit', 'quantity', 'note'],
     custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
   };
 
   return orders
     .map((order, index) => {
       const id = String(order.id || `purchase-${Date.now()}-${index}`).trim();
-      const templateKey = ['modelSpec', 'subType', 'custom'].includes(String(order.templateKey || ''))
+      const templateKey = ['modelSpec', 'subType', 'doorSet', 'custom'].includes(String(order.templateKey || ''))
         ? String(order.templateKey)
         : 'modelSpec';
       const columnLabels = Object.fromEntries(
@@ -556,6 +560,9 @@ function normalizePurchaseOrders(orders: PurchaseOrder[]) {
         deliveryDate: String(order.deliveryDate || '').trim(),
         memo: String(order.memo || '').trim(),
         templateKey,
+        doorModelName: String(order.doorModelName || '').trim(),
+        doorFinish: String(order.doorFinish || '').trim(),
+        doorBrand: String(order.doorBrand || '').trim(),
         columnLabels,
         visibleColumns: visibleColumns.length ? visibleColumns : defaultVisibleColumns[templateKey],
         columnWidths: typeof order.columnWidths === 'object' && order.columnWidths ? order.columnWidths : {},
@@ -584,12 +591,13 @@ function normalizePurchaseOrderTemplatePresets(presets: PurchaseOrderTemplatePre
   const defaultVisibleColumns: Record<string, string[]> = {
     modelSpec: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
     subType: ['category', 'modelName', 'quantity', 'unit'],
+    doorSet: ['category', 'modelName', 'spec', 'unit', 'quantity', 'note'],
     custom: ['category', 'modelName', 'spec', 'quantity', 'unit', 'amount', 'note'],
   };
 
   return presets
     .map((preset, index) => {
-      const templateKey = ['modelSpec', 'subType', 'custom'].includes(String(preset.templateKey || ''))
+      const templateKey = ['modelSpec', 'subType', 'doorSet', 'custom'].includes(String(preset.templateKey || ''))
         ? String(preset.templateKey)
         : 'custom';
       const visibleColumns = Array.isArray(preset.visibleColumns)
