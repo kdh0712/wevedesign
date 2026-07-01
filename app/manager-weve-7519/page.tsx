@@ -164,8 +164,24 @@ type EstimateSummary = {
   executionCostTotal?: number;
   marginAmount?: number;
   marginRate?: number;
+  linesJson?: string;
   updatedAt?: string;
   createdAt?: string;
+};
+
+type EstimateLine = {
+  id?: string;
+  space?: string;
+  category?: string;
+  process?: string;
+  name?: string;
+  itemName?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number | string;
+  customerUnitPrice?: number | string;
+  executionUnitPrice?: number | string;
+  memo?: string;
 };
 
 type EstimateVersionType = 'draft' | 'revision' | 'final' | 'change';
@@ -635,6 +651,8 @@ export default function ManagerPage() {
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
   const [alimtalkCustomer, setAlimtalkCustomer] = useState<Customer | null>(null);
   const [sendingAlimtalk, setSendingAlimtalk] = useState(false);
+  const [consultationView, setConsultationView] = useState<'new' | 'progress' | 'done'>('new');
+  const [dailyReportSiteId, setDailyReportSiteId] = useState('');
   const [pendingConsultationForCustomer, setPendingConsultationForCustomer] = useState<Consultation | null>(null);
   const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
@@ -714,6 +732,27 @@ export default function ManagerPage() {
   const dashboardSiteSale = dashboardSite
     ? officeData.sales.find((sale) => sale.siteId === dashboardSite._id) || officeData.sales.find((sale) => sale.projectTitle === dashboardSite.title)
     : undefined;
+  const dashboardSiteCustomer = dashboardSite
+    ? officeData.customers.find(
+        (customer) =>
+          customer._id === dashboardSite.customerId ||
+          (normalizePhone(customer.phone) && normalizePhone(customer.phone) === normalizePhone(dashboardSite.customerPhone)) ||
+          (customer.name && customer.name === dashboardSite.customerName),
+      )
+    : undefined;
+  const dailyReportSite = useMemo(
+    () => officeData.sites.find((site) => site._id === dailyReportSiteId),
+    [dailyReportSiteId, officeData.sites],
+  );
+  const dailyReportEstimate = dailyReportSite ? latestEstimateBySite.get(dailyReportSite._id) : undefined;
+  const dailyReportCustomer = dailyReportSite
+    ? officeData.customers.find(
+        (customer) =>
+          customer._id === dailyReportSite.customerId ||
+          (normalizePhone(customer.phone) && normalizePhone(customer.phone) === normalizePhone(dailyReportSite.customerPhone)) ||
+          (customer.name && customer.name === dailyReportSite.customerName),
+      )
+    : undefined;
   const saleFormSite = useMemo(() => officeData.sites.find((site) => site._id === saleForm.siteId), [officeData.sites, saleForm.siteId]);
   const saleFormSiteEstimates = useMemo(
     () => sortEstimateSummaries(officeData.estimates.filter((estimate) => estimate.siteId === saleForm.siteId)),
@@ -744,6 +783,16 @@ export default function ManagerPage() {
     () => officeData.inventory.filter((item) => Number(item.quantity || 0) <= Number(item.minQuantity || 0)).length,
     [officeData.inventory],
   );
+  const consultationGroups = useMemo(() => {
+    const isDone = (status?: string) => (status || '').includes('완료');
+    const isProgress = (status?: string) => ['상담중', '견적', '계약'].includes(status || '');
+    return {
+      new: officeData.consultations.filter((item) => !item.status || item.status === '신규'),
+      progress: officeData.consultations.filter((item) => isProgress(item.status)),
+      done: officeData.consultations.filter((item) => isDone(item.status)),
+    };
+  }, [officeData.consultations]);
+  const visibleConsultations = consultationGroups[consultationView];
 
   useEffect(() => {
     if (!officeData.sites.length) {
@@ -2074,6 +2123,7 @@ export default function ManagerPage() {
             selectedSite={dashboardSite}
             selectedEstimate={dashboardSiteEstimate}
             selectedSale={dashboardSiteSale}
+            selectedCustomer={dashboardSiteCustomer}
             salesTotal={salesTotal}
             profitTotal={profitTotal}
             projectedEstimateTotal={projectedEstimateTotal}
@@ -2089,14 +2139,35 @@ export default function ManagerPage() {
             onOpenConsultation={setSelectedConsultation}
             onCompleteConsultation={setCompletionConsultation}
             onDeleteRecord={deleteOfficeRecord}
+            onOpenAlimtalk={(customer) => setAlimtalkCustomer(customer)}
+            onOpenDailyReport={(siteId) => setDailyReportSiteId(siteId)}
           />
         )}
 
         {activeTab === 'consultations' && (
           <Panel title="상담 요청 관리">
+            <div className="mb-3 flex flex-wrap gap-2">
+              {[
+                { key: 'new', label: '최근 상담 요청', count: consultationGroups.new.length },
+                { key: 'progress', label: '진행 중', count: consultationGroups.progress.length },
+                { key: 'done', label: '완료', count: consultationGroups.done.length },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setConsultationView(tab.key as 'new' | 'progress' | 'done')}
+                  className={`rounded-full px-4 py-2 text-sm font-bold ${
+                    consultationView === tab.key ? 'bg-[#273541] text-white' : 'border border-[#d5dde2] bg-white text-[#4d5d66]'
+                  }`}
+                >
+                  {tab.label} <span className="ml-1 text-xs opacity-75">{tab.count}</span>
+                </button>
+              ))}
+            </div>
+            <div className="max-h-[330px] overflow-y-auto pr-1">
             <RecordList
               empty="상담 기록이 없습니다. 홈페이지 상담폼으로 들어온 요청이 이곳에 쌓입니다."
-              items={officeData.consultations.map((item) => ({
+              items={visibleConsultations.map((item) => ({
                 key: item._id,
                 title: `${item.name || '이름 없음'} · ${item.phone || '연락처 없음'}`,
                 meta: `${item.source || '직접 등록'} · ${item.propertyType || item.siteType || '공간 종류 없음'} · ${item.areaRange || '평수 미선택'} · ${item.budget || '예산 미선택'} · ${item.timeline || '일정 미선택'} · ${item.status || '신규'} · ${formatDate(item.createdAt)}`,
@@ -2135,6 +2206,7 @@ export default function ManagerPage() {
                 ),
               }))}
             />
+            </div>
           </Panel>
         )}
 
@@ -3232,6 +3304,15 @@ export default function ManagerPage() {
             onRegisterCustomer={() => completeConsultation(completionConsultation, true)}
           />
         )}
+        {dailyReportSite && (
+          <DailyReportModal
+            site={dailyReportSite}
+            customer={dailyReportCustomer}
+            estimate={dailyReportEstimate}
+            kakaoManagerUrl={homepageSettings.kakaoChannelManagerUrl || homepageSettings.kakaoUrl}
+            onClose={() => setDailyReportSiteId('')}
+          />
+        )}
         {alimtalkCustomer && (
           <AlimtalkActionModal
             customer={alimtalkCustomer}
@@ -3405,6 +3486,7 @@ function DashboardOverview({
   selectedSite,
   selectedEstimate,
   selectedSale,
+  selectedCustomer,
   salesTotal,
   profitTotal,
   projectedEstimateTotal,
@@ -3418,6 +3500,8 @@ function DashboardOverview({
   onOpenConsultation,
   onCompleteConsultation,
   onDeleteRecord,
+  onOpenAlimtalk,
+  onOpenDailyReport,
 }: {
   officeData: OfficeData;
   homepageSettings: {
@@ -3434,6 +3518,7 @@ function DashboardOverview({
   selectedSite?: Site;
   selectedEstimate?: EstimateSummary;
   selectedSale?: Sale;
+  selectedCustomer?: Customer;
   salesTotal: number;
   profitTotal: number;
   projectedEstimateTotal: number;
@@ -3447,6 +3532,8 @@ function DashboardOverview({
   onOpenConsultation: (consultation: Consultation) => void;
   onCompleteConsultation: (consultation: Consultation) => void;
   onDeleteRecord: (id: string, type?: OfficeType) => void;
+  onOpenAlimtalk: (customer: Customer) => void;
+  onOpenDailyReport: (siteId: string) => void;
 }) {
   const activeConsultations = officeData.consultations.filter((item) => item.status !== '완료');
   const estimateCoverage = officeData.sites.length ? Math.round((new Set(officeData.estimates.map((estimate) => estimate.siteId).filter(Boolean)).size / officeData.sites.length) * 100) : 0;
@@ -3561,6 +3648,32 @@ function DashboardOverview({
                   <MiniMetric label="등록 매출" value={selectedSale ? formatMoney(Number(selectedSale.amount || 0)) : '미등록'} />
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenAlimtalk(
+                        selectedCustomer || {
+                          _id: selectedSite.customerId || selectedSite._id,
+                          name: selectedSite.customerName || selectedSite.title || '',
+                          phone: selectedSite.customerPhone || '',
+                          siteType: selectedSite.siteType || '',
+                          address: selectedSite.address || '',
+                          status: selectedSite.status || '',
+                        },
+                      )
+                    }
+                    disabled={!selectedSite.customerPhone && !selectedCustomer?.phone}
+                    className="rounded-md bg-[#ffe812] px-3 py-1.5 text-xs font-bold text-[#171512] disabled:opacity-40"
+                  >
+                    알림톡
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onOpenDailyReport(selectedSite._id)}
+                    className="rounded-md bg-[#273541] px-3 py-1.5 text-xs font-bold text-white"
+                  >
+                    일일보고서 작성
+                  </button>
                   {selectedSiteEstimates.length === 0 ? (
                     <span className="rounded-full bg-[#fff5d9] px-3 py-1 text-xs font-bold text-[#8b6420]">견적 미작성</span>
                   ) : (
@@ -3643,6 +3756,180 @@ function DashboardOverview({
             }))}
           />
         </Panel>
+      </section>
+    </div>
+  );
+}
+
+function DailyReportModal({
+  site,
+  customer,
+  estimate,
+  kakaoManagerUrl,
+  onClose,
+}: {
+  site: Site;
+  customer?: Customer;
+  estimate?: EstimateSummary;
+  kakaoManagerUrl?: string;
+  onClose: () => void;
+}) {
+  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [designer, setDesigner] = useState('김동호 실장');
+  const [workDetail, setWorkDetail] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [processFilter, setProcessFilter] = useState('전체');
+  const lines = useMemo(() => parseEstimateLines(estimate), [estimate]);
+  const processOptions = useMemo(() => {
+    const values = new Set<string>();
+    lines.forEach((line) => {
+      const value = line.process || line.category || '';
+      if (value) values.add(value);
+    });
+    return ['전체', ...Array.from(values)];
+  }, [lines]);
+  const filteredLines = useMemo(() => {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    return lines.filter((line) => {
+      const processName = line.process || line.category || '';
+      const haystack = [line.space, line.category, line.process, line.name, line.itemName, line.spec, line.memo].filter(Boolean).join(' ').toLowerCase();
+      return (processFilter === '전체' || processName === processFilter) && (!normalizedKeyword || haystack.includes(normalizedKeyword));
+    });
+  }, [keyword, lines, processFilter]);
+
+  const appendLineToReport = (line: EstimateLine) => {
+    const processName = line.process || line.category || '작업';
+    const itemName = line.name || line.itemName || line.spec || '상세 작업';
+    const nextLine = `${processName} - ${itemName}${line.spec ? ` (${line.spec})` : ''}`;
+    setWorkDetail((current) => (current ? `${current}\n${nextLine}` : nextLine));
+  };
+
+  const exportProgress = () => {
+    const payload = {
+      type: 'weve-daily-report-progress',
+      exportedAt: new Date().toISOString(),
+      site,
+      customer,
+      estimateId: estimate?._id,
+      report: { reportDate, designer, siteTitle: site.title || '', customerName: customer?.name || site.customerName || '', workDetail },
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${site.title || 'site'}-daily-report-progress.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+      <section className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-xl bg-[#f4f1ea] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <header className="flex items-center justify-between border-b border-[#ded6c9] bg-[#171512] px-5 py-4 text-white">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f1c76a]">WEVE DESIGN</p>
+            <h2 className="mt-1 text-xl font-semibold">고객용 일일 보고서 작성</h2>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full border border-white/20 px-3 py-1.5 text-sm font-bold">
+            닫기
+          </button>
+        </header>
+
+        <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="grid gap-5">
+            <section className="rounded-xl bg-white p-5 shadow-sm">
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-bold text-[#4d473f]">
+                  날짜
+                  <input type="date" value={reportDate} onChange={(event) => setReportDate(event.target.value)} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]" />
+                </label>
+                <label className="grid gap-1 text-sm font-bold text-[#4d473f]">
+                  담당 디자이너
+                  <input value={designer} onChange={(event) => setDesigner(event.target.value)} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]" />
+                </label>
+                <label className="grid gap-1 text-sm font-bold text-[#4d473f]">
+                  현장명
+                  <input value={site.title || ''} readOnly className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal text-[#60717d]" />
+                </label>
+                <label className="grid gap-1 text-sm font-bold text-[#4d473f]">
+                  고객명
+                  <input value={customer?.name || site.customerName || ''} readOnly className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal text-[#60717d]" />
+                </label>
+              </div>
+              <label className="mt-4 grid gap-1 text-sm font-bold text-[#4d473f]">
+                상세 작업 내역
+                <textarea
+                  value={workDetail}
+                  onChange={(event) => setWorkDetail(event.target.value)}
+                  rows={8}
+                  placeholder="견적 내역을 클릭하거나 직접 작업 내용을 입력하세요."
+                  className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal leading-7 outline-none focus:border-[#38a9bd]"
+                />
+              </label>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={exportProgress} className="rounded-md bg-[#273541] px-4 py-2 text-sm font-bold text-white">
+                  진행사항 내보내기
+                </button>
+                {kakaoManagerUrl && (
+                  <a href={kakaoManagerUrl} target="_blank" rel="noreferrer" className="rounded-md bg-[#ffe812] px-4 py-2 text-sm font-bold text-[#171512]">
+                    카카오 고객 채팅방
+                  </a>
+                )}
+              </div>
+              <p className="mt-3 text-xs leading-5 text-[#60717d]">
+                브라우저 보안상 로컬/OneDrive 폴더는 사용자가 직접 선택해야 생성할 수 있습니다. 진행사항 내보내기 파일은 다른 컴퓨터에서 이어 작업할 때 기준 데이터로 사용할 수 있습니다.
+              </p>
+            </section>
+          </div>
+
+          <aside className="grid gap-4 xl:sticky xl:top-4 xl:self-start">
+            <section className="rounded-xl bg-white p-5 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8f6f43]">Brand</p>
+              <div className="mt-3 rounded-lg bg-[#171512] px-4 py-5 text-center text-white">
+                <p className="text-lg font-semibold tracking-[0.34em]">WEVE</p>
+                <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-white/70">Interior Design</p>
+              </div>
+            </section>
+            <section className="rounded-xl bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">Estimate Lines</p>
+                  <h3 className="mt-1 text-lg font-semibold">견적 내역 불러오기</h3>
+                </div>
+                <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{filteredLines.length}개</span>
+              </div>
+              <div className="mt-4 grid gap-2">
+                <input value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="품명, 공종, 규격 검색" className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                <select value={processFilter} onChange={(event) => setProcessFilter(event.target.value)} className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-3 py-2 text-sm outline-none focus:border-[#38a9bd]">
+                  {processOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="mt-3 max-h-[360px] overflow-y-auto pr-1">
+                {filteredLines.length === 0 ? (
+                  <p className="rounded-md bg-[#f7fafb] px-3 py-4 text-sm text-[#60717d]">불러올 견적 내역이 없습니다.</p>
+                ) : (
+                  <div className="grid gap-2">
+                    {filteredLines.map((line, index) => (
+                      <button
+                        key={`${line.id || index}-${line.name || line.itemName || line.spec || index}`}
+                        type="button"
+                        onClick={() => appendLineToReport(line)}
+                        className="rounded-md border border-[#d5dde2] bg-[#fffdf8] p-3 text-left transition hover:border-[#38a9bd] hover:bg-white"
+                      >
+                        <p className="text-sm font-bold">{line.name || line.itemName || '품명 없음'}</p>
+                        <p className="mt-1 text-xs text-[#60717d]">{[line.space, line.category, line.process, line.spec].filter(Boolean).join(' · ')}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+          </aside>
+        </div>
       </section>
     </div>
   );
@@ -5451,6 +5738,20 @@ function formatTime(value: Date) {
 
 function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
+}
+
+function normalizePhone(value?: string) {
+  return (value || '').replace(/[^\d]/g, '');
+}
+
+function parseEstimateLines(estimate?: EstimateSummary): EstimateLine[] {
+  if (!estimate?.linesJson) return [];
+  try {
+    const parsed = JSON.parse(estimate.linesJson);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function normalizeEstimateVersionType(value?: string): EstimateVersionType {
