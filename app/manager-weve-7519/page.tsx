@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import {
   BarChart3,
   Boxes,
@@ -3795,6 +3795,8 @@ function DailyReportModal({
   const [photos, setPhotos] = useState<ReportPhoto[]>([]);
   const [reportRecords, setReportRecords] = useState<DailyReportRecord[]>([]);
   const [generatingReport, setGeneratingReport] = useState(false);
+  const [isDraggingPhotos, setIsDraggingPhotos] = useState(false);
+  const [logoDataUrl, setLogoDataUrl] = useState('');
   const lines = useMemo(() => parseEstimateLines(estimate), [estimate]);
   const processOptions = useMemo(() => {
     const values = new Set<string>();
@@ -3813,6 +3815,14 @@ function DailyReportModal({
       setReportRecords([]);
     }
   }, [reportStorageKey]);
+
+  useEffect(() => {
+    try {
+      setLogoDataUrl(window.localStorage.getItem('weve-daily-report-logo') || '');
+    } catch {
+      setLogoDataUrl('');
+    }
+  }, []);
 
   const filteredLines = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
@@ -3858,8 +3868,30 @@ function DailyReportModal({
     setPhotos((current) => [...current, ...nextPhotos].slice(0, 12));
   };
 
-  const saveReportRecord = (record: DailyReportRecord) => {
-    const nextRecords = [record, ...reportRecords].slice(0, 30);
+  const handlePhotoDrop = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    setIsDraggingPhotos(false);
+    void handlePhotoUpload(event.dataTransfer.files);
+  };
+
+  const handleLogoUpload = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      setLogoDataUrl(dataUrl);
+      try {
+        window.localStorage.setItem('weve-daily-report-logo', dataUrl);
+      } catch {
+        // 로고는 브라우저별 임시 설정이라 저장 실패 시 화면에만 반영합니다.
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const saveReportRecords = (records: DailyReportRecord[]) => {
+    const nextRecords = [...records, ...reportRecords].slice(0, 60);
     setReportRecords(nextRecords);
     try {
       window.localStorage.setItem(reportStorageKey, JSON.stringify(nextRecords));
@@ -3869,29 +3901,44 @@ function DailyReportModal({
   };
 
   const generateReportImage = async () => {
+    if (!workDetail.trim()) {
+      alert('상세 작업 내역을 입력해주세요.');
+      return;
+    }
+    if (photos.length === 0) {
+      alert('현장 사진을 첨부해주세요.');
+      return;
+    }
     setGeneratingReport(true);
     try {
-      const imageDataUrl = await renderDailyReportImage({
-        reportDate,
-        designer,
-        siteTitle: site.title || '',
-        customerName: customer?.name || site.customerName || '',
-        customerPhone: customer?.phone || site.customerPhone || '',
-        workDetail,
-        photos,
-      });
-      const record: DailyReportRecord = {
-        id: `${Date.now()}`,
-        reportDate,
-        title: `${reportDate} 일일보고서`,
-        customerName: customer?.name || site.customerName || '',
-        siteTitle: site.title || '',
-        workDetail,
-        imageDataUrl,
-        createdAt: new Date().toISOString(),
-      };
-      saveReportRecord(record);
-      downloadDataUrl(imageDataUrl, `${site.title || 'site'}-${reportDate}-daily-report.png`);
+      const createdRecords: DailyReportRecord[] = [];
+      for (let index = 0; index < photos.length; index += 1) {
+        const photo = photos[index];
+        const imageDataUrl = await renderDailyReportImage({
+          reportDate,
+          designer,
+          siteTitle: site.title || '',
+          customerName: customer?.name || site.customerName || '',
+          customerPhone: customer?.phone || site.customerPhone || '',
+          workDetail,
+          photo,
+          logoDataUrl,
+        });
+        const record: DailyReportRecord = {
+          id: `${Date.now()}-${index}`,
+          reportDate,
+          title: `${reportDate} 일일보고서 ${index + 1}`,
+          customerName: customer?.name || site.customerName || '',
+          siteTitle: site.title || '',
+          workDetail,
+          imageDataUrl,
+          createdAt: new Date().toISOString(),
+        };
+        createdRecords.push(record);
+        downloadDataUrl(imageDataUrl, `WEVE_보고서_${reportDate.replace(/-/g, '')}_${sanitizeFileName(site.title || 'site')}_${String(index + 1).padStart(2, '0')}.jpg`);
+        await sleep(120);
+      }
+      saveReportRecords(createdRecords);
     } finally {
       setGeneratingReport(false);
     }
@@ -4009,19 +4056,27 @@ function DailyReportModal({
                     </button>
                   ))}
               </div>
-              <section className="mt-5 rounded-lg border border-dashed border-[#c8d3d9] bg-[#f7fafb] p-4">
-                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <div>
-                    <p className="text-sm font-bold">현장 사진 첨부</p>
-                    <p className="mt-1 text-xs text-[#60717d]">가로/세로 사진을 첨부하면 보고서 이미지에 자동 배치됩니다.</p>
-                  </div>
-                  <label className="inline-flex cursor-pointer items-center justify-center rounded-md bg-[#171512] px-4 py-2 text-sm font-bold text-white">
-                    사진 선택
-                    <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => handlePhotoUpload(event.target.files)} />
-                  </label>
-                </div>
+              <section
+                className={`mt-5 rounded-xl border-2 border-dashed p-8 text-center transition ${
+                  isDraggingPhotos ? 'border-[#c8a96e] bg-[#faf7f2]' : 'border-[#d0d0d0] bg-[#f7f7f7]'
+                }`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setIsDraggingPhotos(true);
+                }}
+                onDragLeave={() => setIsDraggingPhotos(false)}
+                onDrop={handlePhotoDrop}
+              >
+                <label className="relative block cursor-pointer">
+                  <input type="file" accept="image/*" multiple className="absolute inset-0 h-full w-full cursor-pointer opacity-0" onChange={(event) => handlePhotoUpload(event.target.files)} />
+                  <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#171512] text-[#f1c76a]">
+                    <UploadCloud size={24} />
+                  </span>
+                  <span className="mt-4 block text-base font-extrabold text-[#171512]">사진을 드래그하거나 클릭하여 업로드</span>
+                  <span className="mt-1 block text-sm text-[#60717d]">가로 사진은 상하 와이드형, 세로 사진은 좌우 매거진형으로 자동 분리되어 디자인됩니다.</span>
+                </label>
                 {photos.length > 0 && (
-                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="mt-5 grid grid-cols-2 gap-3 text-left md:grid-cols-4">
                     {photos.map((photo) => (
                       <div key={photo.id} className="relative overflow-hidden rounded-md border border-[#d5dde2] bg-white">
                         <img src={photo.dataUrl} alt="" className="aspect-[4/3] w-full object-cover" />
@@ -4055,10 +4110,21 @@ function DailyReportModal({
           <aside className="grid gap-4 xl:sticky xl:top-4 xl:self-start">
             <section className="rounded-xl bg-white p-5 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#8f6f43]">Brand</p>
-              <div className="mt-3 rounded-lg bg-[#171512] px-4 py-5 text-center text-white">
-                <p className="text-lg font-semibold tracking-[0.34em]">WEVE</p>
-                <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-white/70">Interior Design</p>
+              <div className="mt-3 flex h-28 items-center justify-center rounded-lg border border-[#e2ddd4] bg-[#171512] p-4 text-center text-white">
+                {logoDataUrl ? (
+                  <img src={logoDataUrl} alt="WEVE 로고" className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <div>
+                    <p className="text-lg font-semibold tracking-[0.34em]">WEVE</p>
+                    <p className="mt-1 text-[10px] uppercase tracking-[0.2em] text-white/70">Interior Design</p>
+                  </div>
+                )}
               </div>
+              <label className="mt-3 flex cursor-pointer items-center justify-center rounded-md border border-[#d5dde2] bg-[#f7fafb] px-3 py-2 text-sm font-bold text-[#273541]">
+                회사 로고 선택
+                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => handleLogoUpload(event.target.files)} />
+              </label>
+              <p className="mt-2 text-xs leading-5 text-[#60717d]">투명 배경 PNG를 선택하면 보고서 헤더와 워터마크에 반영됩니다.</p>
             </section>
             <section className="rounded-xl bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between gap-2">
@@ -5974,6 +6040,102 @@ function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageEleme
   context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
 }
 
+function sanitizeFileName(value: string) {
+  return String(value || 'site')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .trim()
+    .slice(0, 30);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatDailyReportDate(value: string) {
+  const [year, month, day] = value.split('-');
+  if (!year || !month || !day) return value;
+  return `${year}년 ${Number(month)}월 ${Number(day)}일`;
+}
+
+function wrapReportLines(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const source = String(text || '').trim();
+  if (!source) return [''];
+  const tokens = source.includes(' ') ? source.split(/\s+/) : Array.from(source);
+  const lines: string[] = [];
+  let line = '';
+  tokens.forEach((token) => {
+    const nextLine = source.includes(' ') ? (line ? `${line} ${token}` : token) : `${line}${token}`;
+    if (context.measureText(nextLine).width > maxWidth && line) {
+      lines.push(line);
+      line = token;
+    } else {
+      line = nextLine;
+    }
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+async function loadOptionalReportImage(dataUrl?: string) {
+  if (!dataUrl) return null;
+  try {
+    return await loadReportImage(dataUrl);
+  } catch {
+    return null;
+  }
+}
+
+function drawReportLogo(context: CanvasRenderingContext2D, logo: HTMLImageElement | null, x: number, y: number, maxWidth: number, maxHeight: number, color = '#c8a96e') {
+  if (logo) {
+    const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height);
+    const width = logo.width * ratio;
+    const height = logo.height * ratio;
+    context.drawImage(logo, x, y + (maxHeight - height) / 2, width, height);
+    return width;
+  }
+  context.fillStyle = color;
+  context.font = '700 28px Arial, sans-serif';
+  context.textAlign = 'left';
+  context.textBaseline = 'middle';
+  context.fillText('WEVE DESIGN', x, y + maxHeight / 2);
+  return 190;
+}
+
+function drawTintedReportLogo(context: CanvasRenderingContext2D, logo: HTMLImageElement | null, x: number, y: number, maxWidth: number, maxHeight: number, opacity: number) {
+  if (!logo) return;
+  const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height);
+  const width = logo.width * ratio;
+  const height = logo.height * ratio;
+  context.save();
+  context.globalAlpha = opacity;
+  context.drawImage(logo, x + (maxWidth - width) / 2, y + (maxHeight - height) / 2, width, height);
+  context.restore();
+}
+
+function drawReportWorkLines(context: CanvasRenderingContext2D, workDetail: string, x: number, y: number, maxWidth: number, fontSize: number, lineHeight: number) {
+  const paragraphs = String(workDetail || '').split(/\r?\n/);
+  let currentY = y;
+  paragraphs.forEach((paragraph) => {
+    if (!paragraph.trim()) {
+      currentY += lineHeight;
+      return;
+    }
+    const lines = wrapReportLines(context, paragraph, maxWidth - 18);
+    lines.forEach((line, index) => {
+      if (index === 0) {
+        context.fillStyle = '#c8a96e';
+        context.font = `800 ${fontSize + 4}px Arial, sans-serif`;
+        context.fillText('·', x, currentY + 2);
+      }
+      context.fillStyle = '#333333';
+      context.font = `500 ${fontSize}px Arial, sans-serif`;
+      context.fillText(line, x + 18, currentY);
+      currentY += lineHeight;
+    });
+  });
+  return currentY;
+}
+
 async function renderDailyReportImage({
   reportDate,
   designer,
@@ -5981,7 +6143,8 @@ async function renderDailyReportImage({
   customerName,
   customerPhone,
   workDetail,
-  photos,
+  photo,
+  logoDataUrl,
 }: {
   reportDate: string;
   designer: string;
@@ -5989,82 +6152,203 @@ async function renderDailyReportImage({
   customerName: string;
   customerPhone: string;
   workDetail: string;
-  photos: Array<{ name: string; dataUrl: string }>;
+  photo: { name: string; dataUrl: string };
+  logoDataUrl?: string;
 }) {
+  const image = await loadReportImage(photo.dataUrl);
+  const logo = await loadOptionalReportImage(logoDataUrl);
   const canvas = document.createElement('canvas');
-  canvas.width = 1200;
-  canvas.height = 1700;
   const context = canvas.getContext('2d');
   if (!context) throw new Error('보고서 이미지를 생성할 수 없습니다.');
 
-  context.fillStyle = '#f3f0e9';
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = '#171512';
-  context.fillRect(0, 0, canvas.width, 96);
-  context.fillStyle = '#f1c76a';
-  context.font = '700 22px Arial';
-  context.fillText('WEVE DESIGN', 70, 58);
-  context.fillStyle = '#d8d1c5';
-  context.font = '400 17px Arial';
-  context.fillText('고객용 일일 보고서', 230, 58);
+  const displayDate = formatDailyReportDate(reportDate);
+  const customerLine = [customerName, customerPhone].filter(Boolean).join(' · ');
+  const imageAspect = image.width / image.height;
+  const isVertical = imageAspect < 0.95;
 
-  context.fillStyle = '#ffffff';
-  roundRect(context, 70, 140, 1060, 390, 24);
-  context.fill();
-  context.fillStyle = '#8f6f43';
-  context.font = '700 18px Arial';
-  context.fillText('DAILY REPORT', 110, 200);
-  context.fillStyle = '#171512';
-  context.font = '700 46px Arial';
-  context.fillText(siteTitle || '현장명 없음', 110, 265);
-  context.font = '600 24px Arial';
-  context.fillText(`${reportDate} · ${customerName || '고객명 없음'}`, 110, 320);
-  context.fillStyle = '#625d54';
-  context.font = '400 22px Arial';
-  context.fillText(`담당 ${designer || '-'}${customerPhone ? ` · ${customerPhone}` : ''}`, 110, 365);
-  context.fillStyle = '#171512';
-  context.font = '500 24px Arial';
-  drawWrappedText(context, workDetail || '작업 내역이 입력되지 않았습니다.', 110, 430, 980, 38, 4);
+  context.textBaseline = 'alphabetic';
+  if (isVertical) {
+    const width = 1080;
+    const photoWidth = 620;
+    const goldLineWidth = 4;
+    const infoWidth = width - photoWidth - goldLineWidth;
+    const headerHeight = 180;
+    const paddingX = 40;
+    const contentX = photoWidth + goldLineWidth + paddingX;
+    const infoInnerWidth = infoWidth - paddingX * 2;
 
-  const loadedPhotos = await Promise.all(photos.slice(0, 6).map((photo) => loadReportImage(photo.dataUrl)));
-  const startY = 590;
-  context.fillStyle = '#171512';
-  context.font = '700 30px Arial';
-  context.fillText('현장 사진', 70, startY);
+    context.font = '800 36px Arial, sans-serif';
+    const siteLines = wrapReportLines(context, siteTitle || '현장명 없음', infoInnerWidth);
+    context.font = '500 18px Arial, sans-serif';
+    const workLines = String(workDetail || '').split(/\r?\n/).reduce((total, paragraph) => total + Math.max(1, wrapReportLines(context, paragraph, infoInnerWidth - 18).length), 0);
+    const requiredHeight = headerHeight + 70 + siteLines.length * 44 + (customerLine ? 40 : 8) + 120 + workLines * 40 + 280;
+    const height = Math.max(requiredHeight, Math.round(photoWidth / imageAspect));
 
-  const photoWidth = 515;
-  const photoHeight = 330;
-  loadedPhotos.forEach((image, index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = 70 + col * 545;
-    const y = startY + 45 + row * 385;
-    context.save();
-    roundRect(context, x, y, photoWidth, photoHeight, 18);
-    context.clip();
-    context.fillStyle = '#ded7cc';
-    context.fillRect(x, y, photoWidth, photoHeight);
-    drawCoverImage(context, image, x, y, photoWidth, photoHeight);
-    context.restore();
-    context.strokeStyle = '#d6c8b5';
-    context.lineWidth = 2;
-    roundRect(context, x, y, photoWidth, photoHeight, 18);
-    context.stroke();
-  });
+    canvas.width = width;
+    canvas.height = height;
 
-  if (loadedPhotos.length === 0) {
+    drawCoverImage(context, image, 0, 0, photoWidth, height);
+    context.fillStyle = '#c8a96e';
+    context.fillRect(photoWidth, 0, goldLineWidth, height);
+    context.fillStyle = '#141414';
+    context.fillRect(photoWidth + goldLineWidth, 0, infoWidth, headerHeight);
     context.fillStyle = '#ffffff';
-    roundRect(context, 70, startY + 45, 1060, 300, 18);
-    context.fill();
-    context.fillStyle = '#8d8376';
-    context.font = '500 24px Arial';
-    context.fillText('첨부된 현장 사진이 없습니다.', 110, startY + 205);
-  }
+    context.fillRect(photoWidth + goldLineWidth, headerHeight, infoWidth, height - headerHeight);
 
-  context.fillStyle = '#8d8376';
-  context.font = '400 18px Arial';
-  context.fillText('WEVE DESIGN · 상담부터 마감까지 한 흐름으로 관리합니다.', 70, 1640);
-  return canvas.toDataURL('image/png', 0.92);
+    const logoWidth = drawReportLogo(context, logo, contentX, 30, 190, 48);
+    if (logo) {
+      context.fillStyle = '#c8a96e';
+      context.font = '700 22px Arial, sans-serif';
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillText('WEVE DESIGN', contentX + logoWidth + 16, 56);
+      context.textBaseline = 'alphabetic';
+    }
+    context.fillStyle = '#c8a96e';
+    context.font = '700 12px Arial, sans-serif';
+    context.fillText('DAILY REPORT', contentX, 125);
+    context.fillStyle = '#ffffff';
+    context.font = '800 22px Arial, sans-serif';
+    context.fillText('현장 일일 보고서', contentX, 155);
+
+    let currentY = headerHeight + 60;
+    context.fillStyle = '#c8a96e';
+    context.font = '800 15px Arial, sans-serif';
+    context.fillText('DATE', contentX, currentY);
+    context.fillStyle = '#666666';
+    context.font = '600 16px Arial, sans-serif';
+    context.fillText(displayDate, contentX + 60, currentY);
+    currentY += 50;
+
+    context.fillStyle = '#111111';
+    context.font = '800 36px Arial, sans-serif';
+    siteLines.forEach((line) => {
+      context.fillText(line, contentX, currentY);
+      currentY += 44;
+    });
+    currentY += 14;
+    if (customerLine) {
+      context.fillStyle = '#666666';
+      context.font = '600 18px Arial, sans-serif';
+      context.fillText(customerLine, contentX, currentY);
+      currentY += 22;
+    }
+    context.fillStyle = '#e8e8e8';
+    context.fillRect(contentX, currentY, infoInnerWidth, 2);
+    currentY += 44;
+    context.fillStyle = '#999999';
+    context.font = '700 13px Arial, sans-serif';
+    context.fillText('WORK DETAIL', contentX, currentY);
+    currentY += 50;
+    drawReportWorkLines(context, workDetail, contentX, currentY, infoInnerWidth, 18, 40);
+
+    const bottomY = height - 240;
+    drawTintedReportLogo(context, logo, photoWidth + goldLineWidth, bottomY - 280, infoWidth, 260, 0.12);
+    context.fillStyle = '#eeeeee';
+    context.fillRect(contentX, bottomY, infoInnerWidth, 1);
+    context.fillStyle = '#c8a96e';
+    context.font = '700 11px Arial, sans-serif';
+    context.fillText('CONTACT / INFO', contentX, bottomY + 30);
+    context.fillStyle = '#555555';
+    context.font = '600 15px Arial, sans-serif';
+    context.fillText('☎ 031-381-0489', contentX, bottomY + 80);
+    context.fillText('◎ @weve.design', contentX, bottomY + 130);
+    context.fillText(`담당 ${designer || '-'}`, contentX, bottomY + 180);
+    context.fillStyle = '#bbbbbb';
+    context.font = '600 12px Arial, sans-serif';
+    context.textAlign = 'right';
+    context.fillText('WEVE DESIGN © 2006', photoWidth + goldLineWidth + infoWidth - paddingX, bottomY + 180);
+  } else {
+    const width = 1080;
+    const headerHeight = 110;
+    const photoHeight = Math.round(width / imageAspect);
+    const paddingX = 60;
+    const workInnerWidth = width - paddingX * 2;
+
+    context.font = '500 20px Arial, sans-serif';
+    const workLines = String(workDetail || '').split(/\r?\n/).reduce((total, paragraph) => total + Math.max(1, wrapReportLines(context, paragraph, workInnerWidth - 18).length), 0);
+    const footerHeight = Math.max(400, 270 + workLines * 42);
+    const height = headerHeight + photoHeight + footerHeight;
+
+    canvas.width = width;
+    canvas.height = height;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = '#141414';
+    context.fillRect(0, 0, width, headerHeight);
+    context.fillStyle = '#c8a96e';
+    context.fillRect(0, headerHeight - 4, width, 4);
+
+    const logoWidth = drawReportLogo(context, logo, paddingX, 31, 260, 48);
+    if (logo) {
+      context.fillStyle = '#c8a96e';
+      context.font = '700 24px Arial, sans-serif';
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillText('WEVE DESIGN', paddingX + logoWidth + 18, headerHeight / 2 + 2);
+      context.textBaseline = 'alphabetic';
+    }
+    context.textAlign = 'right';
+    context.fillStyle = '#c8a96e';
+    context.font = '700 13px Arial, sans-serif';
+    context.fillText('DAILY REPORT', width - paddingX, headerHeight / 2 - 12);
+    context.fillStyle = '#ffffff';
+    context.font = '800 24px Arial, sans-serif';
+    context.fillText('현장 일일 보고서', width - paddingX, headerHeight / 2 + 16);
+
+    drawCoverImage(context, image, 0, headerHeight, width, photoHeight);
+    const footerY = headerHeight + photoHeight;
+    context.fillStyle = '#c8a96e';
+    context.fillRect(0, footerY, width, 4);
+
+    let currentY = footerY + 70;
+    context.textAlign = 'left';
+    context.fillStyle = '#c8a96e';
+    context.font = '800 16px Arial, sans-serif';
+    context.fillText('DATE', paddingX, currentY);
+    context.fillStyle = '#666666';
+    context.font = '600 17px Arial, sans-serif';
+    context.fillText(displayDate, paddingX + 70, currentY);
+    currentY += 50;
+
+    context.fillStyle = '#111111';
+    context.font = '800 38px Arial, sans-serif';
+    context.fillText(siteTitle || '현장명 없음', paddingX, currentY);
+    currentY += 36;
+    if (customerLine) {
+      context.fillStyle = '#666666';
+      context.font = '600 20px Arial, sans-serif';
+      context.fillText(customerLine, paddingX, currentY);
+      currentY += 24;
+    }
+    const dividerY = currentY;
+    context.fillStyle = '#e8e8e8';
+    context.fillRect(paddingX, dividerY, workInnerWidth, 2);
+    currentY += 44;
+    context.fillStyle = '#999999';
+    context.font = '700 14px Arial, sans-serif';
+    context.fillText('WORK DETAIL', paddingX, currentY);
+    currentY += 50;
+    drawReportWorkLines(context, workDetail, paddingX, currentY, workInnerWidth, 20, 42);
+
+    const bottomY = height - 180;
+    drawTintedReportLogo(context, logo, width / 2 + 20, dividerY + 20, width / 2 - paddingX - 20, Math.max(120, bottomY - dividerY - 40), 0.12);
+    context.fillStyle = '#eeeeee';
+    context.fillRect(paddingX, bottomY - 15, workInnerWidth, 1);
+    context.fillStyle = '#c8a96e';
+    context.font = '700 11px Arial, sans-serif';
+    context.fillText('CONTACT / INFO', paddingX, bottomY + 15);
+    context.fillStyle = '#555555';
+    context.font = '600 15px Arial, sans-serif';
+    context.fillText('☎ 031-381-0489', paddingX, bottomY + 60);
+    context.fillText('◎ @weve.design', paddingX + 180, bottomY + 60);
+    context.fillText(`담당 ${designer || '-'}`, paddingX + 360, bottomY + 60);
+    context.fillStyle = '#bbbbbb';
+    context.font = '600 12px Arial, sans-serif';
+    context.textAlign = 'right';
+    context.fillText('WEVE DESIGN © 2006', width - paddingX, bottomY + 60);
+  }
+  return canvas.toDataURL('image/jpeg', 0.95);
 }
 
 function roundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
