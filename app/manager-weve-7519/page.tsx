@@ -3774,11 +3774,27 @@ function DailyReportModal({
   kakaoManagerUrl?: string;
   onClose: () => void;
 }) {
+  type ReportPhoto = { id: string; name: string; dataUrl: string };
+  type DailyReportRecord = {
+    id: string;
+    reportDate: string;
+    title: string;
+    customerName: string;
+    siteTitle: string;
+    workDetail: string;
+    imageDataUrl: string;
+    createdAt: string;
+  };
+
+  const reportStorageKey = `weve-daily-reports-${site._id}`;
   const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
   const [designer, setDesigner] = useState('김동호 실장');
   const [workDetail, setWorkDetail] = useState('');
   const [keyword, setKeyword] = useState('');
   const [processFilter, setProcessFilter] = useState('전체');
+  const [photos, setPhotos] = useState<ReportPhoto[]>([]);
+  const [reportRecords, setReportRecords] = useState<DailyReportRecord[]>([]);
+  const [generatingReport, setGeneratingReport] = useState(false);
   const lines = useMemo(() => parseEstimateLines(estimate), [estimate]);
   const processOptions = useMemo(() => {
     const values = new Set<string>();
@@ -3788,6 +3804,16 @@ function DailyReportModal({
     });
     return ['전체', ...Array.from(values)];
   }, [lines]);
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(reportStorageKey);
+      setReportRecords(saved ? JSON.parse(saved) : []);
+    } catch {
+      setReportRecords([]);
+    }
+  }, [reportStorageKey]);
+
   const filteredLines = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     return lines.filter((line) => {
@@ -3804,6 +3830,79 @@ function DailyReportModal({
     setWorkDetail((current) => (current ? `${current}\n${nextLine}` : nextLine));
   };
 
+  const addWorkStatus = (label: string) => {
+    const nextLine = `${label} 진행`;
+    setWorkDetail((current) => (current ? `${current}\n${nextLine}` : nextLine));
+  };
+
+  const handlePhotoUpload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const nextPhotos = await Promise.all(
+      Array.from(files)
+        .filter((file) => file.type.startsWith('image/'))
+        .map(
+          (file) =>
+            new Promise<ReportPhoto>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () =>
+                resolve({
+                  id: `${Date.now()}-${file.name}-${Math.random().toString(16).slice(2)}`,
+                  name: file.name,
+                  dataUrl: String(reader.result || ''),
+                });
+              reader.onerror = reject;
+              reader.readAsDataURL(file);
+            }),
+        ),
+    );
+    setPhotos((current) => [...current, ...nextPhotos].slice(0, 12));
+  };
+
+  const saveReportRecord = (record: DailyReportRecord) => {
+    const nextRecords = [record, ...reportRecords].slice(0, 30);
+    setReportRecords(nextRecords);
+    try {
+      window.localStorage.setItem(reportStorageKey, JSON.stringify(nextRecords));
+    } catch {
+      setReportRecords(nextRecords);
+    }
+  };
+
+  const generateReportImage = async () => {
+    setGeneratingReport(true);
+    try {
+      const imageDataUrl = await renderDailyReportImage({
+        reportDate,
+        designer,
+        siteTitle: site.title || '',
+        customerName: customer?.name || site.customerName || '',
+        customerPhone: customer?.phone || site.customerPhone || '',
+        workDetail,
+        photos,
+      });
+      const record: DailyReportRecord = {
+        id: `${Date.now()}`,
+        reportDate,
+        title: `${reportDate} 일일보고서`,
+        customerName: customer?.name || site.customerName || '',
+        siteTitle: site.title || '',
+        workDetail,
+        imageDataUrl,
+        createdAt: new Date().toISOString(),
+      };
+      saveReportRecord(record);
+      downloadDataUrl(imageDataUrl, `${site.title || 'site'}-${reportDate}-daily-report.png`);
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  const deleteReportRecord = (id: string) => {
+    const nextRecords = reportRecords.filter((record) => record.id !== id);
+    setReportRecords(nextRecords);
+    window.localStorage.setItem(reportStorageKey, JSON.stringify(nextRecords));
+  };
+
   const exportProgress = () => {
     const payload = {
       type: 'weve-daily-report-progress',
@@ -3812,6 +3911,7 @@ function DailyReportModal({
       customer,
       estimateId: estimate?._id,
       report: { reportDate, designer, siteTitle: site.title || '', customerName: customer?.name || site.customerName || '', workDetail },
+      photos: photos.map((photo) => ({ id: photo.id, name: photo.name })),
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -3824,7 +3924,7 @@ function DailyReportModal({
 
   return (
     <div className="fixed inset-0 z-[85] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
-      <section className="max-h-[92vh] w-full max-w-6xl overflow-y-auto rounded-xl bg-[#f4f1ea] shadow-2xl" onClick={(event) => event.stopPropagation()}>
+      <section className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-xl bg-[#f4f1ea] shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-[#ded6c9] bg-[#171512] px-5 py-4 text-white">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f1c76a]">WEVE DESIGN</p>
@@ -3835,7 +3935,40 @@ function DailyReportModal({
           </button>
         </header>
 
-        <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-5 p-5 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+          <aside className="rounded-xl bg-white p-4 shadow-sm xl:sticky xl:top-4 xl:self-start">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">Reports</p>
+                <h3 className="mt-1 text-lg font-semibold">생성 보고서</h3>
+              </div>
+              <span className="rounded-full bg-[#edf8fb] px-2.5 py-1 text-xs font-bold text-[#267d8c]">{reportRecords.length}</span>
+            </div>
+            <div className="mt-4 max-h-[620px] overflow-y-auto pr-1">
+              {reportRecords.length === 0 ? (
+                <p className="rounded-md bg-[#f7fafb] px-3 py-4 text-sm leading-6 text-[#60717d]">아직 생성된 보고서 이미지가 없습니다.</p>
+              ) : (
+                <div className="grid gap-3">
+                  {reportRecords.map((record) => (
+                    <article key={record.id} className="rounded-lg border border-[#d5dde2] bg-[#fffdf8] p-3">
+                      <img src={record.imageDataUrl} alt="" className="aspect-[4/3] w-full rounded-md border border-[#e5ded2] object-cover" />
+                      <p className="mt-2 text-sm font-bold">{record.title}</p>
+                      <p className="mt-1 text-xs text-[#60717d]">{record.siteTitle || site.title}</p>
+                      <div className="mt-2 flex gap-2">
+                        <button type="button" onClick={() => downloadDataUrl(record.imageDataUrl, `${record.siteTitle || 'site'}-${record.reportDate}-daily-report.png`)} className="flex-1 rounded-md bg-[#273541] px-2 py-1.5 text-xs font-bold text-white">
+                          다운로드
+                        </button>
+                        <button type="button" onClick={() => deleteReportRecord(record.id)} className="rounded-md border border-red-200 px-2 py-1.5 text-xs font-bold text-red-600">
+                          삭제
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </aside>
+
           <div className="grid gap-5">
             <section className="rounded-xl bg-white p-5 shadow-sm">
               <div className="grid gap-4 md:grid-cols-2">
@@ -3866,7 +3999,44 @@ function DailyReportModal({
                   className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal leading-7 outline-none focus:border-[#38a9bd]"
                 />
               </label>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {processOptions
+                  .filter((option) => option !== '전체')
+                  .slice(0, 8)
+                  .map((option) => (
+                    <button key={option} type="button" onClick={() => addWorkStatus(option)} className="rounded-full border border-[#d5dde2] bg-white px-3 py-1.5 text-xs font-bold text-[#4d5d66] hover:border-[#38a9bd]">
+                      {option} 진행
+                    </button>
+                  ))}
+              </div>
+              <section className="mt-5 rounded-lg border border-dashed border-[#c8d3d9] bg-[#f7fafb] p-4">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div>
+                    <p className="text-sm font-bold">현장 사진 첨부</p>
+                    <p className="mt-1 text-xs text-[#60717d]">가로/세로 사진을 첨부하면 보고서 이미지에 자동 배치됩니다.</p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center justify-center rounded-md bg-[#171512] px-4 py-2 text-sm font-bold text-white">
+                    사진 선택
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={(event) => handlePhotoUpload(event.target.files)} />
+                  </label>
+                </div>
+                {photos.length > 0 && (
+                  <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                    {photos.map((photo) => (
+                      <div key={photo.id} className="relative overflow-hidden rounded-md border border-[#d5dde2] bg-white">
+                        <img src={photo.dataUrl} alt="" className="aspect-[4/3] w-full object-cover" />
+                        <button type="button" onClick={() => setPhotos((current) => current.filter((item) => item.id !== photo.id))} className="absolute right-2 top-2 rounded-full bg-white/90 px-2 py-1 text-xs font-bold text-red-600">
+                          삭제
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
               <div className="mt-4 flex flex-wrap gap-2">
+                <button type="button" onClick={generateReportImage} disabled={generatingReport} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-bold text-[#171512] disabled:opacity-50">
+                  {generatingReport ? '보고서 생성 중' : '보고서 이미지 생성/다운로드'}
+                </button>
                 <button type="button" onClick={exportProgress} className="rounded-md bg-[#273541] px-4 py-2 text-sm font-bold text-white">
                   진행사항 내보내기
                 </button>
@@ -5752,6 +5922,159 @@ function parseEstimateLines(estimate?: EstimateSummary): EstimateLine[] {
   } catch {
     return [];
   }
+}
+
+function downloadDataUrl(dataUrl: string, fileName: string) {
+  const link = document.createElement('a');
+  link.href = dataUrl;
+  link.download = fileName;
+  link.click();
+}
+
+function loadReportImage(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = dataUrl;
+  });
+}
+
+function drawWrappedText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines = 8) {
+  const paragraphs = String(text || '').split('\n');
+  let currentY = y;
+  let lineCount = 0;
+  paragraphs.forEach((paragraph) => {
+    const words = paragraph.split(' ');
+    let line = '';
+    words.forEach((word) => {
+      const testLine = line ? `${line} ${word}` : word;
+      if (context.measureText(testLine).width > maxWidth && line) {
+        if (lineCount < maxLines) context.fillText(line, x, currentY);
+        currentY += lineHeight;
+        lineCount += 1;
+        line = word;
+      } else {
+        line = testLine;
+      }
+    });
+    if (line && lineCount < maxLines) context.fillText(line, x, currentY);
+    currentY += lineHeight;
+    lineCount += 1;
+  });
+  return currentY;
+}
+
+function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
+  const ratio = Math.max(width / image.width, height / image.height);
+  const drawWidth = image.width * ratio;
+  const drawHeight = image.height * ratio;
+  const drawX = x + (width - drawWidth) / 2;
+  const drawY = y + (height - drawHeight) / 2;
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+}
+
+async function renderDailyReportImage({
+  reportDate,
+  designer,
+  siteTitle,
+  customerName,
+  customerPhone,
+  workDetail,
+  photos,
+}: {
+  reportDate: string;
+  designer: string;
+  siteTitle: string;
+  customerName: string;
+  customerPhone: string;
+  workDetail: string;
+  photos: Array<{ name: string; dataUrl: string }>;
+}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1200;
+  canvas.height = 1700;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('보고서 이미지를 생성할 수 없습니다.');
+
+  context.fillStyle = '#f3f0e9';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#171512';
+  context.fillRect(0, 0, canvas.width, 96);
+  context.fillStyle = '#f1c76a';
+  context.font = '700 22px Arial';
+  context.fillText('WEVE DESIGN', 70, 58);
+  context.fillStyle = '#d8d1c5';
+  context.font = '400 17px Arial';
+  context.fillText('고객용 일일 보고서', 230, 58);
+
+  context.fillStyle = '#ffffff';
+  roundRect(context, 70, 140, 1060, 390, 24);
+  context.fill();
+  context.fillStyle = '#8f6f43';
+  context.font = '700 18px Arial';
+  context.fillText('DAILY REPORT', 110, 200);
+  context.fillStyle = '#171512';
+  context.font = '700 46px Arial';
+  context.fillText(siteTitle || '현장명 없음', 110, 265);
+  context.font = '600 24px Arial';
+  context.fillText(`${reportDate} · ${customerName || '고객명 없음'}`, 110, 320);
+  context.fillStyle = '#625d54';
+  context.font = '400 22px Arial';
+  context.fillText(`담당 ${designer || '-'}${customerPhone ? ` · ${customerPhone}` : ''}`, 110, 365);
+  context.fillStyle = '#171512';
+  context.font = '500 24px Arial';
+  drawWrappedText(context, workDetail || '작업 내역이 입력되지 않았습니다.', 110, 430, 980, 38, 4);
+
+  const loadedPhotos = await Promise.all(photos.slice(0, 6).map((photo) => loadReportImage(photo.dataUrl)));
+  const startY = 590;
+  context.fillStyle = '#171512';
+  context.font = '700 30px Arial';
+  context.fillText('현장 사진', 70, startY);
+
+  const photoWidth = 515;
+  const photoHeight = 330;
+  loadedPhotos.forEach((image, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 70 + col * 545;
+    const y = startY + 45 + row * 385;
+    context.save();
+    roundRect(context, x, y, photoWidth, photoHeight, 18);
+    context.clip();
+    context.fillStyle = '#ded7cc';
+    context.fillRect(x, y, photoWidth, photoHeight);
+    drawCoverImage(context, image, x, y, photoWidth, photoHeight);
+    context.restore();
+    context.strokeStyle = '#d6c8b5';
+    context.lineWidth = 2;
+    roundRect(context, x, y, photoWidth, photoHeight, 18);
+    context.stroke();
+  });
+
+  if (loadedPhotos.length === 0) {
+    context.fillStyle = '#ffffff';
+    roundRect(context, 70, startY + 45, 1060, 300, 18);
+    context.fill();
+    context.fillStyle = '#8d8376';
+    context.font = '500 24px Arial';
+    context.fillText('첨부된 현장 사진이 없습니다.', 110, startY + 205);
+  }
+
+  context.fillStyle = '#8d8376';
+  context.font = '400 18px Arial';
+  context.fillText('WEVE DESIGN · 상담부터 마감까지 한 흐름으로 관리합니다.', 70, 1640);
+  return canvas.toDataURL('image/png', 0.92);
+}
+
+function roundRect(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  context.beginPath();
+  context.moveTo(x + radius, y);
+  context.arcTo(x + width, y, x + width, y + height, radius);
+  context.arcTo(x + width, y + height, x, y + height, radius);
+  context.arcTo(x, y + height, x, y, radius);
+  context.arcTo(x, y, x + width, y, radius);
+  context.closePath();
 }
 
 function normalizeEstimateVersionType(value?: string): EstimateVersionType {
