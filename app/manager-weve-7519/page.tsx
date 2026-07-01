@@ -3818,9 +3818,9 @@ function DailyReportModal({
 
   useEffect(() => {
     try {
-      setLogoDataUrl(window.localStorage.getItem('weve-daily-report-logo') || '');
+      setLogoDataUrl(window.localStorage.getItem('weve_custom_logo') || '/weve-mark.png');
     } catch {
-      setLogoDataUrl('');
+      setLogoDataUrl('/weve-mark.png');
     }
   }, []);
 
@@ -3882,7 +3882,7 @@ function DailyReportModal({
       const dataUrl = String(reader.result || '');
       setLogoDataUrl(dataUrl);
       try {
-        window.localStorage.setItem('weve-daily-report-logo', dataUrl);
+        window.localStorage.setItem('weve_custom_logo', dataUrl);
       } catch {
         // 로고는 브라우저별 임시 설정이라 저장 실패 시 화면에만 반영합니다.
       }
@@ -6000,44 +6000,30 @@ function downloadDataUrl(dataUrl: string, fileName: string) {
 function loadReportImage(dataUrl: string) {
   return new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
+    if (!dataUrl.startsWith('data:')) image.crossOrigin = 'anonymous';
     image.onload = () => resolve(image);
     image.onerror = reject;
     image.src = dataUrl;
   });
 }
 
-function drawWrappedText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines = 8) {
-  const paragraphs = String(text || '').split('\n');
-  let currentY = y;
-  let lineCount = 0;
-  paragraphs.forEach((paragraph) => {
-    const words = paragraph.split(' ');
-    let line = '';
-    words.forEach((word) => {
-      const testLine = line ? `${line} ${word}` : word;
-      if (context.measureText(testLine).width > maxWidth && line) {
-        if (lineCount < maxLines) context.fillText(line, x, currentY);
-        currentY += lineHeight;
-        lineCount += 1;
-        line = word;
-      } else {
-        line = testLine;
-      }
-    });
-    if (line && lineCount < maxLines) context.fillText(line, x, currentY);
-    currentY += lineHeight;
-    lineCount += 1;
-  });
-  return currentY;
-}
-
 function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number) {
-  const ratio = Math.max(width / image.width, height / image.height);
-  const drawWidth = image.width * ratio;
-  const drawHeight = image.height * ratio;
-  const drawX = x + (width - drawWidth) / 2;
-  const drawY = y + (height - drawHeight) / 2;
-  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  const imageRatio = image.naturalWidth / image.naturalHeight;
+  const boxRatio = width / height;
+  let sx = 0;
+  let sy = 0;
+  let sourceWidth = image.naturalWidth;
+  let sourceHeight = image.naturalHeight;
+  if (imageRatio > boxRatio) {
+    sourceHeight = image.naturalHeight;
+    sourceWidth = sourceHeight * boxRatio;
+    sx = (image.naturalWidth - sourceWidth) / 2;
+  } else {
+    sourceWidth = image.naturalWidth;
+    sourceHeight = sourceWidth / boxRatio;
+    sy = (image.naturalHeight - sourceHeight) / 2;
+  }
+  context.drawImage(image, sx, sy, sourceWidth, sourceHeight, x, y, width, height);
 }
 
 function sanitizeFileName(value: string) {
@@ -6058,21 +6044,26 @@ function formatDailyReportDate(value: string) {
 }
 
 function wrapReportLines(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
-  const source = String(text || '').trim();
-  if (!source) return [''];
-  const tokens = source.includes(' ') ? source.split(/\s+/) : Array.from(source);
   const lines: string[] = [];
-  let line = '';
-  tokens.forEach((token) => {
-    const nextLine = source.includes(' ') ? (line ? `${line} ${token}` : token) : `${line}${token}`;
-    if (context.measureText(nextLine).width > maxWidth && line) {
-      lines.push(line);
-      line = token;
-    } else {
-      line = nextLine;
+  const paragraphs = String(text || '').split('\n');
+  paragraphs.forEach((paragraph) => {
+    if (paragraph.trim() === '') {
+      lines.push('');
+      return;
     }
+    const words = paragraph.split(' ');
+    let currentLine = words[0] || '';
+    for (let index = 1; index < words.length; index += 1) {
+      const word = words[index];
+      const width = context.measureText(`${currentLine} ${word}`).width;
+      if (width < maxWidth) currentLine += ` ${word}`;
+      else {
+        lines.push(currentLine);
+        currentLine = word;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
   });
-  if (line) lines.push(line);
   return lines;
 }
 
@@ -6085,55 +6076,98 @@ async function loadOptionalReportImage(dataUrl?: string) {
   }
 }
 
-function drawReportLogo(context: CanvasRenderingContext2D, logo: HTMLImageElement | null, x: number, y: number, maxWidth: number, maxHeight: number, color = '#c8a96e') {
-  if (logo) {
-    const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height);
-    const width = logo.width * ratio;
-    const height = logo.height * ratio;
-    context.drawImage(logo, x, y + (maxHeight - height) / 2, width, height);
-    return width;
-  }
-  context.fillStyle = color;
-  context.font = '700 28px Arial, sans-serif';
-  context.textAlign = 'left';
-  context.textBaseline = 'middle';
-  context.fillText('WEVE DESIGN', x, y + maxHeight / 2);
-  return 190;
+let dailyReportQrImage: HTMLImageElement | null = null;
+
+function getDailyReportQrCode() {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    if (dailyReportQrImage) {
+      resolve(dailyReportQrImage);
+      return;
+    }
+    const image = new Image();
+    image.crossOrigin = 'Anonymous';
+    image.onload = () => {
+      dailyReportQrImage = image;
+      resolve(image);
+    };
+    image.onerror = () => resolve(null);
+    image.src = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://instagram.com/weve.design&color=2c2c2c&bgcolor=ffffff&margin=0';
+  });
 }
 
-function drawTintedReportLogo(context: CanvasRenderingContext2D, logo: HTMLImageElement | null, x: number, y: number, maxWidth: number, maxHeight: number, opacity: number) {
-  if (!logo) return;
-  const ratio = Math.min(maxWidth / logo.width, maxHeight / logo.height);
-  const width = logo.width * ratio;
-  const height = logo.height * ratio;
+function setCanvasLetterSpacing(context: CanvasRenderingContext2D, value: string) {
+  (context as CanvasRenderingContext2D & { letterSpacing?: string }).letterSpacing = value;
+}
+
+const dailyReportIconPaths = {
+  phone:
+    'M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 00-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.03 21c.78 0 1-.6 1-1.11v-3.51c0-.55-.45-1-1.02-1z',
+  instagram:
+    'M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 0 1-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 0 1 7.8 2m-.2 2A3.6 3.6 0 0 0 4 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 0 0 3.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6m9.65 1.5a1.25 1.25 0 0 1 1.25 1.25A1.25 1.25 0 0 1 17.25 8 1.25 1.25 0 0 1 16 6.75a1.25 1.25 0 0 1 1.25-1.25M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3z',
+  person: 'M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z',
+};
+
+function drawDailyReportIcon(context: CanvasRenderingContext2D, pathData: string, x: number, y: number, size: number, color: string) {
   context.save();
-  context.globalAlpha = opacity;
-  context.drawImage(logo, x + (maxWidth - width) / 2, y + (maxHeight - height) / 2, width, height);
+  context.translate(x, y);
+  context.scale(size / 24, size / 24);
+  context.fillStyle = color;
+  context.fill(new Path2D(pathData));
   context.restore();
 }
 
-function drawReportWorkLines(context: CanvasRenderingContext2D, workDetail: string, x: number, y: number, maxWidth: number, fontSize: number, lineHeight: number) {
-  const paragraphs = String(workDetail || '').split(/\r?\n/);
-  let currentY = y;
-  paragraphs.forEach((paragraph) => {
-    if (!paragraph.trim()) {
-      currentY += lineHeight;
-      return;
-    }
-    const lines = wrapReportLines(context, paragraph, maxWidth - 18);
-    lines.forEach((line, index) => {
-      if (index === 0) {
-        context.fillStyle = '#c8a96e';
-        context.font = `800 ${fontSize + 4}px Arial, sans-serif`;
-        context.fillText('·', x, currentY + 2);
-      }
-      context.fillStyle = '#333333';
-      context.font = `500 ${fontSize}px Arial, sans-serif`;
-      context.fillText(line, x + 18, currentY);
-      currentY += lineHeight;
-    });
-  });
-  return currentY;
+function drawLogoContain(context: CanvasRenderingContext2D, logo: HTMLImageElement, x: number, y: number, maxWidth: number, maxHeight: number, align: 'left' | 'center' | 'right' = 'left') {
+  const logoRatio = logo.naturalWidth / logo.naturalHeight;
+  const boxRatio = maxWidth / maxHeight;
+  let logoWidth: number;
+  let logoHeight: number;
+  if (logoRatio > boxRatio) {
+    logoWidth = maxWidth;
+    logoHeight = logoWidth / logoRatio;
+  } else {
+    logoHeight = maxHeight;
+    logoWidth = logoHeight * logoRatio;
+  }
+  let logoX = x;
+  const logoY = y + (maxHeight - logoHeight) / 2;
+  if (align === 'center') logoX = x + (maxWidth - logoWidth) / 2;
+  else if (align === 'right') logoX = x + maxWidth - logoWidth;
+  context.drawImage(logo, logoX, logoY, logoWidth, logoHeight);
+  return { lw: logoWidth, lh: logoHeight, lx: logoX, ly: logoY };
+}
+
+function drawTintedLogo(context: CanvasRenderingContext2D, logo: HTMLImageElement, x: number, y: number, maxWidth: number, maxHeight: number, tintColor: string, alpha: number, align: 'left' | 'center' | 'right' = 'center') {
+  const logoRatio = logo.naturalWidth / logo.naturalHeight;
+  const boxRatio = maxWidth / maxHeight;
+  let logoWidth: number;
+  let logoHeight: number;
+  if (logoRatio > boxRatio) {
+    logoWidth = maxWidth;
+    logoHeight = logoWidth / logoRatio;
+  } else {
+    logoHeight = maxHeight;
+    logoWidth = logoHeight * logoRatio;
+  }
+
+  let logoX = x;
+  const logoY = y + (maxHeight - logoHeight) / 2;
+  if (align === 'center') logoX = x + (maxWidth - logoWidth) / 2;
+  else if (align === 'right') logoX = x + maxWidth - logoWidth;
+
+  const offCanvas = document.createElement('canvas');
+  offCanvas.width = logoWidth;
+  offCanvas.height = logoHeight;
+  const offContext = offCanvas.getContext('2d');
+  if (!offContext) return;
+  offContext.drawImage(logo, 0, 0, logoWidth, logoHeight);
+  offContext.globalCompositeOperation = 'source-in';
+  offContext.fillStyle = tintColor;
+  offContext.fillRect(0, 0, logoWidth, logoHeight);
+
+  context.save();
+  context.globalAlpha = alpha;
+  context.drawImage(offCanvas, logoX, logoY, logoWidth, logoHeight);
+  context.restore();
 }
 
 async function renderDailyReportImage({
@@ -6157,196 +6191,369 @@ async function renderDailyReportImage({
 }) {
   const image = await loadReportImage(photo.dataUrl);
   const logo = await loadOptionalReportImage(logoDataUrl);
+  const qr = await getDailyReportQrCode();
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   if (!context) throw new Error('보고서 이미지를 생성할 수 없습니다.');
 
-  const displayDate = formatDailyReportDate(reportDate);
-  const customerLine = [customerName, customerPhone].filter(Boolean).join(' · ');
-  const imageAspect = image.width / image.height;
+  const meta = {
+    date: formatDailyReportDate(reportDate),
+    site: siteTitle || '현장명 없음',
+    work: workDetail,
+    manager: designer,
+    customer: [customerName, customerPhone].filter(Boolean).join(' · '),
+  };
+  const imageAspect = image.naturalWidth / image.naturalHeight;
   const isVertical = imageAspect < 0.95;
-
   context.textBaseline = 'alphabetic';
+  const iconColor = '#c8a96e';
+  const textColor = '#555555';
+
   if (isVertical) {
-    const width = 1080;
-    const photoWidth = 620;
-    const goldLineWidth = 4;
-    const infoWidth = width - photoWidth - goldLineWidth;
-    const headerHeight = 180;
-    const paddingX = 40;
-    const contentX = photoWidth + goldLineWidth + paddingX;
-    const infoInnerWidth = infoWidth - paddingX * 2;
+    const W = 1080;
+    const PHOTO_W = 620;
+    const INFO_W = W - PHOTO_W - 4;
+    const PAD_X = 40;
 
-    context.font = '800 36px Arial, sans-serif';
-    const siteLines = wrapReportLines(context, siteTitle || '현장명 없음', infoInnerWidth);
-    context.font = '500 18px Arial, sans-serif';
-    const workLines = String(workDetail || '').split(/\r?\n/).reduce((total, paragraph) => total + Math.max(1, wrapReportLines(context, paragraph, infoInnerWidth - 18).length), 0);
-    const requiredHeight = headerHeight + 70 + siteLines.length * 44 + (customerLine ? 40 : 8) + 120 + workLines * 40 + 280;
-    const height = Math.max(requiredHeight, Math.round(photoWidth / imageAspect));
+    context.font = '800 36px "Apple SD Gothic Neo", sans-serif';
+    const siteLines = wrapReportLines(context, meta.site, INFO_W - PAD_X * 2);
 
-    canvas.width = width;
-    canvas.height = height;
+    context.font = '500 18px "Apple SD Gothic Neo", sans-serif';
+    const workMaxW = INFO_W - PAD_X * 2;
+    const bulletIndent = 14;
+    const workParagraphs = meta.work.split(/\r?\n/);
+    let totalWorkLines = 0;
+    workParagraphs.forEach((paragraph) => {
+      if (paragraph.trim() === '') {
+        totalWorkLines += 1;
+        return;
+      }
+      totalWorkLines += wrapReportLines(context, paragraph, workMaxW - bulletIndent).length;
+    });
 
-    drawCoverImage(context, image, 0, 0, photoWidth, height);
+    const HEADER_H = 180;
+    const customerSpace = meta.customer ? 34 : 0;
+    const textSpaceH = 50 + 20 + 30 + siteLines.length * 44 + customerSpace + 40 + 2 + 55 + 20 + totalWorkLines * 40 + 270;
+    const H = Math.max(HEADER_H + textSpaceH, Math.round(PHOTO_W / imageAspect));
+
+    canvas.width = W;
+    canvas.height = H;
+
+    drawCoverImage(context, image, 0, 0, PHOTO_W, H);
     context.fillStyle = '#c8a96e';
-    context.fillRect(photoWidth, 0, goldLineWidth, height);
-    context.fillStyle = '#141414';
-    context.fillRect(photoWidth + goldLineWidth, 0, infoWidth, headerHeight);
-    context.fillStyle = '#ffffff';
-    context.fillRect(photoWidth + goldLineWidth, headerHeight, infoWidth, height - headerHeight);
+    context.fillRect(PHOTO_W, 0, 4, H);
 
-    const logoWidth = drawReportLogo(context, logo, contentX, 30, 190, 48);
+    const rightX = PHOTO_W + 4;
+    context.fillStyle = '#141414';
+    context.fillRect(rightX, 0, INFO_W, HEADER_H);
+    context.fillStyle = '#ffffff';
+    context.fillRect(rightX, HEADER_H, INFO_W, H - HEADER_H);
+
+    const contentX = rightX + PAD_X;
+    const currentHeaderY = 30;
     if (logo) {
+      const LOGO_H = 48;
+      const { lw } = drawLogoContain(context, logo, contentX, currentHeaderY, INFO_W - PAD_X * 2, LOGO_H, 'left');
       context.fillStyle = '#c8a96e';
-      context.font = '700 22px Arial, sans-serif';
+      context.font = 'bold 22px "Apple SD Gothic Neo", sans-serif';
       context.textAlign = 'left';
       context.textBaseline = 'middle';
-      context.fillText('WEVE DESIGN', contentX + logoWidth + 16, 56);
-      context.textBaseline = 'alphabetic';
+      context.fillText('WEVE DESIGN', contentX + lw + 16, currentHeaderY + LOGO_H / 2 + 2);
+    } else {
+      context.fillStyle = '#c8a96e';
+      context.font = 'bold 28px "Apple SD Gothic Neo", sans-serif';
+      context.textAlign = 'left';
+      context.textBaseline = 'top';
+      context.fillText('WEVE DESIGN', contentX, currentHeaderY + 10);
     }
+    context.textAlign = 'left';
+    context.textBaseline = 'alphabetic';
     context.fillStyle = '#c8a96e';
-    context.font = '700 12px Arial, sans-serif';
+    context.font = '700 12px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '3px');
     context.fillText('DAILY REPORT', contentX, 125);
+
     context.fillStyle = '#ffffff';
-    context.font = '800 22px Arial, sans-serif';
+    context.font = '800 22px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '0px');
     context.fillText('현장 일일 보고서', contentX, 155);
 
-    let currentY = headerHeight + 60;
+    let currentY = HEADER_H + 60;
+    context.textAlign = 'left';
     context.fillStyle = '#c8a96e';
-    context.font = '800 15px Arial, sans-serif';
+    context.font = '800 15px "Apple SD Gothic Neo", sans-serif';
     context.fillText('DATE', contentX, currentY);
     context.fillStyle = '#666666';
-    context.font = '600 16px Arial, sans-serif';
-    context.fillText(displayDate, contentX + 60, currentY);
+    context.font = '600 16px "Apple SD Gothic Neo", sans-serif';
+    context.fillText(meta.date, contentX + 60, currentY);
     currentY += 50;
 
     context.fillStyle = '#111111';
-    context.font = '800 36px Arial, sans-serif';
+    context.font = '800 36px "Apple SD Gothic Neo", sans-serif';
     siteLines.forEach((line) => {
       context.fillText(line, contentX, currentY);
       currentY += 44;
     });
     currentY += 14;
-    if (customerLine) {
+    if (meta.customer) {
       context.fillStyle = '#666666';
-      context.font = '600 18px Arial, sans-serif';
-      context.fillText(customerLine, contentX, currentY);
-      currentY += 22;
+      context.font = '600 18px "Apple SD Gothic Neo", sans-serif';
+      context.fillText(meta.customer, contentX, currentY);
+      currentY += 20;
     }
+
     context.fillStyle = '#e8e8e8';
-    context.fillRect(contentX, currentY, infoInnerWidth, 2);
+    context.fillRect(contentX, currentY, INFO_W - PAD_X * 2, 2);
     currentY += 44;
+
     context.fillStyle = '#999999';
-    context.font = '700 13px Arial, sans-serif';
+    context.font = '700 13px "Apple SD Gothic Neo", sans-serif';
     context.fillText('WORK DETAIL', contentX, currentY);
     currentY += 50;
-    drawReportWorkLines(context, workDetail, contentX, currentY, infoInnerWidth, 18, 40);
 
-    const bottomY = height - 240;
-    drawTintedReportLogo(context, logo, photoWidth + goldLineWidth, bottomY - 280, infoWidth, 260, 0.12);
-    context.fillStyle = '#eeeeee';
-    context.fillRect(contentX, bottomY, infoInnerWidth, 1);
-    context.fillStyle = '#c8a96e';
-    context.font = '700 11px Arial, sans-serif';
-    context.fillText('CONTACT / INFO', contentX, bottomY + 30);
-    context.fillStyle = '#555555';
-    context.font = '600 15px Arial, sans-serif';
-    context.fillText('☎ 031-381-0489', contentX, bottomY + 80);
-    context.fillText('◎ @weve.design', contentX, bottomY + 130);
-    context.fillText(`담당 ${designer || '-'}`, contentX, bottomY + 180);
-    context.fillStyle = '#bbbbbb';
-    context.font = '600 12px Arial, sans-serif';
-    context.textAlign = 'right';
-    context.fillText('WEVE DESIGN © 2006', photoWidth + goldLineWidth + infoWidth - paddingX, bottomY + 180);
-  } else {
-    const width = 1080;
-    const headerHeight = 110;
-    const photoHeight = Math.round(width / imageAspect);
-    const paddingX = 60;
-    const workInnerWidth = width - paddingX * 2;
+    workParagraphs.forEach((paragraph) => {
+      if (paragraph.trim() === '') {
+        currentY += 40;
+        return;
+      }
+      const paragraphLines = wrapReportLines(context, paragraph, workMaxW - bulletIndent);
+      paragraphLines.forEach((line, index) => {
+        if (index === 0) {
+          context.fillStyle = '#c8a96e';
+          context.font = '800 22px "Apple SD Gothic Neo", sans-serif';
+          context.fillText('·', contentX, currentY + 2);
+          context.fillStyle = '#333333';
+          context.font = '500 18px "Apple SD Gothic Neo", sans-serif';
+        }
+        context.fillText(line, contentX + bulletIndent, currentY);
+        currentY += 40;
+      });
+    });
 
-    context.font = '500 20px Arial, sans-serif';
-    const workLines = String(workDetail || '').split(/\r?\n/).reduce((total, paragraph) => total + Math.max(1, wrapReportLines(context, paragraph, workInnerWidth - 18).length), 0);
-    const footerHeight = Math.max(400, 270 + workLines * 42);
-    const height = headerHeight + photoHeight + footerHeight;
-
-    canvas.width = width;
-    canvas.height = height;
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, width, height);
-    context.fillStyle = '#141414';
-    context.fillRect(0, 0, width, headerHeight);
-    context.fillStyle = '#c8a96e';
-    context.fillRect(0, headerHeight - 4, width, 4);
-
-    const logoWidth = drawReportLogo(context, logo, paddingX, 31, 260, 48);
+    const botY = H - 240;
     if (logo) {
-      context.fillStyle = '#c8a96e';
-      context.font = '700 24px Arial, sans-serif';
-      context.textAlign = 'left';
-      context.textBaseline = 'middle';
-      context.fillText('WEVE DESIGN', paddingX + logoWidth + 18, headerHeight / 2 + 2);
-      context.textBaseline = 'alphabetic';
+      const wmMaxH = 260;
+      drawTintedLogo(context, logo, rightX, botY - wmMaxH - 20, INFO_W, wmMaxH, '#c8a96e', 0.12, 'center');
     }
-    context.textAlign = 'right';
-    context.fillStyle = '#c8a96e';
-    context.font = '700 13px Arial, sans-serif';
-    context.fillText('DAILY REPORT', width - paddingX, headerHeight / 2 - 12);
-    context.fillStyle = '#ffffff';
-    context.font = '800 24px Arial, sans-serif';
-    context.fillText('현장 일일 보고서', width - paddingX, headerHeight / 2 + 16);
 
-    drawCoverImage(context, image, 0, headerHeight, width, photoHeight);
-    const footerY = headerHeight + photoHeight;
-    context.fillStyle = '#c8a96e';
-    context.fillRect(0, footerY, width, 4);
+    context.fillStyle = '#eeeeee';
+    context.fillRect(contentX, botY, INFO_W - PAD_X * 2, 1);
 
-    let currentY = footerY + 70;
     context.textAlign = 'left';
     context.fillStyle = '#c8a96e';
-    context.font = '800 16px Arial, sans-serif';
-    context.fillText('DATE', paddingX, currentY);
+    context.font = '700 11px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '1px');
+    context.fillText('CONTACT / INFO', contentX, botY + 30);
+
+    drawDailyReportIcon(context, dailyReportIconPaths.phone, contentX, botY + 65, 18, iconColor);
+    context.fillStyle = textColor;
+    context.font = '600 15px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '0px');
+    context.fillText('031-381-0489', contentX + 28, botY + 80);
+
+    drawDailyReportIcon(context, dailyReportIconPaths.instagram, contentX, botY + 115, 18, iconColor);
+    context.fillText('@weve.design', contentX + 28, botY + 130);
+
+    if (meta.manager) {
+      drawDailyReportIcon(context, dailyReportIconPaths.person, contentX, botY + 165, 18, iconColor);
+      context.fillText(meta.manager, contentX + 28, botY + 180);
+    }
+
+    const qrSize = 80;
+    if (qr) {
+      try {
+        context.drawImage(qr, rightX + INFO_W - PAD_X - qrSize, botY + 65, qrSize, qrSize);
+        context.fillStyle = '#c8a96e';
+        context.font = '800 11px "Arial", sans-serif';
+        context.textAlign = 'center';
+        context.fillText('SCAN ME', rightX + INFO_W - PAD_X - qrSize / 2, botY + 160);
+      } catch {
+        // QR 서버 CORS 실패 시 QR만 생략합니다.
+      }
+    }
+
+    context.fillStyle = '#bbbbbb';
+    context.font = '600 12px "Arial", sans-serif';
+    context.textAlign = 'right';
+    context.fillText('WEVE DESIGN © 2006', rightX + INFO_W - PAD_X - qrSize - 20, botY + 160);
+
+    context.fillStyle = '#eeeeee';
+    context.fillRect(contentX, botY + 210, INFO_W - PAD_X * 2, 1);
+  } else {
+    const W = 1080;
+    const HEADER_H = 110;
+    const PHOTO_H = Math.round(W / imageAspect);
+
+    context.font = '500 19px "Apple SD Gothic Neo", sans-serif';
+    const workMaxW = W - 120;
+    const bulletIndent = 16;
+    const workParagraphs = meta.work.split(/\r?\n/);
+    let totalWorkLines = 0;
+    workParagraphs.forEach((paragraph) => {
+      if (paragraph.trim() === '') {
+        totalWorkLines += 1;
+        return;
+      }
+      totalWorkLines += wrapReportLines(context, paragraph, workMaxW - bulletIndent).length;
+    });
+    const customerSpace = meta.customer ? 36 : 0;
+    const requiredFooterH = 60 + 20 + 50 + 36 + customerSpace + 2 + 40 + 20 + 46 + totalWorkLines * 42 + 240;
+    const FOOTER_H = Math.max(400, requiredFooterH);
+    const H = HEADER_H + PHOTO_H + FOOTER_H;
+
+    canvas.width = W;
+    canvas.height = H;
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, W, H);
+    context.fillStyle = '#141414';
+    context.fillRect(0, 0, W, HEADER_H);
+    context.fillStyle = '#c8a96e';
+    context.fillRect(0, HEADER_H - 4, W, 4);
+
+    const padX = 60;
+
+    if (logo) {
+      const LOGO_H = 48;
+      const { lw } = drawLogoContain(context, logo, padX, (HEADER_H - LOGO_H) / 2, 260, LOGO_H, 'left');
+      context.fillStyle = '#c8a96e';
+      context.font = 'bold 24px "Apple SD Gothic Neo", sans-serif';
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillText('WEVE DESIGN', padX + lw + 18, HEADER_H / 2 + 2);
+    } else {
+      context.fillStyle = '#c8a96e';
+      context.font = 'bold 28px "Apple SD Gothic Neo", sans-serif';
+      context.textAlign = 'left';
+      context.textBaseline = 'middle';
+      context.fillText('WEVE DESIGN', padX, HEADER_H / 2);
+    }
+
+    context.textAlign = 'right';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#c8a96e';
+    context.font = '700 13px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '3px');
+    context.fillText('DAILY REPORT', W - padX, HEADER_H / 2 - 12);
+    context.fillStyle = '#ffffff';
+    context.font = '800 24px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '0px');
+    context.fillText('현장 일일 보고서', W - padX, HEADER_H / 2 + 16);
+
+    drawCoverImage(context, image, 0, HEADER_H, W, PHOTO_H);
+
+    const FY = HEADER_H + PHOTO_H;
+    context.fillStyle = '#c8a96e';
+    context.fillRect(0, FY, W, 4);
+
+    let currentY = FY + 70;
+    context.textAlign = 'left';
+    context.textBaseline = 'alphabetic';
+    context.fillStyle = '#c8a96e';
+    context.font = '800 16px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '2px');
+    context.fillText('DATE', padX, currentY);
     context.fillStyle = '#666666';
-    context.font = '600 17px Arial, sans-serif';
-    context.fillText(displayDate, paddingX + 70, currentY);
+    context.font = '600 17px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '0px');
+    context.fillText(meta.date, padX + 70, currentY);
     currentY += 50;
 
     context.fillStyle = '#111111';
-    context.font = '800 38px Arial, sans-serif';
-    context.fillText(siteTitle || '현장명 없음', paddingX, currentY);
+    context.font = '800 38px "Apple SD Gothic Neo", sans-serif';
+    context.fillText(meta.site, padX, currentY);
     currentY += 36;
-    if (customerLine) {
+    if (meta.customer) {
       context.fillStyle = '#666666';
-      context.font = '600 20px Arial, sans-serif';
-      context.fillText(customerLine, paddingX, currentY);
+      context.font = '600 20px "Apple SD Gothic Neo", sans-serif';
+      context.fillText(meta.customer, padX, currentY);
       currentY += 24;
     }
+
     const dividerY = currentY;
     context.fillStyle = '#e8e8e8';
-    context.fillRect(paddingX, dividerY, workInnerWidth, 2);
+    context.fillRect(padX, dividerY, W - padX * 2, 2);
     currentY += 44;
-    context.fillStyle = '#999999';
-    context.font = '700 14px Arial, sans-serif';
-    context.fillText('WORK DETAIL', paddingX, currentY);
-    currentY += 50;
-    drawReportWorkLines(context, workDetail, paddingX, currentY, workInnerWidth, 20, 42);
 
-    const bottomY = height - 180;
-    drawTintedReportLogo(context, logo, width / 2 + 20, dividerY + 20, width / 2 - paddingX - 20, Math.max(120, bottomY - dividerY - 40), 0.12);
+    context.fillStyle = '#999999';
+    context.font = '700 14px "Apple SD Gothic Neo", sans-serif';
+    context.fillText('WORK DETAIL', padX, currentY);
+    currentY += 50;
+
+    context.fillStyle = '#333333';
+    context.font = '500 20px "Apple SD Gothic Neo", sans-serif';
+    workParagraphs.forEach((paragraph) => {
+      if (paragraph.trim() === '') {
+        currentY += 42;
+        return;
+      }
+      const paragraphLines = wrapReportLines(context, paragraph, workMaxW - bulletIndent);
+      paragraphLines.forEach((line, index) => {
+        if (index === 0) {
+          context.fillStyle = '#c8a96e';
+          context.font = '800 24px "Apple SD Gothic Neo", sans-serif';
+          context.fillText('·', padX, currentY + 2);
+          context.fillStyle = '#333333';
+          context.font = '500 20px "Apple SD Gothic Neo", sans-serif';
+        }
+        context.fillText(line, padX + bulletIndent, currentY);
+        currentY += 42;
+      });
+    });
+
+    const botY = H - 180;
+    if (logo) {
+      const wmMaxH = 270;
+      const spaceH = botY - dividerY;
+      const wmY = dividerY + (spaceH - wmMaxH) / 2;
+      drawTintedLogo(context, logo, W / 2 + 20, wmY, W / 2 - padX - 20, wmMaxH, '#c8a96e', 0.12, 'center');
+    }
+
     context.fillStyle = '#eeeeee';
-    context.fillRect(paddingX, bottomY - 15, workInnerWidth, 1);
+    context.fillRect(padX, botY - 15, W - padX * 2, 1);
+
+    context.textAlign = 'left';
     context.fillStyle = '#c8a96e';
-    context.font = '700 11px Arial, sans-serif';
-    context.fillText('CONTACT / INFO', paddingX, bottomY + 15);
-    context.fillStyle = '#555555';
-    context.font = '600 15px Arial, sans-serif';
-    context.fillText('☎ 031-381-0489', paddingX, bottomY + 60);
-    context.fillText('◎ @weve.design', paddingX + 180, bottomY + 60);
-    context.fillText(`담당 ${designer || '-'}`, paddingX + 360, bottomY + 60);
+    context.font = '700 11px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '1px');
+    context.fillText('CONTACT / INFO', padX, botY + 15);
+
+    let currentX = padX;
+    drawDailyReportIcon(context, dailyReportIconPaths.phone, currentX, botY + 45, 18, iconColor);
+    context.fillStyle = textColor;
+    context.font = '600 15px "Apple SD Gothic Neo", sans-serif';
+    setCanvasLetterSpacing(context, '0px');
+    context.fillText('031-381-0489', currentX + 28, botY + 60);
+
+    currentX += 180;
+    drawDailyReportIcon(context, dailyReportIconPaths.instagram, currentX, botY + 45, 18, iconColor);
+    context.fillText('@weve.design', currentX + 28, botY + 60);
+
+    if (meta.manager) {
+      currentX += 180;
+      drawDailyReportIcon(context, dailyReportIconPaths.person, currentX, botY + 45, 18, iconColor);
+      context.fillText(meta.manager, currentX + 28, botY + 60);
+    }
+
+    const qrSize = 75;
+    if (qr) {
+      try {
+        context.drawImage(qr, W - padX - qrSize, botY - 5, qrSize, qrSize);
+        context.fillStyle = '#c8a96e';
+        context.font = '800 11px "Arial", sans-serif';
+        context.textAlign = 'center';
+        context.fillText('SCAN ME', W - padX - qrSize / 2, botY + 85);
+      } catch {
+        // QR 서버 CORS 실패 시 QR만 생략합니다.
+      }
+    }
+
     context.fillStyle = '#bbbbbb';
-    context.font = '600 12px Arial, sans-serif';
+    context.font = '600 12px "Arial", sans-serif';
     context.textAlign = 'right';
-    context.fillText('WEVE DESIGN © 2006', width - paddingX, bottomY + 60);
+    context.fillText('WEVE DESIGN © 2006', W - padX - qrSize - 30, botY + 60);
+
+    context.fillStyle = '#eeeeee';
+    context.fillRect(padX, botY + 115, W - padX * 2, 1);
   }
   return canvas.toDataURL('image/jpeg', 0.95);
 }
