@@ -1608,6 +1608,21 @@ export default function EstimateWorkspacePage() {
             overflow: visible !important;
           }
           body * { visibility: hidden; }
+          body *:not(#estimate-print):not(#estimate-print *):not(:has(#estimate-print)) {
+            display: none !important;
+          }
+          body *:has(#estimate-print) {
+            display: block !important;
+            width: auto !important;
+            height: auto !important;
+            min-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            overflow: visible !important;
+            background: white !important;
+          }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
             position: static !important;
@@ -1661,6 +1676,32 @@ export default function EstimateWorkspacePage() {
             height: 172mm !important;
             min-height: 0 !important;
             max-width: none !important;
+          }
+          #estimate-print > .print-detail {
+            height: auto !important;
+            min-height: 172mm !important;
+            overflow: visible !important;
+            break-inside: auto !important;
+            page-break-inside: auto !important;
+          }
+          #estimate-print .print-detail-title-screen {
+            display: none !important;
+          }
+          #estimate-print .print-detail-title-row {
+            display: table-row !important;
+          }
+          #estimate-print .print-detail-table {
+            page-break-inside: auto;
+          }
+          #estimate-print .print-detail-table thead {
+            display: table-header-group;
+          }
+          #estimate-print .print-detail-table tbody {
+            display: table-row-group;
+          }
+          #estimate-print .print-detail-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
           }
           .estimate-title-strip {
             background: #d9d9d9 !important;
@@ -4405,10 +4446,13 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'detail' && (
-        <section className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
-          <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
-          <table className="w-full border-collapse text-sm">
+        <section className="print-landscape print-detail mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
+          <h1 className="print-detail-title-screen pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
+          <table className="print-detail-table w-full border-collapse text-sm">
             <thead>
+              <tr className="print-detail-title-row hidden">
+                <th colSpan={7} className="border-0 pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</th>
+              </tr>
               <tr className="bg-[#e6e6f6]">
                 {['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((header) => (
                   <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
