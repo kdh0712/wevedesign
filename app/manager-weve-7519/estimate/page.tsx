@@ -225,11 +225,18 @@ type MaterialPickerState = {
   search: string;
 };
 
+type DetailPrintRow =
+  | { type: 'group'; key: string; groupIndex: number; category: string }
+  | { type: 'line'; key: string; line: EstimateLine }
+  | { type: 'subtotal'; key: string; amount: number }
+  | { type: 'total'; key: string; amount: number };
+
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
 const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
+const DETAIL_PRINT_ROWS_PER_PAGE = 14;
 
 const readMaterialCache = (): MaterialCacheRecord | null => {
   if (typeof window === 'undefined') return null;
@@ -555,6 +562,7 @@ export default function EstimateWorkspacePage() {
   const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
   const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
+  const [documentDetailPageIndex, setDocumentDetailPageIndex] = useState(0);
   const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
   const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
   const [lineFilterType, setLineFilterType] = useState<'all' | 'space' | 'category'>('all');
@@ -597,6 +605,7 @@ export default function EstimateWorkspacePage() {
   const filteredLines = useMemo(() => filterEstimateLines(lines, lineFilterType, lineFilterValue), [lines, lineFilterType, lineFilterValue]);
   const sortedLines = useMemo(() => sortEstimateLines(filteredLines, lineGroupBy), [filteredLines, lineGroupBy]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
+  const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal), [lines, totals.customerEstimateTotal]);
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
@@ -658,6 +667,10 @@ export default function EstimateWorkspacePage() {
       return haystack.includes(keyword);
     });
   }, [legacyWorkSearch, legacyWorkSites]);
+
+  useEffect(() => {
+    setDocumentDetailPageIndex((current) => Math.min(current, Math.max(0, detailPreviewPages.length - 1)));
+  }, [detailPreviewPages.length]);
 
   useEffect(() => {
     let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
@@ -2972,7 +2985,10 @@ export default function EstimateWorkspacePage() {
                   <button
                     key={key}
                     type="button"
-                    onClick={() => setDocumentView(key as typeof documentView)}
+                    onClick={() => {
+                      setDocumentView(key as typeof documentView);
+                      setDocumentDetailPageIndex(0);
+                    }}
                     className={`rounded-md border px-4 py-3 text-left text-sm font-semibold ${documentView === key ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}
                   >
                     {label}
@@ -2990,7 +3006,32 @@ export default function EstimateWorkspacePage() {
             </div>
             {!isDocumentBatchOpen && (
               <>
-                <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} />
+                {documentView === 'detail' && detailPreviewPages.length > 1 && (
+                  <div className="no-print flex items-center justify-between rounded-lg border border-[#d5dde2] bg-white px-4 py-3 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setDocumentDetailPageIndex((current) => Math.max(0, current - 1))}
+                      disabled={documentDetailPageIndex === 0}
+                      className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <ChevronLeft size={16} />
+                      이전 페이지
+                    </button>
+                    <span className="text-sm font-bold text-[#171512]">
+                      {documentDetailPageIndex + 1}/{detailPreviewPages.length}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDocumentDetailPageIndex((current) => Math.min(detailPreviewPages.length - 1, current + 1))}
+                      disabled={documentDetailPageIndex >= detailPreviewPages.length - 1}
+                      className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      다음 페이지
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                )}
+                <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} detailPreviewPageIndex={documentDetailPageIndex} />
                 {documentView === 'detail' && (
                   <div className="mt-4 rounded-lg border border-dashed border-[#cbd6dc] bg-white p-4 text-sm text-[#60717d]">
                     <button type="button" onClick={() => setIsDocumentBatchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-[#171512] bg-white px-4 py-2 font-semibold text-[#171512]">
@@ -4300,6 +4341,7 @@ function LandscapeEstimateDocumentPreview({
   totals,
   versionLabel,
   view,
+  detailPreviewPageIndex = 0,
   unwrap = false,
 }: {
   site?: Site;
@@ -4307,10 +4349,13 @@ function LandscapeEstimateDocumentPreview({
   totals: ReturnType<typeof calculateTotals>;
   versionLabel: string;
   view: 'cover' | 'summary' | 'detail';
+  detailPreviewPageIndex?: number;
   unwrap?: boolean;
 }) {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
+  const detailPages = buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal);
+  const safeDetailPreviewPageIndex = Math.min(Math.max(0, detailPreviewPageIndex), Math.max(0, detailPages.length - 1));
   const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
   const customerAddress = site?.address || site?.title || '';
   const customerName = site?.customerName || '고객';
@@ -4446,70 +4491,17 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'detail' && (
-        <section className="print-landscape print-detail mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4">
-          <h1 className="print-detail-title-screen pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
-          <table className="print-detail-table w-full border-collapse text-sm">
-            <thead>
-              <tr className="print-detail-title-row hidden">
-                <th colSpan={7} className="border-0 pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</th>
-              </tr>
-              <tr className="bg-[#e6e6f6]">
-                {['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((header) => (
-                  <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {grouped.map((group, groupIndex) => (
-                <Fragment key={group.category}>
-                  <tr className="font-semibold">
-                    <td className="border border-[#111] px-3 py-1.5">{groupIndex + 1}. {group.category}</td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                  </tr>
-                  {group.lines.map((line) => (
-                    <tr key={line.id}>
-                      <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.customerUnitPrice)}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.quantity * line.customerUnitPrice)}</td>
-                      <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
-                    </tr>
-                  ))}
-                  <tr className="bg-[#f5f3ed] font-semibold">
-                    <td className="border border-[#111] px-3 py-1.5 text-center">소계</td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                    <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(group.customerAmount)}</td>
-                    <td className="border border-[#111] px-3 py-1.5"></td>
-                  </tr>
-                </Fragment>
-              ))}
-              <tr className="bg-[#dff1f4] text-lg font-semibold">
-                <td className="border border-[#111] px-3 py-2 text-center">합계</td>
-                <td className="border border-[#111] px-3 py-2"></td>
-                <td className="border border-[#111] px-3 py-2"></td>
-                <td className="border border-[#111] px-3 py-2"></td>
-                <td className="border border-[#111] px-3 py-2"></td>
-                <td className="border border-[#111] px-3 py-2 text-right">{formatWonAmount(totals.customerEstimateTotal)}</td>
-                <td className="border border-[#111] px-3 py-2"></td>
-              </tr>
-            </tbody>
-          </table>
-          <div className="mt-4 flex justify-between text-sm">
-            <span>1/1</span>
-            <span>{company.name}</span>
-          </div>
-          <p className="sr-only">{documentTitle}</p>
-        </section>
+        detailPages.map((pageRows, pageIndex) => (
+          <DetailEstimatePrintPage
+            key={`detail-page-${pageIndex}`}
+            rows={pageRows}
+            pageNumber={pageIndex + 1}
+            pageTotal={detailPages.length}
+            companyName={company.name}
+            documentTitle={documentTitle}
+            hiddenOnScreen={pageIndex !== safeDetailPreviewPageIndex}
+          />
+        ))
       )}
     </>
   );
@@ -4520,6 +4512,89 @@ function LandscapeEstimateDocumentPreview({
     <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
       {content}
     </article>
+  );
+}
+
+function DetailEstimatePrintPage({
+  rows,
+  pageNumber,
+  pageTotal,
+  companyName,
+  documentTitle,
+  hiddenOnScreen = false,
+}: {
+  rows: DetailPrintRow[];
+  pageNumber: number;
+  pageTotal: number;
+  companyName: string;
+  documentTitle: string;
+  hiddenOnScreen?: boolean;
+}) {
+  return (
+    <section className={`print-landscape print-detail mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4 ${hiddenOnScreen ? 'hidden print:block' : ''}`}>
+      <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
+      <table className="print-detail-table w-full border-collapse text-sm">
+        <thead>
+          <tr className="bg-[#e6e6f6]">
+            {['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((header) => (
+              <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => renderDetailPrintRow(row))}
+        </tbody>
+      </table>
+      <div className="mt-4 flex justify-between text-sm">
+        <span>{pageNumber}/{pageTotal}</span>
+        <span>{companyName}</span>
+      </div>
+      <p className="sr-only">{documentTitle}</p>
+    </section>
+  );
+}
+
+function renderDetailPrintRow(row: DetailPrintRow) {
+  if (row.type === 'group') {
+    return (
+      <tr key={row.key} className="font-semibold">
+        <td className="border border-[#111] px-3 py-1.5">{row.groupIndex + 1}. {row.category}</td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1.5"></td>
+      </tr>
+    );
+  }
+
+  if (row.type === 'line') {
+    const { line } = row;
+    return (
+      <tr key={row.key}>
+        <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.quantity * line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
+      </tr>
+    );
+  }
+
+  const isTotal = row.type === 'total';
+  return (
+    <tr key={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
+      <td className="border border-[#111] px-3 py-1.5 text-center">{isTotal ? '합계' : '소계'}</td>
+      <td className="border border-[#111] px-3 py-1.5"></td>
+      <td className="border border-[#111] px-3 py-1.5"></td>
+      <td className="border border-[#111] px-3 py-1.5"></td>
+      <td className="border border-[#111] px-3 py-1.5"></td>
+      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(row.amount)}</td>
+      <td className="border border-[#111] px-3 py-1.5"></td>
+    </tr>
   );
 }
 
@@ -5523,6 +5598,42 @@ function groupLinesByCategory(lines: EstimateLine[]) {
     customerAmount: groupLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0),
     executionAmount: groupLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0),
   }));
+}
+
+function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {
+  const visibleLines = lines.filter((line) => line.name);
+  const grouped = groupLinesByCategory(visibleLines);
+  const pages: DetailPrintRow[][] = [];
+  let currentPage: DetailPrintRow[] = [];
+
+  const pushPage = () => {
+    if (!currentPage.length) return;
+    pages.push(currentPage);
+    currentPage = [];
+  };
+
+  const appendRow = (row: DetailPrintRow) => {
+    if (currentPage.length >= DETAIL_PRINT_ROWS_PER_PAGE) pushPage();
+    currentPage.push(row);
+  };
+
+  grouped.forEach((group, groupIndex) => {
+    const groupRows: DetailPrintRow[] = [
+      { type: 'group', key: `detail-group-${group.category}-${groupIndex}`, groupIndex, category: group.category },
+      ...group.lines.map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line })),
+      { type: 'subtotal', key: `detail-subtotal-${group.category}-${groupIndex}`, amount: group.customerAmount },
+    ];
+
+    groupRows.forEach((row, rowIndex) => {
+      if (rowIndex === 0 && currentPage.length > DETAIL_PRINT_ROWS_PER_PAGE - Math.min(groupRows.length, 4)) pushPage();
+      appendRow(row);
+    });
+  });
+
+  appendRow({ type: 'total', key: 'detail-total', amount: totalAmount });
+  pushPage();
+
+  return pages.length ? pages : [[{ type: 'total', key: 'detail-total-empty', amount: totalAmount }]];
 }
 
 function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = []) {
