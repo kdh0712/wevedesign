@@ -1691,11 +1691,11 @@ export default function EstimateWorkspacePage() {
             max-width: none !important;
           }
           #estimate-print > .print-detail {
-            height: auto !important;
-            min-height: 172mm !important;
-            overflow: visible !important;
-            break-inside: auto !important;
-            page-break-inside: auto !important;
+            height: 172mm !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
           }
           #estimate-print .print-detail-title-screen {
             display: none !important;
@@ -3005,33 +3005,32 @@ export default function EstimateWorkspacePage() {
               </button>
             </div>
             {!isDocumentBatchOpen && (
-              <>
-                {documentView === 'detail' && detailPreviewPages.length > 1 && (
-                  <div className="no-print flex items-center justify-between rounded-lg border border-[#d5dde2] bg-white px-4 py-3 shadow-sm">
-                    <button
-                      type="button"
-                      onClick={() => setDocumentDetailPageIndex((current) => Math.max(0, current - 1))}
-                      disabled={documentDetailPageIndex === 0}
-                      className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <ChevronLeft size={16} />
-                      이전 페이지
-                    </button>
-                    <span className="text-sm font-bold text-[#171512]">
-                      {documentDetailPageIndex + 1}/{detailPreviewPages.length}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setDocumentDetailPageIndex((current) => Math.min(detailPreviewPages.length - 1, current + 1))}
-                      disabled={documentDetailPageIndex >= detailPreviewPages.length - 1}
-                      className="inline-flex items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      다음 페이지
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                )}
-                <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} detailPreviewPageIndex={documentDetailPageIndex} />
+              <div className="min-w-0">
+                <div className="relative">
+                  <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} detailPreviewPageIndex={documentDetailPageIndex} />
+                  {documentView === 'detail' && detailPreviewPages.length > 1 && (
+                    <div className="no-print pointer-events-none absolute inset-0 flex items-center justify-between px-4">
+                      <button
+                        type="button"
+                        onClick={() => setDocumentDetailPageIndex((current) => Math.max(0, current - 1))}
+                        disabled={documentDetailPageIndex === 0}
+                        aria-label="이전 세부내역서 페이지"
+                        className="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#d5dde2] bg-white/95 text-[#171512] shadow-lg transition hover:border-[#38a9bd] hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <ChevronLeft size={24} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDocumentDetailPageIndex((current) => Math.min(detailPreviewPages.length - 1, current + 1))}
+                        disabled={documentDetailPageIndex >= detailPreviewPages.length - 1}
+                        aria-label="다음 세부내역서 페이지"
+                        className="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#d5dde2] bg-white/95 text-[#171512] shadow-lg transition hover:border-[#38a9bd] hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <ChevronRight size={24} />
+                      </button>
+                    </div>
+                  )}
+                </div>
                 {documentView === 'detail' && (
                   <div className="mt-4 rounded-lg border border-dashed border-[#cbd6dc] bg-white p-4 text-sm text-[#60717d]">
                     <button type="button" onClick={() => setIsDocumentBatchOpen(true)} className="inline-flex items-center gap-2 rounded-md border border-[#171512] bg-white px-4 py-2 font-semibold text-[#171512]">
@@ -3041,7 +3040,7 @@ export default function EstimateWorkspacePage() {
                     <span className="ml-3">공정 일정, 발주서, 추가 사항을 선택해 같은 디자인으로 함께 출력합니다.</span>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </section>
         )}
@@ -4499,7 +4498,7 @@ function LandscapeEstimateDocumentPreview({
             pageTotal={detailPages.length}
             companyName={company.name}
             documentTitle={documentTitle}
-            hiddenOnScreen={pageIndex !== safeDetailPreviewPageIndex}
+            hiddenOnScreen={!unwrap && pageIndex !== safeDetailPreviewPageIndex}
           />
         ))
       )}
