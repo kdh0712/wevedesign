@@ -236,7 +236,7 @@ const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
-const DETAIL_PRINT_ROWS_PER_PAGE = 14;
+const DETAIL_PRINT_ROWS_PER_PAGE = 20;
 
 const readMaterialCache = (): MaterialCacheRecord | null => {
   if (typeof window === 'undefined') return null;
@@ -1671,6 +1671,10 @@ export default function EstimateWorkspacePage() {
           #estimate-print.batch-print > section {
             break-after: page;
             page-break-after: always;
+          }
+          #estimate-print.batch-print > section + section {
+            break-before: page;
+            page-break-before: always;
           }
           #estimate-print.batch-print > section:last-child {
             break-after: auto;
@@ -3568,7 +3572,7 @@ function DocumentBatchPrintModal({
             전체 인쇄
           </button>
         </div>
-        <article id="estimate-print" className="batch-print mx-auto grid gap-6">
+        <article id="estimate-print" className="batch-print mx-auto flex flex-col gap-6">
           {selectedKeys.length === 0 && (
             <section className="print-portrait rounded-lg bg-white p-10 text-center text-sm text-[#60717d]">왼쪽에서 출력할 서류를 선택해주세요.</section>
           )}
