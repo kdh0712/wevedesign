@@ -229,6 +229,7 @@ const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
 const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
+const LINE_DRAFT_PICKER_ID = '__line_draft__';
 
 const readMaterialCache = (): MaterialCacheRecord | null => {
   if (typeof window === 'undefined') return null;
@@ -1037,6 +1038,16 @@ export default function EstimateWorkspacePage() {
     });
   };
 
+  const openLineDraftMaterialPicker = (step: MaterialPickerState['step'] = 'category') => {
+    setMaterialPicker({
+      lineId: LINE_DRAFT_PICKER_ID,
+      step,
+      category: lineDraft.category,
+      process: lineDraft.process,
+      search: '',
+    });
+  };
+
   const choosePickerCategory = (category: string) => {
     setMaterialPicker((current) => (current ? { ...current, step: 'process', category, process: '', search: '' } : current));
   };
@@ -1047,6 +1058,12 @@ export default function EstimateWorkspacePage() {
 
   const choosePickerMaterial = (material: Material) => {
     if (!materialPicker) return;
+    if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
+      setLineDraft((current) => ({ ...current, ...materialToLine(material) }));
+      setMaterialPicker(null);
+      setActiveTab('lines');
+      return;
+    }
     setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? { ...line, ...materialToLine(material) } : line)));
     setMaterialPicker(null);
     setActiveTab('lines');
@@ -1585,14 +1602,16 @@ export default function EstimateWorkspacePage() {
           @page portraitPage { size: A4 portrait; margin: 10mm 12mm; }
           @page landscapePage { size: A4 landscape; margin: 8mm 10mm; }
           html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
-          body * { visibility: hidden; }
+          body * { visibility: hidden; overflow: visible !important; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
-            position: static !important;
-            left: auto !important;
-            top: auto !important;
-            width: auto !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             height: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
             overflow: visible !important;
             background: white;
             -webkit-print-color-adjust: exact;
@@ -1601,11 +1620,12 @@ export default function EstimateWorkspacePage() {
           #estimate-print > section {
             aspect-ratio: auto !important;
             box-sizing: border-box !important;
-            margin: 0 auto !important;
+            display: block !important;
+            margin: 0 !important;
             max-width: none !important;
             overflow: hidden !important;
-            break-inside: avoid;
-            page-break-inside: avoid;
+            break-inside: auto;
+            page-break-inside: auto;
           }
           #estimate-print:not(.batch-print) > section {
             break-after: auto;
@@ -1989,13 +2009,13 @@ export default function EstimateWorkspacePage() {
                     <CellSelect value={lineDraft.space} options={defaultSpaces} onChange={(value) => setLineDraft((current) => ({ ...current, space: value }))} />
                   </FieldShell>
                   <FieldShell label="분류">
-                    <CellInput value={lineDraft.category} listId="estimate-categories" onChange={(value) => setLineDraft((current) => ({ ...current, category: value }))} />
+                    <PickerCell value={lineDraft.category} placeholder="분류 선택" onClick={() => openLineDraftMaterialPicker('category')} />
                   </FieldShell>
                   <FieldShell label="공종">
-                    <CellInput value={lineDraft.process} listId="estimate-processes" onChange={(value) => setLineDraft((current) => ({ ...current, process: value }))} />
+                    <PickerCell value={lineDraft.process} placeholder="공종 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category ? 'process' : 'category')} />
                   </FieldShell>
                   <FieldShell label="품명">
-                    <CellInput value={lineDraft.name} listId="estimate-material-names" onChange={(value) => setLineDraft((current) => ({ ...current, name: value }))} />
+                    <PickerCell value={lineDraft.name} placeholder="품명 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category && lineDraft.process ? 'material' : lineDraft.category ? 'process' : 'category')} />
                   </FieldShell>
                   <FieldShell label="규격">
                     <CellInput value={lineDraft.spec} onChange={(value) => setLineDraft((current) => ({ ...current, spec: value }))} />
@@ -2597,7 +2617,7 @@ export default function EstimateWorkspacePage() {
                                 list="purchase-unit-options"
                                 value={purchaseItemDraft.unit}
                                 onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, unit: event.target.value }))}
-                                placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '?꾨젅???듭뀡' : undefined}
+                                placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '프레임 옵션' : undefined}
                                 className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                               />
                               <datalist id="purchase-unit-options">
