@@ -1601,17 +1601,22 @@ export default function EstimateWorkspacePage() {
           @page { size: A4 landscape; margin: 8mm 10mm; }
           @page portraitPage { size: A4 portrait; margin: 10mm 12mm; }
           @page landscapePage { size: A4 landscape; margin: 8mm 10mm; }
-          html, body { margin: 0 !important; padding: 0 !important; background: white !important; }
-          body * { visibility: hidden; overflow: visible !important; }
+          html, body, #main-content {
+            margin: 0 !important;
+            padding: 0 !important;
+            background: white !important;
+            overflow: visible !important;
+          }
+          body * { visibility: hidden; }
           #estimate-print, #estimate-print * { visibility: visible; }
           #estimate-print {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
+            position: static !important;
             width: 100% !important;
             height: auto !important;
             margin: 0 !important;
             padding: 0 !important;
+            border: 0 !important;
+            box-shadow: none !important;
             overflow: visible !important;
             background: white;
             -webkit-print-color-adjust: exact;
@@ -1624,8 +1629,8 @@ export default function EstimateWorkspacePage() {
             margin: 0 !important;
             max-width: none !important;
             overflow: hidden !important;
-            break-inside: auto;
-            page-break-inside: auto;
+            break-inside: avoid-page;
+            page-break-inside: avoid;
           }
           #estimate-print:not(.batch-print) > section {
             break-after: auto;
@@ -1633,6 +1638,7 @@ export default function EstimateWorkspacePage() {
           }
           #estimate-print.batch-print {
             display: block !important;
+            gap: 0 !important;
           }
           #estimate-print.batch-print > section {
             break-after: page;
@@ -1645,13 +1651,14 @@ export default function EstimateWorkspacePage() {
           #estimate-print > .print-portrait {
             page: portraitPage;
             width: 186mm !important;
-            min-height: 267mm !important;
+            height: 245mm !important;
+            min-height: 0 !important;
             max-width: none !important;
           }
           #estimate-print > .print-landscape {
             page: landscapePage;
             width: 277mm !important;
-            height: 190mm !important;
+            height: 172mm !important;
             min-height: 0 !important;
             max-width: none !important;
           }
