@@ -553,6 +553,7 @@ export default function EstimateWorkspacePage() {
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
+  const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [materialSearch, setMaterialSearch] = useState('');
   const [materialCategory, setMaterialCategory] = useState('');
@@ -592,7 +593,11 @@ export default function EstimateWorkspacePage() {
   const hiddenPurchaseOrderColumns = purchaseOrderColumnKeys.filter((key) => !selectedPurchaseOrderVisibleColumns.includes(key));
   const selectedPurchaseOrderInputColumns = selectedPurchaseOrderVisibleColumns.filter((column) => column !== 'amount' && column !== 'note');
   const purchaseCategoryOptions = useMemo(
-    () => Array.from(new Set((selectedPurchaseOrder?.items || []).map((item) => item.category.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko')),
+    () => {
+      const existing = Array.from(new Set((selectedPurchaseOrder?.items || []).map((item) => item.category.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko'));
+      if (selectedPurchaseOrder?.templateKey !== 'doorSet') return existing;
+      return Array.from(new Set(['1', '2', '3', '1. 프레임', '1. 도어', '2. 프레임', '2. 도어', '평판', '걸레받이', '기타', ...existing]));
+    },
     [selectedPurchaseOrder],
   );
   const purchaseOrderTotal = useMemo(
@@ -705,7 +710,14 @@ export default function EstimateWorkspacePage() {
 
   useEffect(() => {
     if (!selectedSiteId) return;
-    if (selectedEstimateId === NEW_ESTIMATE_ID) return;
+    if (selectedEstimateId === NEW_ESTIMATE_ID) {
+      if (isManualNewEstimateVersion) return;
+      if (selectedSiteEstimates.length > 0) {
+        setIsManualNewEstimateVersion(false);
+        setSelectedEstimateId(selectedSiteEstimates[0]?._id || '');
+      }
+      return;
+    }
 
     if (selectedSiteEstimates.length === 0) {
       const site = sites.find((item) => item._id === selectedSiteId);
@@ -742,9 +754,10 @@ export default function EstimateWorkspacePage() {
     }
 
     if (!selectedEstimateId || !selectedSiteEstimates.some((estimate) => estimate._id === selectedEstimateId)) {
+      setIsManualNewEstimateVersion(false);
       setSelectedEstimateId(selectedSiteEstimates[0]?._id || '');
     }
-  }, [selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
+  }, [isManualNewEstimateVersion, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
 
   useEffect(() => {
     if (!selectedSiteId || selectedEstimateId === NEW_ESTIMATE_ID) return;
@@ -860,6 +873,7 @@ export default function EstimateWorkspacePage() {
       setVendors(data.vendors || []);
       setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
+        setIsManualNewEstimateVersion(false);
         setSelectedEstimateId(preferredEstimateId);
       }
       setIsUnlocked(true);
@@ -1089,6 +1103,7 @@ export default function EstimateWorkspacePage() {
     }
 
     const nextLabel = defaultVersionLabel(newVersionType, selectedSiteEstimates);
+    setIsManualNewEstimateVersion(true);
     setSelectedEstimateId(NEW_ESTIMATE_ID);
     setEstimateId('');
     setVersionType(newVersionType);
@@ -1747,6 +1762,7 @@ export default function EstimateWorkspacePage() {
               value={selectedSiteId}
               onChange={(event) => {
                 setSelectedSiteId(event.target.value);
+                setIsManualNewEstimateVersion(false);
                 setSelectedEstimateId('');
               }}
               className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd]"
@@ -1820,7 +1836,10 @@ export default function EstimateWorkspacePage() {
                 현재 버전
                 <select
                   value={selectedEstimateId || NEW_ESTIMATE_ID}
-                  onChange={(event) => setSelectedEstimateId(event.target.value)}
+                  onChange={(event) => {
+                    setIsManualNewEstimateVersion(event.target.value === NEW_ESTIMATE_ID);
+                    setSelectedEstimateId(event.target.value);
+                  }}
                   className="h-11 rounded-md border border-[#d5dde2] bg-white px-3 text-sm font-semibold normal-case tracking-normal text-[#171512] outline-none focus:border-[#38a9bd]"
                 >
                   {selectedSiteEstimates.length === 0 && <option value={NEW_ESTIMATE_ID}>저장 전 새 초안</option>}
@@ -2662,14 +2681,25 @@ export default function EstimateWorkspacePage() {
                       </div>
                     </div>
                     <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-[repeat(auto-fit,minmax(88px,1fr))] 2xl:items-end">
+                      {selectedPurchaseOrder.templateKey === 'doorSet' && (
+                        <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                          세트 모델명
+                          <input
+                            value={purchaseItemDraft.vendorName}
+                            onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, vendorName: event.target.value }))}
+                            placeholder={selectedPurchaseOrder.doorModelName || '예: TA-13'}
+                            className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                          />
+                        </label>
+                      )}
                       {selectedPurchaseOrderInputColumns.map((column) => (
                         <label key={`purchase-draft-${column}`} className="grid gap-1 text-xs font-bold text-[#60717d]">
-                          {purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
+                          {selectedPurchaseOrder.templateKey === 'doorSet' ? doorPurchaseDraftColumnLabel(column) : purchaseOrderColumnLabel(selectedPurchaseOrderLabels, column)}
                           {column === 'quantity' ? (
                             <NumberTextInput value={purchaseItemDraft.quantity} onChange={(value) => setPurchaseItemDraft((current) => ({ ...current, quantity: value }))} className="w-full min-w-0 bg-white text-sm font-semibold" />
                           ) : column === 'category' ? (
                             <>
-                              <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '예: 1 또는 평판' : undefined} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
+                              <input list="purchase-category-options" value={purchaseItemDraft.category} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, category: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '예: 1, 2, 평판, 걸레받이, 기타' : undefined} className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]" />
                               <datalist id="purchase-category-options">
                                 {purchaseCategoryOptions.map((category) => (
                                   <option key={category} value={category} />
@@ -2682,7 +2712,7 @@ export default function EstimateWorkspacePage() {
                                 list="purchase-unit-options"
                                 value={purchaseItemDraft.unit}
                                 onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, unit: event.target.value }))}
-                                placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '프레임 옵션' : undefined}
+                                placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '프레임 옵션 / 단위' : undefined}
                                 className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                               />
                               <datalist id="purchase-unit-options">
@@ -2701,7 +2731,7 @@ export default function EstimateWorkspacePage() {
                                   ...(column === 'modelName' ? { modelName: value } : { spec: value }),
                                 }));
                               }}
-                              placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? (column === 'modelName' ? '프레임 규격' : column === 'spec' ? '도어 규격' : '프레임 옵션') : undefined}
+                              placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? (column === 'modelName' ? '프레임 규격 / 단일 규격' : column === 'spec' ? '도어 규격 / 행거 모델' : '프레임 옵션') : undefined}
                               className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                             />
                           )}
@@ -2722,7 +2752,15 @@ export default function EstimateWorkspacePage() {
                         </>
                       )}
                     </div>
-                    <input value={purchaseItemDraft.note} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, note: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '도어 옵션/비고 예: 실린더타공' : '비고'} className="mt-2 w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <label className="mt-2 grid gap-1 text-xs font-bold text-[#60717d]">
+                      {selectedPurchaseOrder.templateKey === 'doorSet' ? '도어 옵션 / 기타 내용' : '비고'}
+                      <input value={purchaseItemDraft.note} onChange={(event) => setPurchaseItemDraft((current) => ({ ...current, note: event.target.value }))} placeholder={selectedPurchaseOrder.templateKey === 'doorSet' ? '예: 실린더타공, 오목이/하부홈가공, 기타 부속 일체' : '비고'} className="w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    </label>
+                    {selectedPurchaseOrder.templateKey === 'doorSet' && (
+                      <p className="mt-2 text-xs leading-5 text-[#60717d]">
+                        번호만 입력하면 프레임/도어 2줄 세트로 표시됩니다. 두 가지 이상 모델은 세트 모델명을 각 항목마다 입력하고, 평판·걸레받이는 단일 규격 칸만 사용합니다. 기타는 도어 옵션/기타 내용이 한 줄로 병합됩니다.
+                      </p>
+                    )}
                   </div>
 
                   <div className="mt-5 overflow-hidden rounded-lg border border-[#171512] bg-white">
@@ -3715,7 +3753,8 @@ function DoorPurchaseOrderTable({ order, onEdit }: { order: PurchaseOrder; onEdi
   const cellClass = 'break-words border border-[#171512] px-3 py-2 align-middle';
   const centerClass = `${cellClass} text-center`;
   const items = order.items || [];
-  const fillerRows = Math.max(0, 3 - items.length);
+  const renderedRowCount = items.reduce((sum, item) => sum + (isDoorSetPair(item) ? 2 : 1), 0);
+  const fillerRows = Math.max(0, 3 - renderedRowCount);
 
   return (
     <table className="w-full table-fixed border-collapse text-sm">
@@ -3741,7 +3780,7 @@ function DoorPurchaseOrderTable({ order, onEdit }: { order: PurchaseOrder; onEdi
             <td className="border border-[#171512] px-3 py-8 text-center text-[#60717d]" colSpan={5}>작성된 도어 발주 항목이 없습니다.</td>
           </tr>
         ) : (
-          items.map((item, index) => renderDoorPurchaseOrderRows(item, index, onEdit))
+          items.map((item, index) => renderDoorPurchaseOrderRows(item, index, items[index - 1], onEdit, order))
         )}
         {Array.from({ length: fillerRows }).map((_, index) => (
           <tr key={`door-filler-${index}`}>
@@ -3757,56 +3796,106 @@ function DoorPurchaseOrderTable({ order, onEdit }: { order: PurchaseOrder; onEdi
   );
 }
 
-function renderDoorPurchaseOrderRows(item: PurchaseOrderItem, index: number, onEdit?: (item: PurchaseOrderItem) => void) {
+function renderDoorPurchaseOrderRows(item: PurchaseOrderItem, index: number, previousItem?: PurchaseOrderItem, onEdit?: (item: PurchaseOrderItem) => void, order?: PurchaseOrder) {
   const cellClass = 'break-words border border-[#171512] px-3 py-2 align-middle';
   const centerClass = `${cellClass} text-center`;
-  const rowClass = onEdit ? 'cursor-pointer hover:bg-[#fff8e8]' : '';
+  const rowClass = `${onEdit ? 'cursor-pointer hover:bg-[#fff8e8]' : ''} ${isDoorGroupBreak(item, previousItem) ? '[&>td]:border-t-2 [&>td]:border-t-[#171512]' : ''}`;
   const rawCategory = (item.category || '').trim();
   const numberedMatch = rawCategory.match(/^(\d+)(?:[.\s-]+)?(.*)$/);
   const numberLabel = numberedMatch?.[1] || String(index + 1);
   const explicitLabel = (numberedMatch?.[2] || '').trim();
-  const quantityLabel = item.quantity ? `${formatNumber(item.quantity)}SET` : '';
   const accessoryLabel = rawCategory || item.modelName || `항목 ${index + 1}`;
-  const isDoorPair = !explicitLabel && Boolean(numberedMatch);
+  const quantityLabel = formatQuantityWithUnit(item.quantity, item.unit);
 
-  if (rawCategory === '기타') {
+  if (isDoorEtcItem(item)) {
     return (
       <tr key={`door-extra-${item.id}`} onDoubleClick={() => onEdit?.(item)} className={rowClass}>
-        <td className={`${centerClass} font-semibold`}>기타</td>
-        <td className={cellClass} colSpan={4}>{item.note || item.modelName || item.spec}</td>
+        <td className={cellClass} colSpan={5}>
+          <span className="mr-4 font-semibold">기타</span>
+          {item.note || item.modelName || item.spec || item.unit}
+        </td>
       </tr>
     );
   }
 
-  if (!isDoorPair) {
+  if (isDoorSetPair(item)) {
+    const setQuantity = item.quantity ? `${formatNumber(item.quantity)}SET` : '';
+    const itemModelName = (item.vendorName || order?.doorModelName || '').trim();
+    return (
+      <Fragment key={`door-pair-${item.id}`}>
+        <tr onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+          <td className={cellClass}>{numberLabel}. 프레임</td>
+          <td className={centerClass}>{item.modelName}</td>
+          <td className={centerClass}>{itemModelName}</td>
+          <td className={centerClass}>{item.unit}</td>
+          <td className={centerClass}>{setQuantity}</td>
+        </tr>
+        <tr onDoubleClick={() => onEdit?.(item)} className={onEdit ? 'cursor-pointer hover:bg-[#fff8e8]' : ''}>
+          <td className={cellClass}>{numberLabel}. 도어</td>
+          <td className={centerClass}>{item.spec}</td>
+          <td className={centerClass} colSpan={3}>{item.note}</td>
+        </tr>
+      </Fragment>
+    );
+  }
+
+  if (isDoorSingleSpecItem(item)) {
+    return (
+      <tr key={`door-single-spec-${item.id}`} onDoubleClick={() => onEdit?.(item)} className={rowClass}>
+        <td className={cellClass}>{accessoryLabel}</td>
+        <td className={centerClass} colSpan={2}>{item.modelName || item.spec}</td>
+        <td className={centerClass}>{item.note}</td>
+        <td className={centerClass}>{quantityLabel}</td>
+      </tr>
+    );
+  }
+
+  {
     const label = explicitLabel ? `${numberLabel}. ${explicitLabel}` : accessoryLabel;
-    const tail = [item.quantity ? formatNumber(item.quantity) : '', item.unit || ''].filter(Boolean).join('');
     return (
       <tr key={`door-single-${item.id}`} onDoubleClick={() => onEdit?.(item)} className={rowClass}>
         <td className={cellClass}>{label}</td>
         <td className={centerClass}>{item.modelName}</td>
         <td className={centerClass}>{item.spec}</td>
         <td className={centerClass}>{item.unit}</td>
-        <td className={centerClass}>{item.note || tail}</td>
+        <td className={centerClass}>{item.note || quantityLabel}</td>
       </tr>
     );
   }
+}
 
-  return (
-    <Fragment key={`door-pair-${item.id}`}>
-      <tr onDoubleClick={() => onEdit?.(item)} className={rowClass}>
-        <td className={cellClass}>{numberLabel}. 프레임</td>
-        <td className={centerClass} colSpan={2}>{item.modelName}</td>
-        <td className={centerClass}>{item.unit}</td>
-        <td className={centerClass}>{quantityLabel}</td>
-      </tr>
-      <tr onDoubleClick={() => onEdit?.(item)} className={rowClass}>
-        <td className={cellClass}>{numberLabel}. 도어</td>
-        <td className={centerClass} colSpan={2}>{item.spec}</td>
-        <td className={centerClass} colSpan={2}>{item.note}</td>
-      </tr>
-    </Fragment>
-  );
+function isDoorSetPair(item: PurchaseOrderItem) {
+  const category = (item.category || '').trim();
+  return /^\d+$/.test(category);
+}
+
+function isDoorEtcItem(item: PurchaseOrderItem) {
+  return normalizeDoorCategory(item.category) === '기타';
+}
+
+function isDoorSingleSpecItem(item: PurchaseOrderItem) {
+  return /평판|걸레받이|부자재|자재|몰딩|시멘트|타일|벽타일|바닥타일/.test(normalizeDoorCategory(item.category));
+}
+
+function isDoorGroupBreak(item: PurchaseOrderItem, previousItem?: PurchaseOrderItem) {
+  if (!previousItem) return false;
+  return doorGroupKey(item) !== doorGroupKey(previousItem);
+}
+
+function doorGroupKey(item: PurchaseOrderItem) {
+  const category = (item.category || '').trim();
+  const numberedMatch = category.match(/^(\d+)(?:[.\s-]+)?(.*)$/);
+  if (numberedMatch?.[1]) return `number-${numberedMatch[1]}`;
+  return normalizeDoorCategory(category || item.modelName || item.spec);
+}
+
+function normalizeDoorCategory(value: string) {
+  return value.replace(/\s+/g, '').trim();
+}
+
+function formatQuantityWithUnit(quantity: number, unit: string) {
+  const hasQuantity = Number.isFinite(Number(quantity)) && Number(quantity) !== 0;
+  return [hasQuantity ? formatNumber(quantity) : '', unit || ''].filter(Boolean).join('');
 }
 
 function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: Site }) {
@@ -5005,10 +5094,10 @@ function estimateVersionRank(type?: string) {
 
 function sortEstimateVersions(estimates: SiteEstimate[]) {
   return [...estimates].sort((a, b) => {
-    const createdDiff = estimateCreatedTime(b) - estimateCreatedTime(a);
-    if (createdDiff !== 0) return createdDiff;
     const updatedDiff = estimateUpdatedTime(b) - estimateUpdatedTime(a);
     if (updatedDiff !== 0) return updatedDiff;
+    const createdDiff = estimateCreatedTime(b) - estimateCreatedTime(a);
+    if (createdDiff !== 0) return createdDiff;
     return estimateVersionRank(a.versionType) - estimateVersionRank(b.versionType);
   });
 }
@@ -5086,6 +5175,19 @@ function getPurchaseOrderVisibleColumns(order: Partial<PurchaseOrder>): Purchase
 function purchaseOrderColumnLabel(labels: PurchaseOrderColumnLabels, column: PurchaseOrderTableColumn) {
   if (column === 'note') return '비고';
   return labels[column];
+}
+
+function doorPurchaseDraftColumnLabel(column: PurchaseOrderTableColumn) {
+  const labels: Partial<Record<PurchaseOrderTableColumn, string>> = {
+    category: '번호/항목',
+    modelName: '프레임 규격 / 단일 규격',
+    spec: '도어 규격 / 모델명',
+    quantity: '세트 수량 / 수량',
+    unit: '프레임 옵션 / 단위',
+    amount: '금액',
+    note: '도어 옵션 / 기타 내용',
+  };
+  return labels[column] || column;
 }
 
 function purchaseOrderColumnWidth(order: Partial<PurchaseOrder>, column: PurchaseOrderTableColumn) {
