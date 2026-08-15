@@ -382,11 +382,17 @@ export async function POST(request: Request) {
 
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: '메일 전송 키(RESEND_API_KEY)가 설정되어 있지 않습니다. 상담 요청은 관리자 페이지에 저장되었습니다.', kakaoNotification }, { status: 500 });
+      console.warn('RESEND_API_KEY가 없어 상담 접수 메일을 건너뜁니다.');
+      return NextResponse.json({
+        ok: true,
+        kakaoNotification,
+        emailNotification: { ok: false, skipped: 'not-configured' },
+      });
     }
 
-    const resend = new Resend(apiKey);
-    const { data, error } = await resend.emails.send({
+    try {
+      const resend = new Resend(apiKey);
+      const { data, error } = await resend.emails.send({
       from: 'WEVE DESIGN <onboarding@resend.dev>',
       to: [toEmail],
       subject: `[WEVE DESIGN 상담 신청] ${name} / ${propertyType} / ${areaRange}`,
@@ -411,18 +417,37 @@ export async function POST(request: Request) {
           </div>
         </div>
       `,
-    });
+      });
 
-    if (error) {
-      const errorMessage =
-        typeof error === 'string'
-          ? error
-          : '메일 전송에 실패했습니다. Resend 발신/수신 설정을 확인해 주세요. 상담 요청은 관리자 페이지에 저장되었습니다.';
+      if (error) {
+        const errorMessage =
+          typeof error === 'string'
+            ? error
+            : 'Resend 발신/수신 설정을 확인해 주세요.';
 
-      return NextResponse.json({ error: errorMessage }, { status: 500 });
+        console.error('상담 접수 메일 발송 실패', error);
+        return NextResponse.json({
+          ok: true,
+          kakaoNotification,
+          emailNotification: { ok: false, error: errorMessage },
+        });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        data,
+        kakaoNotification,
+        emailNotification: { ok: true },
+      });
+    } catch (emailError) {
+      const errorMessage = emailError instanceof Error ? emailError.message : '메일 발송 오류';
+      console.error('상담 접수 메일 발송 오류', emailError);
+      return NextResponse.json({
+        ok: true,
+        kakaoNotification,
+        emailNotification: { ok: false, error: errorMessage },
+      });
     }
-
-    return NextResponse.json({ data, kakaoNotification });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });
