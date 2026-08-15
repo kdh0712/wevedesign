@@ -21,12 +21,36 @@ type ConsultationPayload = {
   source?: string;
 };
 
+type ConsultationNotificationFields = {
+  name: string;
+  phone: string;
+  source: string;
+  fullAddress: string;
+  propertyType: string;
+  areaRange: string;
+  homeStatus: string;
+  reason: string;
+  budget: string;
+  timeline: string;
+  message: string;
+};
+
+type AligoResponse = {
+  result_code?: string | number;
+  code?: string | number;
+  message?: string;
+  msg?: string;
+  [key: string]: unknown;
+};
+
 const consultationSources: Record<string, string> = {
   'kakao-channel': '카카오 채널',
   'naver-place': '네이버 플레이스',
   blog: '블로그',
   instagram: '인스타그램',
 };
+
+const ALIGO_API_URL = process.env.ALIGO_API_URL || 'https://kakaoapi.aligo.in/akv10/alimtalk/send/';
 
 const escapeHtml = (value: string) =>
   value
@@ -58,6 +82,134 @@ const fieldRow = (label: string, value: string) => `
     <td style="padding:10px 12px; border-bottom:1px solid #e7dece;">${escapeHtml(value || '-')}</td>
   </tr>
 `;
+
+function normalizePhone(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function isAligoSuccess(payload: AligoResponse) {
+  const rawCode = payload.result_code ?? payload.code;
+  if (rawCode === undefined || rawCode === null || rawCode === '') return true;
+  const code = String(rawCode);
+  return code === '1' || code === '0' || code.toLowerCase() === 'success';
+}
+
+function consultationSummary(fields: ConsultationNotificationFields) {
+  return [
+    '[WEVE DESIGN 신규 상담]',
+    `이름: ${fields.name}`,
+    `연락처: ${fields.phone}`,
+    `유입 경로: ${fields.source}`,
+    `주소: ${fields.fullAddress}`,
+    `공간: ${fields.propertyType}`,
+    `평수: ${fields.areaRange}`,
+    `상태: ${fields.homeStatus}`,
+    `이유: ${fields.reason}`,
+    `예산: ${fields.budget}`,
+    `희망일: ${fields.timeline}`,
+    `요청사항: ${fields.message || '없음'}`,
+  ].join('\n');
+}
+
+function fillConsultationTemplate(template: string, fields: ConsultationNotificationFields) {
+  const summary = consultationSummary(fields);
+  return template
+    .replaceAll('#{상담내용}', summary)
+    .replaceAll('{상담내용}', summary)
+    .replaceAll('{{summary}}', summary)
+    .replaceAll('#{고객명}', fields.name)
+    .replaceAll('{고객명}', fields.name)
+    .replaceAll('{{name}}', fields.name)
+    .replaceAll('#{연락처}', fields.phone)
+    .replaceAll('{연락처}', fields.phone)
+    .replaceAll('{{phone}}', fields.phone)
+    .replaceAll('#{주소}', fields.fullAddress)
+    .replaceAll('{주소}', fields.fullAddress)
+    .replaceAll('{{address}}', fields.fullAddress)
+    .replaceAll('#{공간}', fields.propertyType)
+    .replaceAll('{공간}', fields.propertyType)
+    .replaceAll('{{propertyType}}', fields.propertyType)
+    .replaceAll('#{평수}', fields.areaRange)
+    .replaceAll('{평수}', fields.areaRange)
+    .replaceAll('{{areaRange}}', fields.areaRange)
+    .replaceAll('#{예산}', fields.budget)
+    .replaceAll('{예산}', fields.budget)
+    .replaceAll('{{budget}}', fields.budget)
+    .replaceAll('#{희망일}', fields.timeline)
+    .replaceAll('{희망일}', fields.timeline)
+    .replaceAll('{{timeline}}', fields.timeline);
+}
+
+async function sendConsultationKakaoNotification(fields: ConsultationNotificationFields) {
+  const enabled = (process.env.ALIGO_CONSULTATION_ENABLED || '').trim().toLowerCase();
+  if (enabled === 'false' || enabled === '0') return { ok: false, skipped: 'disabled' };
+
+  const receiverPhone = normalizePhone(
+    process.env.ALIGO_CONSULTATION_RECEIVER_PHONE ||
+      process.env.KAKAO_CONSULTATION_RECEIVER_PHONE ||
+      process.env.CONSULTATION_NOTIFY_PHONE ||
+      '',
+  );
+  const messageTemplate = process.env.ALIGO_CONSULTATION_MESSAGE_TEMPLATE?.trim() || '';
+  const templateCode = process.env.ALIGO_CONSULTATION_TEMPLATE_CODE?.trim() || '';
+  const senderPhone = process.env.ALIGO_SENDER_PHONE?.trim() || '';
+  const requiredEntries = [
+    ['ALIGO_API_KEY', process.env.ALIGO_API_KEY?.trim()],
+    ['ALIGO_USER_ID', process.env.ALIGO_USER_ID?.trim()],
+    ['ALIGO_SENDER_KEY', process.env.ALIGO_SENDER_KEY?.trim()],
+    ['ALIGO_SENDER_PHONE', senderPhone],
+    ['ALIGO_CONSULTATION_TEMPLATE_CODE', templateCode],
+    ['ALIGO_CONSULTATION_MESSAGE_TEMPLATE', messageTemplate],
+    ['ALIGO_CONSULTATION_RECEIVER_PHONE', receiverPhone],
+  ];
+  const hasAnyConsultationConfig = requiredEntries.some(([, value]) => Boolean(value));
+
+  if (!hasAnyConsultationConfig) return { ok: false, skipped: 'not-configured' };
+
+  const missing = requiredEntries.filter(([, value]) => !value).map(([name]) => name);
+  if (missing.length > 0) {
+    console.warn(`상담 알림톡 설정이 부족합니다: ${missing.join(', ')}`);
+    return { ok: false, skipped: 'missing-config', missing };
+  }
+
+  const form = new URLSearchParams();
+  form.set('apikey', process.env.ALIGO_API_KEY!.trim());
+  form.set('userid', process.env.ALIGO_USER_ID!.trim());
+  form.set('senderkey', process.env.ALIGO_SENDER_KEY!.trim());
+  form.set('tpl_code', templateCode);
+  form.set('sender', senderPhone);
+  form.set('receiver_1', receiverPhone);
+  form.set('recvname_1', 'WEVE DESIGN');
+  form.set('subject_1', process.env.ALIGO_CONSULTATION_SUBJECT?.trim() || '신규 상담 요청');
+  form.set('message_1', fillConsultationTemplate(messageTemplate, fields));
+
+  if (process.env.ALIGO_TEST_MODE === 'Y') form.set('testMode', 'Y');
+
+  try {
+    const response = await fetch(ALIGO_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: form,
+    });
+    const text = await response.text();
+    let providerResponse: AligoResponse = {};
+    try {
+      providerResponse = text ? (JSON.parse(text) as AligoResponse) : {};
+    } catch {
+      providerResponse = { message: text };
+    }
+
+    if (!response.ok || !isAligoSuccess(providerResponse)) {
+      console.error('상담 알림톡 발송 실패', providerResponse);
+      return { ok: false, error: providerResponse.message || providerResponse.msg || `HTTP ${response.status}` };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    console.error('상담 알림톡 발송 오류', error);
+    return { ok: false, error: error instanceof Error ? error.message : '알림톡 발송 오류' };
+  }
+}
 
 export async function POST(request: Request) {
   try {
@@ -129,9 +281,23 @@ export async function POST(request: Request) {
       await writeClient.create(consultationRecord);
     }
 
+    const kakaoNotification = await sendConsultationKakaoNotification({
+      name,
+      phone,
+      source,
+      fullAddress,
+      propertyType,
+      areaRange,
+      homeStatus,
+      reason,
+      budget,
+      timeline,
+      message,
+    });
+
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: '메일 전송 키(RESEND_API_KEY)가 설정되어 있지 않습니다. 상담 요청은 관리자 페이지에 저장되었습니다.' }, { status: 500 });
+      return NextResponse.json({ error: '메일 전송 키(RESEND_API_KEY)가 설정되어 있지 않습니다. 상담 요청은 관리자 페이지에 저장되었습니다.', kakaoNotification }, { status: 500 });
     }
 
     const resend = new Resend(apiKey);
@@ -171,7 +337,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: errorMessage }, { status: 500 });
     }
 
-    return NextResponse.json({ data });
+    return NextResponse.json({ data, kakaoNotification });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: '서버 오류가 발생했습니다.' }, { status: 500 });

@@ -2382,10 +2382,12 @@ export default function WeveDesignLanding({
 }
 
 function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopupItem>[] {
+  const hasManagedPopupList = Array.isArray(settings.popups);
+  const hasLegacyPopupContent = Boolean(settings.popupTitle || settings.popupBody || settings.popupImage);
   const source =
-    Array.isArray(settings.popups) && settings.popups.length > 0
-      ? settings.popups
-      : settings.popupEnabled === 'true' || settings.popupTitle || settings.popupBody || settings.popupImage
+    hasManagedPopupList
+      ? settings.popups || []
+      : settings.popupEnabled === 'true' && hasLegacyPopupContent
         ? [
             {
               _key: 'popup-main',
@@ -2408,7 +2410,7 @@ function normalizeHomepagePopups(settings: SiteSettings): Required<HomepagePopup
 
   return source.map((popup, index) => ({
     _key: popup._key || `popup-${index + 1}`,
-    enabled: popup.enabled || 'false',
+    enabled: String(popup.enabled || 'false').trim(),
     layout: popup.layout || 'imageTop',
     position: settings.popupPosition || popup.position || 'center',
     width: popup.width || '520',

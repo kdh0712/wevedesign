@@ -5041,10 +5041,12 @@ function popupElementPresetValue(element?: PopupCanvasElementDraft) {
 }
 
 function normalizePopupItems(settings: PopupCollectionDraft): PopupItemDraft[] {
+  const hasManagedPopupList = Array.isArray(settings.popups);
+  const hasLegacyPopupContent = Boolean(settings.popupTitle || settings.popupBody || settings.popupImage);
   const source =
-    Array.isArray(settings.popups) && settings.popups.length > 0
+    hasManagedPopupList && settings.popups && settings.popups.length > 0
       ? settings.popups
-      : settings.popupEnabled === 'true' || settings.popupTitle || settings.popupBody || settings.popupImage
+      : !hasManagedPopupList && settings.popupEnabled === 'true' && hasLegacyPopupContent
         ? [
             {
               _key: 'popup-main',

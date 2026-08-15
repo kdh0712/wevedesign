@@ -29,6 +29,23 @@ KAKAO_BIZFORM_PLUS_ID=MA-0000
 
 Redeploy after adding or changing environment variables.
 
+## Consultation Kakao Notification
+
+New homepage consultation requests can also send an Aligo Kakao Alimtalk notification to the manager phone after the request is saved. The Alimtalk template must be approved before use.
+
+```text
+ALIGO_API_KEY=
+ALIGO_USER_ID=
+ALIGO_SENDER_KEY=
+ALIGO_SENDER_PHONE=
+ALIGO_CONSULTATION_RECEIVER_PHONE=
+ALIGO_CONSULTATION_TEMPLATE_CODE=
+ALIGO_CONSULTATION_MESSAGE_TEMPLATE=
+ALIGO_CONSULTATION_SUBJECT=신규 상담 요청
+```
+
+Supported template placeholders include `#{상담내용}`, `#{고객명}`, `#{연락처}`, `#{주소}`, `#{공간}`, `#{평수}`, `#{예산}`, and `#{희망일}`. Set `ALIGO_CONSULTATION_ENABLED=false` to disable this notification without removing credentials.
+
 ## Import Behavior
 
 - Endpoint: `POST /api/integrations/kakao-bizform/sync`
