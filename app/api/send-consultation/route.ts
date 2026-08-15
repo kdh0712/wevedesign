@@ -391,12 +391,13 @@ export async function POST(request: Request) {
     }
 
     try {
+      const fromEmail = process.env.RESEND_FROM_EMAIL?.trim() || 'onboarding@resend.dev';
       const resend = new Resend(apiKey);
       const { data, error } = await resend.emails.send({
-      from: 'WEVE DESIGN <onboarding@resend.dev>',
-      to: [toEmail],
-      subject: `[WEVE DESIGN 상담 신청] ${name} / ${propertyType} / ${areaRange}`,
-      html: `
+        from: `WEVE DESIGN <${fromEmail}>`,
+        to: [toEmail],
+        subject: `[WEVE DESIGN 상담 신청] ${name} / ${propertyType} / ${areaRange}`,
+        html: `
         <div style="font-family: Arial, sans-serif; line-height:1.7; color:#171512;">
           <h2 style="margin:0 0 20px; color:#171512;">새 상담 신청이 접수되었습니다.</h2>
           <table style="width:100%; max-width:720px; border-collapse:collapse; border-top:2px solid #171512;">

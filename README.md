@@ -34,7 +34,8 @@ npm run dev
 
 ```bash
 RESEND_API_KEY=your_resend_api_key
+RESEND_FROM_EMAIL=consultation@your-verified-domain.com
 CONSULTATION_TO_EMAIL=ehogh1@gmail.com
 ```
 
-배포 환경에서도 같은 환경변수를 등록해야 상담 폼이 정상 동작합니다.
+`RESEND_FROM_EMAIL`에는 Resend에서 인증을 완료한 도메인의 발신 주소를 입력합니다. 배포 환경에서도 같은 환경변수를 등록해야 상담 메일이 정상 발송됩니다.
