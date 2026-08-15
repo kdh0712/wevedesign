@@ -2086,7 +2086,7 @@ export default function WeveDesignLanding({
                     <Check size={34} />
                   </div>
                   <h3 className="text-3xl font-semibold">상담 신청이 접수되었습니다.</h3>
-                  <p className="mt-4 max-w-md text-[#625d54]">관리자 페이지의 상담 요청에 저장했고, 담당자가 확인 후 빠르게 연락드리겠습니다.</p>
+                  <p className="mt-4 max-w-md text-[#625d54]">담당자가 확인 후 빠르게 연락드리겠습니다.</p>
                   <button
                     onClick={() => {
                       setIsSubmitted(false);
