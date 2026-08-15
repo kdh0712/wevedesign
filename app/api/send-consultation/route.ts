@@ -43,6 +43,19 @@ type AligoResponse = {
   [key: string]: unknown;
 };
 
+type AligoRecipient = {
+  phone: string;
+  name: string;
+};
+
+type AligoTemplateRequest = {
+  recipients: AligoRecipient[];
+  templateCode: string;
+  messageTemplate: string;
+  subject: string;
+  fields: ConsultationNotificationFields;
+};
+
 const consultationSources: Record<string, string> = {
   'kakao-channel': '카카오 채널',
   'naver-place': '네이버 플레이스',
@@ -85,6 +98,17 @@ const fieldRow = (label: string, value: string) => `
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, '');
+}
+
+function parsePhoneList(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,;|\n]+/)
+        .map(normalizePhone)
+        .filter(Boolean),
+    ),
+  );
 }
 
 function isAligoSuccess(payload: AligoResponse) {
@@ -140,32 +164,23 @@ function fillConsultationTemplate(template: string, fields: ConsultationNotifica
     .replaceAll('{{timeline}}', fields.timeline);
 }
 
-async function sendConsultationKakaoNotification(fields: ConsultationNotificationFields) {
-  const enabled = (process.env.ALIGO_CONSULTATION_ENABLED || '').trim().toLowerCase();
-  if (enabled === 'false' || enabled === '0') return { ok: false, skipped: 'disabled' };
-
-  const receiverPhone = normalizePhone(
-    process.env.ALIGO_CONSULTATION_RECEIVER_PHONE ||
-      process.env.KAKAO_CONSULTATION_RECEIVER_PHONE ||
-      process.env.CONSULTATION_NOTIFY_PHONE ||
-      '',
-  );
-  const messageTemplate = process.env.ALIGO_CONSULTATION_MESSAGE_TEMPLATE?.trim() || '';
-  const templateCode = process.env.ALIGO_CONSULTATION_TEMPLATE_CODE?.trim() || '';
+async function sendAligoTemplate({
+  recipients,
+  templateCode,
+  messageTemplate,
+  subject,
+  fields,
+}: AligoTemplateRequest) {
   const senderPhone = process.env.ALIGO_SENDER_PHONE?.trim() || '';
   const requiredEntries = [
     ['ALIGO_API_KEY', process.env.ALIGO_API_KEY?.trim()],
     ['ALIGO_USER_ID', process.env.ALIGO_USER_ID?.trim()],
     ['ALIGO_SENDER_KEY', process.env.ALIGO_SENDER_KEY?.trim()],
     ['ALIGO_SENDER_PHONE', senderPhone],
-    ['ALIGO_CONSULTATION_TEMPLATE_CODE', templateCode],
-    ['ALIGO_CONSULTATION_MESSAGE_TEMPLATE', messageTemplate],
-    ['ALIGO_CONSULTATION_RECEIVER_PHONE', receiverPhone],
+    ['templateCode', templateCode],
+    ['messageTemplate', messageTemplate],
+    ['recipients', recipients.length > 0 ? 'configured' : ''],
   ];
-  const hasAnyConsultationConfig = requiredEntries.some(([, value]) => Boolean(value));
-
-  if (!hasAnyConsultationConfig) return { ok: false, skipped: 'not-configured' };
-
   const missing = requiredEntries.filter(([, value]) => !value).map(([name]) => name);
   if (missing.length > 0) {
     console.warn(`상담 알림톡 설정이 부족합니다: ${missing.join(', ')}`);
@@ -178,10 +193,15 @@ async function sendConsultationKakaoNotification(fields: ConsultationNotificatio
   form.set('senderkey', process.env.ALIGO_SENDER_KEY!.trim());
   form.set('tpl_code', templateCode);
   form.set('sender', senderPhone);
-  form.set('receiver_1', receiverPhone);
-  form.set('recvname_1', 'WEVE DESIGN');
-  form.set('subject_1', process.env.ALIGO_CONSULTATION_SUBJECT?.trim() || '신규 상담 요청');
-  form.set('message_1', fillConsultationTemplate(messageTemplate, fields));
+
+  const message = fillConsultationTemplate(messageTemplate, fields);
+  recipients.forEach((recipient, index) => {
+    const suffix = index + 1;
+    form.set(`receiver_${suffix}`, recipient.phone);
+    form.set(`recvname_${suffix}`, recipient.name);
+    form.set(`subject_${suffix}`, subject);
+    form.set(`message_${suffix}`, message);
+  });
 
   if (process.env.ALIGO_TEST_MODE === 'Y') form.set('testMode', 'Y');
 
@@ -209,6 +229,71 @@ async function sendConsultationKakaoNotification(fields: ConsultationNotificatio
     console.error('상담 알림톡 발송 오류', error);
     return { ok: false, error: error instanceof Error ? error.message : '알림톡 발송 오류' };
   }
+}
+
+async function sendConsultationKakaoNotifications(fields: ConsultationNotificationFields) {
+  const enabled = (process.env.ALIGO_CONSULTATION_ENABLED || '').trim().toLowerCase();
+  if (enabled === 'false' || enabled === '0') {
+    return {
+      admin: { ok: false, skipped: 'disabled' },
+      customer: { ok: false, skipped: 'disabled' },
+    };
+  }
+
+  const adminEnabled = (process.env.ALIGO_CONSULTATION_ADMIN_ENABLED || '').trim().toLowerCase();
+  const adminPhones = parsePhoneList(
+    process.env.ALIGO_CONSULTATION_ADMIN_RECEIVER_PHONES ||
+      process.env.ALIGO_CONSULTATION_RECEIVER_PHONE ||
+      process.env.KAKAO_CONSULTATION_RECEIVER_PHONE ||
+      process.env.CONSULTATION_NOTIFY_PHONE ||
+      '',
+  );
+  const adminTemplateCode =
+    process.env.ALIGO_CONSULTATION_ADMIN_TEMPLATE_CODE?.trim() ||
+    process.env.ALIGO_CONSULTATION_TEMPLATE_CODE?.trim() ||
+    '';
+  const adminMessageTemplate =
+    process.env.ALIGO_CONSULTATION_ADMIN_MESSAGE_TEMPLATE?.trim() ||
+    process.env.ALIGO_CONSULTATION_MESSAGE_TEMPLATE?.trim() ||
+    '';
+  const hasAdminConfig = Boolean(adminPhones.length || adminTemplateCode || adminMessageTemplate);
+
+  const customerEnabled = (process.env.ALIGO_CONSULTATION_CUSTOMER_ENABLED || '').trim().toLowerCase();
+  const customerTemplateCode = process.env.ALIGO_CONSULTATION_CUSTOMER_TEMPLATE_CODE?.trim() || '';
+  const customerMessageTemplate = process.env.ALIGO_CONSULTATION_CUSTOMER_MESSAGE_TEMPLATE?.trim() || '';
+  const hasCustomerConfig = Boolean(customerTemplateCode || customerMessageTemplate);
+
+  const adminPromise =
+    adminEnabled === 'false' || adminEnabled === '0'
+      ? Promise.resolve({ ok: false, skipped: 'disabled' })
+      : !hasAdminConfig
+        ? Promise.resolve({ ok: false, skipped: 'not-configured' })
+        : sendAligoTemplate({
+            recipients: adminPhones.map((phone) => ({ phone, name: 'WEVE DESIGN' })),
+            templateCode: adminTemplateCode,
+            messageTemplate: adminMessageTemplate,
+            subject:
+              process.env.ALIGO_CONSULTATION_ADMIN_SUBJECT?.trim() ||
+              process.env.ALIGO_CONSULTATION_SUBJECT?.trim() ||
+              '신규 상담 요청',
+            fields,
+          });
+
+  const customerPromise =
+    customerEnabled === 'false' || customerEnabled === '0'
+      ? Promise.resolve({ ok: false, skipped: 'disabled' })
+      : !hasCustomerConfig
+        ? Promise.resolve({ ok: false, skipped: 'not-configured' })
+        : sendAligoTemplate({
+            recipients: [{ phone: normalizePhone(fields.phone), name: fields.name }],
+            templateCode: customerTemplateCode,
+            messageTemplate: customerMessageTemplate,
+            subject: process.env.ALIGO_CONSULTATION_CUSTOMER_SUBJECT?.trim() || '상담 접수 완료',
+            fields,
+          });
+
+  const [admin, customer] = await Promise.all([adminPromise, customerPromise]);
+  return { admin, customer };
 }
 
 export async function POST(request: Request) {
@@ -281,7 +366,7 @@ export async function POST(request: Request) {
       await writeClient.create(consultationRecord);
     }
 
-    const kakaoNotification = await sendConsultationKakaoNotification({
+    const kakaoNotification = await sendConsultationKakaoNotifications({
       name,
       phone,
       source,
