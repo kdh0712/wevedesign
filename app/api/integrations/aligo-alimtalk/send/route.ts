@@ -18,11 +18,6 @@ type AligoResponse = {
 };
 
 const ALIGO_API_URL = process.env.ALIGO_API_URL || 'https://kakaoapi.aligo.in/akv10/alimtalk/send/';
-const DEFAULT_CONTRACT_BUTTON = {
-  name: '계약 정보 확인',
-  linkType: 'BK',
-  linkTypeName: '봇키워드',
-};
 
 function requireEnv(name: string) {
   const value = process.env[name]?.trim();
@@ -68,12 +63,23 @@ export async function POST(request: Request) {
       return Response.json({ error: '고객 전화번호가 올바르지 않습니다.' }, { status: 400 });
     }
 
+    const templateCode =
+      process.env.ALIGO_CONSULTATION_CUSTOMER_TEMPLATE_CODE?.trim() ||
+      process.env.ALIGO_CONTRACT_TEMPLATE_CODE?.trim();
+    if (!templateCode) {
+      return Response.json(
+        { error: 'ALIGO_CONSULTATION_CUSTOMER_TEMPLATE_CODE 환경변수에 승인된 계약 완료 템플릿 코드를 설정해 주세요.' },
+        { status: 500 },
+      );
+    }
+
     const messageTemplate =
+      process.env.ALIGO_CONSULTATION_CUSTOMER_MESSAGE_TEMPLATE?.trim() ||
       process.env.ALIGO_CONTRACT_MESSAGE_TEMPLATE?.trim() ||
       process.env.ALIGO_CONTRACT_TEMPLATE_MESSAGE?.trim();
     if (!messageTemplate) {
       return Response.json(
-        { error: 'ALIGO_CONTRACT_MESSAGE_TEMPLATE 환경변수에 승인된 계약 완료 안내 템플릿 문구를 설정해 주세요.' },
+        { error: 'ALIGO_CONSULTATION_CUSTOMER_MESSAGE_TEMPLATE 환경변수에 승인된 계약 완료 안내 템플릿 문구를 설정해 주세요.' },
         { status: 500 },
       );
     }
@@ -82,13 +88,21 @@ export async function POST(request: Request) {
     form.set('apikey', requireEnv('ALIGO_API_KEY'));
     form.set('userid', requireEnv('ALIGO_USER_ID'));
     form.set('senderkey', requireEnv('ALIGO_SENDER_KEY'));
-    form.set('tpl_code', requireEnv('ALIGO_CONTRACT_TEMPLATE_CODE'));
+    form.set('tpl_code', templateCode);
     form.set('sender', requireEnv('ALIGO_SENDER_PHONE'));
     form.set('receiver_1', customerPhone);
     form.set('recvname_1', customerName);
-    form.set('subject_1', process.env.ALIGO_CONTRACT_SUBJECT?.trim() || '계약 완료 안내');
+    form.set(
+      'subject_1',
+      process.env.ALIGO_CONSULTATION_CUSTOMER_SUBJECT?.trim() ||
+        process.env.ALIGO_CONTRACT_SUBJECT?.trim() ||
+        '계약 완료 안내',
+    );
     form.set('message_1', fillTemplate(messageTemplate, { customerName, customerPhone }));
-    form.set('button_1', process.env.ALIGO_CONTRACT_BUTTON_JSON?.trim() || JSON.stringify(DEFAULT_CONTRACT_BUTTON));
+    const buttonJson =
+      process.env.ALIGO_CONSULTATION_CUSTOMER_BUTTON_JSON?.trim() ||
+      process.env.ALIGO_CONTRACT_BUTTON_JSON?.trim();
+    if (buttonJson) form.set('button_1', buttonJson);
 
     if (process.env.ALIGO_TEST_MODE === 'Y') form.set('testMode', 'Y');
 

@@ -236,7 +236,6 @@ async function sendConsultationKakaoNotifications(fields: ConsultationNotificati
   if (enabled === 'false' || enabled === '0') {
     return {
       admin: { ok: false, skipped: 'disabled' },
-      customer: { ok: false, skipped: 'disabled' },
     };
   }
 
@@ -258,42 +257,25 @@ async function sendConsultationKakaoNotifications(fields: ConsultationNotificati
     '';
   const hasAdminConfig = Boolean(adminPhones.length || adminTemplateCode || adminMessageTemplate);
 
-  const customerEnabled = (process.env.ALIGO_CONSULTATION_CUSTOMER_ENABLED || '').trim().toLowerCase();
-  const customerTemplateCode = process.env.ALIGO_CONSULTATION_CUSTOMER_TEMPLATE_CODE?.trim() || '';
-  const customerMessageTemplate = process.env.ALIGO_CONSULTATION_CUSTOMER_MESSAGE_TEMPLATE?.trim() || '';
-  const hasCustomerConfig = Boolean(customerTemplateCode || customerMessageTemplate);
+  if (adminEnabled === 'false' || adminEnabled === '0') {
+    return { admin: { ok: false, skipped: 'disabled' } };
+  }
+  if (!hasAdminConfig) {
+    return { admin: { ok: false, skipped: 'not-configured' } };
+  }
 
-  const adminPromise =
-    adminEnabled === 'false' || adminEnabled === '0'
-      ? Promise.resolve({ ok: false, skipped: 'disabled' })
-      : !hasAdminConfig
-        ? Promise.resolve({ ok: false, skipped: 'not-configured' })
-        : sendAligoTemplate({
-            recipients: adminPhones.map((phone) => ({ phone, name: 'WEVE DESIGN' })),
-            templateCode: adminTemplateCode,
-            messageTemplate: adminMessageTemplate,
-            subject:
-              process.env.ALIGO_CONSULTATION_ADMIN_SUBJECT?.trim() ||
-              process.env.ALIGO_CONSULTATION_SUBJECT?.trim() ||
-              '신규 상담 요청',
-            fields,
-          });
+  const admin = await sendAligoTemplate({
+    recipients: adminPhones.map((phone) => ({ phone, name: 'WEVE DESIGN' })),
+    templateCode: adminTemplateCode,
+    messageTemplate: adminMessageTemplate,
+    subject:
+      process.env.ALIGO_CONSULTATION_ADMIN_SUBJECT?.trim() ||
+      process.env.ALIGO_CONSULTATION_SUBJECT?.trim() ||
+      '신규 상담 요청',
+    fields,
+  });
 
-  const customerPromise =
-    customerEnabled === 'false' || customerEnabled === '0'
-      ? Promise.resolve({ ok: false, skipped: 'disabled' })
-      : !hasCustomerConfig
-        ? Promise.resolve({ ok: false, skipped: 'not-configured' })
-        : sendAligoTemplate({
-            recipients: [{ phone: normalizePhone(fields.phone), name: fields.name }],
-            templateCode: customerTemplateCode,
-            messageTemplate: customerMessageTemplate,
-            subject: process.env.ALIGO_CONSULTATION_CUSTOMER_SUBJECT?.trim() || '상담 접수 완료',
-            fields,
-          });
-
-  const [admin, customer] = await Promise.all([adminPromise, customerPromise]);
-  return { admin, customer };
+  return { admin };
 }
 
 export async function POST(request: Request) {

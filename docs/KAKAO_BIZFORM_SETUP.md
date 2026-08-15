@@ -31,7 +31,7 @@ Redeploy after adding or changing environment variables.
 
 ## Consultation Kakao Notification
 
-New homepage consultation requests can send two separate Aligo Kakao Alimtalk messages after the request is saved: an internal notification to one or more manager phones and a confirmation to the customer phone entered in the consultation form. Each message uses its own approved Alimtalk template.
+New homepage consultation requests send an internal Aligo Kakao Alimtalk notification to one or more manager phones after the request is saved. The customer template is sent separately when a manager uses the contract-complete action.
 
 ```text
 ALIGO_API_KEY=
@@ -49,17 +49,18 @@ ALIGO_CONSULTATION_ADMIN_MESSAGE_TEMPLATE=
 ALIGO_CONSULTATION_ADMIN_SUBJECT=신규 상담 요청
 ```
 
-Configure the customer confirmation template separately. The receiver is automatically taken from the customer's consultation phone field:
+Configure the customer contract-complete template separately. The receiver is taken from the selected customer's phone field when the manager sends the contract-complete notification:
 
 ```text
 ALIGO_CONSULTATION_CUSTOMER_TEMPLATE_CODE=
 ALIGO_CONSULTATION_CUSTOMER_MESSAGE_TEMPLATE=
-ALIGO_CONSULTATION_CUSTOMER_SUBJECT=상담 접수 완료
+ALIGO_CONSULTATION_CUSTOMER_SUBJECT=계약 완료 안내
+ALIGO_CONSULTATION_CUSTOMER_BUTTON_JSON=
 ```
 
-Each message-template environment variable must exactly match its approved Alimtalk template text. Supported placeholders include `#{상담내용}`, `#{고객명}`, `#{연락처}`, `#{주소}`, `#{공간}`, `#{평수}`, `#{예산}`, and `#{희망일}`. The English aliases `{{summary}}`, `{{name}}`, `{{phone}}`, `{{address}}`, `{{propertyType}}`, `{{areaRange}}`, `{{budget}}`, and `{{timeline}}` are also supported.
+Each message-template environment variable must exactly match its approved Alimtalk template text. The manager template supports `#{상담내용}`, `#{고객명}`, `#{연락처}`, `#{주소}`, `#{공간}`, `#{평수}`, `#{예산}`, and `#{희망일}`. The customer contract-complete template supports `#{고객명}` and `#{연락처}`. Set the button JSON only when the approved customer template includes a button.
 
-Set `ALIGO_CONSULTATION_ENABLED=false` to disable both messages. Use `ALIGO_CONSULTATION_ADMIN_ENABLED=false` or `ALIGO_CONSULTATION_CUSTOMER_ENABLED=false` to disable only one side. The previous single-manager variables remain supported as manager-notification fallbacks.
+Set `ALIGO_CONSULTATION_ENABLED=false` to disable the automatic manager notification. The previous single-manager variables remain supported as manager-notification fallbacks, and the previous `ALIGO_CONTRACT_*` variables remain supported as contract-complete fallbacks.
 
 ## Import Behavior
 
