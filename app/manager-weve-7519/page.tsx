@@ -137,6 +137,7 @@ type Customer = {
   address?: string;
   status?: string;
   memo?: string;
+  contractAlimtalkSentAt?: string;
   createdAt?: string;
 };
 
@@ -1263,11 +1264,29 @@ export default function ManagerPage() {
           customerPhone: customer.phone || '',
         }),
       });
-      const data = await readJsonResponse<{ error?: string; providerMessage?: string }>(response);
+      const data = await readJsonResponse<{
+        error?: string;
+        providerMessage?: string;
+        sentAt?: string;
+        alreadySent?: boolean;
+        trackingWarning?: string;
+      }>(response);
       if (!response.ok) throw new Error(data.error || data.providerMessage || '알림톡 발송에 실패했습니다.');
 
+      const sentAt = data.sentAt || new Date().toISOString();
+      setOfficeData((current) => ({
+        ...current,
+        customers: current.customers.map((item) =>
+          item._id === customer._id ? { ...item, contractAlimtalkSentAt: sentAt } : item,
+        ),
+      }));
       setAlimtalkCustomer(null);
-      setStatus(`${customer.name || '고객'}님에게 계약 완료 안내 알림톡을 발송했습니다.`);
+      setStatus(
+        data.alreadySent
+          ? `${customer.name || '고객'}님의 계약 완료 안내 알림톡은 이미 전송 완료됐습니다.`
+          : `${customer.name || '고객'}님에게 계약 완료 안내 알림톡을 발송했습니다.`,
+      );
+      if (data.trackingWarning) setError(data.trackingWarning);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '알림톡 발송 중 오류가 발생했습니다.');
     } finally {
@@ -2265,7 +2284,19 @@ export default function ManagerPage() {
                     setError('고객과 함께 등록할 현장명을 직접 입력해 주세요.');
                     return;
                   }
-                  const savedCustomer = await saveOfficeRecord('customer', customerData, editingCustomerId || undefined);
+                  const existingCustomer = editingCustomerId
+                    ? officeData.customers.find((customer) => customer._id === editingCustomerId)
+                    : null;
+                  const savedCustomer = await saveOfficeRecord(
+                    'customer',
+                    {
+                      ...customerData,
+                      ...(existingCustomer?.contractAlimtalkSentAt
+                        ? { contractAlimtalkSentAt: existingCustomer.contractAlimtalkSentAt }
+                        : {}),
+                    },
+                    editingCustomerId || undefined,
+                  );
                   if (!savedCustomer) return;
 
                   const shouldCreateSite = Boolean(pendingConsultationForCustomer || siteTitle.trim() || (!editingCustomerId && (customerForm.address || customerForm.name)));
@@ -4762,6 +4793,7 @@ function AlimtalkActionModal({
   onOpenChat: (url?: string) => void;
 }) {
   const chatUrl = customer.chatRoomUrl || kakaoManagerUrl || '';
+  const contractSentAt = customer.contractAlimtalkSentAt || '';
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
@@ -4782,14 +4814,16 @@ function AlimtalkActionModal({
           <button
             type="button"
             onClick={onSendContract}
-            disabled={sending}
-            className="flex items-center justify-between gap-4 rounded-lg border border-[#e2c06d] bg-[#ffe29a] px-5 py-4 text-left font-semibold text-[#171512] shadow-[0_10px_24px_rgba(191,143,51,0.18)] transition hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-70"
+            disabled={sending || Boolean(contractSentAt)}
+            className="flex items-center justify-between gap-4 rounded-lg border border-[#e2c06d] bg-[#ffe29a] px-5 py-4 text-left font-semibold text-[#171512] shadow-[0_10px_24px_rgba(191,143,51,0.18)] transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0"
           >
             <span>
-              <span className="block text-base">1. 계약 완료 안내</span>
-              <span className="mt-1 block text-xs font-medium text-[#7d6740]">승인된 알리고 알림톡 템플릿으로 발송합니다.</span>
+              <span className="block text-base">{contractSentAt ? '1. 전송 완료' : '1. 계약 완료 안내'}</span>
+              <span className="mt-1 block text-xs font-medium text-[#7d6740]">
+                {contractSentAt ? `${formatDate(contractSentAt)} 전송 완료` : '승인된 알리고 알림톡 템플릿으로 발송합니다.'}
+              </span>
             </span>
-            {sending ? <Loader2 className="animate-spin" size={20} /> : <MessageCircle size={20} />}
+            {sending ? <Loader2 className="animate-spin" size={20} /> : contractSentAt ? <Check size={20} /> : <MessageCircle size={20} />}
           </button>
           <button
             type="button"
