@@ -616,6 +616,7 @@ export default function EstimateWorkspacePage() {
     : null;
   const estimateDocumentView: 'cover' | 'summary' | 'detail' =
     documentView === 'cover' || documentView === 'summary' ? documentView : 'detail';
+  const printPageOrientation: 'portrait' | 'landscape' = documentPurchaseOrder ? 'portrait' : 'landscape';
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
@@ -1631,7 +1632,7 @@ export default function EstimateWorkspacePage() {
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
       <style>{`
         @media print {
-          @page { size: A4 landscape; margin: 8mm 10mm; }
+          @page { size: A4 ${printPageOrientation}; margin: ${printPageOrientation === 'portrait' ? '10mm 12mm' : '8mm 10mm'}; }
           @page portraitPage { size: A4 portrait; margin: 10mm 12mm; }
           @page landscapePage { size: A4 landscape; margin: 8mm 10mm; }
           html, body, #main-content {
@@ -1702,24 +1703,37 @@ export default function EstimateWorkspacePage() {
             break-after: auto;
             page-break-after: auto;
           }
-          #estimate-print > .print-portrait {
+          #estimate-print.batch-print > .print-portrait {
             page: portraitPage;
             width: 186mm !important;
             height: 245mm !important;
             min-height: 0 !important;
             max-width: none !important;
           }
-          #estimate-print > .print-landscape {
+          #estimate-print.batch-print > .print-landscape {
             page: landscapePage;
             width: 277mm !important;
             height: 172mm !important;
             min-height: 0 !important;
             max-width: none !important;
           }
+          #estimate-print.batch-print > section:first-child {
+            page: auto;
+          }
+          #estimate-print:not(.batch-print) > .print-portrait,
+          #estimate-print:not(.batch-print) > .print-landscape {
+            page: auto;
+            width: 100% !important;
+            height: auto !important;
+            min-height: 0 !important;
+            max-width: none !important;
+          }
           #estimate-print > .print-detail {
+            overflow: visible !important;
+          }
+          #estimate-print.batch-print > .print-detail {
             height: 172mm !important;
             min-height: 0 !important;
-            overflow: visible !important;
             break-inside: avoid-page !important;
             page-break-inside: avoid !important;
           }
@@ -3593,8 +3607,17 @@ function DocumentBatchPrintModal({
     setSelectedKeys((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]));
   };
 
+  const orientationOfKey = (key: string): 'portrait' | 'landscape' =>
+    key === 'extras' || key.startsWith('purchase:') ? 'portrait' : 'landscape';
+  const firstOrientation = selectedKeys.length > 0 ? orientationOfKey(selectedKeys[0]) : 'landscape';
+
   return (
     <div className="fixed inset-0 z-[100] flex bg-[#e6eef2] text-[#171512]">
+      <style>{`
+        @media print {
+          @page { size: A4 ${firstOrientation}; margin: ${firstOrientation === 'portrait' ? '10mm 12mm' : '8mm 10mm'}; }
+        }
+      `}</style>
       <aside className="no-print w-[320px] shrink-0 overflow-auto border-r border-[#c7d3da] bg-white p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
