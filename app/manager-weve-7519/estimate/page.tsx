@@ -562,7 +562,7 @@ export default function EstimateWorkspacePage() {
   const [selectedLineId, setSelectedLineId] = useState('');
   const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
-  const [documentView, setDocumentView] = useState<'cover' | 'summary' | 'detail'>('detail');
+  const [documentView, setDocumentView] = useState<string>('detail');
   const [documentDetailPageIndex, setDocumentDetailPageIndex] = useState(0);
   const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
   const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
@@ -611,6 +611,11 @@ export default function EstimateWorkspacePage() {
   const sortedLines = useMemo(() => sortEstimateLines(filteredLines, lineGroupBy), [filteredLines, lineGroupBy]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal), [lines, totals.customerEstimateTotal]);
+  const documentPurchaseOrder = documentView.startsWith('purchase:')
+    ? purchaseOrders.find((order) => order.id === documentView.slice('purchase:'.length)) || null
+    : null;
+  const estimateDocumentView: 'cover' | 'summary' | 'detail' =
+    documentView === 'cover' || documentView === 'summary' ? documentView : 'detail';
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
@@ -1641,6 +1646,8 @@ export default function EstimateWorkspacePage() {
           }
           body *:has(#estimate-print) {
             display: block !important;
+            position: static !important;
+            inset: auto !important;
             width: auto !important;
             height: auto !important;
             min-height: 0 !important;
@@ -1671,9 +1678,9 @@ export default function EstimateWorkspacePage() {
             display: block !important;
             margin: 0 !important;
             max-width: none !important;
-            overflow: hidden !important;
-            break-inside: avoid-page;
-            page-break-inside: avoid;
+            overflow: visible !important;
+            break-inside: auto;
+            page-break-inside: auto;
           }
           #estimate-print:not(.batch-print) > section {
             break-after: auto;
@@ -1684,12 +1691,12 @@ export default function EstimateWorkspacePage() {
             gap: 0 !important;
           }
           #estimate-print.batch-print > section {
+            break-before: auto;
+            page-break-before: auto;
+          }
+          #estimate-print.batch-print > section:not(:last-child) {
             break-after: page;
             page-break-after: always;
-          }
-          #estimate-print.batch-print > section + section {
-            break-before: page;
-            page-break-before: always;
           }
           #estimate-print.batch-print > section:last-child {
             break-after: auto;
@@ -1712,9 +1719,13 @@ export default function EstimateWorkspacePage() {
           #estimate-print > .print-detail {
             height: 172mm !important;
             min-height: 0 !important;
-            overflow: hidden !important;
+            overflow: visible !important;
             break-inside: avoid-page !important;
             page-break-inside: avoid !important;
+          }
+          #estimate-print > .print-detail + .print-detail {
+            break-before: page;
+            page-break-before: always;
           }
           #estimate-print .print-detail-title-screen {
             display: none !important;
@@ -3019,16 +3030,17 @@ export default function EstimateWorkspacePage() {
                 기존 엑셀의 `표지(견)`, `갑지`, `세부내역서` 흐름에 맞춰 같은 데이터로 서류를 나눠 확인합니다.
               </p>
               <div className="mt-5 grid gap-2">
-                {[
+                {([
                   ['cover', '표지'],
                   ['summary', '갑지'],
                   ['detail', '세부내역서'],
-                ].map(([key, label]) => (
+                  ...purchaseOrders.map((order) => [`purchase:${order.id}`, `발주서 - ${order.title || order.vendorName || '무제'}`]),
+                ] as [string, string][]).map(([key, label]) => (
                   <button
                     key={key}
                     type="button"
                     onClick={() => {
-                      setDocumentView(key as typeof documentView);
+                      setDocumentView(key);
                       setDocumentDetailPageIndex(0);
                     }}
                     className={`rounded-md border px-4 py-3 text-left text-sm font-semibold ${documentView === key ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}
@@ -3049,7 +3061,13 @@ export default function EstimateWorkspacePage() {
             {!isDocumentBatchOpen && (
               <div className="min-w-0">
                 <div className="relative">
-                  <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={documentView} detailPreviewPageIndex={documentDetailPageIndex} />
+                  {documentPurchaseOrder ? (
+                    <article id="estimate-print" className="rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+                      <PurchaseOrderPrintPage order={documentPurchaseOrder} site={selectedSite} />
+                    </article>
+                  ) : (
+                    <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={estimateDocumentView} detailPreviewPageIndex={documentDetailPageIndex} />
+                  )}
                   {documentView === 'detail' && detailPreviewPages.length > 1 && (
                     <div className="no-print pointer-events-none absolute inset-0 flex items-center justify-between px-4">
                       <button
