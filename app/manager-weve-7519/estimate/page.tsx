@@ -3939,50 +3939,46 @@ function formatQuantityWithUnit(quantity: number, unit: string) {
   return [hasQuantity ? formatNumber(quantity) : '', unit || ''].filter(Boolean).join('');
 }
 
-function PurchaseOrderPrintPage({ order, site }: { order: PurchaseOrder; site?: Site }) {
+function PurchaseOrderPrintPage({ order }: { order: PurchaseOrder; site?: Site }) {
   const labels = getPurchaseOrderLabels(order);
   const visibleColumns = getPurchaseOrderVisibleColumns(order);
   const total = order.items.reduce((sum, item) => sum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0);
 
   return (
-    <section className="print-portrait rounded-lg bg-white p-6 shadow-sm">
-      <DocumentPrintHeader title="발주서" site={site} compact />
-      <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <DocumentInfoRow label="발주서명" value={order.title || '-'} />
-        <DocumentInfoRow label="업체명" value={order.vendorName || '-'} />
-        <DocumentInfoRow label="발주일" value={formatShortDate(order.orderDate)} />
-        <DocumentInfoRow label="입고 예정일" value={formatShortDate(order.deliveryDate)} />
-      </div>
-      {order.templateKey === 'doorSet' ? (
-        <div className="mt-5 overflow-hidden border border-[#171512]">
-          <div className="grid grid-cols-[1fr_auto] border-b border-[#171512]">
-            <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
-            <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
-          </div>
-          <DoorPurchaseOrderTable order={order} />
+    <section className="print-portrait rounded-lg bg-white p-6 shadow-sm print:rounded-none print:p-0 print:shadow-none">
+      <div className="overflow-hidden rounded-lg border border-[#171512] bg-white print:rounded-none">
+        <div className="grid grid-cols-[1fr_auto] border-b border-[#171512]">
+          <h3 className="py-3 text-center text-2xl font-bold tracking-[0.35em]">발 주 서</h3>
+          <div className="border-l border-[#171512] px-6 py-3 font-semibold">위브디자인</div>
         </div>
-      ) : (
-        <DocumentTable className="mt-5 text-xs">
-          <colgroup>
-            {visibleColumns.map((column) => (
-              <col key={column} style={{ width: `${purchaseOrderColumnWidth(order, column)}%` }} />
-            ))}
-          </colgroup>
-          <thead>
-            {renderPurchaseOrderHeaderRows(order, labels, visibleColumns, '')}
-          </thead>
-          <tbody>
-            {order.mergeSameCategory
-              ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns, order)
-              : order.items.map((item) => (
-                  <tr key={item.id}>
-                    {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column, order)}>{renderPurchaseOrderCell(item, column)}</td>)}
-                  </tr>
-                ))}
-            <tr className="bg-[#f8e8da] font-bold"><td colSpan={Math.max(1, visibleColumns.length - 1)} className="text-center">합계</td><td className="text-right">{formatMoney(total)}</td></tr>
-          </tbody>
-        </DocumentTable>
-      )}
+        {order.templateKey === 'doorSet' ? (
+          <DoorPurchaseOrderTable order={order} />
+        ) : (
+          <table className="w-full table-fixed border-collapse text-sm">
+            <colgroup>
+              {visibleColumns.map((column) => (
+                <col key={column} className={purchaseOrderColumnWidths[column]} style={{ width: `${purchaseOrderColumnWidth(order, column)}%` }} />
+              ))}
+            </colgroup>
+            <thead className="bg-[#f3f1ec]">
+              {renderPurchaseOrderHeaderRows(order, labels, visibleColumns)}
+            </thead>
+            <tbody>
+              {order.mergeSameCategory
+                ? renderGroupedPurchaseRows(order.items, () => undefined, visibleColumns, order)
+                : order.items.map((item) => (
+                    <tr key={item.id}>
+                      {visibleColumns.map((column) => <td key={`${item.id}-${column}`} className={purchaseOrderCellClass(column, order)}>{renderPurchaseOrderCell(item, column)}</td>)}
+                    </tr>
+                  ))}
+              <tr className="bg-[#f8e8da] font-bold">
+                <td colSpan={Math.max(1, visibleColumns.length - 1)} className="border border-[#171512] px-3 py-2 text-center">합계</td>
+                <td className="border border-[#171512] px-3 py-2 text-right">{formatMoney(total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        )}
+      </div>
       {order.memo && <p className="mt-4 rounded border border-[#d5dde2] p-3 text-sm">메모: {order.memo}</p>}
     </section>
   );
