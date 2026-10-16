@@ -440,6 +440,19 @@ async function updateMaterialSettings(body: Record<string, unknown>, request: Re
       else delete estimateItems[id];
     });
     settings.estimateItems = estimateItems;
+  } else if (op === 'assignMany') {
+    // Bulk move from the full DB: each item names its own estimate category, created here if it does not exist yet.
+    const raw = body.assignments && typeof body.assignments === 'object' ? (body.assignments as Record<string, unknown>) : {};
+    const entries = Object.entries(raw)
+      .map(([id, category]) => [id.trim(), cleanCell(category)])
+      .filter(([id, category]) => id && category);
+    if (!entries.length) return NextResponse.json({ error: '견적 DB로 옮길 품목을 선택해주세요.' }, { status: 400 });
+    const estimateCategories = [...settings.estimateCategories];
+    entries.forEach(([, category]) => {
+      if (!estimateCategories.includes(category)) estimateCategories.push(category);
+    });
+    settings.estimateCategories = estimateCategories;
+    settings.estimateItems = { ...settings.estimateItems, ...Object.fromEntries(entries) };
   } else if (op === 'reorder') {
     settings.materialOrder = Array.isArray(body.order) ? body.order.map((id) => String(id || '')) : [];
   } else {
