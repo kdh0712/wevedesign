@@ -446,14 +446,34 @@ export async function touchEstimateMaterialMetaInFirestore(request: Request, cou
   );
 }
 
+const estimateMaterialSettingsId = 'estimateMaterialSettings';
+
+export async function readEstimateMaterialSettingsFromFirestore(request: Request) {
+  return getFirestoreDocument<Record<string, unknown>>(
+    estimateMaterialMetaCollection,
+    estimateMaterialSettingsId,
+    requestIdToken(request),
+  ).catch(() => null);
+}
+
+export async function saveEstimateMaterialSettingsToFirestore(request: Request, record: Record<string, unknown>) {
+  return saveFirestoreDocument(
+    estimateMaterialMetaCollection,
+    { ...record, _id: estimateMaterialSettingsId },
+    requestIdToken(request),
+    estimateMaterialSettingsId,
+  );
+}
+
 export async function readEstimateDataFromFirestore(request: Request, options: { includeMaterials?: boolean } = {}) {
   const idToken = requestIdToken(request);
   const includeMaterials = options.includeMaterials !== false;
-  const [sites, estimates, vendors, materialsMeta, materials] = await Promise.all([
+  const [sites, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
     listFirestoreCollection('officeSites', idToken),
     listFirestoreCollection('siteEstimates', idToken),
     listFirestoreCollection('officeVendors', idToken),
     readEstimateMaterialMetaFromFirestore(request),
+    readEstimateMaterialSettingsFromFirestore(request),
     includeMaterials ? listFirestoreCollection('estimateMaterials', idToken, 5000) : Promise.resolve([]),
   ]);
 
@@ -467,6 +487,7 @@ export async function readEstimateDataFromFirestore(request: Request, options: {
     estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
     materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
+    materialSettings,
     vendors: vendors.sort(byText('name')).slice(0, 300),
   };
 }
