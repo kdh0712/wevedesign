@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 
 type Site = {
   _id: string;
@@ -39,6 +39,7 @@ type EstimateLine = {
   customerUnitPrice: number;
   executionUnitPrice: number;
   note: string;
+  commonName?: boolean;
 };
 
 type WorkLine = {
@@ -174,6 +175,7 @@ type SiteEstimate = {
   workLinesJson?: string;
   scheduleJson?: string;
   holidaysJson?: string;
+  constructionStartDate?: string;
   purchaseOrdersJson?: string;
   purchaseOrderTemplatesJson?: string;
   extraItemsJson?: string;
@@ -200,9 +202,18 @@ type EstimateApiData = {
   estimates?: SiteEstimate[];
   materials?: Material[];
   materialsMeta?: MaterialCacheMeta | null;
+  materialSettings?: MaterialSettings;
   vendors?: Vendor[];
   record?: SiteEstimate | Material;
   importedCount?: number;
+};
+
+type MaterialLibrary = 'estimate' | 'full';
+
+type MaterialSettings = {
+  estimateCategories: string[];
+  estimateItems: Record<string, string>;
+  materialOrder: string[];
 };
 
 type MaterialCacheMeta = {
@@ -237,6 +248,8 @@ const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
 const DETAIL_PRINT_ROWS_PER_PAGE = 20;
+const COMMON_MATERIAL_NAME = '공통';
+const emptyMaterialSettings: MaterialSettings = { estimateCategories: [], estimateItems: {}, materialOrder: [] };
 
 const readMaterialCache = (): MaterialCacheRecord | null => {
   if (typeof window === 'undefined') return null;
@@ -551,6 +564,23 @@ export default function EstimateWorkspacePage() {
   const [isLegacyWorkModalOpen, setIsLegacyWorkModalOpen] = useState(false);
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
+  const [constructionStartDate, setConstructionStartDate] = useState('');
+  const [calendarView, setCalendarView] = useState<'month' | 'startWeek'>('month');
+  const [calendarWeekOffset, setCalendarWeekOffset] = useState(0);
+  const [materialSettings, setMaterialSettings] = useState<MaterialSettings>(emptyMaterialSettings);
+  const [dbLibrary, setDbLibrary] = useState<MaterialLibrary>('estimate');
+  const [materialLibrary, setMaterialLibrary] = useState<MaterialLibrary>('full');
+  const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
+  const [assignTargetCategory, setAssignTargetCategory] = useState('');
+  const [newEstimateCategory, setNewEstimateCategory] = useState('');
+  const [editingMaterialEstimateCategory, setEditingMaterialEstimateCategory] = useState('');
+  const [materialOrderDraft, setMaterialOrderDraft] = useState<string[] | null>(null);
+  const [draggingMaterialId, setDraggingMaterialId] = useState('');
+  const [dragOverMaterialId, setDragOverMaterialId] = useState('');
+  const [lineDraftSource, setLineDraftSource] = useState<Material | null>(null);
+  const [isLineDbSaveOpen, setIsLineDbSaveOpen] = useState(false);
+  const [lineDbSaveCategory, setLineDbSaveCategory] = useState('');
+  const [lineDbSaveCommon, setLineDbSaveCommon] = useState(false);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -618,9 +648,34 @@ export default function EstimateWorkspacePage() {
     documentView === 'cover' || documentView === 'summary' ? documentView : 'detail';
   const printPageOrientation: 'portrait' | 'landscape' = documentPurchaseOrder ? 'portrait' : 'landscape';
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
-  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+  const effectiveStartDate = constructionStartDate || earliestTaskStartDate(schedule);
+  const calendarWeekStart = effectiveStartDate ? addDays(mondayOfWeek(effectiveStartDate), calendarWeekOffset * 7) : '';
+  const isStartWeekCalendar = calendarView === 'startWeek' && Boolean(calendarWeekStart);
+  const calendarDays = useMemo(
+    () => (isStartWeekCalendar ? buildWeekCalendarDays(calendarWeekStart, effectiveStartDate) : buildCalendarDays(calendarMonth)),
+    [calendarMonth, calendarWeekStart, effectiveStartDate, isStartWeekCalendar],
+  );
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
-  const materialCategories = useMemo(() => Array.from(new Set(materials.map((item) => item.category || '미분류'))).sort(), [materials]);
+  const { estimateCategories, estimateItems } = materialSettings;
+  const orderedMaterials = useMemo(
+    () => applyMaterialOrder(materials, materialOrderDraft || materialSettings.materialOrder),
+    [materialOrderDraft, materialSettings.materialOrder, materials],
+  );
+  const estimateCategoryOf = (material: Material) => estimateItems[material._id || ''] || '';
+  const estimateMaterials = useMemo(
+    () => orderedMaterials.filter((item) => estimateItems[item._id || '']),
+    [estimateItems, orderedMaterials],
+  );
+  const estimateCategoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    estimateMaterials.forEach((item) => {
+      const category = estimateItems[item._id || ''];
+      counts.set(category, (counts.get(category) || 0) + 1);
+    });
+    return counts;
+  }, [estimateItems, estimateMaterials]);
+  const materialCategories = useMemo(() => uniqueInOrder(orderedMaterials.map((item) => item.category || '미분류')), [orderedMaterials]);
+  const dbLibraryCategories = dbLibrary === 'estimate' ? estimateCategories : materialCategories;
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
   const editingMaterialProcessOptions = useMemo(() => {
     const category = (editingMaterial.category || '').trim();
@@ -637,22 +692,26 @@ export default function EstimateWorkspacePage() {
   const vendorNames = useMemo(() => Array.from(new Set(vendors.map((vendor) => vendor.name || '').filter(Boolean))).sort(), [vendors]);
   const filteredMaterials = useMemo(() => {
     const keyword = materialSearch.trim().toLowerCase();
-    return materials.filter((item) => {
-      const inCategory = !materialCategory || (item.category || '미분류') === materialCategory;
-      const haystack = [item.category, item.process, item.name, item.spec, item.unit, item.note].join(' ').toLowerCase();
+    const source = materialLibrary === 'estimate' ? estimateMaterials : orderedMaterials;
+    return source.filter((item) => {
+      const itemCategory = materialLibrary === 'estimate' ? estimateItems[item._id || ''] : item.category || '미분류';
+      const inCategory = !materialCategory || itemCategory === materialCategory;
+      const haystack = [item.category, item.process, item.name, item.spec, item.unit, item.note, estimateItems[item._id || '']].join(' ').toLowerCase();
       return inCategory && (!keyword || haystack.includes(keyword));
     });
-  }, [materials, materialCategory, materialSearch]);
+  }, [estimateItems, estimateMaterials, materialCategory, materialLibrary, materialSearch, orderedMaterials]);
   const lineDbMaterials = useMemo(() => {
     const keyword = lineDbSearch.trim().toLowerCase();
-    return materials
+    const source = dbLibrary === 'estimate' ? estimateMaterials : orderedMaterials;
+    return source
       .filter((item) => {
-        const inCategory = !lineDbCategory || (item.category || '미분류') === lineDbCategory;
+        const itemCategory = dbLibrary === 'estimate' ? estimateItems[item._id || ''] : item.category || '미분류';
+        const inCategory = !lineDbCategory || itemCategory === lineDbCategory;
         const haystack = [item.category, item.process, item.name, item.spec, item.unit, item.note].join(' ').toLowerCase();
         return inCategory && (!keyword || haystack.includes(keyword));
       })
       .slice(0, 120);
-  }, [materials, lineDbCategory, lineDbSearch]);
+  }, [dbLibrary, estimateItems, estimateMaterials, lineDbCategory, lineDbSearch, orderedMaterials]);
   const lineFilterOptions = lineFilterType === 'space' ? lineSpaceOptions : lineFilterType === 'category' ? lineCategoryOptions : [];
   const lineProcessOptions = useMemo(
     () => uniqueLineValues(lines, (line) => line.process || line.category || line.name),
@@ -755,6 +814,9 @@ export default function EstimateWorkspacePage() {
       setLegacyWorkSites([]);
       setSelectedLegacyWorkSiteId('');
       setHolidays([]);
+      setConstructionStartDate('');
+      setCalendarView('month');
+      setCalendarWeekOffset(0);
       setSelectedLineId('');
       return;
     }
@@ -800,6 +862,9 @@ export default function EstimateWorkspacePage() {
     setLegacyWorkSites(nextLegacyWorkSites);
     setSelectedLegacyWorkSiteId(nextLegacyWorkSites[0]?.id || '');
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
+    setConstructionStartDate(estimate?.constructionStartDate || '');
+    setCalendarView(estimate?.constructionStartDate ? 'startWeek' : 'month');
+    setCalendarWeekOffset(0);
     setSelectedLineId('');
 
     if (!estimate && site) {
@@ -876,6 +941,7 @@ export default function EstimateWorkspacePage() {
       setSites(data.sites || []);
       setEstimates(data.estimates || []);
       setMaterials(nextMaterials);
+      setMaterialSettings(data.materialSettings || emptyMaterialSettings);
       setVendors(data.vendors || []);
       setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
@@ -919,6 +985,7 @@ export default function EstimateWorkspacePage() {
           extraItems,
           legacyWorkSites,
           holidays,
+          constructionStartDate,
           memo,
           createdAt: selectedEstimate?.createdAt,
         }),
@@ -1004,49 +1071,159 @@ export default function EstimateWorkspacePage() {
     }
   };
 
-  const saveMaterial = async (materialOverride?: Material) => {
+  const saveMaterial = async (materialOverride?: Material, options: { estimateCategory?: string } = {}) => {
     setIsSaving(true);
     setError('');
 
     try {
       const materialToSave = materialOverride || editingMaterial;
+      const estimateCategory = materialOverride ? options.estimateCategory : editingMaterialEstimateCategory;
       const response = await fetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'saveMaterial', material: materialToSave }),
+        body: JSON.stringify({ action: 'saveMaterial', material: materialToSave, estimateCategory }),
       });
       const data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '자재 단가 저장에 실패했습니다.');
 
-      if (!materialOverride) setEditingMaterial({});
+      if (!materialOverride) {
+        setEditingMaterial({});
+        setEditingMaterialEstimateCategory(materialLibrary === 'estimate' ? materialCategory : '');
+      }
+      if (data.materialSettings) setMaterialSettings(data.materialSettings);
       setStatus('자재 단가를 저장했습니다.');
       clearMaterialCache();
       await loadData(password, selectedSiteId, selectedEstimateId, firebaseToken, true);
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '자재 단가 저장 중 오류가 발생했습니다.');
+      return false;
     } finally {
       setIsSaving(false);
     }
   };
 
-  const materialToLine = (material: Material): Partial<EstimateLine> => ({
-    category: material.category || '',
-    process: material.process || material.category || '',
-    name: material.name || '',
-    spec: material.spec || '',
-    unit: material.unit || '',
-    customerUnitPrice: Number(material.unitPrice || 0),
-    executionUnitPrice: Number(material.unitPrice || 0),
-  });
+  const updateMaterialSettings = async (payload: Record<string, unknown>, successMessage: string) => {
+    setIsSaving(true);
+    setError('');
+    setStatus('');
 
-  const addMaterialToEstimate = (material: Material) => {
-    setLines((current) => [
-      ...current,
-      {
-        ...emptyLine(),
-        ...materialToLine(material),
-      },
-    ]);
+    try {
+      const response = await fetch('/api/manager/estimate', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'updateMaterialSettings', ...payload }),
+      });
+      const data = (await response.json()) as EstimateApiData;
+      if (!response.ok || !data.materialSettings) throw new Error(data.error || '자재 DB 설정 저장에 실패했습니다.');
+      setMaterialSettings(data.materialSettings);
+      setStatus(successMessage);
+      return true;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '자재 DB 설정 저장 중 오류가 발생했습니다.');
+      return false;
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const addEstimateCategory = async () => {
+    const name = newEstimateCategory.trim();
+    if (!name) {
+      setError('추가할 견적 카테고리 이름을 입력해주세요.');
+      return;
+    }
+    if (await updateMaterialSettings({ op: 'addCategory', name }, `${name} 견적 카테고리를 추가했습니다.`)) {
+      setNewEstimateCategory('');
+      setAssignTargetCategory(name);
+    }
+  };
+
+  const deleteEstimateCategory = async (name: string) => {
+    const count = estimateCategoryCounts.get(name) || 0;
+    const message = count
+      ? `'${name}' 견적 카테고리를 삭제할까요?\n안에 있는 ${count}개 품목은 전체 DB에 그대로 남고 견적 DB에서만 빠집니다.`
+      : `'${name}' 견적 카테고리를 삭제할까요?`;
+    if (!window.confirm(message)) return;
+    if (await updateMaterialSettings({ op: 'deleteCategory', name }, `${name} 견적 카테고리를 삭제했습니다.`)) {
+      if (materialCategory === name) setMaterialCategory('');
+      if (lineDbCategory === name) setLineDbCategory('');
+      if (assignTargetCategory === name) setAssignTargetCategory('');
+    }
+  };
+
+  const assignMaterialsToEstimateCategory = async (ids: string[], category: string) => {
+    if (!ids.length) {
+      setError('견적 DB에 넣을 품목을 선택해주세요.');
+      return;
+    }
+    if (category && !estimateCategories.includes(category)) {
+      setError('견적 카테고리를 먼저 선택해주세요.');
+      return;
+    }
+    const message = category ? `${ids.length}개 품목을 '${category}' 견적 카테고리에 넣었습니다.` : `${ids.length}개 품목을 견적 DB에서 뺐습니다.`;
+    if (await updateMaterialSettings({ op: 'assign', ids, category }, message)) {
+      setSelectedMaterialIds([]);
+    }
+  };
+
+  const toggleMaterialSelection = (id: string) => {
+    setSelectedMaterialIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
+  };
+
+  const startMaterialOrderEditing = () => {
+    setMaterialOrderDraft(orderedMaterials.map((item) => item._id || '').filter(Boolean));
+    setSelectedMaterialIds([]);
+  };
+
+  const cancelMaterialOrderEditing = () => {
+    setMaterialOrderDraft(null);
+    setDraggingMaterialId('');
+    setDragOverMaterialId('');
+  };
+
+  const saveMaterialOrder = async () => {
+    if (!materialOrderDraft) return;
+    if (await updateMaterialSettings({ op: 'reorder', order: materialOrderDraft }, '자재 순서를 저장했습니다.')) {
+      cancelMaterialOrderEditing();
+    }
+  };
+
+  const dropMaterialOnto = (targetId: string) => {
+    if (draggingMaterialId && targetId && draggingMaterialId !== targetId) {
+      setMaterialOrderDraft((current) => (current ? moveIdInOrder(current, draggingMaterialId, targetId) : current));
+    }
+    setDraggingMaterialId('');
+    setDragOverMaterialId('');
+  };
+
+  const changeDbLibrary = (library: MaterialLibrary) => {
+    setDbLibrary(library);
+    setLineDbCategory('');
+  };
+
+  const materialToLine = (material: Material, library: MaterialLibrary = dbLibrary): Partial<EstimateLine> => {
+    const isCommon = isCommonMaterialName(material.name);
+    return {
+      category: (library === 'estimate' ? estimateCategoryOf(material) : '') || material.category || '',
+      process: material.process || material.category || '',
+      name: isCommon ? '' : material.name || '',
+      commonName: isCommon,
+      spec: material.spec || '',
+      unit: material.unit || '',
+      customerUnitPrice: Number(material.unitPrice || 0),
+      executionUnitPrice: Number(material.unitPrice || 0),
+    };
+  };
+
+  // A '공통' DB item keeps the name already typed on a line that was common before.
+  const applyMaterialToLine = (line: EstimateLine, material: Material, library: MaterialLibrary = dbLibrary): EstimateLine => {
+    const next = { ...line, ...materialToLine(material, library) };
+    return next.commonName && line.commonName ? { ...next, name: line.name } : next;
+  };
+
+  const addMaterialToEstimate = (material: Material, library: MaterialLibrary = dbLibrary) => {
+    setLines((current) => [...current, applyMaterialToLine(emptyLine(), material, library)]);
     setActiveTab('lines');
   };
 
@@ -1056,15 +1233,22 @@ export default function EstimateWorkspacePage() {
       return;
     }
 
-    setLines((current) => current.map((line) => (line.id === selectedLineId ? { ...line, ...materialToLine(material) } : line)));
+    setLines((current) => current.map((line) => (line.id === selectedLineId ? applyMaterialToLine(line, material) : line)));
     setActiveTab('lines');
+  };
+
+  // A line's category may come from the other DB, so fall back to the category step when it is not in the current one.
+  const pickerStepFor = (step: MaterialPickerState['step'], category: string, process: string): MaterialPickerState['step'] => {
+    if (step === 'category' || !category || !dbLibraryCategories.includes(category)) return 'category';
+    if (step === 'material' && !process) return 'process';
+    return step;
   };
 
   const openMaterialPicker = (line: EstimateLine, step: MaterialPickerState['step'] = 'category') => {
     setSelectedLineId(line.id);
     setMaterialPicker({
       lineId: line.id,
-      step,
+      step: pickerStepFor(step, line.category, line.process),
       category: line.category,
       process: line.process,
       search: '',
@@ -1074,11 +1258,42 @@ export default function EstimateWorkspacePage() {
   const openLineDraftMaterialPicker = (step: MaterialPickerState['step'] = 'category') => {
     setMaterialPicker({
       lineId: LINE_DRAFT_PICKER_ID,
-      step,
+      step: pickerStepFor(step, lineDraft.category, lineDraft.process),
       category: lineDraft.category,
       process: lineDraft.process,
       search: '',
     });
+  };
+
+  const openLineDbSave = () => {
+    setLineDbSaveCategory(estimateCategories.includes(lineDraft.category) ? lineDraft.category : '');
+    setLineDbSaveCommon(Boolean(lineDraft.commonName));
+    setIsLineDbSaveOpen(true);
+  };
+
+  const saveLineDraftToDb = async () => {
+    const name = lineDbSaveCommon ? COMMON_MATERIAL_NAME : lineDraft.name.trim();
+    if (!name) {
+      setError('DB에 저장할 품명을 입력하거나 품명을 공통으로 저장해주세요.');
+      return;
+    }
+    // A line filled from the estimate DB carries the estimate category, so keep the source item's full-DB category.
+    const draftIsEstimateCategory = estimateCategories.includes(lineDraft.category);
+    const category = (draftIsEstimateCategory ? lineDraftSource?.category : lineDraft.category) || lineDraftSource?.category || lineDraft.category;
+    const saved = await saveMaterial(
+      {
+        category,
+        process: lineDraft.process || lineDraftSource?.process || '',
+        name,
+        spec: lineDraft.spec,
+        unit: lineDraft.unit,
+        unitPrice: lineDraft.customerUnitPrice,
+        note: lineDraftSource?.note || '',
+        sourceSheet: '견적서 입력',
+      },
+      { estimateCategory: lineDbSaveCategory },
+    );
+    if (saved) setIsLineDbSaveOpen(false);
   };
 
   const choosePickerCategory = (category: string) => {
@@ -1092,12 +1307,13 @@ export default function EstimateWorkspacePage() {
   const choosePickerMaterial = (material: Material) => {
     if (!materialPicker) return;
     if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
-      setLineDraft((current) => ({ ...current, ...materialToLine(material) }));
+      setLineDraft((current) => applyMaterialToLine(current, material));
+      setLineDraftSource(material);
       setMaterialPicker(null);
       setActiveTab('lines');
       return;
     }
-    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? { ...line, ...materialToLine(material) } : line)));
+    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? applyMaterialToLine(line, material) : line)));
     setMaterialPicker(null);
     setActiveTab('lines');
   };
@@ -1140,6 +1356,8 @@ export default function EstimateWorkspacePage() {
     setExtraItemDraft(emptyExtraItem());
     setEditingExtraItemId('');
     setHolidays(copyCurrent ? [...holidays] : []);
+    setConstructionStartDate(copyCurrent ? constructionStartDate : '');
+    setCalendarWeekOffset(0);
     setSelectedLineId('');
     setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
     setActiveTab('lines');
@@ -1153,17 +1371,24 @@ export default function EstimateWorkspacePage() {
   const resetLineDraft = () => {
     setLineDraft(emptyLine());
     setEditingLineId('');
+    setLineDraftSource(null);
+    setIsLineDbSaveOpen(false);
   };
 
   const editLineDraft = (line: EstimateLine) => {
     setLineDraft({ ...line });
     setEditingLineId(line.id);
     setSelectedLineId(line.id);
+    setLineDraftSource(null);
   };
 
   const submitLineDraft = () => {
     if (!lineDraft.space && !lineDraft.category && !lineDraft.process && !lineDraft.name && !lineDraft.note) {
       setError('견적 항목 내용을 먼저 입력해주세요.');
+      return;
+    }
+    if (lineDraft.commonName && !lineDraft.name.trim()) {
+      setError('공통 품목은 품명을 직접 입력해주세요. (예: 안방 욕실)');
       return;
     }
     const nextLine = { ...lineDraft, id: editingLineId || `line-${Date.now()}-${Math.random().toString(16).slice(2)}` };
@@ -1930,9 +2155,9 @@ export default function EstimateWorkspacePage() {
 
         <nav className="no-print flex gap-2 overflow-x-auto rounded-lg border border-[#d5dde2] bg-white p-2 shadow-sm">
           {[
-            { key: 'lines' as const, label: '견적 내역', Icon: FileSpreadsheet },
+            { key: 'lines' as const, label: '견적서', Icon: FileSpreadsheet },
             { key: 'work' as const, label: '실행 내역서', Icon: ClipboardList },
-            { key: 'materials' as const, label: '자재 단가', Icon: Search },
+            { key: 'materials' as const, label: '자재 / 견적 단가', Icon: Search },
             { key: 'schedule' as const, label: '공정 일정', Icon: CalendarDays },
             { key: 'purchase' as const, label: '발주서', Icon: ClipboardList },
             { key: 'extras' as const, label: '추가 사항', Icon: FileSpreadsheet },
@@ -1968,17 +2193,19 @@ export default function EstimateWorkspacePage() {
             <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:flex xl:min-h-[calc(100vh-260px)] xl:flex-col">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">GLOBAL DB</p>
-                  <h2 className="mt-1 text-lg font-semibold">자재 단가 DB</h2>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">{dbLibrary === 'estimate' ? 'ESTIMATE DB' : 'GLOBAL DB'}</p>
+                  <h2 className="mt-1 text-lg font-semibold">{dbLibrary === 'estimate' ? '견적 단가 DB' : '자재 단가 DB'}</h2>
                   <p className="mt-1 text-xs leading-5 text-[#60717d]">검색 후 선택한 견적 행에 바로 적용합니다.</p>
                 </div>
-                <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{materials.length}개</span>
+                <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{dbLibrary === 'estimate' ? estimateMaterials.length : materials.length}개</span>
               </div>
 
-              <div className="mt-4 grid gap-2">
+              <LibraryToggle value={dbLibrary} estimateCount={estimateMaterials.length} fullCount={materials.length} onChange={changeDbLibrary} className="mt-4" />
+
+              <div className="mt-2 grid gap-2">
                 <select value={lineDbCategory} onChange={(event) => setLineDbCategory(event.target.value)} className="rounded-md border border-[#d5dde2] px-3 py-2.5 text-sm outline-none focus:border-[#38a9bd]">
-                  <option value="">전체 카테고리</option>
-                  {materialCategories.map((category) => (
+                  <option value="">{dbLibrary === 'estimate' ? '전체 견적 카테고리' : '전체 카테고리'}</option>
+                  {dbLibraryCategories.map((category) => (
                     <option key={category} value={category}>{category}</option>
                   ))}
                 </select>
@@ -1986,7 +2213,7 @@ export default function EstimateWorkspacePage() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {materialCategories.slice(0, 10).map((category) => (
+                {dbLibraryCategories.slice(0, 10).map((category) => (
                   <button
                     key={category}
                     type="button"
@@ -2001,7 +2228,18 @@ export default function EstimateWorkspacePage() {
               <div className="mt-4 max-h-[520px] min-h-[360px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-white p-2 pr-1">
                 {lineDbMaterials.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-6 text-center text-sm text-[#60717d]">
-                    자재 단가 DB가 비어 있습니다. `자재 단가` 탭에서 엑셀을 먼저 업로드해주세요.
+                    {dbLibrary === 'estimate' && estimateMaterials.length === 0 ? (
+                      <>
+                        견적 DB가 비어 있습니다. `자재 / 견적 단가` 탭의 견적 데이터베이스에서 카테고리를 만들고 품목을 넣어주세요.
+                        <button type="button" onClick={() => changeDbLibrary('full')} className="mt-3 block w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold text-[#171512]">
+                          전체 DB 보기
+                        </button>
+                      </>
+                    ) : materials.length === 0 ? (
+                      '자재 단가 DB가 비어 있습니다. `자재 / 견적 단가` 탭에서 엑셀을 먼저 업로드해주세요.'
+                    ) : (
+                      '검색 결과가 없습니다.'
+                    )}
                   </div>
                 ) : (
                   <div className="grid gap-2">
@@ -2010,7 +2248,7 @@ export default function EstimateWorkspacePage() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold">{material.name || '품명 없음'}</p>
-                            <p className="mt-1 text-xs text-[#60717d]">{[material.category, material.spec, material.unit].filter(Boolean).join(' · ') || '규격 정보 없음'}</p>
+                            <p className="mt-1 text-xs text-[#60717d]">{[dbLibrary === 'estimate' ? estimateCategoryOf(material) : material.category, material.spec, material.unit].filter(Boolean).join(' · ') || '규격 정보 없음'}</p>
                           </div>
                           <b className="shrink-0 text-sm">{formatMoney(Number(material.unitPrice || 0))}</b>
                         </div>
@@ -2032,9 +2270,9 @@ export default function EstimateWorkspacePage() {
             <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:min-h-[calc(100vh-260px)]">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-xl font-semibold">견적 내역</h2>
+                  <h2 className="text-xl font-semibold">견적서</h2>
                   <p className="mt-1 text-sm text-[#60717d]">
-                    분류·공종·품명을 누르면 단계별 선택창이 열리고, DB의 단가 정보가 자동 입력됩니다.
+                    분류·공종·품명을 누르면 단계별 선택창이 열리고, DB의 단가 정보가 자동 입력됩니다. 품명이 &apos;공통&apos;인 DB 품목은 품명을 직접 입력합니다.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2107,6 +2345,9 @@ export default function EstimateWorkspacePage() {
                         입력 초기화
                       </button>
                     )}
+                    <button type="button" onClick={() => (isLineDbSaveOpen ? setIsLineDbSaveOpen(false) : openLineDbSave())} className="rounded-md border border-[#171512] bg-white px-3 py-2 text-xs font-semibold text-[#171512]">
+                      DB 저장
+                    </button>
                     <button type="button" onClick={submitLineDraft} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
                       <Plus size={16} />
                       {editingLineId ? '수정 반영' : '항목 추가'}
@@ -2123,8 +2364,12 @@ export default function EstimateWorkspacePage() {
                   <FieldShell label="공종">
                     <PickerCell value={lineDraft.process} placeholder="공종 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category ? 'process' : 'category')} />
                   </FieldShell>
-                  <FieldShell label="품명">
-                    <PickerCell value={lineDraft.name} placeholder="품명 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category && lineDraft.process ? 'material' : lineDraft.category ? 'process' : 'category')} />
+                  <FieldShell label={lineDraft.commonName ? '품명 (공통)' : '품명'}>
+                    {lineDraft.commonName ? (
+                      <CommonNameCell value={lineDraft.name} onChange={(value) => setLineDraft((current) => ({ ...current, name: value }))} onPick={() => openLineDraftMaterialPicker('material')} />
+                    ) : (
+                      <PickerCell value={lineDraft.name} placeholder="품명 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category && lineDraft.process ? 'material' : lineDraft.category ? 'process' : 'category')} />
+                    )}
                   </FieldShell>
                   <FieldShell label="규격">
                     <CellInput value={lineDraft.spec} onChange={(value) => setLineDraft((current) => ({ ...current, spec: value }))} />
@@ -2145,6 +2390,29 @@ export default function EstimateWorkspacePage() {
                     <CellInput value={lineDraft.note} onChange={(value) => setLineDraft((current) => ({ ...current, note: value }))} />
                   </FieldShell>
                 </div>
+                {isLineDbSaveOpen && (
+                  <div className="mt-3 grid gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] p-3 md:grid-cols-[minmax(0,220px)_auto_auto_auto] md:items-center">
+                    <select value={lineDbSaveCategory} onChange={(event) => setLineDbSaveCategory(event.target.value)} aria-label="DB 저장 견적 카테고리" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]">
+                      <option value="">견적 DB에는 넣지 않음</option>
+                      {estimateCategories.map((category) => (
+                        <option key={category} value={category}>견적 카테고리 · {category}</option>
+                      ))}
+                    </select>
+                    <label className="inline-flex items-center gap-2 text-sm font-semibold">
+                      <input type="checkbox" checked={lineDbSaveCommon} onChange={(event) => setLineDbSaveCommon(event.target.checked)} />
+                      품명을 &apos;공통&apos;으로 저장
+                    </label>
+                    <button type="button" onClick={saveLineDraftToDb} disabled={isSaving} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      입력 내용 DB 저장
+                    </button>
+                    <button type="button" onClick={() => setIsLineDbSaveOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
+                      닫기
+                    </button>
+                    <p className="text-xs leading-5 text-[#60717d] md:col-span-4">
+                      분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다. 공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="max-h-[calc(100vh-260px)] min-h-[620px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3 xl:min-h-0 xl:flex-1 xl:max-h-none">
@@ -2208,8 +2476,12 @@ export default function EstimateWorkspacePage() {
                               <FieldShell label="공종">
                                 <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />
                               </FieldShell>
-                              <FieldShell label="품명">
-                                <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                              <FieldShell label={line.commonName ? '품명 (공통)' : '품명'}>
+                                {line.commonName ? (
+                                  <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
+                                ) : (
+                                  <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                                )}
                               </FieldShell>
                               <FieldShell label="규격">
                                 <CellInput value={line.spec} onChange={(value) => updateLine(line.id, { spec: value })} />
@@ -2381,7 +2653,7 @@ export default function EstimateWorkspacePage() {
         {activeTab === 'materials' && (
           <section className="grid gap-5 xl:grid-cols-[0.65fr_1.35fr]">
             <div className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-semibold">자재 단가 업로드/수정</h2>
+              <h2 className="text-xl font-semibold">자재 / 견적 단가 업로드·수정</h2>
               <p className="mt-2 text-sm leading-6 text-[#60717d]">엑셀의 각 시트를 카테고리로 읽고, 품명/규격/단위/단가를 검색 가능한 단가표로 저장합니다.</p>
               <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c6a25d] bg-[#fffdf8] p-6 text-center">
                 <UploadCloud size={28} />
@@ -2393,6 +2665,21 @@ export default function EstimateWorkspacePage() {
               </button>
 
               <div className="mt-6 grid gap-3">
+                <div className="flex items-center justify-between gap-2">
+                  <b className="text-sm">{editingMaterial._id ? `단가 수정 · ${editingMaterial.name || ''}` : '새 단가 입력'}</b>
+                  {editingMaterial._id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingMaterial({});
+                        setEditingMaterialEstimateCategory(materialLibrary === 'estimate' ? materialCategory : '');
+                      }}
+                      className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold"
+                    >
+                      새로 입력
+                    </button>
+                  )}
+                </div>
                 <input list="estimate-material-categories" value={editingMaterial.category || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <input list="estimate-material-processes" value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                 <input value={editingMaterial.name || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] px-3 py-2" />
@@ -2401,6 +2688,15 @@ export default function EstimateWorkspacePage() {
                   <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] px-3 py-2" />
                   <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} />
                 </div>
+                <label className="grid gap-1 text-xs font-bold text-[#60717d]">
+                  견적 카테고리
+                  <select value={editingMaterialEstimateCategory} onChange={(event) => setEditingMaterialEstimateCategory(event.target.value)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-normal text-[#171512]">
+                    <option value="">견적 DB에 넣지 않음</option>
+                    {estimateCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                </label>
                 <button type="button" onClick={() => saveMaterial()} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-3 font-semibold disabled:opacity-60">
                   단가 저장
                 </button>
@@ -2417,42 +2713,202 @@ export default function EstimateWorkspacePage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center">
+            <div className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <LibraryToggle
+                  value={materialLibrary}
+                  estimateCount={estimateMaterials.length}
+                  fullCount={materials.length}
+                  fullFirst
+                  long
+                  onChange={(library) => {
+                    setMaterialLibrary(library);
+                    setMaterialCategory('');
+                    setSelectedMaterialIds([]);
+                  }}
+                  className="w-full max-w-md"
+                />
+                {materialOrderDraft ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-[#8b6420]">행을 끌어 순서를 바꾼 뒤 저장하세요.</span>
+                    <button type="button" onClick={cancelMaterialOrderEditing} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
+                      취소
+                    </button>
+                    <button type="button" onClick={saveMaterialOrder} disabled={isSaving} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      순서 저장
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={startMaterialOrderEditing} disabled={materials.length === 0} className="inline-flex items-center gap-2 rounded-md border border-[#171512] bg-white px-4 py-2 text-sm font-semibold text-[#171512] disabled:opacity-40">
+                    <GripVertical size={16} />
+                    순서 수정
+                  </button>
+                )}
+              </div>
+
+              {materialLibrary === 'estimate' && (
+                <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <b className="text-sm">견적 카테고리</b>
+                    <span className="text-xs text-[#60717d]">견적 DB 품목은 전체 DB와 같은 품목이라 어느 쪽에서 고쳐도 함께 바뀝니다.</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {estimateCategories.length === 0 && <span className="text-xs text-[#60717d]">아직 견적 카테고리가 없습니다. 아래에서 추가해주세요.</span>}
+                    {estimateCategories.map((category) => (
+                      <span key={category} className={`inline-flex items-center overflow-hidden rounded-full border text-xs font-semibold ${materialCategory === category ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}>
+                        <button type="button" onClick={() => setMaterialCategory(materialCategory === category ? '' : category)} className="py-1.5 pl-3 pr-2">
+                          {category} <span className="opacity-60">{estimateCategoryCounts.get(category) || 0}</span>
+                        </button>
+                        <button type="button" onClick={() => deleteEstimateCategory(category)} disabled={isSaving} aria-label={`${category} 견적 카테고리 삭제`} className="py-1.5 pl-1 pr-2.5 opacity-70 hover:opacity-100">
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void addEstimateCategory();
+                    }}
+                    className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:max-w-md"
+                  >
+                    <input value={newEstimateCategory} onChange={(event) => setNewEstimateCategory(event.target.value)} placeholder="새 견적 카테고리 (예: 욕실 공사)" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+                    <button type="submit" disabled={isSaving} className="inline-flex items-center gap-1 rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                      <Plus size={14} />
+                      추가
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
                 <select value={materialCategory} onChange={(event) => setMaterialCategory(event.target.value)} className="rounded-md border border-[#d5dde2] px-3 py-3">
-                  <option value="">전체 카테고리</option>
-                  {materialCategories.map((category) => (
+                  <option value="">{materialLibrary === 'estimate' ? '전체 견적 카테고리' : '전체 카테고리'}</option>
+                  {(materialLibrary === 'estimate' ? estimateCategories : materialCategories).map((category) => (
                     <option key={category} value={category}>{category}</option>
                   ))}
                 </select>
                 <input value={materialSearch} onChange={(event) => setMaterialSearch(event.target.value)} placeholder="품명, 규격, 공종 검색" className="min-w-0 flex-1 rounded-md border border-[#d5dde2] px-4 py-3" />
               </div>
+
+              {selectedMaterialIds.length > 0 && !materialOrderDraft && (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] px-3 py-2 text-sm">
+                  <b>선택 {selectedMaterialIds.length}개</b>
+                  <select value={assignTargetCategory} onChange={(event) => setAssignTargetCategory(event.target.value)} aria-label="넣을 견적 카테고리" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm">
+                    <option value="">견적 카테고리 선택</option>
+                    {estimateCategories.map((category) => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => assignMaterialsToEstimateCategory(selectedMaterialIds, assignTargetCategory)} disabled={isSaving || !assignTargetCategory} className="rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    {materialLibrary === 'estimate' ? '견적 카테고리 이동' : '견적 DB에 넣기'}
+                  </button>
+                  {selectedMaterialIds.some((id) => estimateItems[id]) && (
+                    <button type="button" onClick={() => assignMaterialsToEstimateCategory(selectedMaterialIds, '')} disabled={isSaving} className="rounded-md border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-600 disabled:opacity-50">
+                      견적 DB에서 빼기
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setSelectedMaterialIds([])} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
+                    선택 해제
+                  </button>
+                  {estimateCategories.length === 0 && <span className="text-xs text-[#60717d]">견적 데이터베이스에서 카테고리를 먼저 추가해주세요.</span>}
+                </div>
+              )}
+
               <div className="mt-4 max-h-[min(720px,70vh)] overflow-auto rounded-lg border border-[#edf2f5]">
-                <table className="min-w-[820px] w-full text-sm">
-                  <thead className="sticky top-0 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
+                <table className="min-w-[900px] w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
                     <tr>
-                      {['카테고리', '공정', '품명', '규격', '단위', '단가', '작업'].map((header) => (
+                      <th className="w-10 border-b border-[#d5dde2] px-3 py-3">
+                        {!materialOrderDraft && (
+                          <input
+                            type="checkbox"
+                            aria-label="보이는 품목 모두 선택"
+                            checked={filteredMaterials.length > 0 && filteredMaterials.every((item) => selectedMaterialIds.includes(item._id || ''))}
+                            onChange={(event) => setSelectedMaterialIds(event.target.checked ? filteredMaterials.map((item) => item._id || '').filter(Boolean) : [])}
+                          />
+                        )}
+                      </th>
+                      {['카테고리', '공정', '품명', '규격', '단위', '단가', '견적 카테고리', '작업'].map((header) => (
                         <th key={header} className="border-b border-[#d5dde2] px-3 py-3">{header}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredMaterials.map((material) => (
-                      <tr key={material._id || `${material.name}-${material.spec}`} className="border-b border-[#edf2f5]">
-                        <td className="px-3 py-3">{material.category}</td>
-                        <td className="px-3 py-3">{material.process}</td>
-                        <td className="px-3 py-3 font-semibold">{material.name}</td>
-                        <td className="px-3 py-3">{material.spec}</td>
-                        <td className="px-3 py-3">{material.unit}</td>
-                        <td className="px-3 py-3">{formatMoney(Number(material.unitPrice || 0))}</td>
-                        <td className="px-3 py-3">
-                          <div className="flex gap-2">
-                            <button type="button" onClick={() => addMaterialToEstimate(material)} className="rounded-md bg-[#171512] px-3 py-2 text-xs font-semibold text-white">견적 추가</button>
-                            <button type="button" onClick={() => setEditingMaterial(material)} className="rounded-md border border-[#d5dde2] px-3 py-2 text-xs font-semibold">수정</button>
-                          </div>
+                    {filteredMaterials.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="px-4 py-10 text-center text-sm text-[#60717d]">
+                          {materialLibrary === 'estimate' ? '견적 DB에 품목이 없습니다. 전체 데이터베이스에서 품목을 선택해 견적 카테고리에 넣어주세요.' : '표시할 자재가 없습니다.'}
                         </td>
                       </tr>
-                    ))}
+                    )}
+                    {filteredMaterials.map((material) => {
+                      const id = material._id || '';
+                      const isDragging = draggingMaterialId === id;
+                      const isDropTarget = dragOverMaterialId === id && draggingMaterialId !== id;
+                      return (
+                        <tr
+                          key={id || `${material.name}-${material.spec}`}
+                          draggable={Boolean(materialOrderDraft && id)}
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', id);
+                            setDraggingMaterialId(id);
+                          }}
+                          onDragOver={(event) => {
+                            if (!materialOrderDraft || !draggingMaterialId) return;
+                            event.preventDefault();
+                            if (dragOverMaterialId !== id) setDragOverMaterialId(id);
+                          }}
+                          onDrop={(event) => {
+                            if (!materialOrderDraft) return;
+                            event.preventDefault();
+                            dropMaterialOnto(id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingMaterialId('');
+                            setDragOverMaterialId('');
+                          }}
+                          className={`border-b border-[#edf2f5] ${materialOrderDraft ? 'cursor-grab bg-white active:cursor-grabbing' : ''} ${isDragging ? 'opacity-40' : ''} ${isDropTarget ? 'bg-[#fff8e8] shadow-[inset_0_2px_0_#c6a25d]' : ''}`}
+                        >
+                          <td className="px-3 py-3">
+                            {materialOrderDraft ? (
+                              <GripVertical size={16} className="text-[#87949c]" />
+                            ) : (
+                              <input type="checkbox" aria-label={`${material.name || '품목'} 선택`} checked={selectedMaterialIds.includes(id)} onChange={() => toggleMaterialSelection(id)} disabled={!id} />
+                            )}
+                          </td>
+                          <td className="px-3 py-3">{material.category}</td>
+                          <td className="px-3 py-3">{material.process}</td>
+                          <td className="px-3 py-3 font-semibold">{material.name}</td>
+                          <td className="px-3 py-3">{material.spec}</td>
+                          <td className="px-3 py-3">{material.unit}</td>
+                          <td className="px-3 py-3">{formatMoney(Number(material.unitPrice || 0))}</td>
+                          <td className="px-3 py-3">
+                            {estimateItems[id] ? (
+                              <span className="rounded-full bg-[#fff3c7] px-2.5 py-1 text-xs font-bold text-[#8b6420]">{estimateItems[id]}</span>
+                            ) : (
+                              <span className="text-xs text-[#a9b4bb]">-</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-3">
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => addMaterialToEstimate(material, materialLibrary)} className="whitespace-nowrap rounded-md bg-[#171512] px-3 py-2 text-xs font-semibold text-white">견적서에 추가</button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingMaterial(material);
+                                  setEditingMaterialEstimateCategory(estimateCategoryOf(material));
+                                }}
+                                className="rounded-md border border-[#d5dde2] px-3 py-2 text-xs font-semibold"
+                              >
+                                수정
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2527,16 +2983,63 @@ export default function EstimateWorkspacePage() {
                   <h2 className="text-xl font-semibold">공정 달력</h2>
                   <p className="mt-1 text-sm text-[#60717d]">날짜 칸에 공종을 드래그하면 해당 날짜 일정으로 등록됩니다.</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, -1))} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => (isStartWeekCalendar ? setCalendarWeekOffset((current) => current - 1) : setCalendarMonth(shiftMonth(calendarMonth, -1)))} aria-label={isStartWeekCalendar ? '이전 주' : '이전 달'} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
                     <ChevronLeft size={18} />
                   </button>
                   <div className="min-w-32 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-2 text-center text-sm font-semibold">
-                    {formatMonthLabel(calendarMonth)}
+                    {isStartWeekCalendar ? `${formatMonthDay(calendarWeekStart)} 주부터 6주` : formatMonthLabel(calendarMonth)}
                   </div>
-                  <button type="button" onClick={() => setCalendarMonth(shiftMonth(calendarMonth, 1))} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
+                  <button type="button" onClick={() => (isStartWeekCalendar ? setCalendarWeekOffset((current) => current + 1) : setCalendarMonth(shiftMonth(calendarMonth, 1)))} aria-label={isStartWeekCalendar ? '다음 주' : '다음 달'} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
                     <ChevronRight size={18} />
                   </button>
+                  {isStartWeekCalendar && calendarWeekOffset !== 0 && (
+                    <button type="button" onClick={() => setCalendarWeekOffset(0)} className="h-10 rounded-md border border-[#d5dde2] bg-white px-3 text-sm font-semibold">
+                      시작 주로
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-[#e7d8bd] bg-[#fffdf8] px-3 py-2">
+                <label className="flex items-center gap-2 text-sm font-semibold">
+                  공사 시작일
+                  <input
+                    type="date"
+                    value={constructionStartDate}
+                    onChange={(event) => {
+                      setConstructionStartDate(event.target.value);
+                      setCalendarWeekOffset(0);
+                      if (event.target.value) setCalendarView('startWeek');
+                    }}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-normal outline-none focus:border-[#38a9bd]"
+                  />
+                </label>
+                <span className="text-xs text-[#60717d]">
+                  {constructionStartDate
+                    ? '견적 저장 시 이 버전에 함께 저장됩니다.'
+                    : effectiveStartDate
+                      ? `비워 두면 첫 공정 시작일(${effectiveStartDate})을 사용합니다.`
+                      : '공사 시작일을 지정하거나 공정을 등록하면 시작 주부터 볼 수 있습니다.'}
+                </span>
+                <div className="ml-auto grid grid-cols-2 gap-1 rounded-md bg-[#edf2f5] p-1">
+                  {([
+                    ['month', '월별 보기'],
+                    ['startWeek', '공사 시작 주부터'],
+                  ] as const).map(([view, label]) => (
+                    <button
+                      key={view}
+                      type="button"
+                      disabled={view === 'startWeek' && !effectiveStartDate}
+                      onClick={() => {
+                        setCalendarView(view);
+                        setCalendarWeekOffset(0);
+                      }}
+                      className={`rounded px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${(view === 'startWeek') === isStartWeekCalendar ? 'bg-white text-[#171512] shadow-sm' : 'text-[#60717d] hover:text-[#171512]'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -2558,7 +3061,8 @@ export default function EstimateWorkspacePage() {
                         className={`min-h-36 border-b border-r border-[#edf2f5] p-2 last:border-r-0 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'} ${isHoliday ? 'bg-[linear-gradient(135deg,#fff7f7_0,#fff7f7_50%,#fff_50%,#fff_100%)]' : ''}`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.day}</span>
+                          <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.label}</span>
+                          {day.date === effectiveStartDate && <span className="rounded-full bg-[#171512] px-2 py-0.5 text-[10px] font-bold text-white">공사 시작</span>}
                           {isHoliday && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">휴일</span>}
                           <button
                             type="button"
@@ -3123,7 +3627,14 @@ export default function EstimateWorkspacePage() {
       {materialPicker && (
         <MaterialPickerModal
           state={materialPicker}
-          materials={materials}
+          materials={orderedMaterials}
+          library={dbLibrary}
+          estimateCategories={estimateCategories}
+          estimateItems={estimateItems}
+          onLibraryChange={(library) => {
+            changeDbLibrary(library);
+            setMaterialPicker((current) => (current ? { ...current, step: 'category', category: '', process: '', search: '' } : current));
+          }}
           onChange={setMaterialPicker}
           onChooseCategory={choosePickerCategory}
           onChooseProcess={choosePickerProcess}
@@ -3568,6 +4079,62 @@ function PickerCell({ value, placeholder, onClick }: { value: string; placeholde
     >
       <span className="block truncate">{value || placeholder}</span>
     </button>
+  );
+}
+
+function CommonNameCell({ value, onChange, onPick }: { value: string; onChange: (value: string) => void; onPick: () => void }) {
+  return (
+    <div className="flex min-w-0 gap-1">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="품명 직접 입력"
+        className="w-full min-w-0 rounded-md border border-[#e3c47a] bg-[#fffdf5] px-2 py-2 text-sm outline-none focus:border-[#38a9bd]"
+      />
+      <button type="button" onClick={onPick} title="DB에서 다시 선택" aria-label="DB에서 다시 선택" className="shrink-0 rounded-md border border-[#d5dde2] bg-white px-2 text-[#60717d] hover:border-[#38a9bd]">
+        <Search size={14} />
+      </button>
+    </div>
+  );
+}
+
+function LibraryToggle({
+  value,
+  estimateCount,
+  fullCount,
+  onChange,
+  fullFirst = false,
+  long = false,
+  className = '',
+}: {
+  value: MaterialLibrary;
+  estimateCount: number;
+  fullCount: number;
+  onChange: (library: MaterialLibrary) => void;
+  fullFirst?: boolean;
+  long?: boolean;
+  className?: string;
+}) {
+  const options: Array<{ key: MaterialLibrary; label: string; count: number }> = [
+    { key: 'estimate', label: long ? '견적 데이터베이스' : '견적 DB', count: estimateCount },
+    { key: 'full', label: long ? '전체 데이터베이스' : '전체 DB', count: fullCount },
+  ];
+  if (fullFirst) options.reverse();
+
+  return (
+    <div className={`grid grid-cols-2 gap-1 rounded-md bg-[#edf2f5] p-1 ${className}`}>
+      {options.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          onClick={() => onChange(option.key)}
+          className={`rounded px-3 py-2 text-sm font-semibold ${value === option.key ? 'bg-white text-[#171512] shadow-sm' : 'text-[#60717d] hover:text-[#171512]'}`}
+        >
+          {option.label}
+          <span className="ml-1.5 text-xs font-bold text-[#87949c]">{option.count}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -4061,6 +4628,10 @@ function DocumentTable({ children, className = '' }: { children: ReactNode; clas
 function MaterialPickerModal({
   state,
   materials,
+  library,
+  estimateCategories,
+  estimateItems,
+  onLibraryChange,
   onChange,
   onChooseCategory,
   onChooseProcess,
@@ -4070,25 +4641,33 @@ function MaterialPickerModal({
 }: {
   state: MaterialPickerState;
   materials: Material[];
+  library: MaterialLibrary;
+  estimateCategories: string[];
+  estimateItems: Record<string, string>;
+  onLibraryChange: (library: MaterialLibrary) => void;
   onChange: (state: MaterialPickerState | null) => void;
   onChooseCategory: (category: string) => void;
   onChooseProcess: (process: string) => void;
   onChooseMaterial: (material: Material) => void;
-  onSaveMaterial: (material: Material) => Promise<void>;
+  onSaveMaterial: (material: Material) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [editingPickerMaterial, setEditingPickerMaterial] = useState<Material | null>(null);
   const keyword = state.search.trim().toLowerCase();
-  const categoryGroups = countBy(materials, (item) => item.category || '미분류')
-    .filter((item) => !keyword || item.label.toLowerCase().includes(keyword))
-    .sort((a, b) => a.label.localeCompare(b.label, 'ko-KR'));
-  const processSource = materials.filter((item) => (item.category || '미분류') === state.category);
+  // In the estimate DB the first step groups by estimate category; processes and items stay those of the linked material.
+  const categoryOf = (item: Material) => (library === 'estimate' ? estimateItems[item._id || ''] || '' : item.category || '미분류');
+  const libraryMaterials = library === 'estimate' ? materials.filter((item) => categoryOf(item)) : materials;
+  const estimateCounts = countBy(libraryMaterials, categoryOf);
+  const categoryGroups = (library === 'estimate'
+    ? estimateCategories.map((label) => ({ label, count: estimateCounts.find((group) => group.label === label)?.count || 0 }))
+    : estimateCounts
+  ).filter((item) => !keyword || item.label.toLowerCase().includes(keyword));
+  const processSource = libraryMaterials.filter((item) => categoryOf(item) === state.category);
   const processGroups = countBy(processSource, (item) => item.process || item.category || '기타 공정')
-    .filter((item) => !keyword || item.label.toLowerCase().includes(keyword))
-    .sort((a, b) => a.label.localeCompare(b.label, 'ko-KR'));
-  const materialResults = materials
+    .filter((item) => !keyword || item.label.toLowerCase().includes(keyword));
+  const materialResults = libraryMaterials
     .filter((item) => {
-      const category = item.category || '미분류';
+      const category = categoryOf(item);
       const process = item.process || item.category || '기타 공정';
       const haystack = [item.category, item.process, item.name, item.spec, item.unit, item.note].join(' ').toLowerCase();
       return category === state.category && process === state.process && (!keyword || haystack.includes(keyword));
@@ -4121,13 +4700,16 @@ function MaterialPickerModal({
         </datalist>
         <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">MATERIAL DB</p>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">{library === 'estimate' ? 'ESTIMATE DB' : 'MATERIAL DB'}</p>
             <h2 className="mt-1 text-2xl font-semibold">{stepLabel}</h2>
             <p className="mt-1 text-sm text-[#60717d]">분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
-            <X size={18} />
-          </button>
+          <div className="flex items-start gap-3">
+            <LibraryToggle value={library} estimateCount={materials.filter((item) => estimateItems[item._id || '']).length} fullCount={materials.length} onChange={onLibraryChange} className="w-64" />
+            <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
+              <X size={18} />
+            </button>
+          </div>
         </header>
 
         <div className="grid gap-4 border-b border-[#edf2f5] p-4 lg:grid-cols-[1fr_280px]">
@@ -4238,7 +4820,16 @@ function MaterialPickerModal({
 
           {((state.step === 'category' && categoryGroups.length === 0) || (state.step === 'process' && processGroups.length === 0) || (state.step === 'material' && materialResults.length === 0)) && (
             <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-10 text-center text-sm text-[#60717d]">
-              검색 결과가 없습니다. 자재 단가 DB에 해당 항목이 있는지 확인해주세요.
+              {library === 'estimate' && libraryMaterials.length === 0
+                ? '견적 DB가 비어 있습니다. `자재 / 견적 단가` 탭의 견적 데이터베이스에서 카테고리를 만들고 품목을 넣어주세요.'
+                : library === 'estimate'
+                  ? '이 견적 카테고리에 해당하는 품목이 없습니다. 전체 DB에서 찾아보세요.'
+                  : '검색 결과가 없습니다. 자재 단가 DB에 해당 항목이 있는지 확인해주세요.'}
+              {library === 'estimate' && (
+                <button type="button" onClick={() => onLibraryChange('full')} className="mx-auto mt-4 block rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold text-[#171512]">
+                  전체 DB 보기
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -4671,7 +5262,10 @@ function DetailEstimatePrintPage({
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => renderDetailPrintRow(row))}
+          {(() => {
+            const nameSpans = detailNameRowSpans(rows);
+            return rows.map((row, index) => renderDetailPrintRow(row, nameSpans[index]));
+          })()}
         </tbody>
       </table>
       <div className="mt-4 flex justify-between text-sm">
@@ -4683,7 +5277,26 @@ function DetailEstimatePrintPage({
   );
 }
 
-function renderDetailPrintRow(row: DetailPrintRow) {
+// Consecutive lines with the same 품명 on one page share a single merged 품명 cell (0 = covered by the cell above).
+function detailNameRowSpans(rows: DetailPrintRow[]) {
+  const spans = rows.map(() => 1);
+  rows.forEach((row, index) => {
+    if (row.type !== 'line' || spans[index] === 0) return;
+    const name = row.line.name.trim();
+    if (!name) return;
+    let end = index + 1;
+    while (end < rows.length) {
+      const next = rows[end];
+      if (next.type !== 'line' || next.line.name.trim() !== name) break;
+      spans[end] = 0;
+      end += 1;
+    }
+    spans[index] = end - index;
+  });
+  return spans;
+}
+
+function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   if (row.type === 'group') {
     return (
       <tr key={row.key} className="font-semibold">
@@ -4702,7 +5315,11 @@ function renderDetailPrintRow(row: DetailPrintRow) {
     const { line } = row;
     return (
       <tr key={row.key}>
-        <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+        {nameRowSpan > 1 ? (
+          <td rowSpan={nameRowSpan} className="border border-[#111] px-3 py-1.5 text-center align-middle">{line.name}</td>
+        ) : nameRowSpan === 1 ? (
+          <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+        ) : null}
         <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
         <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
         <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
@@ -5742,6 +6359,16 @@ function groupLinesByCategory(lines: EstimateLine[]) {
   }));
 }
 
+// Keeps lines with the same 품명 together (in first-appearance order) so the detail sheet can merge their 품명 cells.
+function clusterLinesByName(lines: EstimateLine[]) {
+  const clusters = new Map<string, EstimateLine[]>();
+  lines.forEach((line) => {
+    const key = line.name.trim();
+    clusters.set(key, [...(clusters.get(key) || []), line]);
+  });
+  return Array.from(clusters.values()).flat();
+}
+
 function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
@@ -5762,7 +6389,7 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
   grouped.forEach((group, groupIndex) => {
     const groupRows: DetailPrintRow[] = [
       { type: 'group', key: `detail-group-${group.category}-${groupIndex}`, groupIndex, category: group.category },
-      ...group.lines.map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line })),
+      ...clusterLinesByName(group.lines).map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line })),
       { type: 'subtotal', key: `detail-subtotal-${group.category}-${groupIndex}`, amount: group.customerAmount },
     ];
 
@@ -5849,9 +6476,42 @@ function buildCalendarDays(monthKey: string) {
       key,
       date: key,
       day: date.getDate(),
+      label: String(date.getDate()),
       isCurrentMonth: date.getMonth() === month - 1,
     };
   });
+}
+
+// Six weeks starting at weekStart (a Monday); days before the construction start are shown muted.
+function buildWeekCalendarDays(weekStart: string, startDate: string) {
+  return Array.from({ length: 42 }).map((_, index) => {
+    const key = addDays(weekStart, index);
+    const date = parseDateKey(key);
+    return {
+      key,
+      date: key,
+      day: date.getDate(),
+      label: index === 0 || date.getDate() === 1 ? `${date.getMonth() + 1}/${date.getDate()}` : String(date.getDate()),
+      isCurrentMonth: key >= startDate,
+    };
+  });
+}
+
+function mondayOfWeek(dateKeyValue: string) {
+  const date = parseDateKey(dateKeyValue);
+  return addDays(dateKeyValue, -((date.getDay() + 6) % 7));
+}
+
+function earliestTaskStartDate(tasks: ScheduleTask[]) {
+  return tasks
+    .filter((task) => task.name.trim() && task.startDate)
+    .map((task) => task.startDate)
+    .sort()[0] || '';
+}
+
+function formatMonthDay(dateKeyValue: string) {
+  const date = parseDateKey(dateKeyValue);
+  return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
 function tasksForDate(tasks: ScheduleTask[], date: string, holidays: Set<string>) {
@@ -5916,6 +6576,35 @@ function daysBetween(start: string, end: string) {
 function parseDateKey(value: string) {
   const [year, month, day] = value.split('-').map(Number);
   return new Date(year || 1970, (month || 1) - 1, day || 1);
+}
+
+function uniqueInOrder(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+// Saved order first; materials added after the last reorder keep the server's default order at the end.
+function applyMaterialOrder(materials: Material[], order: string[]) {
+  if (!order.length) return materials;
+  const rank = new Map(order.map((id, index) => [id, index]));
+  return materials
+    .map((material, index) => ({ material, index, rank: rank.get(material._id || '') }))
+    .sort((a, b) => (a.rank ?? order.length + a.index) - (b.rank ?? order.length + b.index))
+    .map((entry) => entry.material);
+}
+
+// Dropping onto a lower row places the item after it; onto a higher row, before it.
+function moveIdInOrder(order: string[], fromId: string, toId: string) {
+  const from = order.indexOf(fromId);
+  const to = order.indexOf(toId);
+  if (from < 0 || to < 0 || from === to) return order;
+  const next = [...order];
+  next.splice(from, 1);
+  next.splice(to, 0, fromId);
+  return next;
+}
+
+function isCommonMaterialName(name?: string) {
+  return String(name || '').replace(/\s/g, '') === COMMON_MATERIAL_NAME;
 }
 
 function colorForName(name: string) {

@@ -7,6 +7,8 @@ import {
   deleteEstimateFromFirestore,
   deleteMaterialFromFirestore,
   readEstimateDataFromFirestore,
+  readEstimateMaterialSettingsFromFirestore,
+  saveEstimateMaterialSettingsToFirestore,
   saveEstimateToFirestore,
   saveMaterialToFirestore,
   shouldUseFirestoreErp,
@@ -27,6 +29,7 @@ type EstimateLine = {
   customerUnitPrice?: number | string;
   executionUnitPrice?: number | string;
   note?: string;
+  commonName?: boolean;
 };
 
 type WorkLine = {
@@ -143,12 +146,23 @@ type MaterialDoc = {
   updatedAt: string;
 };
 
+// Estimate DB = full-DB materials linked to user-defined estimate categories, kept in one settings document
+// so edits to a material show up in both views.
+type MaterialSettings = {
+  estimateCategories: string[];
+  estimateItems: Record<string, string>;
+  materialOrder: string[];
+};
+
+const MATERIAL_SETTINGS_ID = 'estimateMaterialSettings';
+const materialSettingsProjection = '{estimateCategoriesJson, estimateItemsJson, materialOrderJson}';
+
 const estimateQuery = `{
   "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...300] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
-    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson, constructionStartDate,
     purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson, legacyWorkbooksCompressedJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
@@ -158,6 +172,7 @@ const estimateQuery = `{
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
   },
+  "materialSettings": *[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection},
   "vendors": *[_type == "officeVendor"] | order(name asc)[0...300] {
     _id, name, manager, phone, service, status, memo, createdAt
   }
@@ -219,7 +234,11 @@ export async function POST(request: Request) {
     }
 
     if (action === 'saveMaterial') {
-      return await saveMaterial(body?.material || {}, request);
+      return await saveMaterial(body?.material || {}, request, body?.estimateCategory);
+    }
+
+    if (action === 'updateMaterialSettings') {
+      return await updateMaterialSettings(body || {}, request);
     }
 
     if (action === 'deleteMaterial') {
@@ -228,9 +247,15 @@ export async function POST(request: Request) {
       if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
         await deleteMaterialFromFirestore(request, id);
         await touchEstimateMaterialMetaInFirestore(request);
-        return NextResponse.json({ ok: true });
+      } else {
+        await managerClient.delete(id);
       }
-      await managerClient.delete(id);
+      const settings = await readMaterialSettings(request);
+      if (settings.estimateItems[id] || settings.materialOrder.includes(id)) {
+        const estimateItems = { ...settings.estimateItems };
+        delete estimateItems[id];
+        await writeMaterialSettings({ ...settings, estimateItems, materialOrder: settings.materialOrder.filter((item) => item !== id) }, request);
+      }
       return NextResponse.json({ ok: true });
     }
 
@@ -254,6 +279,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const legacyWorkSites = Array.isArray(body.legacyWorkSites) ? normalizeLegacyWorkSites(body.legacyWorkSites as LegacyWorkSite[]) : [];
   const legacyWorkbookFields = encodeLegacyWorkbooks(legacyWorkSites);
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
+  const constructionStartDate = normalizeHolidays([body.constructionStartDate])[0] || '';
   const totals = calculateTotals(lines, workLines, extraItems);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
@@ -273,6 +299,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     workLinesJson: JSON.stringify(workLines),
     scheduleJson: JSON.stringify(schedule),
     holidaysJson: JSON.stringify(holidays),
+    constructionStartDate,
     purchaseOrdersJson: JSON.stringify(purchaseOrders),
     purchaseOrderTemplatesJson: JSON.stringify(purchaseOrderTemplatePresets),
     extraItemsJson: JSON.stringify(extraItems),
@@ -319,12 +346,108 @@ function encodeLegacyWorkbooks(legacyWorkSites: LegacyWorkSite[]) {
   };
 }
 
-function decodeEstimatePayload(data: Record<string, unknown> | null | undefined) {
-  if (!data || !Array.isArray(data.estimates)) return data || {};
+function decodeEstimatePayload(data: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!data) return {};
+  const decoded = { ...data, materialSettings: decodeMaterialSettings(data.materialSettings) };
+  if (!Array.isArray(data.estimates)) return decoded;
   return {
-    ...data,
+    ...decoded,
     estimates: data.estimates.map((estimate) => decodeLegacyWorkbooksRecord(estimate as Record<string, unknown>)),
   };
+}
+
+function decodeMaterialSettings(raw: unknown): MaterialSettings {
+  const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const parse = (value: unknown, fallback: unknown) => {
+    if (typeof value !== 'string' || !value) return fallback;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  };
+  return normalizeMaterialSettings({
+    estimateCategories: parse(record.estimateCategoriesJson, []),
+    estimateItems: parse(record.estimateItemsJson, {}),
+    materialOrder: parse(record.materialOrderJson, []),
+  });
+}
+
+function normalizeMaterialSettings(settings: Partial<Record<keyof MaterialSettings, unknown>>): MaterialSettings {
+  const estimateCategories = Array.isArray(settings.estimateCategories)
+    ? Array.from(new Set(settings.estimateCategories.map((category) => cleanCell(category)).filter(Boolean)))
+    : [];
+  const rawItems = settings.estimateItems && typeof settings.estimateItems === 'object' ? (settings.estimateItems as Record<string, unknown>) : {};
+  const estimateItems = Object.fromEntries(
+    Object.entries(rawItems)
+      .map(([id, category]) => [id.trim(), cleanCell(category)])
+      .filter(([id, category]) => id && estimateCategories.includes(category)),
+  );
+  const materialOrder = Array.isArray(settings.materialOrder)
+    ? Array.from(new Set(settings.materialOrder.map((id) => String(id || '').trim()).filter(Boolean)))
+    : [];
+  return { estimateCategories, estimateItems, materialOrder };
+}
+
+async function readMaterialSettings(request: Request) {
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    return decodeMaterialSettings(await readEstimateMaterialSettingsFromFirestore(request));
+  }
+  return decodeMaterialSettings(await managerClient.fetch(`*[_id == $id][0] ${materialSettingsProjection}`, { id: MATERIAL_SETTINGS_ID }));
+}
+
+async function writeMaterialSettings(settings: MaterialSettings, request: Request) {
+  const next = normalizeMaterialSettings(settings);
+  const fields = {
+    estimateCategoriesJson: JSON.stringify(next.estimateCategories),
+    estimateItemsJson: JSON.stringify(next.estimateItems),
+    materialOrderJson: JSON.stringify(next.materialOrder),
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    await saveEstimateMaterialSettingsToFirestore(request, fields);
+    return next;
+  }
+
+  await managerClient.createOrReplace({ _id: MATERIAL_SETTINGS_ID, _type: 'estimateMaterialSettings', ...fields });
+  return next;
+}
+
+async function updateMaterialSettings(body: Record<string, unknown>, request: Request) {
+  const op = String(body.op || '');
+  const settings = await readMaterialSettings(request);
+  const name = cleanCell(body.name);
+
+  if (op === 'addCategory') {
+    if (!name) return NextResponse.json({ error: '추가할 견적 카테고리 이름을 입력해주세요.' }, { status: 400 });
+    if (settings.estimateCategories.includes(name)) return NextResponse.json({ error: '이미 있는 견적 카테고리입니다.' }, { status: 400 });
+    settings.estimateCategories = [...settings.estimateCategories, name];
+  } else if (op === 'deleteCategory') {
+    if (!settings.estimateCategories.includes(name)) return NextResponse.json({ error: '삭제할 견적 카테고리를 찾지 못했습니다.' }, { status: 400 });
+    // Materials stay in the full DB; only their estimate-category link is removed.
+    settings.estimateCategories = settings.estimateCategories.filter((category) => category !== name);
+  } else if (op === 'assign') {
+    const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
+    const category = cleanCell(body.category);
+    if (!ids.length) return NextResponse.json({ error: '견적 DB에 넣을 품목을 선택해주세요.' }, { status: 400 });
+    if (category && !settings.estimateCategories.includes(category)) {
+      return NextResponse.json({ error: '견적 카테고리를 먼저 추가해주세요.' }, { status: 400 });
+    }
+    const estimateItems = { ...settings.estimateItems };
+    ids.forEach((id) => {
+      if (category) estimateItems[id] = category;
+      else delete estimateItems[id];
+    });
+    settings.estimateItems = estimateItems;
+  } else if (op === 'reorder') {
+    settings.materialOrder = Array.isArray(body.order) ? body.order.map((id) => String(id || '')) : [];
+  } else {
+    return NextResponse.json({ error: '지원하지 않는 자재 DB 설정 작업입니다.' }, { status: 400 });
+  }
+
+  const materialSettings = await writeMaterialSettings(settings, request);
+  return NextResponse.json({ materialSettings });
 }
 
 function decodeLegacyWorkbooksRecord(record: Record<string, unknown>) {
@@ -357,7 +480,7 @@ function defaultVersionLabel(versionType: EstimateVersionType) {
   return labels[versionType];
 }
 
-async function saveMaterial(material: Record<string, unknown>, request: Request) {
+async function saveMaterial(material: Record<string, unknown>, request: Request, estimateCategory?: unknown) {
   const name = String(material.name || '').trim();
   if (!name) return NextResponse.json({ error: '품명을 입력해주세요.' }, { status: 400 });
 
@@ -385,11 +508,22 @@ async function saveMaterial(material: Record<string, unknown>, request: Request)
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
     await saveMaterialToFirestore(doc, request);
     await touchEstimateMaterialMetaInFirestore(request);
-    return NextResponse.json({ record: doc });
+  } else {
+    await managerClient.createOrReplace(doc);
   }
 
-  await managerClient.createOrReplace(doc);
-  return NextResponse.json({ record: doc });
+  if (typeof estimateCategory !== 'string') return NextResponse.json({ record: doc });
+
+  const settings = await readMaterialSettings(request);
+  const nextCategory = cleanCell(estimateCategory);
+  if ((settings.estimateItems[id] || '') === nextCategory || (nextCategory && !settings.estimateCategories.includes(nextCategory))) {
+    return NextResponse.json({ record: doc, materialSettings: settings });
+  }
+  const estimateItems = { ...settings.estimateItems };
+  if (nextCategory) estimateItems[id] = nextCategory;
+  else delete estimateItems[id];
+  const materialSettings = await writeMaterialSettings({ ...settings, estimateItems }, request);
+  return NextResponse.json({ record: doc, materialSettings });
 }
 
 async function importMaterials(request: Request) {
@@ -491,6 +625,7 @@ function normalizeLines(lines: EstimateLine[]) {
         customerAmount: Math.round(quantity * customerUnitPrice),
         executionAmount: Math.round(quantity * executionUnitPrice),
         note: String(line.note || '').trim(),
+        commonName: Boolean(line.commonName),
       };
     })
     .filter((line) => line.name || line.space || line.category);
