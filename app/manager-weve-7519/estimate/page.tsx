@@ -249,6 +249,7 @@ const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
 const DETAIL_PRINT_ROWS_PER_PAGE = 20;
 const COMMON_MATERIAL_NAME = '공통';
+const NEW_ESTIMATE_CATEGORY_OPTION = '__new_estimate_category__';
 const emptyMaterialSettings: MaterialSettings = { estimateCategories: [], estimateItems: {}, materialOrder: [] };
 
 const readMaterialCache = (): MaterialCacheRecord | null => {
@@ -1139,6 +1140,14 @@ export default function EstimateWorkspacePage() {
     }
   };
 
+  // Used by the "+ 새 견적 카테고리" option in category selects; returns the new name, or '' if cancelled or failed.
+  const promptNewEstimateCategory = async () => {
+    const name = (window.prompt('새 견적 카테고리 이름을 입력해주세요. (예: 욕실 공사)') || '').trim();
+    if (!name) return '';
+    if (estimateCategories.includes(name)) return name;
+    return (await updateMaterialSettings({ op: 'addCategory', name }, `${name} 견적 카테고리를 추가했습니다.`)) ? name : '';
+  };
+
   const deleteEstimateCategory = async (name: string) => {
     const count = estimateCategoryCounts.get(name) || 0;
     const message = count
@@ -1152,17 +1161,13 @@ export default function EstimateWorkspacePage() {
     }
   };
 
-  const assignMaterialsToEstimateCategory = async (ids: string[], category: string) => {
+  const assignMaterialsToEstimateCategory = async (ids: string[], category: string, clearSelection = true) => {
     if (!ids.length) {
       setError('견적 DB에 넣을 품목을 선택해주세요.');
       return;
     }
-    if (category && !estimateCategories.includes(category)) {
-      setError('견적 카테고리를 먼저 선택해주세요.');
-      return;
-    }
     const message = category ? `${ids.length}개 품목을 '${category}' 견적 카테고리에 넣었습니다.` : `${ids.length}개 품목을 견적 DB에서 뺐습니다.`;
-    if (await updateMaterialSettings({ op: 'assign', ids, category }, message)) {
+    if ((await updateMaterialSettings({ op: 'assign', ids, category }, message)) && clearSelection) {
       setSelectedMaterialIds([]);
     }
   };
@@ -2392,11 +2397,25 @@ export default function EstimateWorkspacePage() {
                 </div>
                 {isLineDbSaveOpen && (
                   <div className="mt-3 grid gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] p-3 md:grid-cols-[minmax(0,220px)_auto_auto_auto] md:items-center">
-                    <select value={lineDbSaveCategory} onChange={(event) => setLineDbSaveCategory(event.target.value)} aria-label="DB 저장 견적 카테고리" className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]">
+                    <select
+                      value={lineDbSaveCategory}
+                      onChange={async (event) => {
+                        const value = event.target.value;
+                        if (value !== NEW_ESTIMATE_CATEGORY_OPTION) {
+                          setLineDbSaveCategory(value);
+                          return;
+                        }
+                        const name = await promptNewEstimateCategory();
+                        if (name) setLineDbSaveCategory(name);
+                      }}
+                      aria-label="DB 저장 견적 카테고리"
+                      className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]"
+                    >
                       <option value="">견적 DB에는 넣지 않음</option>
                       {estimateCategories.map((category) => (
                         <option key={category} value={category}>견적 카테고리 · {category}</option>
                       ))}
+                      <option value={NEW_ESTIMATE_CATEGORY_OPTION}>+ 새 견적 카테고리 추가…</option>
                     </select>
                     <label className="inline-flex items-center gap-2 text-sm font-semibold">
                       <input type="checkbox" checked={lineDbSaveCommon} onChange={(event) => setLineDbSaveCommon(event.target.checked)} />
@@ -2651,20 +2670,20 @@ export default function EstimateWorkspacePage() {
         )}
 
         {activeTab === 'materials' && (
-          <section className="grid gap-5 xl:grid-cols-[0.65fr_1.35fr]">
-            <div className="rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
-              <h2 className="text-xl font-semibold">자재 / 견적 단가 업로드·수정</h2>
-              <p className="mt-2 text-sm leading-6 text-[#60717d]">엑셀의 각 시트를 카테고리로 읽고, 품명/규격/단위/단가를 검색 가능한 단가표로 저장합니다.</p>
-              <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#c6a25d] bg-[#fffdf8] p-6 text-center">
-                <UploadCloud size={28} />
-                <span className="mt-2 text-sm font-semibold">{uploadFile ? uploadFile.name : '자재단가.xlsx 선택'}</span>
+          <section className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="h-fit rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+              <h2 className="text-lg font-semibold">단가 업로드·수정</h2>
+              <p className="mt-1 text-xs leading-5 text-[#60717d]">엑셀의 각 시트를 카테고리로 읽어 품명/규격/단위/단가를 저장합니다.</p>
+              <label className="mt-3 flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-[#c6a25d] bg-[#fffdf8] px-3 py-3 text-center">
+                <UploadCloud size={20} className="shrink-0" />
+                <span className="truncate text-sm font-semibold">{uploadFile ? uploadFile.name : '자재단가.xlsx 선택'}</span>
                 <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => setUploadFile(event.target.files?.[0] || null)} />
               </label>
-              <button type="button" onClick={uploadMaterials} disabled={isSaving} className="mt-3 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-60">
+              <button type="button" onClick={uploadMaterials} disabled={isSaving} className="mt-2 w-full rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
                 자재 단가 반영
               </button>
 
-              <div className="mt-6 grid gap-3">
+              <div className="mt-5 grid gap-2">
                 <div className="flex items-center justify-between gap-2">
                   <b className="text-sm">{editingMaterial._id ? `단가 수정 · ${editingMaterial.name || ''}` : '새 단가 입력'}</b>
                   {editingMaterial._id && (
@@ -2680,24 +2699,38 @@ export default function EstimateWorkspacePage() {
                     </button>
                   )}
                 </div>
-                <input list="estimate-material-categories" value={editingMaterial.category || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                <input list="estimate-material-processes" value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                <input value={editingMaterial.name || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                <input value={editingMaterial.spec || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] px-3 py-2" />
+                <input list="estimate-material-categories" value={editingMaterial.category || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, category: event.target.value })} placeholder="카테고리" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
+                <input list="estimate-material-processes" value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
+                <input value={editingMaterial.name || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, name: event.target.value })} placeholder="품명" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
+                <input value={editingMaterial.spec || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, spec: event.target.value })} placeholder="규격" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
                 <div className="grid grid-cols-2 gap-2">
-                  <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] px-3 py-2" />
-                  <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} />
+                  <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
+                  <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} className="min-w-0 py-1.5 text-sm" />
                 </div>
                 <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                   견적 카테고리
-                  <select value={editingMaterialEstimateCategory} onChange={(event) => setEditingMaterialEstimateCategory(event.target.value)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-normal text-[#171512]">
+                  <select
+                    value={editingMaterialEstimateCategory}
+                    onChange={async (event) => {
+                      const value = event.target.value;
+                      if (value !== NEW_ESTIMATE_CATEGORY_OPTION) {
+                        setEditingMaterialEstimateCategory(value);
+                        return;
+                      }
+                      const name = await promptNewEstimateCategory();
+                      if (name) setEditingMaterialEstimateCategory(name);
+                    }}
+                    disabled={isSaving}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-normal text-[#171512]"
+                  >
                     <option value="">견적 DB에 넣지 않음</option>
                     {estimateCategories.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
+                    <option value={NEW_ESTIMATE_CATEGORY_OPTION}>+ 새 견적 카테고리 추가…</option>
                   </select>
                 </label>
-                <button type="button" onClick={() => saveMaterial()} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-3 font-semibold disabled:opacity-60">
+                <button type="button" onClick={() => saveMaterial()} disabled={isSaving} className="rounded-md bg-[#f1c76a] px-4 py-2.5 text-sm font-semibold disabled:opacity-60">
                   단가 저장
                 </button>
                 <datalist id="estimate-material-categories">
@@ -2713,7 +2746,7 @@ export default function EstimateWorkspacePage() {
               </div>
             </div>
 
-            <div className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-5 shadow-sm">
+            <div className="min-w-0 rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <LibraryToggle
                   value={materialLibrary}
@@ -2746,17 +2779,35 @@ export default function EstimateWorkspacePage() {
                 )}
               </div>
 
-              {materialLibrary === 'estimate' && (
+              {!materialOrderDraft && (
                 <div className="mt-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <b className="text-sm">견적 카테고리</b>
                     <span className="text-xs text-[#60717d]">견적 DB 품목은 전체 DB와 같은 품목이라 어느 쪽에서 고쳐도 함께 바뀝니다.</span>
                   </div>
+                  {materialLibrary === 'full' && (
+                    <p className="mt-2 text-xs leading-5 text-[#4d5d66]">
+                      <b className="text-[#171512]">견적 DB에 넣는 방법</b> · ① 아래에서 견적 카테고리를 추가 → ② 표의 <b>견적 카테고리</b> 칸에서 바로 고르거나, 품목을 체크한 뒤 위에 나타나는 막대에서 카테고리를 골라 <b>견적 DB에 넣기</b>
+                    </p>
+                  )}
                   <div className="mt-3 flex flex-wrap gap-2">
                     {estimateCategories.length === 0 && <span className="text-xs text-[#60717d]">아직 견적 카테고리가 없습니다. 아래에서 추가해주세요.</span>}
                     {estimateCategories.map((category) => (
-                      <span key={category} className={`inline-flex items-center overflow-hidden rounded-full border text-xs font-semibold ${materialCategory === category ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}>
-                        <button type="button" onClick={() => setMaterialCategory(materialCategory === category ? '' : category)} className="py-1.5 pl-3 pr-2">
+                      <span key={category} className={`inline-flex items-center overflow-hidden rounded-full border text-xs font-semibold ${materialLibrary === 'estimate' && materialCategory === category ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (materialLibrary !== 'estimate') {
+                              setMaterialLibrary('estimate');
+                              setSelectedMaterialIds([]);
+                              setMaterialCategory(category);
+                              return;
+                            }
+                            setMaterialCategory(materialCategory === category ? '' : category);
+                          }}
+                          title={materialLibrary === 'estimate' ? undefined : '견적 데이터베이스에서 이 카테고리 보기'}
+                          className="py-1.5 pl-3 pr-2"
+                        >
                           {category} <span className="opacity-60">{estimateCategoryCounts.get(category) || 0}</span>
                         </button>
                         <button type="button" onClick={() => deleteEstimateCategory(category)} disabled={isSaving} aria-label={`${category} 견적 카테고리 삭제`} className="py-1.5 pl-1 pr-2.5 opacity-70 hover:opacity-100">
@@ -2794,11 +2845,25 @@ export default function EstimateWorkspacePage() {
               {selectedMaterialIds.length > 0 && !materialOrderDraft && (
                 <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] px-3 py-2 text-sm">
                   <b>선택 {selectedMaterialIds.length}개</b>
-                  <select value={assignTargetCategory} onChange={(event) => setAssignTargetCategory(event.target.value)} aria-label="넣을 견적 카테고리" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm">
+                  <select
+                    value={assignTargetCategory}
+                    onChange={async (event) => {
+                      const value = event.target.value;
+                      if (value !== NEW_ESTIMATE_CATEGORY_OPTION) {
+                        setAssignTargetCategory(value);
+                        return;
+                      }
+                      const name = await promptNewEstimateCategory();
+                      if (name) setAssignTargetCategory(name);
+                    }}
+                    aria-label="넣을 견적 카테고리"
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm"
+                  >
                     <option value="">견적 카테고리 선택</option>
                     {estimateCategories.map((category) => (
                       <option key={category} value={category}>{category}</option>
                     ))}
+                    <option value={NEW_ESTIMATE_CATEGORY_OPTION}>+ 새 견적 카테고리 추가…</option>
                   </select>
                   <button type="button" onClick={() => assignMaterialsToEstimateCategory(selectedMaterialIds, assignTargetCategory)} disabled={isSaving || !assignTargetCategory} className="rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">
                     {materialLibrary === 'estimate' ? '견적 카테고리 이동' : '견적 DB에 넣기'}
@@ -2811,7 +2876,7 @@ export default function EstimateWorkspacePage() {
                   <button type="button" onClick={() => setSelectedMaterialIds([])} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
                     선택 해제
                   </button>
-                  {estimateCategories.length === 0 && <span className="text-xs text-[#60717d]">견적 데이터베이스에서 카테고리를 먼저 추가해주세요.</span>}
+                  {estimateCategories.length === 0 && <span className="text-xs text-[#60717d]">위 견적 카테고리 칸에서 카테고리를 먼저 추가해주세요.</span>}
                 </div>
               )}
 
@@ -2838,7 +2903,7 @@ export default function EstimateWorkspacePage() {
                     {filteredMaterials.length === 0 && (
                       <tr>
                         <td colSpan={9} className="px-4 py-10 text-center text-sm text-[#60717d]">
-                          {materialLibrary === 'estimate' ? '견적 DB에 품목이 없습니다. 전체 데이터베이스에서 품목을 선택해 견적 카테고리에 넣어주세요.' : '표시할 자재가 없습니다.'}
+                          {materialLibrary === 'estimate' ? '견적 DB에 품목이 없습니다. 전체 데이터베이스 표의 견적 카테고리 칸에서 고르거나, 품목을 체크해 견적 카테고리에 넣어주세요.' : '표시할 자재가 없습니다.'}
                         </td>
                       </tr>
                     )}
@@ -2885,22 +2950,40 @@ export default function EstimateWorkspacePage() {
                           <td className="px-3 py-3">{material.unit}</td>
                           <td className="px-3 py-3">{formatMoney(Number(material.unitPrice || 0))}</td>
                           <td className="px-3 py-3">
-                            {estimateItems[id] ? (
-                              <span className="rounded-full bg-[#fff3c7] px-2.5 py-1 text-xs font-bold text-[#8b6420]">{estimateItems[id]}</span>
+                            {materialOrderDraft ? (
+                              <span className={`text-xs font-bold ${estimateItems[id] ? 'text-[#8b6420]' : 'text-[#a9b4bb]'}`}>{estimateItems[id] || '-'}</span>
                             ) : (
-                              <span className="text-xs text-[#a9b4bb]">-</span>
+                              <select
+                                value={estimateItems[id] || ''}
+                                onChange={async (event) => {
+                                  const value = event.target.value;
+                                  const category = value === NEW_ESTIMATE_CATEGORY_OPTION ? await promptNewEstimateCategory() : value;
+                                  if (value === NEW_ESTIMATE_CATEGORY_OPTION && !category) return;
+                                  await assignMaterialsToEstimateCategory([id], category, false);
+                                }}
+                                disabled={isSaving || !id}
+                                aria-label={`${material.name || '품목'} 견적 카테고리`}
+                                title="고르면 바로 견적 DB에 들어갑니다."
+                                className={`w-full min-w-[104px] rounded-md border px-2 py-1.5 text-xs font-semibold outline-none focus:border-[#38a9bd] disabled:cursor-not-allowed disabled:opacity-50 ${estimateItems[id] ? 'border-[#e3c47a] bg-[#fff3c7] text-[#8b6420]' : 'border-[#d5dde2] bg-white text-[#87949c]'}`}
+                              >
+                                <option value="">- 넣지 않음</option>
+                                {estimateCategories.map((category) => (
+                                  <option key={category} value={category}>{category}</option>
+                                ))}
+                                <option value={NEW_ESTIMATE_CATEGORY_OPTION}>+ 새 견적 카테고리…</option>
+                              </select>
                             )}
                           </td>
                           <td className="px-3 py-3">
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => addMaterialToEstimate(material, materialLibrary)} className="whitespace-nowrap rounded-md bg-[#171512] px-3 py-2 text-xs font-semibold text-white">견적서에 추가</button>
+                            <div className="flex gap-1.5">
+                              <button type="button" onClick={() => addMaterialToEstimate(material, materialLibrary)} className="whitespace-nowrap rounded-md bg-[#171512] px-2.5 py-2 text-xs font-semibold text-white">견적서에 추가</button>
                               <button
                                 type="button"
                                 onClick={() => {
                                   setEditingMaterial(material);
                                   setEditingMaterialEstimateCategory(estimateCategoryOf(material));
                                 }}
-                                className="rounded-md border border-[#d5dde2] px-3 py-2 text-xs font-semibold"
+                                className="whitespace-nowrap rounded-md border border-[#d5dde2] px-2.5 py-2 text-xs font-semibold"
                               >
                                 수정
                               </button>
@@ -3015,6 +3098,20 @@ export default function EstimateWorkspacePage() {
                     className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-normal outline-none focus:border-[#38a9bd]"
                   />
                 </label>
+                {constructionStartDate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConstructionStartDate('');
+                      setCalendarWeekOffset(0);
+                      setStatus('공사 시작일을 지웠습니다. 저장을 누르면 이 버전에 반영됩니다.');
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-semibold text-[#4d5d66] hover:border-red-200 hover:text-red-600"
+                  >
+                    <X size={14} />
+                    초기화
+                  </button>
+                )}
                 <span className="text-xs text-[#60717d]">
                   {constructionStartDate
                     ? '견적 저장 시 이 버전에 함께 저장됩니다.'
