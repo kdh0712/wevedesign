@@ -3,6 +3,7 @@ import { assertManager, assertSanityWriteConfigured, getOrCreateCategory, manage
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
+  listFirestoreCollection,
   officeFirestoreCollections,
   readOfficeDataFromFirestore,
   saveOfficeRecordToFirestore,
@@ -290,13 +291,35 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
     }
 
-    if (type in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    if (!Object.hasOwn(officeFirestoreCollections, type)) {
+      return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
+    }
+
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+    }
+
+    if (type === 'site') {
+      const linkedEstimateCount = await countSiteEstimates(request, id, useFirestore);
+      if (linkedEstimateCount > 0) {
+        return NextResponse.json(
+          { error: `이 현장에 견적 버전 ${linkedEstimateCount}개가 연결되어 있어 삭제할 수 없습니다. 견적 작업에서 견적 버전을 먼저 삭제해 주세요.` },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (useFirestore) {
       await deleteOfficeRecordFromFirestore(request, type, id);
       return NextResponse.json({ ok: true });
     }
 
-    const sanityError = assertSanityWriteConfigured();
-    if (sanityError) return sanityError;
+    const existingType = await managerClient.fetch<string | null>('*[_id == $id][0]._type', { id });
+    if (existingType && existingType !== typeMap[type]) {
+      return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
+    }
 
     await managerClient.delete(id);
     return NextResponse.json({ ok: true });
@@ -304,6 +327,15 @@ export async function DELETE(request: Request) {
     console.error('Office data delete failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 삭제하지 못했습니다.') }, { status: 500 });
   }
+}
+
+async function countSiteEstimates(request: Request, siteId: string, useFirestore: boolean) {
+  if (useFirestore) {
+    const estimates = await listFirestoreCollection<{ siteId?: string }>('siteEstimates', request.headers.get('x-firebase-token') || '');
+    return estimates.filter((estimate) => estimate.siteId === siteId).length;
+  }
+
+  return managerClient.fetch<number>('count(*[_type == "siteEstimate" && siteId == $siteId])', { siteId });
 }
 
 function sanitizeRecord(value: Record<string, unknown>) {
