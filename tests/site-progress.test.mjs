@@ -103,3 +103,18 @@ test('fillProgressTemplate inserts values literally', () => {
     '$& #{코드} z',
   );
 });
+
+test('summarizeSchedule lists tasks in start date order and keeps input order for equal dates', () => {
+  const tasks = [
+    { id: '1', name: '타일', startDate: '2026-10-09', endDate: '2026-10-10', durationDays: 2, progress: 0 },
+    { id: '2', name: '목공', startDate: '2026-10-03', endDate: '2026-10-08', durationDays: 6, progress: 0 },
+    { id: '3', name: '전기', startDate: '2026-10-03', endDate: '2026-10-04', durationDays: 2, progress: 0 },
+    { id: '4', name: '철거', startDate: '2026-10-01', endDate: '2026-10-02', durationDays: 2, progress: 0 },
+  ];
+  const s = summarizeSchedule(tasks, '2026-10-04');
+  assert.deepEqual(s.tasks.map((t) => t.name), ['철거', '목공', '전기', '타일']);
+  assert.deepEqual(s.current.map((t) => t.name), ['목공', '전기']);
+  assert.equal(s.next.name, '타일');
+  assert.equal(s.startDate, '2026-10-01');
+  assert.equal(s.endDate, '2026-10-10');
+});

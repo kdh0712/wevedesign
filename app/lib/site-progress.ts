@@ -125,13 +125,15 @@ export function summarizeSchedule(tasks: ProgressScheduleTask[], today: string):
 
   if (views.length === 0) return null;
 
-  const upcoming = views.filter((view) => view.state === 'upcoming');
+  // The estimate editor may store tasks out of order; the customer sees them by start date (stable, so ties keep input order).
+  views.sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0));
+
   return {
     percent: Math.round(weightedTotal / weightSum),
-    startDate: views.reduce((min, view) => (view.startDate < min ? view.startDate : min), views[0].startDate),
+    startDate: views[0].startDate,
     endDate: views.reduce((max, view) => (view.endDate > max ? view.endDate : max), views[0].endDate),
     current: views.filter((view) => view.state === 'active'),
-    next: upcoming.reduce<ProgressTaskView | null>((best, view) => (!best || view.startDate < best.startDate ? view : best), null),
+    next: views.find((view) => view.state === 'upcoming') ?? null,
     tasks: views,
   };
 }
