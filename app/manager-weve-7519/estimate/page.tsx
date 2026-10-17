@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type Site = {
@@ -201,6 +201,7 @@ type EstimateApiData = {
   error?: string;
   sites?: Site[];
   estimates?: SiteEstimate[];
+  estimatesSiteId?: string;
   materials?: Material[];
   materialsMeta?: MaterialCacheMeta | null;
   materialSettings?: MaterialSettings;
@@ -611,6 +612,8 @@ export default function EstimateWorkspacePage() {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingSite, setIsLoadingSite] = useState(false);
+  const siteRequestRef = useRef(0);
   const [savedSnapshot, setSavedSnapshot] = useState<{ editor: string; legacy: string } | null>(null);
   const [snapshotRequest, setSnapshotRequest] = useState(0);
   const [leaveGuard, setLeaveGuard] = useState<{ proceed: () => void } | null>(null);
@@ -949,56 +952,83 @@ export default function EstimateWorkspacePage() {
     ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
   });
 
+  const fetchEstimateApi = async (query: Record<string, string>, headers = authHeaders(), fallbackError = '견적 데이터를 불러오지 못했습니다.') => {
+    const response = await fetch(`/api/manager/estimate?${new URLSearchParams(query)}`, { headers });
+    const data = (await response.json()) as EstimateApiData;
+    if (!response.ok) throw new Error(data.error || fallbackError);
+    return data;
+  };
+
+  const applyMaterials = async (request: Promise<EstimateApiData>) => {
+    try {
+      const data = await request;
+      const nextMaterials = Array.isArray(data.materials) ? data.materials : [];
+      writeMaterialCache(nextMaterials, data.materialsMeta);
+      setMaterials(nextMaterials);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '자재 단가를 불러오지 못했습니다.');
+    }
+  };
+
+  // Opens the workspace with only the selected site's versions. Materials come from the browser cache and are
+  // refreshed in the background when the server's material version differs, so they never hold up the first screen.
   const loadData = async (
     nextPassword = password,
     preferredSiteId = selectedSiteId,
     preferredEstimateId = selectedEstimateId,
     nextFirebaseToken = firebaseToken,
-    forceRefreshMaterials = false,
   ) => {
     setError('');
     setStatus('');
     if (!nextPassword) return;
 
     setIsLoadingData(true);
+    const headers = authHeaders(nextPassword, nextFirebaseToken);
+    const cachedMaterials = readMaterialCache();
+    // With no cache there is nothing to show yet, so materials are fetched alongside the workspace instead of after it.
+    const materialsRequest = cachedMaterials?.materials?.length ? null : fetchEstimateApi({ part: 'materials' }, headers);
+    materialsRequest?.catch(() => undefined);
     try {
-      const cachedMaterials = forceRefreshMaterials ? null : readMaterialCache();
-      const shouldSkipMaterials = Boolean(cachedMaterials?.materials?.length);
-      const response = await fetch(`/api/manager/estimate${shouldSkipMaterials ? '?materials=skip' : ''}`, {
-        headers: authHeaders(nextPassword, nextFirebaseToken),
-      });
-      let data = (await response.json()) as EstimateApiData;
-      if (!response.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
-
-      if (shouldSkipMaterials && !isMaterialCacheFresh(cachedMaterials, data.materialsMeta)) {
-        const refreshResponse = await fetch('/api/manager/estimate', {
-          headers: authHeaders(nextPassword, nextFirebaseToken),
-        });
-        data = (await refreshResponse.json()) as EstimateApiData;
-        if (!refreshResponse.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
-      }
-
-      const nextMaterials = Array.isArray(data.materials) ? data.materials : cachedMaterials?.materials || [];
-      if (Array.isArray(data.materials)) {
-        writeMaterialCache(data.materials, data.materialsMeta);
-      }
+      const data = await fetchEstimateApi({ estimates: 'site', siteId: preferredSiteId, materials: 'skip' }, headers);
 
       setSites(data.sites || []);
       setEstimates(data.estimates || []);
-      setMaterials(nextMaterials);
+      setMaterials(cachedMaterials?.materials || []);
       setMaterialSettings(data.materialSettings || emptyMaterialSettings);
       setVendors(data.vendors || []);
-      setSelectedSiteId(preferredSiteId || data.sites?.[0]?._id || '');
+      setSelectedSiteId(data.estimatesSiteId || preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
         setIsManualNewEstimateVersion(false);
         setSelectedEstimateId(preferredEstimateId);
       }
       setIsUnlocked(true);
       window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, nextPassword);
+
+      if (materialsRequest) void applyMaterials(materialsRequest);
+      else if (!isMaterialCacheFresh(cachedMaterials, data.materialsMeta)) void applyMaterials(fetchEstimateApi({ part: 'materials' }, headers));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 데이터 조회 중 오류가 발생했습니다.');
     } finally {
       setIsLoadingData(false);
+    }
+  };
+
+  // Loads one site's versions and only then moves the selection, so the header never shows one site over another
+  // site's estimate. A later call wins if several are in flight.
+  const loadSiteEstimates = async (siteId: string, preferredEstimateId = '') => {
+    const requestId = ++siteRequestRef.current;
+    setIsLoadingSite(true);
+    try {
+      const data = await fetchEstimateApi({ part: 'estimates', siteId }, authHeaders(), '현장 견적을 불러오지 못했습니다.');
+      if (requestId !== siteRequestRef.current) return;
+      setEstimates(data.estimates || []);
+      setSelectedSiteId(siteId);
+      setIsManualNewEstimateVersion(false);
+      setSelectedEstimateId(preferredEstimateId);
+    } catch (caught) {
+      if (requestId === siteRequestRef.current) setError(caught instanceof Error ? caught.message : '현장 견적 조회 중 오류가 발생했습니다.');
+    } finally {
+      if (requestId === siteRequestRef.current) setIsLoadingSite(false);
     }
   };
 
@@ -1042,12 +1072,11 @@ export default function EstimateWorkspacePage() {
       const savedRecord = data.record as SiteEstimate | undefined;
       const savedEstimateId = savedRecord?._id || estimateId;
 
-      if (savedEstimateId) {
-        setEstimateId(savedEstimateId);
-        setSelectedEstimateId(savedEstimateId);
-      }
+      // The saved version is selected once the reloaded list contains it; selecting it earlier would briefly load
+      // another version into the editor.
+      if (savedEstimateId) setEstimateId(savedEstimateId);
       setStatus(`${versionLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.`);
-      await loadData(password, selectedSite._id, savedEstimateId);
+      await loadSiteEstimates(selectedSite._id, savedEstimateId);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 저장 중 오류가 발생했습니다.');
@@ -1079,8 +1108,9 @@ export default function EstimateWorkspacePage() {
 
       setStatus('견적 버전을 삭제했습니다.');
       setEstimateId('');
+      setEstimates((current) => current.filter((estimate) => estimate._id !== estimateId));
       setSelectedEstimateId('');
-      await loadData(password, selectedSiteId);
+      await loadSiteEstimates(selectedSiteId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 버전 삭제 중 오류가 발생했습니다.');
     } finally {
@@ -1088,12 +1118,10 @@ export default function EstimateWorkspacePage() {
     }
   };
 
-  // Reloads only the material DB. A full loadData would also refresh the estimate versions, which re-runs the
-  // version load effect and throws away unsaved edits in the estimate.
+  // Reloads only the material DB. Reloading the estimate versions too would re-run the version load effect and
+  // throw away unsaved edits in the estimate.
   const refreshMaterials = async () => {
-    const response = await fetch('/api/manager/estimate', { headers: authHeaders() });
-    const data = (await response.json()) as EstimateApiData;
-    if (!response.ok) throw new Error(data.error || '자재 단가를 다시 불러오지 못했습니다.');
+    const data = await fetchEstimateApi({ part: 'materials' }, authHeaders(), '자재 단가를 다시 불러오지 못했습니다.');
     const nextMaterials = Array.isArray(data.materials) ? data.materials : [];
     writeMaterialCache(nextMaterials, data.materialsMeta);
     setMaterials(nextMaterials);
@@ -2105,15 +2133,14 @@ export default function EstimateWorkspacePage() {
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={selectedSiteId}
+              disabled={isLoadingSite}
               onChange={(event) => {
                 const nextSiteId = event.target.value;
                 guardUnsavedChanges(() => {
-                  setSelectedSiteId(nextSiteId);
-                  setIsManualNewEstimateVersion(false);
-                  setSelectedEstimateId('');
+                  void loadSiteEstimates(nextSiteId);
                 });
               }}
-              className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd]"
+              className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd] disabled:opacity-60"
             >
               {sites.map((site) => (
                 <option key={site._id} value={site._id}>
@@ -2121,8 +2148,14 @@ export default function EstimateWorkspacePage() {
                 </option>
               ))}
             </select>
+            {isLoadingSite && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#60717d]">
+                <Loader2 className="animate-spin text-[#38a9bd]" size={14} />
+                불러오는 중
+              </span>
+            )}
             {hasUnsavedChanges && <span className="rounded-full bg-[#fff3c7] px-3 py-1 text-xs font-bold text-[#8b6420]">저장 안 된 변경 있음</span>}
-            <button type="button" onClick={saveEstimate} disabled={isSaving} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-2.5 font-semibold disabled:opacity-60">
+            <button type="button" onClick={saveEstimate} disabled={isSaving || isLoadingSite} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-2.5 font-semibold disabled:opacity-60">
               <Save size={17} />
               저장
             </button>

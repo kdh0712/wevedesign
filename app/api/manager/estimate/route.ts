@@ -8,6 +8,8 @@ import {
   deleteMaterialFromFirestore,
   readEstimateDataFromFirestore,
   readEstimateMaterialSettingsFromFirestore,
+  readEstimateMaterialsFromFirestore,
+  readSiteEstimatesFromFirestore,
   saveEstimateMaterialSettingsToFirestore,
   saveEstimateToFirestore,
   saveMaterialToFirestore,
@@ -157,51 +159,124 @@ type MaterialSettings = {
 const MATERIAL_SETTINGS_ID = 'estimateMaterialSettings';
 const materialSettingsProjection = '{estimateCategoriesJson, estimateItemsJson, materialOrderJson}';
 
-const estimateQuery = `{
-  "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...300] {
+const sitesGroq = `*[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...300] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
-  },
-  "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
+  }`;
+const estimateProjection = `{
     _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson, constructionStartDate,
     purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson, legacyWorkbooksCompressedJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
     actualExecutionCostTotal, actualMarginAmount, actualMarginRate, additionalCostTotal,
     memo, updatedAt, createdAt
-  },
-  "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
+  }`;
+const allEstimatesGroq = `*[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] ${estimateProjection}`;
+const siteEstimatesGroq = `*[_type == "siteEstimate" && siteId == $siteId] | order(updatedAt desc, _updatedAt desc) ${estimateProjection}`;
+const newestSiteIdGroq = `*[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0]._id`;
+const materialsGroq = `*[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
-  },
-  "materialSettings": *[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection},
-  "vendors": *[_type == "officeVendor"] | order(name asc)[0...300] {
+  }`;
+const materialSettingsGroq = `*[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection}`;
+const vendorsGroq = `*[_type == "officeVendor"] | order(name asc)[0...300] {
     _id, name, manager, phone, service, status, memo, createdAt
-  }
+  }`;
+
+const estimateQuery = ({ siteScoped, includeMaterials }: { siteScoped: boolean; includeMaterials: boolean }) => `{
+  "sites": ${sitesGroq},
+  "estimates": ${siteScoped ? siteEstimatesGroq : allEstimatesGroq},
+  ${includeMaterials ? `"materials": ${materialsGroq},` : ''}
+  "materialSettings": ${materialSettingsGroq},
+  "vendors": ${vendorsGroq}
 }`;
 
+type EstimateReadOptions = {
+  part: string;
+  includeMaterials: boolean;
+  // undefined = newest 300 versions of every site (original payload); a string = that site only, '' = newest site.
+  estimatesSiteId?: string;
+};
+
+// GET variants:
+// - no params: sites, the newest 300 versions of every site, materials, settings and vendors (original payload)
+// - materials=skip: the same without materials
+// - estimates=site&siteId=: only that site's versions ('' = newest site), plus estimatesSiteId
+// - part=estimates&siteId=: { estimates, estimatesSiteId } for one site
+// - part=materials: { materials, materialsMeta, materialSettings }
 export async function GET(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
 
   try {
+    const startedAt = Date.now();
     const url = new URL(request.url);
-    const includeMaterials = url.searchParams.get('materials') !== 'skip';
+    const part = url.searchParams.get('part') || '';
+    const siteId = (url.searchParams.get('siteId') || '').trim();
+    const isSiteScoped = part === 'estimates' || url.searchParams.get('estimates') === 'site';
 
-    if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      const data = await readEstimateDataFromFirestore(request, { includeMaterials });
-      return NextResponse.json(decodeEstimatePayload(data as Record<string, unknown>));
+    if (part === 'estimates' && !siteId) {
+      return NextResponse.json({ error: '현장을 먼저 선택해주세요.' }, { status: 400 });
     }
 
-    const data = decodeEstimatePayload(await managerClient.fetch(estimateQuery));
-    if (!includeMaterials) {
-      const rest = { ...(data || {}) };
-      delete rest.materials;
-      return NextResponse.json({ ...rest, materialsMeta: null });
-    }
-    return NextResponse.json(data);
+    const payload = await readEstimatePayload(request, {
+      part,
+      includeMaterials: url.searchParams.get('materials') !== 'skip',
+      estimatesSiteId: isSiteScoped ? siteId : undefined,
+    });
+    return timedJson(payload, startedAt, part || (isSiteScoped ? 'site' : 'all'));
   } catch (error) {
     console.error('Estimate data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '견적 데이터를 불러오지 못했습니다.') }, { status: 500 });
   }
+}
+
+async function readEstimatePayload(request: Request, { part, includeMaterials, estimatesSiteId }: EstimateReadOptions) {
+  const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+
+  if (part === 'materials') {
+    if (useFirestore) {
+      const data = await readEstimateMaterialsFromFirestore(request);
+      return { ...data, materialSettings: decodeMaterialSettings(data.materialSettings) };
+    }
+    const data = await managerClient.fetch(`{ "materials": ${materialsGroq}, "materialSettings": ${materialSettingsGroq} }`);
+    return { materials: data?.materials || [], materialsMeta: null, materialSettings: decodeMaterialSettings(data?.materialSettings) };
+  }
+
+  if (part === 'estimates') {
+    const siteId = estimatesSiteId || '';
+    const estimates = useFirestore
+      ? await readSiteEstimatesFromFirestore(request, siteId)
+      : await managerClient.fetch(siteEstimatesGroq, { siteId });
+    return { estimates: decodeEstimates(estimates), estimatesSiteId: siteId };
+  }
+
+  if (useFirestore) {
+    return decodeEstimatePayload(await readEstimateDataFromFirestore(request, { includeMaterials, estimatesSiteId }));
+  }
+
+  const siteScoped = typeof estimatesSiteId === 'string';
+  const scopedSiteId = siteScoped ? estimatesSiteId || String((await managerClient.fetch(newestSiteIdGroq)) || '') : '';
+  const data = decodeEstimatePayload(
+    await managerClient.fetch(estimateQuery({ siteScoped, includeMaterials }), siteScoped ? { siteId: scopedSiteId } : {}),
+  );
+  return {
+    ...data,
+    ...(siteScoped ? { estimatesSiteId: scopedSiteId } : {}),
+    ...(includeMaterials ? {} : { materialsMeta: null }),
+  };
+}
+
+// Server-Timing shows in the browser's network panel, so the cost of each variant can be checked against real data.
+function timedJson(payload: unknown, startedAt: number, label: string) {
+  const readMs = Date.now() - startedAt;
+  const body = JSON.stringify(payload);
+  const jsonMs = Date.now() - startedAt - readMs;
+  console.info(`Estimate GET ${label}: ${Buffer.byteLength(body)} bytes, read ${readMs}ms, json ${jsonMs}ms`);
+  return new NextResponse(body, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Server-Timing': `read;dur=${readMs}, json;dur=${jsonMs}`,
+    },
+  });
 }
 
 export async function POST(request: Request) {
@@ -350,10 +425,11 @@ function decodeEstimatePayload(data: Record<string, unknown> | null | undefined)
   if (!data) return {};
   const decoded = { ...data, materialSettings: decodeMaterialSettings(data.materialSettings) };
   if (!Array.isArray(data.estimates)) return decoded;
-  return {
-    ...decoded,
-    estimates: data.estimates.map((estimate) => decodeLegacyWorkbooksRecord(estimate as Record<string, unknown>)),
-  };
+  return { ...decoded, estimates: decodeEstimates(data.estimates) };
+}
+
+function decodeEstimates(estimates: unknown) {
+  return Array.isArray(estimates) ? estimates.map((estimate) => decodeLegacyWorkbooksRecord(estimate as Record<string, unknown>)) : [];
 }
 
 function decodeMaterialSettings(raw: unknown): MaterialSettings {
@@ -463,17 +539,19 @@ async function updateMaterialSettings(body: Record<string, unknown>, request: Re
   return NextResponse.json({ materialSettings });
 }
 
+// The client only reads legacyWorkbooksJson, so the compressed copy is dropped instead of being sent twice.
 function decodeLegacyWorkbooksRecord(record: Record<string, unknown>) {
-  const compressed = typeof record.legacyWorkbooksCompressedJson === 'string' ? record.legacyWorkbooksCompressedJson : '';
-  if (!compressed) return record;
+  const { legacyWorkbooksCompressedJson, ...rest } = record;
+  const compressed = typeof legacyWorkbooksCompressedJson === 'string' ? legacyWorkbooksCompressedJson : '';
+  if (!compressed) return rest;
 
   try {
     return {
-      ...record,
+      ...rest,
       legacyWorkbooksJson: gunzipSync(Buffer.from(compressed, 'base64')).toString('utf8'),
     };
   } catch {
-    return record;
+    return rest;
   }
 }
 
