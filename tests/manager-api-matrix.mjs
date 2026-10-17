@@ -107,19 +107,35 @@ await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'none', 403);
 await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'consult', 200);
 await expectStatus('GET', '/api/manager/office', 'estimates', 200);
 
-const login = await fetch(`${base}/api/manager/auth`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ loginId: 'admin', password: localEnv.MANAGER_PASSWORD }),
-});
-const loginText = await login.text();
-record('POST /api/manager/auth (test master password)', login.status === 200 && !loginText.includes(localEnv.MANAGER_PASSWORD), `status ${login.status}`);
-const badLogin = await fetch(`${base}/api/manager/auth`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ loginId: 'admin', password: 'wrong-password' }),
-});
+// Each run logs in from its own test addresses so the in-memory attempt limit of earlier runs does not interfere.
+const testIp = () => `203.0.113.${Math.floor(Math.random() * 200) + 20}`;
+const login = (loginId, password, ip) =>
+  fetch(`${base}/api/manager/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
+    body: JSON.stringify({ loginId, password }),
+  });
+
+const loginIp = testIp();
+const goodLogin = await login('admin', localEnv.MANAGER_PASSWORD, loginIp);
+const goodLoginText = await goodLogin.text();
+record('POST /api/manager/auth (test master password)', goodLogin.status === 200 && !goodLoginText.includes(localEnv.MANAGER_PASSWORD), `status ${goodLogin.status}`);
+const badLogin = await login('admin', 'wrong-password', loginIp);
 record('POST /api/manager/auth (wrong password)', badLogin.status === 401, `status ${badLogin.status}`);
+
+const limitIp = testIp();
+const limitId = `matrix-limit-${Date.now()}`;
+const limitStatuses = [];
+for (let attempt = 0; attempt < 6; attempt += 1) limitStatuses.push((await login(limitId, 'wrong-password', limitIp)).status);
+record('login limit: 5 failures then 429', limitStatuses.join(',') === '401,401,401,401,401,429', limitStatuses.join(','));
+const otherIdSameIp = await login('admin', localEnv.MANAGER_PASSWORD, limitIp);
+record('login limit: other ID on that address still logs in', otherIdSameIp.status === 200, `status ${otherIdSameIp.status}`);
+const lockedIp = testIp();
+for (let attempt = 0; attempt < 5; attempt += 1) await login('admin', 'wrong-password', lockedIp);
+const correctWhileLocked = await login('admin', localEnv.MANAGER_PASSWORD, lockedIp);
+record('login limit: correct password is refused while blocked', correctWhileLocked.status === 429, `status ${correctWhileLocked.status}`);
+const sameIdOtherIp = await login('admin', localEnv.MANAGER_PASSWORD, testIp());
+record('login limit: same ID from another address still logs in', sameIdOtherIp.status === 200, `status ${sameIdOtherIp.status}`);
 
 for (const { name, pass, detail } of results) console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  ${detail}`);
 const failed = results.filter((result) => !result.pass).length;

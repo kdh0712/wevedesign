@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { ManagerRole } from '../../../lib/manager-permissions';
 import { managerClient } from '../_utils';
+import { clientIp, loginLimiter } from '../_login-limit';
 import { hashPassword, safeEqual, verifyPassword } from '../_password';
 import { issueManagerSession, SESSION_KEY_MISSING_MESSAGE } from '../_session';
 import type { SessionSource } from '../_token';
@@ -48,8 +49,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '비밀번호를 입력해 주세요.' }, { status: 400 });
     }
 
+    const ip = clientIp(request);
+    if (loginLimiter.isBlocked(ip, loginId)) {
+      return NextResponse.json({ error: '로그인 시도가 너무 많습니다. 15분 뒤에 다시 시도해 주세요.' }, { status: 429 });
+    }
+
     if (isFirebaseManagerConfigured() && loginId.includes('@')) {
-      const firebaseUser = await firebaseSignIn(loginId, loginPassword);
+      const firebaseUser = await firebaseSignIn(loginId, loginPassword).catch((error: unknown) => {
+        loginLimiter.recordFailure(ip, loginId);
+        throw error;
+      });
+      loginLimiter.recordSuccess(ip, loginId);
       const lookupUser = await firebaseLookup(firebaseUser.idToken);
       const uid = lookupUser?.localId || firebaseUser.localId;
       const email = lookupUser?.email || firebaseUser.email || loginId;
@@ -86,6 +96,7 @@ export async function POST(request: Request) {
     }
 
     if (managerPassword && (loginId === 'admin' || loginId === 'manager') && safeEqual(loginPassword, managerPassword)) {
+      loginLimiter.recordSuccess(ip, loginId);
       return sessionResponse({ id: 'admin', name: '총괄 관리자', loginId: 'admin', role: 'admin', permissions: [] }, 'master');
     }
 
@@ -96,8 +107,10 @@ export async function POST(request: Request) {
     const verified = account?.password ? await verifyPassword(loginPassword, account.password) : { ok: false, needsRehash: false };
 
     if (!account || !verified.ok) {
+      loginLimiter.recordFailure(ip, loginId);
       return NextResponse.json({ error: '계정 또는 비밀번호가 올바르지 않습니다.' }, { status: 401 });
     }
+    loginLimiter.recordSuccess(ip, loginId);
 
     if (verified.needsRehash && process.env.SANITY_WRITE_TOKEN) {
       try {
