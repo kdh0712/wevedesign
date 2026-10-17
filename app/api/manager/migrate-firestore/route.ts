@@ -5,25 +5,33 @@ import { canUseFirestoreOnServer, saveServerRecordToFirestore } from '../firesto
 
 export const runtime = 'nodejs';
 
+// Records in the 휴지통 carry deletedAt / deletedBy over; live records send neither, so a re-run cannot clear the
+// trash state of a record that was deleted in Firestore.
 const migrationQuery = `{
   "consultations": *[_type == "officeConsultation"] | order(createdAt desc, _createdAt desc)[0...1000] {
     _id, _type, name, phone, siteType, propertyType, areaRange, homeStatus, reason, budget, timeline,
-    postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt, updatedAt
+    postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...1000] {
-    _id, _type, name, phone, chatRoomUrl, siteType, address, status, memo, createdAt, updatedAt
+    _id, _type, name, phone, chatRoomUrl, siteType, address, status, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...1000] {
-    _id, _type, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt, updatedAt
+    _id, _type, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...1000] {
-    _id, _type, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt, updatedAt
+    _id, _type, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "inventory": *[_type == "officeInventoryItem"] | order(itemName asc)[0...1000] {
-    _id, _type, itemName, category, quantity, unit, minQuantity, vendor, memo, createdAt, updatedAt
+    _id, _type, itemName, category, quantity, unit, minQuantity, vendor, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "vendors": *[_type == "officeVendor"] | order(name asc)[0...1000] {
-    _id, _type, name, manager, phone, service, status, memo, createdAt, updatedAt
+    _id, _type, name, manager, phone, service, status, memo, createdAt, updatedAt,
+    defined(deletedAt) => { deletedAt, deletedBy }
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...1000] {
     _id, _type, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson,

@@ -109,6 +109,44 @@ img {
   filter: brightness(0) invert(1);
 }
 
+.manager-loading-logo {
+  animation: manager-loading-breathe 2.4s ease-in-out infinite;
+}
+
+.manager-loading-bar {
+  animation: manager-loading-slide 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@keyframes manager-loading-breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.97);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes manager-loading-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .manager-loading-logo,
+  .manager-loading-bar {
+    animation: none;
+  }
+}
+
 .hero-title {
   color: transparent;
   background: linear-gradient(180deg, #fff5d7 0%, #f0d28f 45%, #d4a75c 72%, #a87535 100%);

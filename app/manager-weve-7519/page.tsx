@@ -22,13 +22,15 @@ import {
   PackagePlus,
   Phone,
   ShieldCheck,
+  Trash2,
   UploadCloud,
   Users,
   WalletCards,
   Instagram,
 } from 'lucide-react';
-import { effectivePermissions, hasAnyPermission } from '../lib/manager-permissions';
+import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
+import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type UploadResult = {
   projectTitle: string;
@@ -61,7 +63,8 @@ type TabKey =
   | 'vendors'
   | 'portfolio'
   | 'integrations'
-  | 'accounts';
+  | 'accounts'
+  | 'trash';
 
 type HomepageTabKey = 'basic' | 'hero' | 'sections' | 'contact' | 'popup' | 'projects' | 'survey';
 
@@ -70,7 +73,7 @@ type ManagerUser = {
   name: string;
   loginId: string;
   role: 'admin' | 'staff';
-  permissions: TabKey[];
+  permissions: ManagerPermission[];
 };
 
 type ManagerAccount = {
@@ -287,6 +290,20 @@ type OfficeData = {
   categories: CategoryOption[];
   projects: ManagedProject[];
   visitStats?: VisitStats;
+};
+
+type TrashType = Exclude<OfficeType, 'project'>;
+
+type TrashFields = { deletedAt?: string; deletedBy?: string };
+
+// GET /api/manager/office?view=trash, keyed like OfficeData so the record shapes and name lookup are shared.
+type OfficeTrashData = {
+  consultations: Array<Consultation & TrashFields>;
+  customers: Array<Customer & TrashFields>;
+  sites: Array<Site & TrashFields>;
+  sales: Array<Sale & TrashFields>;
+  inventory: Array<InventoryItem & TrashFields>;
+  vendors: Array<Vendor & TrashFields>;
 };
 
 type VisitStats = {
@@ -510,6 +527,8 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'portfolio', label: '홈페이지', icon: <FolderUp size={16} /> },
   { key: 'integrations', label: '외부 채널', icon: <Link2 size={16} /> },
   { key: 'accounts', label: '계정 권한', icon: <KeyRound size={16} /> },
+  // Admin only: not offered as an account permission.
+  { key: 'trash', label: '휴지통', icon: <Trash2 size={16} /> },
 ];
 
 const managerSections: Array<{ key: string; label: string; icon: React.ReactNode; tabs: TabKey[] }> = [
@@ -519,6 +538,7 @@ const managerSections: Array<{ key: string; label: string; icon: React.ReactNode
   { key: 'resources', label: '자재·협력업체', icon: <Boxes size={17} />, tabs: ['inventory', 'vendors'] },
   { key: 'website', label: '홈페이지·채널', icon: <FolderUp size={17} />, tabs: ['portfolio', 'integrations'] },
   { key: 'accounts', label: '계정 권한', icon: <KeyRound size={17} />, tabs: ['accounts'] },
+  { key: 'trash', label: '휴지통', icon: <Trash2 size={17} />, tabs: ['trash'] },
 ];
 
 export default function ManagerPage() {
@@ -650,6 +670,9 @@ export default function ManagerPage() {
   const [loadingOffice, setLoadingOffice] = useState(false);
   const [savingOffice, setSavingOffice] = useState(false);
   const [officeData, setOfficeData] = useState<OfficeData>(emptyOfficeData);
+  const [trashData, setTrashData] = useState<OfficeTrashData | null>(null);
+  const [loadingTrash, setLoadingTrash] = useState(false);
+  const [trashFilter, setTrashFilter] = useState<TrashType | 'all'>('all');
   const [visitStats, setVisitStats] = useState<VisitStats | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState('');
   const [results, setResults] = useState<UploadResult[]>([]);
@@ -680,9 +703,11 @@ export default function ManagerPage() {
   const saleFormRef = useRef<HTMLDivElement | null>(null);
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const kakaoConfiguredRef = useRef(true);
 
   const visibleTabs = useMemo(() => {
-    if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts');
+    if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts' && tab.key !== 'trash');
     if (currentUser.role === 'admin') return tabs;
     const granted: string[] = effectivePermissions('staff', currentUser.permissions);
     return tabs.filter((tab) => granted.includes(tab.key));
@@ -730,6 +755,24 @@ export default function ManagerPage() {
     const hasCurrentAccount = accounts.some((account) => account._id === currentUser.id || account.loginId === currentUser.loginId);
     return hasCurrentAccount ? accounts : [currentAccount, ...accounts];
   }, [accounts, currentUser]);
+
+  // Every trashed record, newest deletion first.
+  const trashRows = useMemo(() => {
+    if (!trashData) return [];
+    const lookup = { ...emptyOfficeData, ...trashData };
+    return trashGroups
+      .flatMap((group) => {
+        const records: Array<{ _id: string } & TrashFields> = trashData[group.key];
+        return records.map((record) => ({
+          ...group,
+          id: record._id,
+          name: officeRecordDisplayName(lookup, record._id, group.type),
+          deletedAt: record.deletedAt,
+          deletedBy: record.deletedBy,
+        }));
+      })
+      .sort((a, b) => String(b.deletedAt || '').localeCompare(String(a.deletedAt || '')));
+  }, [trashData]);
 
   const previews = useMemo(() => buildPreview(files), [files]);
   const filteredProjectsForEdit = useMemo(() => {
@@ -870,11 +913,21 @@ export default function ManagerPage() {
   useEffect(() => {
     if (!isUnlocked || !password) return;
 
-    const timer = window.setInterval(() => {
+    // Hidden tabs skip the refresh; coming back to the tab refreshes right away when the data is stale.
+    let lastRefreshAt = Date.now();
+    const refreshIfDue = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRefreshAt < (OFFICE_REFRESH_SECONDS - 1) * 1000) return;
+      lastRefreshAt = Date.now();
       void refreshOfficeData(password);
-    }, OFFICE_REFRESH_SECONDS * 1000);
+    };
+    const timer = window.setInterval(refreshIfDue, OFFICE_REFRESH_SECONDS * 1000);
+    document.addEventListener('visibilitychange', refreshIfDue);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshIfDue);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUnlocked, password]);
 
@@ -887,6 +940,9 @@ export default function ManagerPage() {
   useEffect(() => {
     if (activeTab === 'accounts' && currentUser?.role === 'admin') {
       void loadAccounts();
+    }
+    if (activeTab === 'trash' && currentUser?.role === 'admin') {
+      void loadTrash();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, currentUser?.role]);
@@ -931,6 +987,7 @@ export default function ManagerPage() {
       });
       const data = await readJsonResponse<KakaoSyncStatus>(response);
       setKakaoSyncStatus(data);
+      kakaoConfiguredRef.current = data.configured !== false;
       return response.ok ? data : null;
     } catch {
       setKakaoSyncStatus({ configured: true, error: '카카오 연동 서버에 연결하지 못했습니다.' });
@@ -1026,6 +1083,10 @@ export default function ManagerPage() {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
+    const account = visibleAccounts.find((item) => item._id === id);
+    const accountName = account?.name || account?.loginId || '';
+    const selfWarning = id === currentUser?.id ? '\n지금 로그인한 본인 계정입니다.' : '';
+    if (!window.confirm(`${accountName ? `'${accountName}'` : '선택한'} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`)) return;
     setSavingOffice(true);
     try {
       const response = await fetch('/api/manager/accounts', {
@@ -1172,11 +1233,14 @@ export default function ManagerPage() {
   };
 
   const refreshOfficeData = async (managerPassword = password, firebaseAuthToken = firebaseToken, user = currentUser) => {
-    if (!managerPassword) return;
+    if (!managerPassword || refreshInFlightRef.current) return;
 
+    refreshInFlightRef.current = true;
     try {
-      await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
-      const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) });
+      // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
+      if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
+      // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
+      const response = await fetch('/api/manager/office?scope=refresh', { headers: authHeaders(managerPassword, firebaseAuthToken) });
       if (response.status === 401) {
         expireSession();
         return;
@@ -1193,14 +1257,16 @@ export default function ManagerPage() {
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
-        categories: data.categories || [],
-        projects: data.projects || [],
+        categories: data.categories || current.categories,
+        projects: data.projects || current.projects,
         visitStats: data.visitStats,
       }));
       setVisitStats(data.visitStats || null);
       setLastRefreshedAt(formatTime(new Date()));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 자동 갱신 중 오류가 발생했습니다.');
+    } finally {
+      refreshInFlightRef.current = false;
     }
   };
 
@@ -1233,10 +1299,27 @@ export default function ManagerPage() {
     }
   };
 
+  const confirmOfficeRecordDelete = (id: string, type?: OfficeType) => {
+    const name = officeRecordDisplayName(officeData, id, type);
+    const target = `${name ? `'${name}'` : '선택한'} ${type ? officeRecordDeleteLabels[type] : '항목을'}`;
+
+    if (type === 'site') {
+      const linkedEstimateCount = officeData.estimates.filter((estimate) => estimate.siteId === id).length;
+      if (linkedEstimateCount > 0) {
+        window.alert(`${name ? `'${name}'` : '이'} 현장에 견적 버전 ${linkedEstimateCount}개가 연결되어 있어 삭제할 수 없습니다.\n견적 작업에서 견적 버전을 먼저 삭제한 뒤 다시 시도해 주세요.`);
+        return false;
+      }
+    }
+
+    const restoreHint = currentUser?.role === 'admin' ? '휴지통에서 복구할 수 있습니다.' : '총괄 관리자가 휴지통에서 복구할 수 있습니다.';
+    return window.confirm(`${target} 삭제할까요?\n삭제한 항목은 휴지통으로 옮겨지며 ${restoreHint}`);
+  };
+
   const deleteOfficeRecord = async (id: string, type?: OfficeType) => {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
+    if (!confirmOfficeRecordDelete(id, type)) return;
 
     setSavingOffice(true);
     try {
@@ -1246,16 +1329,70 @@ export default function ManagerPage() {
           ...authHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id, type }),
+        body: JSON.stringify({ id, type, deletedBy: currentUser?.name || currentUser?.loginId || '' }),
       });
       const result = await readJsonResponse<{ error?: string }>(response);
 
       if (!response.ok) throw new Error(result.error || '삭제에 실패했습니다.');
       setSelectedConsultation(null);
       await loadOfficeData();
-      setStatus('삭제했습니다.');
+      setStatus('휴지통으로 옮겼습니다.');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '삭제 중 오류가 발생했습니다.');
+    } finally {
+      setSavingOffice(false);
+    }
+  };
+
+  const loadTrash = async () => {
+    if (!requirePassword()) return;
+    setLoadingTrash(true);
+    try {
+      const response = await fetch('/api/manager/office?view=trash', { headers: authHeaders() });
+      const data = await readJsonResponse<Partial<OfficeTrashData> & { error?: string }>(response);
+      if (!response.ok) throw new Error(data.error || '휴지통을 불러오지 못했습니다.');
+      setTrashData({
+        consultations: data.consultations || [],
+        customers: data.customers || [],
+        sites: data.sites || [],
+        sales: data.sales || [],
+        inventory: data.inventory || [],
+        vendors: data.vendors || [],
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '휴지통 조회 중 오류가 발생했습니다.');
+    } finally {
+      setLoadingTrash(false);
+    }
+  };
+
+  // 복구 clears deletedAt (PATCH); 영구 삭제 removes the record for good (DELETE with permanent).
+  const updateTrashRecord = async (id: string, type: TrashType, action: 'restore' | 'permanent') => {
+    setError('');
+    setStatus('');
+    if (!requirePassword()) return;
+
+    const name = trashRows.find((row) => row.id === id && row.type === type)?.name || '';
+    const target = `${name ? `'${name}'` : '선택한'} ${officeRecordDeleteLabels[type]}`;
+    if (action === 'permanent' && !window.confirm(`${target} 영구 삭제할까요?\n영구 삭제한 항목은 휴지통에서도 사라지며 되돌릴 수 없습니다.`)) return;
+
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/office', {
+        method: action === 'restore' ? 'PATCH' : 'DELETE',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id, type, ...(action === 'permanent' ? { permanent: true } : {}) }),
+      });
+      const result = await readJsonResponse<{ error?: string }>(response);
+
+      if (!response.ok) throw new Error(result.error || (action === 'restore' ? '복구에 실패했습니다.' : '영구 삭제에 실패했습니다.'));
+      await Promise.all([loadTrash(), action === 'restore' ? loadOfficeData(password, { silent: true }) : null]);
+      setStatus(`${target} ${action === 'restore' ? '복구했습니다.' : '영구 삭제했습니다.'}`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '휴지통 작업 중 오류가 발생했습니다.');
     } finally {
       setSavingOffice(false);
     }
@@ -1890,6 +2027,8 @@ export default function ManagerPage() {
       setUploadDescription('');
       setFeatured(false);
       setStatus('현장 사진 업로드가 완료되었습니다.');
+      // The periodic refresh skips the portfolio, so load the new project here.
+      void loadOfficeData(password, { silent: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업로드 중 오류가 발생했습니다.');
     } finally {
@@ -2059,14 +2198,7 @@ export default function ManagerPage() {
 
   return (
     <main className="min-h-screen bg-[#eef3f5] text-[#171512] [zoom:0.9]">
-      {!isUnlocked && isRestoringSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#eef3f5] px-4">
-          <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d]">
-            <Loader2 className="animate-spin text-[#38a9bd]" size={18} />
-            관리자 화면을 여는 중입니다
-          </p>
-        </div>
-      )}
+      {!isUnlocked && isRestoringSession && <ManagerLoadingScreen message="관리자 화면을 여는 중입니다" />}
       {!isUnlocked && !isRestoringSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
           <form
@@ -2766,7 +2898,7 @@ export default function ManagerPage() {
                     </label>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {tabs.map((tab) => {
+                    {tabs.filter((tab) => tab.key !== 'trash').map((tab) => {
                       const checked = accountForm.role === 'admin' || accountForm.permissions.includes(tab.key);
                       return (
                         <label key={tab.key} className="flex items-center gap-3 rounded-md border border-[#d5dde2] bg-white px-4 py-3 text-sm font-semibold">
@@ -2836,6 +2968,65 @@ export default function ManagerPage() {
               />
             </Panel>
           </div>
+        )}
+
+        {activeTab === 'trash' && currentUser?.role === 'admin' && (
+          <Panel title="휴지통">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {[{ type: 'all' as const, label: '전체' }, ...trashGroups].map((group) => (
+                <button
+                  key={group.type}
+                  type="button"
+                  onClick={() => setTrashFilter(group.type)}
+                  className={`rounded-full px-4 py-2 text-sm font-bold ${
+                    trashFilter === group.type ? 'bg-[#273541] text-white' : 'border border-[#d5dde2] bg-white text-[#4d5d66]'
+                  }`}
+                >
+                  {group.label}{' '}
+                  <span className="ml-1 text-xs opacity-75">
+                    {group.type === 'all' ? trashRows.length : trashRows.filter((row) => row.type === group.type).length}
+                  </span>
+                </button>
+              ))}
+              {loadingTrash && (
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#60717d]">
+                  <Loader2 className="animate-spin" size={14} />
+                  불러오는 중
+                </span>
+              )}
+            </div>
+            <p className="mb-3 text-xs text-[#60717d]">삭제한 업무 기록이 모입니다. 복구하면 원래 목록으로 돌아가고, 영구 삭제하면 되돌릴 수 없습니다.</p>
+            <RecordList
+              empty={!trashData ? '휴지통을 불러오는 중입니다.' : trashFilter === 'all' ? '휴지통이 비어 있습니다.' : '휴지통에 이 유형의 기록이 없습니다.'}
+              items={trashRows
+                .filter((row) => trashFilter === 'all' || row.type === trashFilter)
+                .map((row) => ({
+                  key: `${row.type}-${row.id}`,
+                  title: `${row.label} · ${row.name || '이름 없음'}`,
+                  meta: `삭제 ${formatDate(row.deletedAt)} · ${row.deletedBy || '삭제한 사람 기록 없음'}`,
+                  action: (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={savingOffice}
+                        onClick={() => updateTrashRecord(row.id, row.type, 'restore')}
+                        className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold disabled:opacity-50"
+                      >
+                        복구
+                      </button>
+                      <button
+                        type="button"
+                        disabled={savingOffice}
+                        onClick={() => updateTrashRecord(row.id, row.type, 'permanent')}
+                        className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600 disabled:opacity-50"
+                      >
+                        영구 삭제
+                      </button>
+                    </div>
+                  ),
+                }))}
+            />
+          </Panel>
         )}
 
         {activeTab === 'integrations' && (
@@ -4384,6 +4575,7 @@ function DailyReportModal({
                       <button
                         type="button"
                         onClick={() => {
+                          if (!window.confirm(`${record.reportDate || ''} ${index + 1}번째 보고서를 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.`.trim())) return;
                           const nextRecords = previewReportGroup.records.filter((item) => item.id !== record.id);
                           deleteReportRecord(record.id);
                           setPreviewReportGroup(nextRecords.length ? { ...previewReportGroup, records: nextRecords } : null);
@@ -6266,6 +6458,55 @@ function toJpegFileName(fileName: string) {
 
 function formatMoney(value: number) {
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
+}
+
+const officeRecordDeleteLabels: Record<OfficeType, string> = {
+  consultation: '상담을',
+  customer: '고객을',
+  site: '현장을',
+  sale: '매출을',
+  inventory: '재고 품목을',
+  vendor: '거래처를',
+  project: '프로젝트를',
+};
+
+// 휴지통 filters, in manager menu order; key is the matching list in OfficeData and the trash payload.
+const trashGroups: Array<{ type: TrashType; key: keyof OfficeTrashData; label: string }> = [
+  { type: 'consultation', key: 'consultations', label: '상담' },
+  { type: 'customer', key: 'customers', label: '고객' },
+  { type: 'site', key: 'sites', label: '현장' },
+  { type: 'sale', key: 'sales', label: '매출' },
+  { type: 'inventory', key: 'inventory', label: '재고' },
+  { type: 'vendor', key: 'vendors', label: '협력업체' },
+];
+
+function officeRecordDisplayName(data: OfficeData, id: string, type?: OfficeType) {
+  switch (type) {
+    case 'consultation': {
+      const record = data.consultations.find((item) => item._id === id);
+      return record?.name || record?.phone || '';
+    }
+    case 'customer': {
+      const record = data.customers.find((item) => item._id === id);
+      return record?.name || record?.phone || '';
+    }
+    case 'site': {
+      const record = data.sites.find((item) => item._id === id);
+      return record?.title || record?.customerName || '';
+    }
+    case 'sale': {
+      const record = data.sales.find((item) => item._id === id);
+      return record ? `${record.projectTitle || record.customerName || '매출 항목'} · ${formatMoney(Number(record.amount || 0))}` : '';
+    }
+    case 'inventory':
+      return data.inventory.find((item) => item._id === id)?.itemName || '';
+    case 'vendor':
+      return data.vendors.find((item) => item._id === id)?.name || '';
+    case 'project':
+      return data.projects.find((item) => item._id === id)?.title || '';
+    default:
+      return '';
+  }
 }
 
 function formatDate(value?: string) {

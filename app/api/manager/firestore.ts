@@ -272,6 +272,7 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
   collection: string,
   idToken?: string,
   pageSize = 1000,
+  fieldPaths?: string[],
 ) {
   const rows: T[] = [];
   let pageToken = '';
@@ -280,6 +281,8 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
     const url = new URL(`${docBaseUrl()}/${encodePath(collection)}`);
     url.searchParams.set('pageSize', String(pageSize));
     if (pageToken) url.searchParams.set('pageToken', pageToken);
+    // A field mask makes Firestore return only these fields, so large JSON fields are not read or sent.
+    fieldPaths?.forEach((fieldPath) => url.searchParams.append('mask.fieldPaths', fieldPath));
 
     const response = await fetch(url, {
       headers: await firestoreHeaders(idToken, false),
@@ -296,6 +299,35 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
   } while (pageToken);
 
   return rows;
+}
+
+type FirestoreRunQueryResponse = Array<{ document?: FirestoreDocument; error?: { message?: string } }>;
+
+// Equality query on one string field. Single-field indexes are automatic, so no composite index is needed.
+export async function queryFirestoreCollectionByField<T extends Record<string, unknown>>(
+  collection: string,
+  fieldPath: string,
+  value: string,
+  idToken?: string,
+) {
+  const response = await fetch(`${docBaseUrl()}:runQuery`, {
+    method: 'POST',
+    headers: await firestoreHeaders(idToken),
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: collection }],
+        where: { fieldFilter: { field: { fieldPath }, op: 'EQUAL', value: { stringValue: value } } },
+      },
+    }),
+    cache: 'no-store',
+  });
+  const data = (await response.json().catch(() => null)) as FirestoreRunQueryResponse | { error?: { message?: string } } | null;
+  const results = Array.isArray(data) ? data : [];
+  const errorMessage = (Array.isArray(data) ? results.find((item) => item.error)?.error?.message : data?.error?.message) || '';
+  if (!response.ok || errorMessage) {
+    throw new Error(firestorePermissionMessage(errorMessage || `Firestore query failed: ${collection}.${fieldPath}`));
+  }
+  return results.flatMap((item) => (item.document ? [toRecord<T>(item.document)] : []));
 }
 
 export async function getFirestoreDocument<T extends Record<string, unknown>>(collection: string, id: string, idToken?: string) {
@@ -355,27 +387,98 @@ const byNewest = <T extends Record<string, unknown>>(dateFields: string[]) => (a
 const byText = <T extends Record<string, unknown>>(field: string) => (a: T, b: T) =>
   String(a[field] || '').localeCompare(String(b[field] || ''), 'ko');
 
+// The dashboard only shows estimate summaries (same fields as the Sanity office query). Work lines, schedules,
+// purchase orders and legacy workbooks stay in Firestore until the estimate workspace opens the site.
+// linesJson stays: the daily report picks work items from the latest estimate's lines.
+const estimateSummaryFields = [
+  '_id',
+  'siteId',
+  'siteTitle',
+  'customerName',
+  'versionType',
+  'versionLabel',
+  'customerEstimateTotal',
+  'executionCostTotal',
+  'marginAmount',
+  'marginRate',
+  'linesJson',
+  'updatedAt',
+  'createdAt',
+];
+
+async function listEstimateSummariesFromFirestore(idToken: string) {
+  const rows = await listFirestoreCollection('siteEstimates', idToken, 1000, estimateSummaryFields).catch((error) => {
+    console.warn('Firestore estimate field mask failed, reading full documents instead:', error);
+    return listFirestoreCollection('siteEstimates', idToken);
+  });
+  return rows.map((row) =>
+    Object.fromEntries(estimateSummaryFields.filter((field) => field in row).map((field) => [field, row[field]])),
+  );
+}
+
+// Office records in the 휴지통 (trash) carry deletedAt; every list except the trash view leaves them out.
+const notTrashed = <T extends Record<string, unknown>>(record: T) => !record.deletedAt;
+
 export async function readOfficeDataFromFirestore(request: Request) {
   const idToken = requestIdToken(request);
   const [consultations, customers, sites, estimates, sales, inventory, vendors] = await Promise.all([
     listFirestoreCollection('officeConsultations', idToken),
     listFirestoreCollection('officeCustomers', idToken),
     listFirestoreCollection('officeSites', idToken),
-    listFirestoreCollection('siteEstimates', idToken),
+    listEstimateSummariesFromFirestore(idToken),
     listFirestoreCollection('officeSales', idToken),
     listFirestoreCollection('officeInventoryItems', idToken),
     listFirestoreCollection('officeVendors', idToken),
   ]);
 
   return {
-    consultations: consultations.sort(byNewest(['createdAt'])).slice(0, 100),
-    customers: customers.sort(byNewest(['createdAt'])).slice(0, 100),
-    sites: sites.sort(byNewest(['createdAt'])).slice(0, 200),
+    consultations: consultations.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
+    customers: customers.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
+    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200),
     estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
-    sales: sales.sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
-    inventory: inventory.sort(byText('itemName')).slice(0, 200),
-    vendors: vendors.sort(byText('name')).slice(0, 100),
+    sales: sales.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
+    inventory: inventory.filter(notTrashed).sort(byText('itemName')).slice(0, 200),
+    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 100),
   };
+}
+
+export async function readOfficeTrashFromFirestore(request: Request) {
+  const idToken = requestIdToken(request);
+  const trashed = (collection: string) =>
+    listFirestoreCollection(collection, idToken).then((rows) =>
+      rows.filter((row) => Boolean(row.deletedAt)).sort(byNewest(['deletedAt'])).slice(0, 200),
+    );
+  const [consultations, customers, sites, sales, inventory, vendors] = await Promise.all([
+    trashed('officeConsultations'),
+    trashed('officeCustomers'),
+    trashed('officeSites'),
+    trashed('officeSales'),
+    trashed('officeInventoryItems'),
+    trashed('officeVendors'),
+  ]);
+
+  return { consultations, customers, sites, sales, inventory, vendors };
+}
+
+export async function getOfficeRecordFromFirestore(request: Request, type: PrivateOfficeType, id: string) {
+  return getFirestoreDocument<Record<string, unknown>>(officeFirestoreCollections[type], id, requestIdToken(request));
+}
+
+// Moves a record into the 휴지통, or back out with trash = null. The whole record is written so a failed re-read
+// inside saveFirestoreDocument cannot drop its other fields.
+export async function setOfficeRecordTrashInFirestore(
+  request: Request,
+  type: PrivateOfficeType,
+  id: string,
+  record: Record<string, unknown>,
+  trash: { deletedAt: string; deletedBy: string } | null,
+) {
+  return saveFirestoreDocument(
+    officeFirestoreCollections[type],
+    { ...record, deletedAt: trash?.deletedAt ?? null, deletedBy: trash?.deletedBy ?? null },
+    requestIdToken(request),
+    id,
+  );
 }
 
 export async function saveOfficeRecordToFirestore(
@@ -468,30 +571,71 @@ export async function saveEstimateMaterialSettingsToFirestore(request: Request, 
   );
 }
 
-export async function readEstimateDataFromFirestore(request: Request, options: { includeMaterials?: boolean } = {}) {
+const sortMaterials = (materials: Array<Record<string, unknown>>) =>
+  materials.sort((a, b) =>
+    [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
+      .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
+  ).slice(0, 5000);
+
+// Every version of one site, in full. Falls back to listing the whole collection if the query is rejected.
+export async function readSiteEstimatesFromFirestore(request: Request, siteId: string) {
+  if (!siteId) return [];
+  const idToken = requestIdToken(request);
+  const estimates = await queryFirestoreCollectionByField('siteEstimates', 'siteId', siteId, idToken).catch(async (error) => {
+    console.warn('Site estimate query failed, listing all estimates instead:', error);
+    const all = await listFirestoreCollection('siteEstimates', idToken);
+    return all.filter((estimate) => estimate.siteId === siteId);
+  });
+  return estimates.sort(byNewest(['updatedAt', 'createdAt']));
+}
+
+export async function readEstimateMaterialsFromFirestore(request: Request) {
+  const [materials, materialsMeta, materialSettings] = await Promise.all([
+    listFirestoreCollection('estimateMaterials', requestIdToken(request), 5000),
+    readEstimateMaterialMetaFromFirestore(request),
+    readEstimateMaterialSettingsFromFirestore(request),
+  ]);
+  const sortedMaterials = sortMaterials(materials);
+  return { materials: sortedMaterials, materialsMeta: materialsMeta || materialMetaFromRows(sortedMaterials), materialSettings };
+}
+
+// estimatesSiteId: undefined returns the newest 300 versions of all sites (the original payload);
+// a string returns only that site's versions, with '' meaning the newest site.
+export async function readEstimateDataFromFirestore(
+  request: Request,
+  options: { includeMaterials?: boolean; estimatesSiteId?: string } = {},
+) {
   const idToken = requestIdToken(request);
   const includeMaterials = options.includeMaterials !== false;
-  const [sites, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
-    listFirestoreCollection('officeSites', idToken),
-    listFirestoreCollection('siteEstimates', idToken),
+  const isSiteScoped = typeof options.estimatesSiteId === 'string';
+  const sitesRequest = listFirestoreCollection('officeSites', idToken).then((sites) => sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 300));
+  const estimatesSiteIdRequest = isSiteScoped
+    ? options.estimatesSiteId
+      ? Promise.resolve(options.estimatesSiteId)
+      : sitesRequest.then((sites) => String(sites[0]?._id || ''))
+    : Promise.resolve('');
+  const [sites, estimatesSiteId, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
+    sitesRequest,
+    estimatesSiteIdRequest,
+    isSiteScoped
+      ? estimatesSiteIdRequest.then((siteId) => readSiteEstimatesFromFirestore(request, siteId))
+      : listFirestoreCollection('siteEstimates', idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
     listFirestoreCollection('officeVendors', idToken),
     readEstimateMaterialMetaFromFirestore(request),
     readEstimateMaterialSettingsFromFirestore(request),
     includeMaterials ? listFirestoreCollection('estimateMaterials', idToken, 5000) : Promise.resolve([]),
   ]);
 
-  const sortedMaterials = materials.sort((a, b) =>
-    [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
-      .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
-  ).slice(0, 5000);
+  const sortedMaterials = sortMaterials(materials);
 
   return {
-    sites: sites.sort(byNewest(['createdAt'])).slice(0, 300),
-    estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
+    sites,
+    estimates,
+    ...(isSiteScoped ? { estimatesSiteId } : {}),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
     materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
     materialSettings,
-    vendors: vendors.sort(byText('name')).slice(0, 300),
+    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 300),
   };
 }
 

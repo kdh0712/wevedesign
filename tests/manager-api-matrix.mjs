@@ -72,6 +72,27 @@ for (const who of Object.keys(readable)) {
 const dataRows = collections.filter((collection) => (adminOffice.json?.[collection]?.length ?? 0) > 0);
 record('office data available for filtering checks', dataRows.length > 0, dataRows.join(',') || 'admin saw no data');
 
+// Per-site estimate loading (#8) and the dashboard refresh / 휴지통 (#9, #10).
+const firstSiteId = encodeURIComponent(adminOffice.json?.sites?.[0]?._id || 'matrix-missing-site');
+for (const query of [`estimates=site&siteId=${firstSiteId}&materials=skip`, `part=estimates&siteId=${firstSiteId}`, 'part=materials']) {
+  await expectStatus('GET', `/api/manager/estimate?${query}`, 'consult', 403);
+  await expectStatus('GET', `/api/manager/estimate?${query}`, 'estimates', 200);
+}
+await expectStatus('GET', '/api/manager/office?scope=refresh', 'missing', 401);
+const refreshAsConsult = await call('GET', '/api/manager/office?scope=refresh', 'consult');
+record(
+  'GET /api/manager/office?scope=refresh as consult',
+  refreshAsConsult.status === 200 && (refreshAsConsult.json?.customers?.length ?? 0) === 0 && (refreshAsConsult.json?.estimates?.length ?? 0) === 0,
+  `status ${refreshAsConsult.status}, customers ${refreshAsConsult.json?.customers?.length}, estimates ${refreshAsConsult.json?.estimates?.length}`,
+);
+await expectStatus('GET', '/api/manager/office?view=trash', 'consult', 403);
+await expectStatus('GET', '/api/manager/office?view=trash', 'admin', 200);
+await expectStatus('PATCH', '/api/manager/office', 'consult', 403, { id: 'matrix-missing', type: 'consultation' });
+await expectStatus('PATCH', '/api/manager/office', 'admin', 404, { id: 'matrix-missing', type: 'consultation' });
+await expectStatus('DELETE', '/api/manager/office', 'consult', 403, { id: 'matrix-missing', type: 'consultation', permanent: true });
+await expectStatus('DELETE', '/api/manager/office', 'admin', 404, { id: 'matrix-missing', type: 'consultation', permanent: true });
+await expectStatus('DELETE', '/api/manager/office', 'consult', 404, { id: 'matrix-missing', type: 'consultation' });
+
 await expectStatus('GET', '/api/manager/estimate?materials=skip', 'consult', 403);
 await expectStatus('GET', '/api/manager/estimate?materials=skip', 'estimates', 200);
 await expectStatus('GET', '/api/manager/estimate?materials=skip', 'admin', 200);

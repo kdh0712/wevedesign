@@ -1,13 +1,17 @@
 import { NextResponse } from 'next/server';
 import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
-import { assertSanityWriteConfigured, checkSanityDocumentType, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
+import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
+  getOfficeRecordFromFirestore,
+  listFirestoreCollection,
   officeFirestoreCollections,
   readOfficeDataFromFirestore,
+  readOfficeTrashFromFirestore,
   saveOfficeRecordToFirestore,
+  setOfficeRecordTrashInFirestore,
   shouldUseFirestoreErp,
   type PrivateOfficeType,
 } from '../firestore';
@@ -28,26 +32,26 @@ const typeMap: Record<OfficeType, string> = {
 };
 
 const query = `{
-  "consultations": *[_type == "officeConsultation"] | order(createdAt desc, _createdAt desc)[0...100] {
+  "consultations": *[_type == "officeConsultation" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, siteType, propertyType, areaRange, homeStatus, reason, budget, timeline,
     postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt
   },
-  "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {
+  "customers": *[_type == "officeCustomer" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, chatRoomUrl, siteType, address, status, memo, contractAlimtalkSentAt, createdAt
   },
-  "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...200] {
+  "sites": *[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...200] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, linesJson, updatedAt, createdAt
   },
-  "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
+  "sales": *[_type == "officeSale" && !defined(deletedAt)] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
     _id, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt
   },
-  "inventory": *[_type == "officeInventoryItem"] | order(itemName asc)[0...200] {
+  "inventory": *[_type == "officeInventoryItem" && !defined(deletedAt)] | order(itemName asc)[0...200] {
     _id, itemName, category, quantity, unit, minQuantity, vendor, memo, createdAt
   },
-  "vendors": *[_type == "officeVendor"] | order(name asc)[0...100] {
+  "vendors": *[_type == "officeVendor" && !defined(deletedAt)] | order(name asc)[0...100] {
     _id, name, manager, phone, service, status, memo, createdAt
   },
   "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
@@ -101,6 +105,17 @@ const publicQuery = `{
       alt, caption, roomType
     }
   }
+}`;
+
+const trashProjection = '{ _id, name, phone, title, customerName, projectTitle, amount, itemName, deletedAt, deletedBy, createdAt }';
+
+const trashQuery = `{
+  "consultations": *[_type == "officeConsultation" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "customers": *[_type == "officeCustomer" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "sites": *[_type == "officeSite" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "sales": *[_type == "officeSale" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "inventory": *[_type == "officeInventoryItem" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "vendors": *[_type == "officeVendor" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection}
 }`;
 
 const emptyOfficeData = {
@@ -157,12 +172,46 @@ async function getVisitStats() {
   };
 }
 
+// Server-Timing shows in the browser's network panel and the log line in Vercel, so the dashboard payload
+// (and how much of it is estimate lines) can be checked against real data.
+function timedJson(payload: Record<string, unknown>, startedAt: number, label: string) {
+  const readMs = Date.now() - startedAt;
+  const body = JSON.stringify(payload);
+  const jsonMs = Date.now() - startedAt - readMs;
+  const estimates = Array.isArray(payload.estimates) ? (payload.estimates as Array<{ linesJson?: unknown }>) : [];
+  const estimateBytes = Buffer.byteLength(JSON.stringify(estimates));
+  const linesBytes = estimates.reduce(
+    (sum, estimate) => sum + (typeof estimate.linesJson === 'string' ? Buffer.byteLength(estimate.linesJson) : 0),
+    0,
+  );
+  console.info(
+    `Office GET ${label}: ${Buffer.byteLength(body)} bytes, estimates ${estimates.length} versions ${estimateBytes} bytes (linesJson ${linesBytes}), read ${readMs}ms, json ${jsonMs}ms`,
+  );
+  return new NextResponse(body, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Server-Timing': `read;dur=${readMs}, json;dur=${jsonMs}`,
+    },
+  });
+}
+
 export async function GET(request: Request) {
   const access = requireManager(request);
   if (access.error) return access.error;
   const { session } = access;
 
+  const startedAt = Date.now();
+  // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
+  const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
+  const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
+    // ?view=trash lists the records in the 휴지통 instead of the dashboard data. Like the 휴지통 tab, it is admin-only.
+    if (new URL(request.url).searchParams.get('view') === 'trash') {
+      if (session.role !== 'admin') return NextResponse.json({ error: '총괄 관리자만 사용할 수 있습니다.' }, { status: 403 });
+      const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+      return NextResponse.json(useFirestore ? await readOfficeTrashFromFirestore(request) : await managerClient.fetch(trashQuery));
+    }
+
     if (shouldUseFirestoreErp()) {
       try {
         if (!canUseFirestoreForRequest(request)) {
@@ -171,34 +220,44 @@ export async function GET(request: Request) {
 
         const [officeData, publicData, visitStats] = await Promise.all([
           readOfficeDataFromFirestore(request),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
-        return NextResponse.json(filterOfficeData(session, { ...officeData, ...publicData, visitStats }));
+        return timedJson(
+          filterOfficeData(session, { ...officeData, ...publicData, visitStats }),
+          startedAt,
+          isRefresh ? 'firestore refresh' : 'firestore',
+        );
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
         console.error('Firestore office data fetch failed:', firestoreError);
 
         const [fallbackData, publicData, visitStats] = await Promise.all([
           managerClient.fetch(query).catch(() => null),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
 
-        return NextResponse.json(
+        return timedJson(
           filterOfficeData(session, {
             ...(fallbackData || emptyOfficeData),
             ...publicData,
             visitStats,
             storageWarning: `Firestore 연결 확인 필요: ${warning}`,
           }),
+          startedAt,
+          'sanity fallback',
         );
       }
     }
 
     const data = await managerClient.fetch(query);
     data.visitStats = await getVisitStats();
-    return NextResponse.json(filterOfficeData(session, data));
+    if (isRefresh) {
+      delete data.categories;
+      delete data.projects;
+    }
+    return timedJson(filterOfficeData(session, data), startedAt, isRefresh ? 'sanity refresh' : 'sanity');
   } catch (error) {
     console.error('Office data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 불러오지 못했습니다.') }, { status: 500 });
@@ -294,6 +353,8 @@ export async function POST(request: Request) {
   }
 }
 
+// Moves an office record to the 휴지통 (sets deletedAt / deletedBy). With permanent: true, removes a record that is
+// already in the 휴지통.
 export async function DELETE(request: Request) {
   const access = requireManager(request);
   if (access.error) return access.error;
@@ -301,46 +362,129 @@ export async function DELETE(request: Request) {
   try {
     const body = await request.json();
     const id = String(body?.id || '').trim();
-    const type = String(body?.type || '').trim();
+    const type = String(body?.type || '').trim() as PrivateOfficeType;
+    const permanent = body?.permanent === true;
 
     if (!id) {
       return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
     }
 
-    if (!Object.prototype.hasOwnProperty.call(typeMap, type)) {
-      return NextResponse.json({ error: '삭제할 항목 유형이 올바르지 않습니다.' }, { status: 400 });
+    if (!Object.hasOwn(officeFirestoreCollections, type)) {
+      return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
     }
 
     if (!canWriteOffice(access.session, type)) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
-    if (type in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      await deleteOfficeRecordFromFirestore(request, type as PrivateOfficeType, id);
+    // Moving to the 휴지통 follows the record type's permission; emptying it is admin-only like the 휴지통 tab.
+    if (permanent && access.session.role !== 'admin') return NextResponse.json({ error: '총괄 관리자만 사용할 수 있습니다.' }, { status: 403 });
+
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+
+    if (type === 'site') {
+      const linkedEstimateCount = await countSiteEstimates(request, id, useFirestore);
+      if (linkedEstimateCount > 0) {
+        return NextResponse.json(
+          { error: `이 현장에 견적 버전 ${linkedEstimateCount}개가 연결되어 있어 삭제할 수 없습니다. 견적 작업에서 견적 버전을 먼저 삭제해 주세요.` },
+          { status: 409 },
+        );
+      }
+    }
+
+    const existing = await findOfficeRecord(request, type, id, useFirestore);
+    if (!existing) {
+      return NextResponse.json({ error: '이미 삭제되었거나 찾을 수 없는 항목입니다.' }, { status: 404 });
+    }
+
+    if (!useFirestore && existing._type !== typeMap[type]) {
+      return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
+    }
+
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+    }
+
+    if (permanent) {
+      if (!existing.deletedAt) {
+        return NextResponse.json({ error: '휴지통에 있는 항목만 영구 삭제할 수 있습니다.' }, { status: 409 });
+      }
+
+      if (useFirestore) await deleteOfficeRecordFromFirestore(request, type, id);
+      else await managerClient.delete(id);
       return NextResponse.json({ ok: true });
     }
 
-    const documentType = await checkSanityDocumentType(id, typeMap[type as OfficeType]);
-    if (documentType === 'missing') {
-      return NextResponse.json({ error: '삭제할 항목을 찾을 수 없습니다.' }, { status: 404 });
-    }
-    if (documentType === 'mismatch') {
-      return NextResponse.json({ error: '삭제할 항목 유형이 올바르지 않습니다.' }, { status: 400 });
-    }
+    const trash = {
+      deletedAt: new Date().toISOString(),
+      // Who deleted it comes from the signed session, not from anything the browser sends.
+      deletedBy: (access.session.name || access.session.loginId).slice(0, 80),
+    };
 
-    const sanityError = assertSanityWriteConfigured();
-    if (sanityError) return sanityError;
-
-    await managerClient.delete(id);
-    return NextResponse.json({ ok: true });
+    if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, trash);
+    else await managerClient.patch(id).set(trash).commit();
+    return NextResponse.json({ ok: true, ...trash });
   } catch (error) {
     console.error('Office data delete failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 삭제하지 못했습니다.') }, { status: 500 });
   }
 }
 
+// Restores an office record from the 휴지통.
+export async function PATCH(request: Request) {
+  // Restoring happens in the admin-only 휴지통 tab.
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
+
+  try {
+    const body = await request.json();
+    const id = String(body?.id || '').trim();
+    const type = String(body?.type || '').trim() as PrivateOfficeType;
+
+    if (!id || !Object.hasOwn(officeFirestoreCollections, type)) {
+      return NextResponse.json({ error: '복구할 항목을 선택해 주세요.' }, { status: 400 });
+    }
+
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+
+    const existing = await findOfficeRecord(request, type, id, useFirestore);
+    if (!existing || (!useFirestore && existing._type !== typeMap[type])) {
+      return NextResponse.json({ error: '복구할 항목을 찾을 수 없습니다. 이미 영구 삭제되었을 수 있습니다.' }, { status: 404 });
+    }
+
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+    }
+
+    if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, null);
+    else await managerClient.patch(id).unset(['deletedAt', 'deletedBy']).commit();
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Office data restore failed:', error);
+    return NextResponse.json({ error: getErrorMessage(error, '휴지통에서 복구하지 못했습니다.') }, { status: 500 });
+  }
+}
+
+// The stored record (Firestore) or its _type and trash state (Sanity); null when it does not exist.
+async function findOfficeRecord(request: Request, type: PrivateOfficeType, id: string, useFirestore: boolean) {
+  if (useFirestore) return getOfficeRecordFromFirestore(request, type, id);
+  return managerClient.fetch<Record<string, unknown> | null>('*[_id == $id][0]{_type, deletedAt}', { id });
+}
+
+async function countSiteEstimates(request: Request, siteId: string, useFirestore: boolean) {
+  if (useFirestore) {
+    const estimates = await listFirestoreCollection<{ siteId?: string }>('siteEstimates', request.headers.get('x-firebase-token') || '');
+    return estimates.filter((estimate) => estimate.siteId === siteId).length;
+  }
+
+  return managerClient.fetch<number>('count(*[_type == "siteEstimate" && siteId == $siteId])', { siteId });
+}
+
 function sanitizeRecord(value: Record<string, unknown>) {
-  const blocked = new Set(['_id', '_type', '_createdAt', '_updatedAt', '_rev']);
+  // deletedAt / deletedBy change only through DELETE (휴지통) and PATCH (복구).
+  const blocked = new Set(['_id', '_type', '_createdAt', '_updatedAt', '_rev', 'deletedAt', 'deletedBy']);
   const clean: Record<string, unknown> = {};
 
   for (const [key, item] of Object.entries(value)) {
