@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
 import { canUseFirestoreOnServer, savePublicConsultationToFirestore, shouldUseFirestoreErp } from '../manager/firestore';
+import { adminButtonJson, isAligoSuccess, normalizeTemplateText, type AligoResponse } from './aligo-admin';
 
 type ConsultationPayload = {
   name?: string;
@@ -35,14 +36,6 @@ type ConsultationNotificationFields = {
   message: string;
 };
 
-type AligoResponse = {
-  result_code?: string | number;
-  code?: string | number;
-  message?: string;
-  msg?: string;
-  [key: string]: unknown;
-};
-
 type AligoRecipient = {
   phone: string;
   name: string;
@@ -53,6 +46,7 @@ type AligoTemplateRequest = {
   templateCode: string;
   messageTemplate: string;
   subject: string;
+  buttonJson: string;
   fields: ConsultationNotificationFields;
 };
 
@@ -111,13 +105,6 @@ function parsePhoneList(value: string) {
   );
 }
 
-function isAligoSuccess(payload: AligoResponse) {
-  const rawCode = payload.result_code ?? payload.code;
-  if (rawCode === undefined || rawCode === null || rawCode === '') return true;
-  const code = String(rawCode);
-  return code === '1' || code === '0' || code.toLowerCase() === 'success';
-}
-
 function consultationSummary(fields: ConsultationNotificationFields) {
   return [
     '[WEVE DESIGN 신규 상담]',
@@ -169,6 +156,7 @@ async function sendAligoTemplate({
   templateCode,
   messageTemplate,
   subject,
+  buttonJson,
   fields,
 }: AligoTemplateRequest) {
   const senderPhone = process.env.ALIGO_SENDER_PHONE?.trim() || '';
@@ -194,16 +182,18 @@ async function sendAligoTemplate({
   form.set('tpl_code', templateCode);
   form.set('sender', senderPhone);
 
-  const message = fillConsultationTemplate(messageTemplate, fields);
+  const message = fillConsultationTemplate(normalizeTemplateText(messageTemplate), fields);
   recipients.forEach((recipient, index) => {
     const suffix = index + 1;
     form.set(`receiver_${suffix}`, recipient.phone);
     form.set(`recvname_${suffix}`, recipient.name);
     form.set(`subject_${suffix}`, subject);
     form.set(`message_${suffix}`, message);
+    form.set(`button_${suffix}`, buttonJson);
   });
 
-  if (process.env.ALIGO_TEST_MODE === 'Y') form.set('testMode', 'Y');
+  const testMode = process.env.ALIGO_TEST_MODE === 'Y';
+  if (testMode) form.set('testMode', 'Y');
 
   try {
     const response = await fetch(ALIGO_API_URL, {
@@ -224,7 +214,10 @@ async function sendAligoTemplate({
       return { ok: false, error: providerResponse.message || providerResponse.msg || `HTTP ${response.status}` };
     }
 
-    return { ok: true };
+    // "Accepted" only: Kakao can still reject it later (for example a template mismatch). The mid finds it in Aligo's send results.
+    const mid = providerResponse.info?.mid ? String(providerResponse.info.mid) : '';
+    console.info('상담 알림톡 접수', { mid, testMode, recipients: recipients.length });
+    return { ok: true, mid, testMode };
   } catch (error) {
     console.error('상담 알림톡 발송 오류', error);
     return { ok: false, error: error instanceof Error ? error.message : '알림톡 발송 오류' };
@@ -272,6 +265,7 @@ async function sendConsultationKakaoNotifications(fields: ConsultationNotificati
       process.env.ALIGO_CONSULTATION_ADMIN_SUBJECT?.trim() ||
       process.env.ALIGO_CONSULTATION_SUBJECT?.trim() ||
       '신규 상담 요청',
+    buttonJson: adminButtonJson(process.env.ALIGO_CONSULTATION_ADMIN_BUTTON_JSON),
     fields,
   });
 
