@@ -5,11 +5,15 @@ import {
   canUseFirestoreOnServer,
   deleteFirestoreDocument,
   getFirestoreDocument,
+  getFirestoreDocumentWithVersion,
   officeFirestoreCollections,
+  patchFirestoreFields,
   queryFirestoreCollectionByField,
   saveFirestoreDocument,
   shouldUseFirestoreErp,
 } from './firestore';
+
+export { isFirestoreConflictError } from './firestore';
 
 // Everything here reads and writes with the server service account (no idToken), so the browser never touches these records.
 export const SITE_PROGRESS_COLLECTION = 'siteProgressUpdates';
@@ -46,6 +50,14 @@ export async function getSiteForProgress(siteId: string): Promise<ProgressSite |
   if (!id) return null;
   const site = await getFirestoreDocument<ProgressSite>(officeFirestoreCollections.site, id);
   return site && !isTrashed(site) ? site : null;
+}
+
+// The site and the version it was read at, for a write that must land only on that version (verify, first-upload link).
+export async function getSiteForProgressWithVersion(siteId: string): Promise<{ site: ProgressSite; updateTime: string } | null> {
+  const id = siteId.trim();
+  if (!id) return null;
+  const read = await getFirestoreDocumentWithVersion<ProgressSite>(officeFirestoreCollections.site, id);
+  return read && !isTrashed(read.record) ? { site: read.record, updateTime: read.updateTime } : null;
 }
 
 export async function findSiteByProgressCode(code: string): Promise<ProgressSite | null> {
@@ -122,6 +134,13 @@ export async function saveProgressUpdate(update: Omit<ProgressUpdate, '_id'> & {
   return toProgressUpdate(saved);
 }
 
+// Only notifyLog is written, and only while the record still exists, so a record deleted during a send is not recreated.
+// Throws FirestoreConflictError when the record is gone.
+export async function saveProgressNotifyLog(id: string, notifyLog: NotifyLogEntry[]): Promise<ProgressUpdate> {
+  const saved = await patchFirestoreFields(SITE_PROGRESS_COLLECTION, id, { notifyLog }, { precondition: { exists: true } });
+  return toProgressUpdate(saved);
+}
+
 export async function deleteProgressUpdate(id: string): Promise<void> {
   await deleteFirestoreDocument(SITE_PROGRESS_COLLECTION, id);
 }
@@ -129,12 +148,21 @@ export async function deleteProgressUpdate(id: string): Promise<void> {
 // A new link code: 16 random bytes as base64url (22 characters).
 export const generateProgressCode = () => randomBytes(16).toString('base64url');
 
-// The whole site record is written back so a failed re-read inside saveFirestoreDocument cannot drop its other fields.
-export async function saveSiteProgressFields(siteId: string, fields: ProgressSiteFields): Promise<ProgressSite> {
+// Writes only the given progress fields; every other field of the site (a staff edit saved a moment ago included) stays as it
+// is. With updateTime the write lands only on that version of the site, otherwise only while the site still exists; a write
+// that loses throws FirestoreConflictError and changes nothing. A missing or trashed site is refused before anything is written.
+export async function saveSiteProgressFields(
+  siteId: string,
+  fields: ProgressSiteFields,
+  opts: { updateTime?: string } = {},
+): Promise<ProgressSite> {
   const id = siteId.trim();
   const current = id ? await getFirestoreDocument<ProgressSite>(officeFirestoreCollections.site, id) : null;
   if (!current || isTrashed(current)) throw new Error('현장을 찾을 수 없습니다.');
-  return saveFirestoreDocument(officeFirestoreCollections.site, { ...current, ...fields }, undefined, id);
+  return patchFirestoreFields<ProgressSite>(officeFirestoreCollections.site, id, fields, {
+    // An empty updateTime is refused by the query builder instead of quietly becoming an unconditioned write.
+    precondition: opts.updateTime !== undefined ? { updateTime: opts.updateTime } : { exists: true },
+  });
 }
 
 // Every estimate version of the site; the customer view picks the schedule from them.

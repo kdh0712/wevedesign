@@ -34,3 +34,30 @@ export function shouldCloseLinkOnSave(
 ): boolean {
   return nextStatus === SITE_DONE_STATUS && previousStatus !== SITE_DONE_STATUS && progressEnabled === true;
 }
+
+export type VersionedRead<S> = { site: S; updateTime: string };
+
+// The first upload creates the link only on the version of the site it read (create writes with that updateTime as its
+// precondition). If another write got there first, usually a second upload that has just created the code, the site is read
+// again and decided once more, which then keeps that code. A second conflict, or any other failure, is thrown like a failed save.
+export async function applyLinkOnUpload<S>(steps: {
+  first: VersionedRead<S>;
+  reread: () => Promise<VersionedRead<S> | null>;
+  decide: (site: S) => AutoLinkDecision | Promise<AutoLinkDecision>;
+  create: (updateTime: string) => Promise<S>;
+  isConflict: (error: unknown) => boolean;
+}): Promise<{ site: S; decision: AutoLinkDecision; created: boolean }> {
+  let read = steps.first;
+  for (let attempt = 1; ; attempt += 1) {
+    const decision = await steps.decide(read.site);
+    if (decision.action !== 'create') return { site: read.site, decision, created: false };
+    try {
+      return { site: await steps.create(read.updateTime), decision, created: true };
+    } catch (error) {
+      if (attempt >= 2 || !steps.isConflict(error)) throw error;
+    }
+    const again = await steps.reread();
+    if (!again) throw new Error('현장을 찾을 수 없습니다.');
+    read = again;
+  }
+}

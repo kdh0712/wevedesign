@@ -10,17 +10,20 @@ import {
   type ProgressUpdate,
 } from '../../../lib/site-progress';
 import { readProgressAlimtalkConfig, sendAlimtalk, type ProgressAlimtalkConfig } from '../_aligo';
-import { decideLinkOnUpload } from '../_progress-link-rules';
+import { applyLinkOnUpload, decideLinkOnUpload } from '../_progress-link-rules';
 import { checkPhotoUpload, parseCreateUpdate } from '../_progress-request';
 import {
   deleteProgressUpdate,
   generateProgressCode,
   getProgressUpdate,
   getSiteForProgress,
+  getSiteForProgressWithVersion,
+  isFirestoreConflictError,
   isProgressStoreReady,
   listProgressUpdates,
   listSiteEstimates,
   resolveCustomerPhone,
+  saveProgressNotifyLog,
   saveProgressUpdate,
   saveSiteProgressFields,
   type ProgressSite,
@@ -194,13 +197,17 @@ async function prepareNotification(site: ProgressSite): Promise<PreparedNotifica
 }
 
 // The result is logged on the record whether or not the send worked, and a failed log write never hides the send result.
+// Only notifyLog is written, and only while the record exists, so a record deleted during the send is not recreated.
 async function logNotification(update: ProgressUpdate, entry: NotifyLogEntry): Promise<ProgressUpdate> {
-  const next: ProgressUpdate = { ...update, notifyLog: [...(update.notifyLog ?? []), entry] };
+  const notifyLog = [...(update.notifyLog ?? []), entry];
   try {
-    return await saveProgressUpdate(next);
+    return await saveProgressNotifyLog(update._id, notifyLog);
   } catch (error) {
-    console.error('Progress notify log save failed:', error);
-    return next;
+    console.error(
+      isFirestoreConflictError(error) ? 'Progress notify log not saved: the record no longer exists.' : 'Progress notify log save failed:',
+      error,
+    );
+    return { ...update, notifyLog };
   }
 }
 
@@ -233,17 +240,29 @@ type LinkNotice = { enabled: boolean; created: boolean; url: string; reason?: 'n
 
 // The first progress update for a site creates its customer link and switches it on, unless the site is already 완료. A link that
 // already exists keeps the state staff gave it: one switched off, by hand or by 완료, is never turned back on by an upload.
-// Returns the site as it is afterwards.
-async function ensureLinkOnUpload(siteId: string, site: ProgressSite): Promise<{ site: ProgressSite; link: LinkNotice }> {
-  const status = typeof site.status === 'string' ? site.status : undefined;
-  const decision = decideLinkOnUpload(
-    { progressCode: site.progressCode, progressEnabled: site.progressEnabled, status },
-    phoneLast4(await resolveCustomerPhone(site)) !== '',
-  );
-  const created = decision.action === 'create';
-  const current = created ? await saveSiteProgressFields(siteId, { ...freshCodeFields(), progressEnabled: true }) : site;
-  const { enabled, url } = linkOf(current);
-  return { site: current, link: { enabled, created, url, ...('reason' in decision ? { reason: decision.reason } : {}) } };
+// The new code is written only on the version of the site that was read; when two first uploads race, the one that loses reads
+// the site again and keeps the code the other one created (see applyLinkOnUpload). Returns the site as it is afterwards.
+async function ensureLinkOnUpload(
+  siteId: string,
+  first: { site: ProgressSite; updateTime: string },
+): Promise<{ site: ProgressSite; link: LinkNotice }> {
+  const { site, decision, created } = await applyLinkOnUpload<ProgressSite>({
+    first,
+    reread: () => getSiteForProgressWithVersion(siteId),
+    decide: async (current) =>
+      decideLinkOnUpload(
+        {
+          progressCode: current.progressCode,
+          progressEnabled: current.progressEnabled,
+          status: typeof current.status === 'string' ? current.status : undefined,
+        },
+        phoneLast4(await resolveCustomerPhone(current)) !== '',
+      ),
+    create: (updateTime) => saveSiteProgressFields(siteId, { ...freshCodeFields(), progressEnabled: true }, { updateTime }),
+    isConflict: isFirestoreConflictError,
+  });
+  const { enabled, url } = linkOf(site);
+  return { site, link: { enabled, created, url, ...('reason' in decision ? { reason: decision.reason } : {}) } };
 }
 
 async function createUpdate(body: Record<string, unknown>, by: string) {
@@ -251,7 +270,7 @@ async function createUpdate(body: Record<string, unknown>, by: string) {
   if (!parsed.ok) return fail(parsed.error, 400);
   const { siteId, reportDate, designer, workDetail, photos, notify } = parsed.value;
 
-  const found = await getSiteForProgress(siteId);
+  const found = await getSiteForProgressWithVersion(siteId);
   if (!found) return fail(SITE_NOT_FOUND, 404);
 
   // Before the update is saved (a failure here leaves nothing behind, so a retry cannot post it twice) and before notify,

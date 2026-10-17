@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decideLinkOnUpload, shouldCloseLinkOnSave } from '../app/api/manager/_progress-link-rules.ts';
+import { applyLinkOnUpload, decideLinkOnUpload, shouldCloseLinkOnSave } from '../app/api/manager/_progress-link-rules.ts';
 
 // decideLinkOnUpload: what the first progress upload does to the customer link.
 
@@ -82,4 +82,95 @@ test('a save that does not end in 완료 does not close the link', () => {
 
 test('a record with no earlier status saved as 완료 closes an enabled link', () => {
   assert.equal(shouldCloseLinkOnSave(undefined, '완료', true), true);
+});
+
+// applyLinkOnUpload: the first upload creates the link only on the version of the site it read, and decides once more after a conflict.
+
+class Conflict extends Error {}
+
+function uploadSteps({ first, rereads = [], creates = [] }) {
+  const calls = { decide: 0, create: [], reread: 0 };
+  return {
+    calls,
+    steps: {
+      first,
+      reread: async () => {
+        calls.reread += 1;
+        return rereads.shift() ?? null;
+      },
+      decide: async (site) => {
+        calls.decide += 1;
+        return decideLinkOnUpload(site, true);
+      },
+      create: async (updateTime) => {
+        calls.create.push(updateTime);
+        const next = creates.shift();
+        if (next instanceof Error) throw next;
+        return next;
+      },
+      isConflict: (error) => error instanceof Conflict,
+    },
+  };
+}
+
+test('a site with no code gets its link created on the version that was read', async () => {
+  const created = { _id: 's1', progressCode: 'new', progressEnabled: true };
+  const { steps, calls } = uploadSteps({ first: { site: { _id: 's1' }, updateTime: 'v1' }, creates: [created] });
+  assert.deepEqual(await applyLinkOnUpload(steps), { site: created, decision: { action: 'create' }, created: true });
+  assert.deepEqual(calls.create, ['v1']);
+  assert.equal(calls.reread, 0);
+});
+
+test('a site that already has a link is left alone: nothing is written', async () => {
+  const site = { _id: 's1', progressCode: 'abc', progressEnabled: true };
+  const { steps, calls } = uploadSteps({ first: { site, updateTime: 'v1' } });
+  assert.deepEqual(await applyLinkOnUpload(steps), { site, decision: { action: 'keep-on' }, created: false });
+  assert.deepEqual(calls.create, []);
+});
+
+test('a conflict re-reads once: a code another upload just created is kept, not replaced', async () => {
+  const other = { _id: 's1', progressCode: 'from-the-other-upload', progressEnabled: true };
+  const { steps, calls } = uploadSteps({
+    first: { site: { _id: 's1' }, updateTime: 'v1' },
+    rereads: [{ site: other, updateTime: 'v2' }],
+    creates: [new Conflict('stale')],
+  });
+  assert.deepEqual(await applyLinkOnUpload(steps), { site: other, decision: { action: 'keep-on' }, created: false });
+  assert.deepEqual(calls.create, ['v1']);
+  assert.equal(calls.reread, 1);
+});
+
+test('a conflict from an unrelated edit re-reads and creates on the new version', async () => {
+  const created = { _id: 's1', progressCode: 'new', progressEnabled: true };
+  const { steps, calls } = uploadSteps({
+    first: { site: { _id: 's1' }, updateTime: 'v1' },
+    rereads: [{ site: { _id: 's1', title: 'edited' }, updateTime: 'v2' }],
+    creates: [new Conflict('stale'), created],
+  });
+  assert.deepEqual(await applyLinkOnUpload(steps), { site: created, decision: { action: 'create' }, created: true });
+  assert.deepEqual(calls.create, ['v1', 'v2']);
+});
+
+test('a second conflict is an error, like any other failed save', async () => {
+  const second = new Conflict('stale again');
+  const { steps, calls } = uploadSteps({
+    first: { site: { _id: 's1' }, updateTime: 'v1' },
+    rereads: [{ site: { _id: 's1' }, updateTime: 'v2' }, { site: { _id: 's1' }, updateTime: 'v3' }],
+    creates: [new Conflict('stale'), second],
+  });
+  await assert.rejects(applyLinkOnUpload(steps), (error) => error === second);
+  assert.deepEqual(calls.create, ['v1', 'v2']);
+  assert.equal(calls.reread, 1);
+});
+
+test('an error that is not a conflict is thrown at once, without a re-read', async () => {
+  const broken = new Error('Firestore unavailable');
+  const { steps, calls } = uploadSteps({ first: { site: { _id: 's1' }, updateTime: 'v1' }, creates: [broken] });
+  await assert.rejects(applyLinkOnUpload(steps), (error) => error === broken);
+  assert.equal(calls.reread, 0);
+});
+
+test('a site that is gone on the re-read is an error', async () => {
+  const { steps } = uploadSteps({ first: { site: { _id: 's1' }, updateTime: 'v1' }, rereads: [null], creates: [new Conflict('gone')] });
+  await assert.rejects(applyLinkOnUpload(steps), /현장을 찾을 수 없습니다/);
 });
