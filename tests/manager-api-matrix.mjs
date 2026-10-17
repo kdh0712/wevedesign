@@ -8,6 +8,7 @@ const sessions = {
   admin: mintSession('admin', []),
   none: mintSession('staff', []),
   consult: mintSession('staff', ['dashboard', 'consultations']),
+  sites: mintSession('staff', ['sites']),
   estimates: mintSession('staff', ['estimates']),
   sales: mintSession('staff', ['sales']),
   portfolio: mintSession('staff', ['portfolio']),
@@ -125,6 +126,35 @@ await expectStatus('PUT', '/api/manager/alert-phones', 'consult', 403, { phones:
 await expectStatus('GET', '/api/manager/alert-phones', 'admin', 200);
 // Locally there is no Firebase service account, so an allowed save stops at 503 before writing anything.
 await expectStatus('PUT', '/api/manager/alert-phones', 'admin', 503, { phones: ['010-1234-5678'] });
+
+// Customer progress API. Locally there is no Firebase service account, so an allowed request answers 503 (store not ready)
+// before it reads or writes anything; with a store the site does not exist, so the same requests end in a harmless 404 (or 400).
+const progressPath = '/api/manager/progress?siteId=matrix-missing-site';
+const okOrNoStore = (status) => status === 200 || status === 404 || status === 503;
+const rejectedOrNoStore = (status) => status === 503 || status === 400 || status === 404;
+for (const who of ['missing', 'forged', 'expired']) await expectStatus('GET', progressPath, who, 401);
+await expectStatus('GET', progressPath, 'consult', 403);
+await expectStatus('GET', progressPath, 'none', 403);
+await expectStatus('GET', progressPath, 'sites', okOrNoStore);
+await expectStatus('GET', progressPath, 'admin', okOrNoStore);
+await expectStatus('GET', `${progressPath}&preview=1`, 'consult', 403);
+await expectStatus('GET', `${progressPath}&preview=1`, 'sites', (status) => status === 404 || status === 503);
+await expectStatus('POST', '/api/manager/progress', 'missing', 401, { action: 'deleteUpdate', id: 'matrix-missing' });
+for (const body of [
+  { action: 'deleteUpdate', id: 'matrix-missing' },
+  { action: 'setLink', siteId: 'matrix-missing-site', mode: 'enable' },
+  { action: 'notify', updateId: 'matrix-missing', resend: false },
+  { action: 'createUpdate', siteId: 'matrix-missing-site', photos: [] },
+]) {
+  await expectStatus('POST', '/api/manager/progress', 'consult', 403, body);
+  await expectStatus('POST', '/api/manager/progress', 'sites', rejectedOrNoStore, body);
+}
+const photoForm = new FormData();
+photoForm.set('action', 'uploadPhoto');
+photoForm.set('siteId', 'matrix-missing-site');
+photoForm.set('file', new Blob(['x'], { type: 'image/jpeg' }), 'matrix.jpg');
+const photoAsConsult = await fetch(`${base}/api/manager/progress`, { method: 'POST', headers: { Authorization: `Bearer ${sessions.consult.token}` }, body: photoForm });
+record('POST /api/manager/progress (uploadPhoto) as consult', photoAsConsult.status === 403, `status ${photoAsConsult.status}`);
 await expectStatus('POST', '/api/manager/migrate-firestore', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});

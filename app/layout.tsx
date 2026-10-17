@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
-import { Analytics } from '@vercel/analytics/next';
-import Script from 'next/script';
+import { SiteAnalytics } from '@/app/lib/site-analytics';
 import { siteModifiedDate, siteUrl } from '@/app/lib/site-content';
 import './globals.css';
 
@@ -142,20 +141,11 @@ export default function RootLayout({
       <body>
         <a href="#main-content" className="skip-link">본문으로 건너뛰기</a>
         <div id="main-content" tabIndex={-1}>{children}</div>
-        {naverAnalyticsId && (
-          <Script
-            id="naver-analytics"
-            strategy="lazyOnload"
-            dangerouslySetInnerHTML={{
-              __html: `(function(){var s=document.createElement('script');s.src='https://wcs.naver.net/wcslog.js';s.onload=function(){window.wcs_add=window.wcs_add||{};window.wcs_add.wa='${naverAnalyticsId}';if(window.wcs)window.wcs_do();};document.head.appendChild(s);}());`,
-            }}
-          />
-        )}
+        <SiteAnalytics naverAnalyticsId={naverAnalyticsId} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredDataJsonLd) }}
         />
-        <Analytics />
       </body>
     </html>
   );
