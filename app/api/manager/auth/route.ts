@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { ManagerRole } from '../../../lib/manager-permissions';
 import { managerClient } from '../_utils';
 import { clientIp, loginLimiter } from '../_login-limit';
-import { hashPassword, safeEqual, verifyPassword } from '../_password';
+import { hashPassword, safeEqual, verifyPasswordOrDummy } from '../_password';
 import { issueManagerSession, SESSION_KEY_MISSING_MESSAGE } from '../_session';
 import type { SessionSource } from '../_token';
 import {
@@ -71,7 +71,13 @@ export async function POST(request: Request) {
         const now = new Date().toISOString();
         const basics = { name: email.split('@')[0], email, createdAt: now, updatedAt: now };
         const adminAuth = await firebaseAdminDbAuth().catch(() => null);
-        await setFirebaseProfile(uid, adminAuth || userAuth, basics);
+        try {
+          await setFirebaseProfile(uid, adminAuth || userAuth, basics);
+        } catch (error) {
+          // The service account may lack the Realtime Database role; the rules let users write these fields themselves.
+          if (!adminAuth) throw error;
+          await setFirebaseProfile(uid, userAuth, basics);
+        }
         profile = { uid, ...basics };
       }
 
@@ -104,7 +110,7 @@ export async function POST(request: Request) {
       '*[_type == "managerAccount" && loginId == $loginId && isActive != false][0]{_id,name,loginId,password,role,permissions,isActive}',
       { loginId },
     );
-    const verified = account?.password ? await verifyPassword(loginPassword, account.password) : { ok: false, needsRehash: false };
+    const verified = await verifyPasswordOrDummy(loginPassword, account?.password);
 
     if (!account || !verified.ok) {
       loginLimiter.recordFailure(ip, loginId);

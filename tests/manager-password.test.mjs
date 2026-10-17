@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, isPasswordHash, parseStoredHash, safeEqual, verifyPassword } from '../app/api/manager/_password.ts';
+import { hashPassword, isPasswordHash, parseStoredHash, safeEqual, verifyPassword, verifyPasswordOrDummy } from '../app/api/manager/_password.ts';
+
+test('a login ID without a stored password still spends a full hash computation', async () => {
+  await verifyPasswordOrDummy('warm-up', undefined);
+  for (const stored of [undefined, '']) {
+    const started = performance.now();
+    assert.deepEqual(await verifyPasswordOrDummy('pw', stored), { ok: false, needsRehash: false });
+    assert.ok(performance.now() - started >= 5, 'expected the dummy scrypt run to take measurable time');
+  }
+  assert.deepEqual(await verifyPasswordOrDummy('pw', await hashPassword('pw')), { ok: true, needsRehash: false });
+});
 
 test('stored hash parameters are bounded before any hashing', () => {
   assert.equal(parseStoredHash('scrypt$16384$8$1$c2FsdHNhbHQ=$aGFzaGhhc2g=')?.N, 16384);

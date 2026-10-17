@@ -26,6 +26,17 @@ export function isPasswordHash(stored: string): boolean {
   return stored.startsWith('scrypt$') && stored.split('$').length === 6;
 }
 
+let dummyHash: Promise<string> | null = null;
+
+// For login IDs that do not exist (or have no password): run the same scrypt work so the response time
+// does not reveal which IDs exist.
+export async function verifyPasswordOrDummy(password: string, stored: string | undefined) {
+  if (stored) return verifyPassword(password, stored);
+  dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+  await verifyPassword(password, await dummyHash);
+  return { ok: false, needsRehash: false };
+}
+
 export function parseStoredHash(stored: string): { N: number; r: number; p: number; salt: Buffer; hash: Buffer } | null {
   if (!isPasswordHash(stored)) return null;
   const [, n, r, p, saltText, hashText] = stored.split('$');
