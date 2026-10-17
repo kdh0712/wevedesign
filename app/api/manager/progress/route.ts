@@ -10,6 +10,7 @@ import {
   type ProgressUpdate,
 } from '../../../lib/site-progress';
 import { readProgressAlimtalkConfig, sendAlimtalk, type ProgressAlimtalkConfig } from '../_aligo';
+import { decideLinkOnUpload } from '../_progress-link-rules';
 import { checkPhotoUpload, parseCreateUpdate } from '../_progress-request';
 import {
   deleteProgressUpdate,
@@ -55,6 +56,15 @@ function linkOf(site: ProgressSite) {
     code,
     url: code ? `${base}/progress/${code}` : '',
     createdAt: typeof site.progressCodeCreatedAt === 'string' ? site.progressCodeCreatedAt : '',
+  };
+}
+
+// A new code makes every earlier link and customer cookie invalid, and the failed-attempt record starts over.
+function freshCodeFields() {
+  return {
+    progressCode: generateProgressCode(),
+    progressCodeCreatedAt: new Date().toISOString(),
+    progressAccess: { failedCount: 0, lockedUntil: '' },
   };
 }
 
@@ -219,16 +229,32 @@ async function sendNotification(
   return { result, update: logged };
 }
 
+type LinkNotice = { enabled: boolean; created: boolean; url: string; reason?: 'no-customer-phone' | 'link-off' };
+
+// The first progress update for a site creates its customer link and switches it on. A link that already exists keeps the state
+// staff gave it: one switched off, by hand or by 완료, is never turned back on by an upload. Returns the site as it is afterwards.
+async function ensureLinkOnUpload(siteId: string, site: ProgressSite): Promise<{ site: ProgressSite; link: LinkNotice }> {
+  const decision = decideLinkOnUpload(site, phoneLast4(await resolveCustomerPhone(site)) !== '');
+  const created = decision.action === 'create';
+  const current = created ? await saveSiteProgressFields(siteId, { ...freshCodeFields(), progressEnabled: true }) : site;
+  const { enabled, url } = linkOf(current);
+  return { site: current, link: { enabled, created, url, ...('reason' in decision ? { reason: decision.reason } : {}) } };
+}
+
 async function createUpdate(body: Record<string, unknown>, by: string) {
   const parsed = parseCreateUpdate(body);
   if (!parsed.ok) return fail(parsed.error, 400);
   const { siteId, reportDate, designer, workDetail, photos, notify } = parsed.value;
 
-  const site = await getSiteForProgress(siteId);
-  if (!site) return fail(SITE_NOT_FOUND, 404);
+  const found = await getSiteForProgress(siteId);
+  if (!found) return fail(SITE_NOT_FOUND, 404);
+
+  // Before the update is saved (a failure here leaves nothing behind, so a retry cannot post it twice) and before notify,
+  // which must see the link as it is after this step.
+  const { site, link } = await ensureLinkOnUpload(siteId, found);
 
   const saved = await saveProgressUpdate({ siteId, reportDate, designer, workDetail, photos, createdAt: new Date().toISOString(), createdBy: by, notifyLog: [] });
-  if (!notify) return json({ update: saved });
+  if (!notify) return json({ update: saved, link });
 
   // The record is already saved, so nothing below may turn this into an error response (the browser would retry and post it twice).
   // A send that cannot start is logged like a send that failed.
@@ -236,13 +262,13 @@ async function createUpdate(body: Record<string, unknown>, by: string) {
     const prepared = await prepareNotification(site);
     if (!prepared.ok) {
       const logged = await logNotification(saved, { sentAt: new Date().toISOString(), ok: false, error: prepared.error, by });
-      return json({ update: logged, notify: { ok: false, error: prepared.error } });
+      return json({ update: logged, notify: { ok: false, error: prepared.error }, link });
     }
     const sent = await sendNotification(site, saved, prepared, by);
-    return json({ update: sent.update, notify: sent.result });
+    return json({ update: sent.update, notify: sent.result, link });
   } catch (error) {
     console.error('Progress notify failed after the update was saved:', error);
-    return json({ update: saved, notify: { ok: false, error: error instanceof Error ? error.message : '알림톡을 보내지 못했습니다.' } });
+    return json({ update: saved, notify: { ok: false, error: error instanceof Error ? error.message : '알림톡을 보내지 못했습니다.' }, link });
   }
 }
 
@@ -271,14 +297,8 @@ async function setLink(body: Record<string, unknown>) {
   } else {
     // The customer proves who they are with the last four digits of this number, so a link without one cannot work.
     if (phoneLast4(await resolveCustomerPhone(site)) === '') return fail('고객 연락처가 없어 링크를 켤 수 없습니다.', 400);
-    // A new code makes every earlier link and customer cookie invalid, and the failed-attempt record starts over.
-    const freshCode = {
-      progressCode: generateProgressCode(),
-      progressCodeCreatedAt: new Date().toISOString(),
-      progressAccess: { failedCount: 0, lockedUntil: '' },
-    };
-    if (mode === 'rotate') fields = freshCode;
-    else fields = siteCode(site) ? { progressEnabled: true } : { ...freshCode, progressEnabled: true };
+    if (mode === 'rotate') fields = freshCodeFields();
+    else fields = siteCode(site) ? { progressEnabled: true } : { ...freshCodeFields(), progressEnabled: true };
   }
 
   const saved = await saveSiteProgressFields(siteId, fields);

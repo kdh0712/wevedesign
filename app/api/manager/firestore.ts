@@ -483,7 +483,9 @@ export async function setOfficeRecordTrashInFirestore(
   );
 }
 
-export async function saveOfficeRecordToFirestore(
+// Also returns the stored record as it was before this save merged over it (null for a new record), so the caller can tell
+// what the save changed, for example a site moving into 완료.
+export async function saveOfficeRecordToFirestoreWithPrevious(
   request: Request,
   type: PrivateOfficeType,
   data: Record<string, unknown>,
@@ -500,7 +502,17 @@ export async function saveOfficeRecordToFirestore(
     updatedAt: now,
   };
   const documentId = id || `${collection}-${hashId(`${type}-${now}-${Math.random()}`)}`;
-  return saveFirestoreDocument(collection, record, idToken, documentId);
+  const saved = await saveFirestoreDocument(collection, record, idToken, documentId);
+  return { saved, previous };
+}
+
+export async function saveOfficeRecordToFirestore(
+  request: Request,
+  type: PrivateOfficeType,
+  data: Record<string, unknown>,
+  id?: string,
+) {
+  return (await saveOfficeRecordToFirestoreWithPrevious(request, type, data, id)).saved;
 }
 
 export async function deleteOfficeRecordFromFirestore(request: Request, type: PrivateOfficeType, id: string) {

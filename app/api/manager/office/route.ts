@@ -3,6 +3,8 @@ import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissio
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import { stripServerOwnedSiteFields } from '../_site-fields';
+import { shouldCloseLinkOnSave } from '../_progress-link-rules';
+import { saveSiteProgressFields } from '../_progress-store';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -11,7 +13,7 @@ import {
   officeFirestoreCollections,
   readOfficeDataFromFirestore,
   readOfficeTrashFromFirestore,
-  saveOfficeRecordToFirestore,
+  saveOfficeRecordToFirestoreWithPrevious,
   setOfficeRecordTrashInFirestore,
   shouldUseFirestoreErp,
   type PrivateOfficeType,
@@ -302,7 +304,8 @@ export async function POST(request: Request) {
     const firestoreType = type as PrivateOfficeType;
 
     if (firestoreType in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      const saved = await saveOfficeRecordToFirestore(request, firestoreType, cleanData, body?.id ? String(body.id) : undefined);
+      const { saved, previous } = await saveOfficeRecordToFirestoreWithPrevious(request, firestoreType, cleanData, body?.id ? String(body.id) : undefined);
+      if (type === 'site') await closeProgressLinkWhenSiteDone(previous, saved);
       // The stored site carries the progress link fields; the browser gets it back without them.
       const record = type === 'site' ? stripServerOwnedSiteFields(saved) : saved;
       return NextResponse.json({ record });
@@ -498,6 +501,22 @@ async function countSiteEstimates(request: Request, siteId: string, useFirestore
   }
 
   return managerClient.fetch<number>('count(*[_type == "siteEstimate" && siteId == $siteId])', { siteId });
+}
+
+// A site saved into 완료 closes its customer progress link. The site is already saved, so a failure here is logged and never
+// turned into a save error. Only the move into 완료 closes it: staff can switch a finished site's link back on by hand.
+async function closeProgressLinkWhenSiteDone(previous: Record<string, unknown> | null, saved: Record<string, unknown>) {
+  const siteId = typeof saved._id === 'string' ? saved._id : '';
+  const previousStatus = typeof previous?.status === 'string' ? previous.status : undefined;
+  const nextStatus = typeof saved.status === 'string' ? saved.status : undefined;
+  const wasEnabled = typeof previous?.progressEnabled === 'boolean' ? previous.progressEnabled : undefined;
+  if (!siteId || !shouldCloseLinkOnSave(previousStatus, nextStatus, wasEnabled)) return;
+
+  try {
+    await saveSiteProgressFields(siteId, { progressEnabled: false });
+  } catch (error) {
+    console.error('Progress link close failed after the site was saved:', error);
+  }
 }
 
 function sanitizeRecord(value: Record<string, unknown>) {
