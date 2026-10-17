@@ -60,10 +60,11 @@ export const OFFICE_READ_PERMISSIONS: Record<OfficeCollection, readonly ManagerP
   visitStats: ['dashboard'],
 };
 
-// The customer form also creates the customer's site, so customers may write sites.
+// The customer form also creates the customer's site and the site form saves the site's customer,
+// so customers and sites may write each other's records.
 export const OFFICE_WRITE_PERMISSIONS: Record<OfficeRecordType, readonly ManagerPermission[]> = {
   consultation: ['consultations'],
-  customer: ['customers'],
+  customer: ['customers', 'sites'],
   site: ['sites', 'customers'],
   sale: ['sales'],
   inventory: ['inventory'],

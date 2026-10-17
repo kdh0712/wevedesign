@@ -37,6 +37,8 @@ test('read table follows tab dependencies', () => {
 
 test('write table', () => {
   assert.equal(canWriteOffice(staff(['customers']), 'site'), true);
+  // The site form saves the site's customer first.
+  assert.equal(canWriteOffice(staff(['sites']), 'customer'), true);
   assert.equal(canWriteOffice(staff(['customers']), 'sale'), false);
   assert.equal(canWriteOffice(staff(['portfolio']), 'category'), true);
   assert.equal(canWriteOffice(staff(['consultations']), 'managerAccount'), false);
