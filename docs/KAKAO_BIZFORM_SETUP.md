@@ -47,7 +47,10 @@ ALIGO_CONSULTATION_ADMIN_RECEIVER_PHONES=01011112222,01033334444
 ALIGO_CONSULTATION_ADMIN_TEMPLATE_CODE=
 ALIGO_CONSULTATION_ADMIN_MESSAGE_TEMPLATE=
 ALIGO_CONSULTATION_ADMIN_SUBJECT=신규 상담 요청
+ALIGO_CONSULTATION_ADMIN_BUTTON_JSON=
 ```
+
+The manager notification always sends a button. By default it is the approved template's `관리페이지` web link (`https://www.wevedesign.co.kr/manager-weve-7519`). Set `ALIGO_CONSULTATION_ADMIN_BUTTON_JSON` only when the approved template's button changes. Kakao rejects a message whose text or buttons differ from the approved template ("메시지가 템플릿과 일치하지않음"). Typed-out `\n` and Windows line breaks in the message-template variables are converted to real line breaks before sending.
 
 Configure the customer contract-complete template separately. The receiver is taken from the selected customer's phone field when the manager sends the contract-complete notification:
 
