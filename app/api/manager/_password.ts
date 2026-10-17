@@ -5,7 +5,11 @@ const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 const KEY_LENGTH = 64;
 const SALT_BYTES = 16;
-const MAX_STORED_N = 1 << 20;
+// Upper bounds for parameters read from a stored hash, so a tampered hash cannot pin the server (64 MiB at most).
+const MAX_STORED_N = 1 << 16;
+const MAX_STORED_R = 8;
+const MAX_STORED_P = 4;
+const MAX_STORED_HASH_BYTES = 128;
 
 const scryptAsync = (password: string, salt: Buffer, keyLength: number, options: ScryptOptions) =>
   new Promise<Buffer>((resolve, reject) => {
@@ -22,6 +26,22 @@ export function isPasswordHash(stored: string): boolean {
   return stored.startsWith('scrypt$') && stored.split('$').length === 6;
 }
 
+export function parseStoredHash(stored: string): { N: number; r: number; p: number; salt: Buffer; hash: Buffer } | null {
+  if (!isPasswordHash(stored)) return null;
+  const [, n, r, p, saltText, hashText] = stored.split('$');
+  const N = Number(n);
+  const R = Number(r);
+  const P = Number(p);
+  const isPowerOfTwo = Number.isInteger(N) && N > 1 && (N & (N - 1)) === 0;
+  if (!isPowerOfTwo || N > MAX_STORED_N) return null;
+  if (!Number.isInteger(R) || R < 1 || R > MAX_STORED_R || !Number.isInteger(P) || P < 1 || P > MAX_STORED_P) return null;
+
+  const salt = Buffer.from(saltText, 'base64');
+  const hash = Buffer.from(hashText, 'base64');
+  if (!salt.length || !hash.length || hash.length > MAX_STORED_HASH_BYTES) return null;
+  return { N, r: R, p: P, salt, hash };
+}
+
 export function safeEqual(a: string, b: string): boolean {
   // Hash first so both sides have the same length and the comparison time does not leak it.
   const left = createHash('sha256').update(a).digest();
@@ -36,18 +56,13 @@ export async function verifyPassword(password: string, stored: string): Promise<
     return { ok, needsRehash: ok };
   }
 
-  const [, n, r, p, saltText, hashText] = stored.split('$');
-  const N = Number(n);
-  const R = Number(r);
-  const P = Number(p);
-  const salt = Buffer.from(saltText, 'base64');
-  const expected = Buffer.from(hashText, 'base64');
-  const validParams = [N, R, P].every((value) => Number.isInteger(value) && value > 0) && N <= MAX_STORED_N;
-  if (!validParams || !salt.length || !expected.length) return { ok: false, needsRehash: false };
+  const parsed = parseStoredHash(stored);
+  if (!parsed) return { ok: false, needsRehash: false };
 
   try {
-    const derived = await scryptAsync(password, salt, expected.length, { N, r: R, p: P, maxmem: 256 * N * R });
-    return { ok: timingSafeEqual(derived, expected), needsRehash: false };
+    const { N, r, p, salt, hash } = parsed;
+    const derived = await scryptAsync(password, salt, hash.length, { N, r, p, maxmem: 256 * N * r });
+    return { ok: timingSafeEqual(derived, hash), needsRehash: false };
   } catch {
     return { ok: false, needsRehash: false };
   }

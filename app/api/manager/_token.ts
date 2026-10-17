@@ -18,10 +18,20 @@ export type SessionPayload = {
 export const SESSION_TTL_SECONDS = 28800;
 
 const DERIVED_KEY_LABEL = 'weve-manager-session-v1';
+const MIN_SECRET_BYTES = 32;
+const warnedShortSecrets = new Set<string>();
 
 export function resolveSessionKey(env: Record<string, string | undefined> = process.env): Buffer | null {
   const secret = env.MANAGER_SESSION_SECRET?.trim();
-  if (secret) return Buffer.from(secret, 'utf8');
+  if (secret) {
+    const key = Buffer.from(secret, 'utf8');
+    // A short secret can be guessed offline from any issued token; say so once per value instead of on every request.
+    if (key.length < MIN_SECRET_BYTES && !warnedShortSecrets.has(secret)) {
+      warnedShortSecrets.add(secret);
+      console.warn(`MANAGER_SESSION_SECRET is shorter than ${MIN_SECRET_BYTES} bytes. Use a longer random value.`);
+    }
+    return key;
+  }
 
   // Fallback so a deploy without the dedicated secret does not lock everyone out.
   // Never derive from MANAGER_PASSWORD: a leaked token would allow offline guessing of it.
@@ -49,8 +59,9 @@ export function verifySessionToken(token: string, key: Buffer, nowMs = Date.now(
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
 
   const [body, signature] = parts;
-  const expected = sign(body, key);
-  const provided = Buffer.from(signature, 'base64url');
+  // Compare the canonical text: decoding first would also accept padding or stray characters.
+  const expected = Buffer.from(sign(body, key).toString('base64url'));
+  const provided = Buffer.from(signature);
   if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
 
   try {

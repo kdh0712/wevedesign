@@ -31,7 +31,24 @@ test('rejects a wrong key, an expired token and garbage', () => {
   }
 });
 
-test('key resolution prefers the dedicated secret and derives a fallback', () => {
+test('rejects a signature with extra or foreign characters', () => {
+  const { token } = signSessionToken(claims, key, now);
+  const [body, signature] = token.split('.');
+  assert.equal(verifySessionToken(`${token}=`, key, now), null);
+  assert.equal(verifySessionToken(`${body}.${signature.slice(0, 5)}*${signature.slice(5)}`, key, now), null);
+});
+
+test('warns once when the session secret is shorter than 32 bytes', (t) => {
+  const warn = t.mock.method(console, 'warn', () => {});
+  resolveSessionKey({ MANAGER_SESSION_SECRET: 'short-secret-for-the-warning-test'.slice(0, 20) });
+  resolveSessionKey({ MANAGER_SESSION_SECRET: 'short-secret-for-the-warning-test'.slice(0, 20) });
+  assert.equal(warn.mock.callCount(), 1);
+  resolveSessionKey({ MANAGER_SESSION_SECRET: 'x'.repeat(32) });
+  assert.equal(warn.mock.callCount(), 1);
+});
+
+test('key resolution prefers the dedicated secret and derives a fallback', (t) => {
+  t.mock.method(console, 'warn', () => {});
   assert.deepEqual(resolveSessionKey({ MANAGER_SESSION_SECRET: ' s ' }), Buffer.from('s'));
   const derived = resolveSessionKey({ SANITY_WRITE_TOKEN: 't' });
   assert.equal(derived.length, 32);

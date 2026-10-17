@@ -1,6 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hashPassword, isPasswordHash, safeEqual, verifyPassword } from '../app/api/manager/_password.ts';
+import { hashPassword, isPasswordHash, parseStoredHash, safeEqual, verifyPassword } from '../app/api/manager/_password.ts';
+
+test('stored hash parameters are bounded before any hashing', () => {
+  assert.equal(parseStoredHash('scrypt$16384$8$1$c2FsdHNhbHQ=$aGFzaGhhc2g=')?.N, 16384);
+  for (const oversized of [
+    'scrypt$262144$8$1$c2FsdHNhbHQ=$aGFzaGhhc2g=',
+    'scrypt$16384$32$1$c2FsdHNhbHQ=$aGFzaGhhc2g=',
+    'scrypt$16384$8$8$c2FsdHNhbHQ=$aGFzaGhhc2g=',
+    'scrypt$3$8$1$c2FsdHNhbHQ=$aGFzaGhhc2g=',
+  ]) {
+    assert.equal(parseStoredHash(oversized), null, oversized);
+  }
+});
 
 test('hashes use the scrypt format with a random salt', async () => {
   const first = await hashPassword('pw');
