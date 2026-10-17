@@ -35,6 +35,18 @@ This file records durable product and implementation decisions. Review it before
 - Do not show a legacy management-password field in the dashboard.
 - Reset project and site-folder upload forms after a successful upload so the next job starts cleanly.
 
+## Customer Progress Page
+
+- The customer page lives at `/progress/<code>`. It is `noindex, nofollow` and `Cache-Control: private, no-store` (`next.config.ts` and the page metadata). Keep it out of the sitemap and RSS.
+- The customer confirms the last 4 digits of the phone number on the site (or on its linked customer). 5 failures lock the page for 15 minutes. The signed cookie is valid for 180 days and is bound to the code and the number, so a new link or a changed number invalidates it.
+- Never send estimate prices, unit costs, margins, vendor names or phone numbers, or schedule memos to customers. `buildCustomerProgressView` (`app/lib/site-progress.ts`) copies only the allowed fields; keep it that way.
+- `progressCode`, `progressEnabled`, `progressCodeCreatedAt` and `progressAccess` are server-owned. Only server routes set them: `/api/manager/progress` (link and code), `/api/progress/verify` (`progressAccess`) and the 완료 auto-close in `/api/manager/office` (`progressEnabled`). They are stripped from every site record sent to the browser, and dropped from every site record received from it (`stripServerOwnedSiteFields`).
+- The link is created automatically on the first "고객 진행 현황에 올리기" when the customer has a phone number (not for a site that is already '완료'). It closes automatically when the site status changes to '완료'. A link that is off, switched off by staff or closed by 완료, is never re-enabled by an upload; staff turn it on with "링크 켜기". Rotating the link ("새 링크로 바꾸기") invalidates the old link and the customer cookies.
+- No third-party analytics on `/progress`: the code in the URL is the link's credential. Naver wcslog is not loaded there, and Vercel Analytics URLs are scrubbed to `/progress/[code]` (`app/lib/site-analytics.tsx`). Never log the code or send it to another service.
+- Photos are uploaded one per request (Vercel request size limit, near 4.5MB) after the browser shrinks them. They are stored as Sanity assets through the manager API; never Firebase Storage.
+- The customer alimtalk is never sent automatically. Staff pick it per post or resend it from the record list. Its Aligo settings are in `docs/KAKAO_BIZFORM_SETUP.md`.
+- Only admins or staff with the `sites` permission can post progress or manage links.
+
 ## Homepage
 
 - Keep the current visual design unless a request explicitly changes it.

@@ -67,6 +67,42 @@ Each message-template environment variable must exactly match its approved Alimt
 
 Set `ALIGO_CONSULTATION_ENABLED=false` to disable the automatic manager notification. The previous single-manager variables remain supported as manager-notification fallbacks, and the previous `ALIGO_CONTRACT_*` variables remain supported as contract-complete fallbacks.
 
+## Customer Progress Kakao Notification
+
+After staff post a daily report to the customer progress page, the manager can send the customer an Aligo Kakao Alimtalk with a button to that site's progress page. Staff choose it per post ("고객에게 알림톡 보내기", off by default) or from the site's record list ("알림톡 보내기" / "다시 보내기"). Nothing is sent automatically, and a record that was already sent needs "다시 보내기" to go out again. The receiver is the site's customer phone, or the linked customer's phone when the site has none. It must be a mobile number.
+
+This notification uses the shared `ALIGO_API_KEY`, `ALIGO_USER_ID`, `ALIGO_SENDER_KEY`, `ALIGO_SENDER_PHONE` and `ALIGO_TEST_MODE` values above, plus these. Configure them only in Vercel and redeploy after changing them:
+
+```text
+ALIGO_PROGRESS_TEMPLATE_CODE=
+ALIGO_PROGRESS_MESSAGE_TEMPLATE=
+ALIGO_PROGRESS_BUTTON_JSON=
+ALIGO_PROGRESS_SUBJECT=공사 진행 안내
+```
+
+- `ALIGO_PROGRESS_TEMPLATE_CODE`, `ALIGO_PROGRESS_MESSAGE_TEMPLATE` and `ALIGO_PROGRESS_BUTTON_JSON` are all required. If any one is missing, the manager shows "알림톡 템플릿 설정이 필요합니다" and records can still be posted without the alimtalk. `ALIGO_PROGRESS_SUBJECT` is optional and defaults to `공사 진행 안내`.
+- `ALIGO_PROGRESS_MESSAGE_TEMPLATE` must exactly match the approved template text. Kakao rejects any difference ("메시지가 템플릿과 일치하지않음"). Typed-out `\n` and Windows line breaks are converted to real line breaks before sending.
+- `ALIGO_PROGRESS_BUTTON_JSON` must match the approved button. Put `#{코드}` in the link; the server replaces it with the site's link code when it sends. Use the same shape as the existing manager button (`linkType: "WL"`, mobile link in `linkMo`) and add the PC link key exactly as Aligo shows it for the approved template.
+- Variables: `#{고객명}`, `#{현장명}`, `#{날짜}` (the report date written as `YYYY년 M월 D일`, for example `2026년 10월 17일`), and `#{코드}` in the button link only.
+
+Template example (registered and approved in Aligo by the owner):
+
+```text
+[위브디자인] 공사 진행 안내
+#{고객명} 고객님, #{현장명} 현장의 #{날짜} 공사 진행 상황이 등록되었습니다.
+아래 버튼을 눌러 사진과 공정 일정을 확인해 주세요.
+문의: 031-381-0489
+
+버튼(웹링크) 진행 현황 보기
+  모바일웹 링크: https://www.wevedesign.co.kr/progress/#{코드}
+  PC 링크: 같은 주소
+  채널추가: 체크하지 않음 (정보성 알림톡)
+```
+
+Register the button as a web link named `진행 현황 보기`. The mobile link is `https://www.wevedesign.co.kr/progress/#{코드}` and the PC link is the same address. Leave 채널추가 unchecked, because this is an informational alimtalk.
+
+Use `ALIGO_TEST_MODE=Y` on preview deployments to check the request format without sending a real message. The result of every send, and its error if it failed, is stored on the progress record and shown in the site's "알림톡 발송 기록".
+
 ## Import Behavior
 
 - Endpoint: `POST /api/integrations/kakao-bizform/sync`
