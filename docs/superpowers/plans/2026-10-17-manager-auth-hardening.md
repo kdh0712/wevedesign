@@ -462,4 +462,5 @@ test('expired, malformed, empty', () => {
 - [ ] **Step 4:** `git diff --stat main...HEAD` 확인. 줄바꿈이 섞인 4개 파일의 변경 줄 수가 실제 수정량 수준인지 본다.
 - [ ] **Step 5:** 저장소 전체 확인: `grep -rn "x-manager-password\|weve-manager-password\|MANAGER_PASSWORD" app` → `auth/route.ts`의 서버 비교와 `clearStoredSession`의 예전 키 삭제만 남는다.
 - [ ] **Step 6:** 새 리뷰 에이전트가 브랜치 전체를 보안 관점에서 리뷰하고, 지적 사항을 반영한다. 반영 후 Step 1~3을 다시 실행한다.
-- [ ] **Step 7:** push 후 PR 생성. 본문은 한국어로 쓰고, 스펙 8장의 배포 순서와 대표님이 실제 직원 계정으로 확인할 체크리스트를 넣는다.
+- [ ] **Step 7:** push 후 PR 생성. 본문은 한국어로 쓰고, 스펙 8장의 배포 순서와 대표님이 실제 직원 계정으로 확인할 체크리스트를 넣는다. PR을 직접 열 수 없으면 제목과 한국어 본문을 상위 세션(GitHub 연결)에 보낸다.
+- [ ] **Step 8:** main에 직접 병합하지 않는다. 상위 세션이 모든 업데이트가 끝난 뒤 PR들을 의존 순서대로 한 번에 병합한다. 빌드 통과와 push가 끝나면 준비 완료를 보고한다.
