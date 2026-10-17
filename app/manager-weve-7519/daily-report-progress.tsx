@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, Send, Trash2, UploadCloud } from 'lucide-react';
+import { Check, Loader2, Send, Trash2, UploadCloud } from 'lucide-react';
 import { jpegFileName, resizeImageFile } from '../lib/resize-image';
 import type { ProgressUpdate } from '../lib/site-progress';
 import {
   LINK_REASON_MESSAGES,
   NOTIFY_STATUS_LABEL,
+  canPostAgain,
   createProgressApi,
   defaultPostToCustomer,
   errorText,
@@ -18,6 +19,7 @@ import {
   photoFailureMessages,
   photoProgressLabel,
   postResultMessages,
+  postSignature,
   predictLinkOnUpload,
   shrinkAndUploadPhotos,
   type Notice,
@@ -26,6 +28,10 @@ import {
 } from './progress-manager';
 
 type DailyReportPhoto = { id: string; name: string; file: File };
+
+// Asked when the daily report window is closed while a request from this section is still running.
+export const PROGRESS_BUSY_CLOSE_CONFIRM =
+  '고객 진행 현황에 보내는 중입니다.\n지금 닫아도 요청은 멈추지 않고 결과만 볼 수 없습니다. 다시 열면 기록 목록에서 결과를 먼저 확인해 주세요.\n창을 닫을까요?';
 
 const NOTICE_CLASS: Record<Notice['tone'], string> = {
   ok: 'border-[#bfe3c8] bg-[#f0faf2] text-[#26853f]',
@@ -59,6 +65,7 @@ export function DailyReportProgress({
   workDetail,
   photos,
   authHeaders,
+  onBusyChange,
 }: {
   siteId: string;
   siteStatus?: string;
@@ -67,6 +74,8 @@ export function DailyReportProgress({
   workDetail: string;
   photos: DailyReportPhoto[];
   authHeaders: () => Record<string, string>;
+  // Told whenever a post, alimtalk or delete starts or ends, so the window can guard its close.
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const api = createProgressApi(authHeaders);
   const [state, setState] = useState<ProgressManagerState | null>(null);
@@ -78,6 +87,9 @@ export function DailyReportProgress({
   const [postNotice, setPostNotice] = useState<Notice | null>(null);
   const [rowBusyId, setRowBusyId] = useState('');
   const [listNotice, setListNotice] = useState<Notice | null>(null);
+  // postSignature of the last report saved from this window; the same report cannot be posted again.
+  const [postedSignature, setPostedSignature] = useState<string | null>(null);
+  const postedRef = useRef<string | null>(null);
   // One request at a time from this section. The ref also stops a fast double click before the disabled state renders.
   const busyRef = useRef(false);
   const defaultsApplied = useRef(false);
@@ -110,6 +122,13 @@ export function DailyReportProgress({
     ? notifyBlockedReason({ notifyConfigured: state.notifyConfigured, hasCustomerPhone: state.hasCustomerPhone, linkEnabled: state.link.enabled })
     : null;
   const busy = posting || rowBusyId !== '';
+  const signature = postSignature({ reportDate, designer, workDetail, photoIds: photos.map((photo) => photo.id) });
+  const alreadyPosted = !canPostAgain(postedSignature, signature);
+
+  // The window asks before closing while a request runs: closing would hide the result but not stop the upload or alimtalk.
+  useEffect(() => {
+    onBusyChange?.(busy);
+  }, [busy, onBusyChange]);
 
   const linkHint = !decision
     ? null
@@ -126,7 +145,7 @@ export function DailyReportProgress({
           };
 
   const post = async () => {
-    if (busyRef.current || !state || !postToCustomer) return;
+    if (busyRef.current || !state || !postToCustomer || !canPostAgain(postedRef.current, signature)) return;
     if (!workDetail.trim()) {
       setPostNotice({ tone: 'error', lines: ['상세 작업 내역을 입력해주세요.'] });
       return;
@@ -159,6 +178,9 @@ export function DailyReportProgress({
       setProgressLabel(notify ? '진행 기록 저장하고 알림톡 보내는 중' : '진행 기록 저장 중');
       try {
         const saved = await api.createUpdate({ siteId, reportDate, designer, workDetail, photos: uploaded.photos, notify });
+        // Saved: this exact report (and its alimtalk) must not go out a second time.
+        postedRef.current = signature;
+        setPostedSignature(signature);
         setPostNotice(postResultMessages(saved, notify, uploaded.photos.length));
       } catch (error) {
         setPostNotice({ tone: 'error', lines: [errorText(error, '진행 기록을 저장하지 못했습니다.'), '아래 기록 목록에 없으면 다시 올려 주세요.'] });
@@ -259,12 +281,15 @@ export function DailyReportProgress({
               <button
                 type="button"
                 onClick={() => void post()}
-                disabled={busy || !postToCustomer}
+                disabled={busy || !postToCustomer || alreadyPosted}
                 className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
               >
-                {posting ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
-                올리기
+                {posting ? <Loader2 className="animate-spin" size={16} /> : alreadyPosted ? <Check size={16} /> : <UploadCloud size={16} />}
+                {alreadyPosted ? '올렸습니다' : '올리기'}
               </button>
+              {alreadyPosted && !posting && (
+                <span className="text-xs leading-5 text-[#60717d]">같은 내용은 다시 올릴 수 없습니다. 사진, 메모, 날짜를 바꾸면 새 기록으로 올릴 수 있습니다.</span>
+              )}
               {progressLabel && (
                 <span className="text-sm font-semibold text-[#267d8c]" aria-live="polite">
                   {progressLabel}

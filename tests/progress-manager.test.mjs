@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  canPostAgain,
   createProgressApi,
   defaultPostToCustomer,
   formatReportDay,
@@ -12,10 +13,26 @@ import {
   photoFailureMessages,
   photoProgressLabel,
   postResultMessages,
+  postSignature,
   predictLinkOnUpload,
   shrinkAndUploadPhotos,
   uploadLinkMessages,
 } from '../app/manager-weve-7519/progress-manager.ts';
+
+test('the report just posted cannot be posted again until something in it changes', () => {
+  const report = { reportDate: '2026-10-18', designer: '김동호 실장', workDetail: '거실 철거', photoIds: ['p1', 'p2'] };
+  const posted = postSignature(report);
+  assert.equal(canPostAgain(null, posted), true, 'nothing posted yet');
+  assert.equal(canPostAgain(posted, postSignature({ ...report })), false, 'a second click on the same report');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, workDetail: ' 거실 철거\n' })), false, 'surrounding spaces are not a change');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, workDetail: '거실 철거 완료' })), true, 'memo changed');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, reportDate: '2026-10-19' })), true, 'date changed');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, designer: '이실장' })), true, 'designer changed');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, photoIds: ['p1'] })), true, 'a photo removed');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, photoIds: ['p1', 'p2', 'p3'] })), true, 'a photo added');
+  assert.equal(canPostAgain(posted, postSignature({ ...report, photoIds: ['p2', 'p1'] })), true, 'photo order is part of the record');
+  assert.notEqual(postSignature({ ...report, workDetail: 'a', designer: 'b' }), postSignature({ ...report, workDetail: 'a","b', designer: '' }), 'fields cannot run together');
+});
 
 const link = (enabled, code = 'abc') => ({ enabled, code, url: code ? `https://www.wevedesign.co.kr/progress/${code}` : '', createdAt: '' });
 const photo = (n) => ({ assetId: `image-${n}-1600x1200-jpg`, url: `https://cdn.sanity.io/images/p/d/${n}.jpg`, width: 1600, height: 1200 });

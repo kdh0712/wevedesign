@@ -68,6 +68,19 @@ export function postResultMessages(response: CreateUpdateResponse, notifyRequest
   return { tone: warn ? 'warn' : 'ok', lines };
 }
 
+export type PostInput = { reportDate: string; designer: string; workDetail: string; photoIds: readonly string[] };
+
+// Everything one post sends, as one comparable value. Trimmed like the server trims, so spaces alone are not a new report.
+export function postSignature(input: PostInput): string {
+  return JSON.stringify([input.reportDate.trim(), input.designer.trim(), input.workDetail.trim(), [...input.photoIds]]);
+}
+
+// The report that was just posted cannot be posted again (a second click would create a second record and, with 알림톡
+// checked, a second alimtalk, since the new record's log is empty). Changing the photos, memo, date or designer makes it new.
+export function canPostAgain(lastPosted: string | null, current: string): boolean {
+  return lastPosted !== current;
+}
+
 export type NotifyStatus = 'sent' | 'failed' | 'none';
 export const NOTIFY_STATUS_LABEL: Record<NotifyStatus, string> = { sent: '보냄', failed: '실패', none: '안 보냄' };
 
