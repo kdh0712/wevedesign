@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
-import { assertSanityWriteConfigured, checkSanityDocumentType, getOrCreateCategory, managerClient } from '../_utils';
+import { assertSanityWriteConfigured, checkSanityDocumentType, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
@@ -232,6 +232,10 @@ export async function POST(request: Request) {
     }
 
     if (type === 'project') {
+      if (body?.id && !(await isSanityIdWritable(String(body.id).replace(/^drafts\./, ''), 'project'))) {
+        return NextResponse.json({ error: '수정할 프로젝트를 찾을 수 없습니다.' }, { status: 400 });
+      }
+
       const sanityError = assertSanityWriteConfigured();
       if (sanityError) return sanityError;
 
@@ -270,6 +274,10 @@ export async function POST(request: Request) {
 
       const record = await getOrCreateCategory(title);
       return NextResponse.json({ record });
+    }
+
+    if (body?.id && !(await isSanityIdWritable(String(body.id), sanityType))) {
+      return NextResponse.json({ error: '수정할 항목을 찾을 수 없습니다.' }, { status: 400 });
     }
 
     const sanityError = assertSanityWriteConfigured();

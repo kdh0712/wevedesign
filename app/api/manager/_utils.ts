@@ -16,6 +16,13 @@ export async function checkSanityDocumentType(id: string, expectedType: string):
   return document._type === expectedType ? 'ok' : 'mismatch';
 }
 
+// A write with a client-supplied id may only touch a document of the same type (or create a new id when allowed),
+// so a permission for one record type cannot overwrite accounts, settings or other records.
+export async function isSanityIdWritable(id: string, expectedType: string, { allowNew = false } = {}) {
+  const documentType = await checkSanityDocumentType(id, expectedType);
+  return documentType === 'ok' || (allowNew && documentType === 'missing');
+}
+
 export function assertSanityWriteConfigured() {
   if (!process.env.SANITY_WRITE_TOKEN) {
     return Response.json({ error: 'SANITY_WRITE_TOKEN is not configured.' }, { status: 500 });

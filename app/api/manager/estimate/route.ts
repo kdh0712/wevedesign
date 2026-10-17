@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { gzipSync, gunzipSync } from 'zlib';
 import * as XLSX from 'xlsx';
-import { checkSanityDocumentType, hashId, managerClient } from '../_utils';
+import { checkSanityDocumentType, hashId, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
@@ -332,6 +332,10 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     return NextResponse.json({ record: doc });
   }
 
+  if (existingId && !(await isSanityIdWritable(existingId, 'siteEstimate', { allowNew: true }))) {
+    return NextResponse.json({ error: '저장할 견적 버전이 올바르지 않습니다.' }, { status: 400 });
+  }
+
   await managerClient.createOrReplace(doc);
   return NextResponse.json({ record: doc });
 }
@@ -529,6 +533,9 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
     await saveMaterialToFirestore(doc, request);
     await touchEstimateMaterialMetaInFirestore(request);
   } else {
+    if (!(await isSanityIdWritable(id, 'estimateMaterial', { allowNew: true }))) {
+      return NextResponse.json({ error: '저장할 자재가 올바르지 않습니다.' }, { status: 400 });
+    }
     await managerClient.createOrReplace(doc);
   }
 

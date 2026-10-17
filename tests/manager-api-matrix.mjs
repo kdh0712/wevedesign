@@ -80,6 +80,11 @@ await expectStatus('POST', '/api/manager/estimate', 'consult', 403, { action: 'd
 await expectStatus('POST', '/api/manager/office', 'consult', 403, { type: 'sale', data: {} });
 await expectStatus('POST', '/api/manager/office', 'sales', notAuthBlocked, { type: 'sale', data: {} });
 await expectStatus('POST', '/api/manager/office', 'consult', 403, { type: 'project', data: {} });
+// A write permission for one type must not reach a document of another type through a client-supplied id.
+await expectStatus('POST', '/api/manager/office', 'consult', 400, { type: 'consultation', id: 'siteSettings', data: { memo: 'x' } });
+await expectStatus('POST', '/api/manager/office', 'portfolio', 400, { type: 'project', id: 'siteSettings', data: {} });
+await expectStatus('POST', '/api/manager/estimate', 'estimates', 400, { action: 'saveEstimate', id: 'siteSettings', siteId: 'matrix-site' });
+await expectStatus('POST', '/api/manager/estimate', 'estimates', 400, { action: 'saveMaterial', material: { _id: 'siteSettings', name: 'matrix' } });
 await expectStatus('DELETE', '/api/manager/office', 'consult', 403, { id: 'missing-sale', type: 'sale' });
 await expectStatus('DELETE', '/api/manager/office', 'admin', 400, { id: 'siteSettings', type: 'consultation' });
 await expectStatus('DELETE', '/api/manager/office', 'admin', 400, { id: 'missing-account', type: 'managerAccount' });
