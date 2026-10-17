@@ -74,6 +74,21 @@ export function parseCreateUpdate(body: unknown): ParseResult {
   return { ok: true, value: { siteId, reportDate, designer, workDetail, photos, notify: input.notify === true } };
 }
 
+const PHOTO_EXTENSIONS = new Map([
+  ['image/jpeg', 'jpg'],
+  ['image/png', 'png'],
+  ['image/webp', 'webp'],
+]);
+
+// Sanity keeps the upload's file name as the asset's originalFilename, and staff phone photos are often named after the
+// customer or the site. So every progress photo goes up as progress-<12 random hex>.<ext>, the extension taken from its type.
+export function progressPhotoFileName(contentType: string, randomHex: string): string {
+  const extension = PHOTO_EXTENSIONS.get(contentType);
+  if (!extension) throw new Error(`No progress photo extension for ${contentType}`);
+  if (!/^[0-9a-f]{12}$/.test(randomHex)) throw new Error('A progress photo name needs 12 random hex characters.');
+  return `progress-${randomHex}.${extension}`;
+}
+
 export function checkPhotoUpload(type: string, size: number): { ok: true } | { ok: false; status: 400 | 413; error: string } {
   if (!PHOTO_TYPES.has(type)) return { ok: false, status: 400, error: 'JPG, PNG, WEBP 사진만 올릴 수 있습니다.' };
   if (!(size > 0)) return { ok: false, status: 400, error: '사진 파일이 비어 있습니다.' };

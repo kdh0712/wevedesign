@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { normalizeKoreanMobile } from '../../../lib/alert-phones';
 import {
@@ -11,7 +12,7 @@ import {
 } from '../../../lib/site-progress';
 import { readProgressAlimtalkConfig, sendAlimtalk, type ProgressAlimtalkConfig } from '../_aligo';
 import { applyLinkOnUpload, decideLinkOnUpload } from '../_progress-link-rules';
-import { checkPhotoUpload, parseCreateUpdate } from '../_progress-request';
+import { checkPhotoUpload, parseCreateUpdate, progressPhotoFileName } from '../_progress-request';
 import {
   deleteProgressUpdate,
   generateProgressCode,
@@ -29,6 +30,7 @@ import {
   type ProgressSite,
   type ProgressSiteFields,
 } from '../_progress-store';
+import { createSanityPrivacyCheck, photoStoreRefusal } from '../_sanity-privacy';
 import { requireManager } from '../_session';
 import { managerClient } from '../_utils';
 
@@ -132,6 +134,10 @@ export async function POST(request: Request) {
   }
 }
 
+// Asks the same project and dataset the photos are uploaded to. Module memory, so a 'private' answer is reused for 10 minutes.
+const { projectId: photoProjectId, dataset: photoDataset } = managerClient.config();
+const checkPhotoStorePrivacy = createSanityPrivacyCheck({ projectId: photoProjectId, dataset: photoDataset });
+
 // The browser sends width and height only from its own resizing, so the size stored with a photo comes from Sanity.
 function assetSize(asset: { _id: string; metadata?: { dimensions?: { width?: number; height?: number } } }) {
   const width = Number(asset.metadata?.dimensions?.width);
@@ -163,8 +169,18 @@ async function uploadPhoto(request: Request) {
   // Looked up before the upload so a wrong site never leaves a stray image behind.
   if (!(await getSiteForProgress(siteId))) return fail(SITE_NOT_FOUND, 404);
 
+  // In a public dataset anyone could list the customer's photos, so nothing goes up unless the dataset is known to be private.
+  const privacy = await checkPhotoStorePrivacy();
+  const refusal = photoStoreRefusal(privacy);
+  if (refusal) {
+    console.error(`Progress photo upload refused: the Sanity dataset privacy check answered "${privacy}".`);
+    return fail(refusal, 503);
+  }
+
+  // A neutral name: the phone's own file name may carry the customer's name, and Sanity keeps it as originalFilename.
   const bytes = Buffer.from(await file.arrayBuffer());
-  const asset = await managerClient.assets.upload('image', bytes, { filename: file.name || 'progress-photo', contentType: file.type });
+  const filename = progressPhotoFileName(file.type, randomBytes(6).toString('hex'));
+  const asset = await managerClient.assets.upload('image', bytes, { filename, contentType: file.type });
   const size = assetSize(asset);
   if (!size || !asset.url) return fail('사진 정보를 확인하지 못했습니다. 다시 올려주세요.', 500);
 

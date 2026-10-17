@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_PHOTO_BYTES, checkPhotoUpload, parseCreateUpdate } from '../app/api/manager/_progress-request.ts';
+import { MAX_PHOTO_BYTES, checkPhotoUpload, parseCreateUpdate, progressPhotoFileName } from '../app/api/manager/_progress-request.ts';
 
 const photo = (overrides = {}) => ({
   assetId: 'image-abc123-800x600-jpg',
@@ -133,4 +133,14 @@ test('checkPhotoUpload rejects an empty file', () => {
   const result = checkPhotoUpload('image/jpeg', 0);
   assert.equal(result.ok, false);
   assert.equal(result.status, 400);
+});
+
+test('a photo is uploaded under a neutral name taken from its type, never its own file name', () => {
+  assert.equal(progressPhotoFileName('image/jpeg', 'a1b2c3d4e5f6'), 'progress-a1b2c3d4e5f6.jpg');
+  assert.equal(progressPhotoFileName('image/png', '000000000000'), 'progress-000000000000.png');
+  assert.equal(progressPhotoFileName('image/webp', 'ffffffffffff'), 'progress-ffffffffffff.webp');
+  assert.throws(() => progressPhotoFileName('image/gif', 'a1b2c3d4e5f6'));
+  for (const random of ['', 'a1b2c3', 'A1B2C3D4E5F6', '홍길동_거실.jpg', 'a1b2c3d4e5f6/x']) {
+    assert.throws(() => progressPhotoFileName('image/jpeg', random), random);
+  }
 });
