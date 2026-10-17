@@ -5,6 +5,7 @@ import { hashPassword, safeEqual, verifyPassword } from '../_password';
 import { issueManagerSession, SESSION_KEY_MISSING_MESSAGE } from '../_session';
 import type { SessionSource } from '../_token';
 import {
+  firebaseAdminDbAuth,
   firebaseLookup,
   firebaseSignIn,
   getFirebaseAdminFlag,
@@ -12,6 +13,7 @@ import {
   isFirebaseManagerConfigured,
   setFirebaseProfile,
 } from '../firebase';
+import { isFirestoreServiceAccountConfigured } from '../firestore';
 
 export const runtime = 'nodejs';
 
@@ -51,27 +53,25 @@ export async function POST(request: Request) {
       const lookupUser = await firebaseLookup(firebaseUser.idToken);
       const uid = lookupUser?.localId || firebaseUser.localId;
       const email = lookupUser?.email || firebaseUser.email || loginId;
-      let profile = await getFirebaseProfile(uid, firebaseUser.idToken);
+      const userAuth = { idToken: firebaseUser.idToken };
+      let profile = await getFirebaseProfile(uid, userAuth);
 
       if (!profile) {
-        profile = {
-          uid,
-          name: email.split('@')[0],
-          email,
-          role: 'staff',
-          permissions: ['dashboard', 'consultations'],
-          isActive: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        await setFirebaseProfile(uid, firebaseUser.idToken, profile);
+        // Only the fields a user may write about themselves; an admin grants role and permissions later.
+        const now = new Date().toISOString();
+        const basics = { name: email.split('@')[0], email, createdAt: now, updatedAt: now };
+        const adminAuth = await firebaseAdminDbAuth().catch(() => null);
+        await setFirebaseProfile(uid, adminAuth || userAuth, basics);
+        profile = { uid, ...basics };
       }
 
       if (profile.isActive === false) {
         return NextResponse.json({ error: '비활성화된 계정입니다.' }, { status: 403 });
       }
 
-      const isAdmin = profile.role === 'admin' || (await getFirebaseAdminFlag(uid, firebaseUser.idToken));
+      const isAdmin = profile.role === 'admin' || (await getFirebaseAdminFlag(uid, userAuth));
+      // With a service account the server reads Firestore itself, so the browser never needs a Firebase token.
+      const firebaseToken = isFirestoreServiceAccountConfigured() ? undefined : firebaseUser.idToken;
       return sessionResponse(
         {
           id: uid,
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
           permissions: profile.permissions,
         },
         'firebase',
-        { firebaseToken: firebaseUser.idToken },
+        firebaseToken ? { firebaseToken } : {},
       );
     }
 

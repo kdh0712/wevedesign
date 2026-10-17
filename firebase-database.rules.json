@@ -10,7 +10,11 @@
       ".read": "auth != null && (root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        ".write": "auth != null && (root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "name": { ".write": "auth != null && auth.uid === $uid" },
+        "email": { ".write": "auth != null && auth.uid === $uid" },
+        "updatedAt": { ".write": "auth != null && auth.uid === $uid" },
+        "createdAt": { ".write": "auth != null && auth.uid === $uid && !data.exists()" }
       }
     }
   }

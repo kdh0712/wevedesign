@@ -43,7 +43,8 @@ export const officeFirestoreCollections: Record<PrivateOfficeType, string> = {
   vendor: 'officeVendors',
 };
 
-let cachedGoogleToken: { token: string; expiresAt: number } | null = null;
+const DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
+const cachedGoogleTokens = new Map<string, { token: string; expiresAt: number }>();
 
 function parseServiceAccountJson(raw: string): ServiceAccount | null {
   const candidates = [raw, raw.replace(/\r?\n/g, '')];
@@ -142,8 +143,10 @@ export const canUseFirestoreOnServer = () => isFirestoreConfigured() && isFirest
 const base64Url = (value: string | Buffer) =>
   Buffer.from(value).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 
-async function googleAccessToken() {
-  if (cachedGoogleToken && Date.now() < cachedGoogleToken.expiresAt - 60_000) return cachedGoogleToken.token;
+// Service account access token for the given scope; '' when no service account is configured.
+export async function googleAccessToken(scope = DATASTORE_SCOPE) {
+  const cached = cachedGoogleTokens.get(scope);
+  if (cached && Date.now() < cached.expiresAt - 60_000) return cached.token;
 
   const account = serviceAccount();
   if (!account) return '';
@@ -153,7 +156,7 @@ async function googleAccessToken() {
   const claim = base64Url(
     JSON.stringify({
       iss: account.client_email,
-      scope: 'https://www.googleapis.com/auth/datastore',
+      scope,
       aud: 'https://oauth2.googleapis.com/token',
       iat: now,
       exp: now + 3600,
@@ -183,11 +186,11 @@ async function googleAccessToken() {
     throw new Error(data?.error_description || 'Firebase 서비스 계정 인증에 실패했습니다.');
   }
 
-  cachedGoogleToken = {
+  cachedGoogleTokens.set(scope, {
     token: data.access_token,
     expiresAt: Date.now() + Number(data.expires_in || 3600) * 1000,
-  };
-  return cachedGoogleToken.token;
+  });
+  return data.access_token;
 }
 
 async function firestoreHeaders(idToken?: string, contentType = true) {
