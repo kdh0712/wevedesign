@@ -239,8 +239,8 @@ type MaterialPickerState = {
 type DetailPrintRow =
   | { type: 'group'; key: string; groupIndex: number; category: string }
   | { type: 'line'; key: string; line: EstimateLine }
-  | { type: 'nameSubtotal'; key: string; name: string; amount: number }
-  | { type: 'subtotal'; key: string; amount: number }
+  | { type: 'nameSubtotal'; key: string; amount: number }
+  | { type: 'subtotal'; key: string; amount: number; hasNameSubtotals: boolean }
   | { type: 'total'; key: string; amount: number };
 
 const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
@@ -5828,7 +5828,7 @@ function DetailEstimatePrintPage({
   );
 }
 
-// Consecutive lines with the same 품명 on one page share a single merged 품명 cell, together with that 품명's 소계 row (0 = covered by the cell above).
+// Consecutive lines with the same 품명 on one page share a single merged 품명 cell (0 = covered by the cell above).
 function detailNameRowSpans(rows: DetailPrintRow[]) {
   const spans = rows.map(() => 1);
   rows.forEach((row, index) => {
@@ -5838,16 +5838,9 @@ function detailNameRowSpans(rows: DetailPrintRow[]) {
     let end = index + 1;
     while (end < rows.length) {
       const next = rows[end];
-      if (next.type === 'line' && next.line.name.trim() === name) {
-        spans[end] = 0;
-        end += 1;
-        continue;
-      }
-      if (next.type === 'nameSubtotal' && next.name === name) {
-        spans[end] = 0;
-        end += 1;
-      }
-      break;
+      if (next.type !== 'line' || next.line.name.trim() !== name) break;
+      spans[end] = 0;
+      end += 1;
     }
     spans[index] = end - index;
   });
@@ -5883,29 +5876,17 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
         <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
         <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.customerUnitPrice)}</td>
         <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity * line.customerUnitPrice)}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
-      </tr>
-    );
-  }
-
-  if (row.type === 'nameSubtotal') {
-    return (
-      <tr key={row.key} className="font-semibold">
-        {nameRowSpan === 0 ? null : <td className="border border-[#111] px-3 py-1.5 text-center">{row.name}</td>}
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5 text-center">소계</td>
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5 text-right">{formatPlainNumber(row.amount)}</td>
-        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-2 py-1 text-center text-[11px] font-semibold leading-tight text-[#c00000]">{line.note}</td>
       </tr>
     );
   }
 
   const isTotal = row.type === 'total';
+  // A category split into 품명 소계 rows (e.g. 거실 욕실 / 안방 욕실) closes with 합계, so the grand total reads 총합계.
+  const label = isTotal ? '총합계' : row.type === 'subtotal' && row.hasNameSubtotals ? '합계' : '소계';
   return (
     <tr key={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
-      <td className="border border-[#111] px-3 py-1.5 text-center">{isTotal ? '합계' : '소계'}</td>
+      <td className="border border-[#111] px-3 py-1.5 text-center"><span className="pl-[0.8em] tracking-[0.8em]">{label}</span></td>
       <td className="border border-[#111] px-3 py-1.5"></td>
       <td className="border border-[#111] px-3 py-1.5"></td>
       <td className="border border-[#111] px-3 py-1.5"></td>
@@ -6960,23 +6941,28 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
 
   grouped.forEach((group, groupIndex) => {
     const nameClusters = clusterLinesByName(group.lines);
+    // A 품명 with several lines (e.g. 거실 욕실, 안방 욕실) gets its own 소계 when the category holds more than one 품명.
+    const hasNameSubtotal = (clusterLines: EstimateLine[]) => nameClusters.length > 1 && clusterLines.length > 1;
     const groupRows: DetailPrintRow[] = [
       { type: 'group', key: `detail-group-${group.category}-${groupIndex}`, groupIndex, category: group.category },
       ...nameClusters.flatMap((clusterLines, clusterIndex): DetailPrintRow[] => {
         const lineRows = clusterLines.map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line }));
-        // A 품명 with several lines (e.g. 거실 욕실, 안방 욕실) gets its own 소계 when the category holds more than one 품명.
-        if (nameClusters.length < 2 || clusterLines.length < 2) return lineRows;
+        if (!hasNameSubtotal(clusterLines)) return lineRows;
         return [
           ...lineRows,
           {
             type: 'nameSubtotal',
             key: `detail-name-subtotal-${groupIndex}-${clusterIndex}`,
-            name: clusterLines[0].name.trim(),
             amount: clusterLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0),
           },
         ];
       }),
-      { type: 'subtotal', key: `detail-subtotal-${group.category}-${groupIndex}`, amount: group.customerAmount },
+      {
+        type: 'subtotal',
+        key: `detail-subtotal-${group.category}-${groupIndex}`,
+        amount: group.customerAmount,
+        hasNameSubtotals: nameClusters.some(hasNameSubtotal),
+      },
     ];
 
     groupRows.forEach((row, rowIndex) => {
