@@ -106,7 +106,7 @@
 
 - 링크 켜기·끄기. 처음 켤 때 코드를 만든다. 고객 번호가 없으면 경고를 보여주고 켜지 않는다.
 - 링크 복사, 새 링크로 바꾸기(확인창: "이전 링크와 고객 확인 기록이 모두 무효가 됩니다").
-- 미리보기: 관리자 세션으로 `GET /api/manager/progress/preview?siteId=`가 고객 화면과 같은 데이터를 돌려주고, 관리자
+- 미리보기: 관리자 세션으로 `GET /api/manager/progress?siteId=&preview=1`이 고객 화면과 같은 데이터를 돌려주고, 관리자
   화면 안에서 같은 컴포넌트로 보여준다. 뒷자리 확인을 하지 않는다.
 - 알림톡 발송 기록 목록.
 
@@ -121,8 +121,10 @@
 
 - `GET /api/manager/progress?siteId=` 링크 상태와 기록 목록
 - `POST /api/manager/progress`
-  - `multipart`: `createUpdate` (siteId, reportDate, designer, workDetail, photos[], notify)
-  - JSON: `deleteUpdate`, `setLink` (`enable` / `disable` / `rotate`), `notify` (updateId, `resend` 여부)
+  - `multipart`: `uploadPhoto` (siteId, file 1장) → `{ assetId, url, width, height }`. Vercel 요청 크기 제한(약 4.5MB)
+    때문에 사진은 한 장씩 올린다.
+  - JSON: `createUpdate` (siteId, reportDate, designer, workDetail, photos[] = uploadPhoto 결과, notify),
+    `deleteUpdate`, `setLink` (`enable` / `disable` / `rotate`), `notify` (updateId, `resend` 여부)
 - 권한: 보안 강화 작업의 서버 권한 검사를 따른다. `sites` 권한이 있어야 한다.
 
 ## 5. 알림톡
