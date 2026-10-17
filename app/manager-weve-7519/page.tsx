@@ -32,6 +32,8 @@ import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
+import { DailyReportProgress } from './daily-report-progress';
+import { ProgressLinkPanel } from './progress-link-panel';
 
 type UploadResult = {
   projectTitle: string;
@@ -2616,6 +2618,7 @@ export default function ManagerPage() {
                   onSecondary={resetSiteForm}
                 />
               </div>
+              {editingSiteId && hasAnyPermission(currentUser, ['sites']) && <ProgressLinkPanel key={editingSiteId} siteId={editingSiteId} authHeaders={() => authHeaders()} />}
             </Panel>
             <Panel title="현장 목록">
               <RecordList
@@ -3639,6 +3642,7 @@ export default function ManagerPage() {
             estimate={dailyReportEstimate}
             kakaoManagerUrl={homepageSettings.kakaoChannelManagerUrl || homepageSettings.kakaoUrl}
             onClose={() => setDailyReportSiteId('')}
+            progressAuthHeaders={hasAnyPermission(currentUser, ['sites']) ? () => authHeaders() : undefined}
           />
         )}
         {alimtalkCustomer && (
@@ -4122,14 +4126,17 @@ function DailyReportModal({
   estimate,
   kakaoManagerUrl,
   onClose,
+  progressAuthHeaders,
 }: {
   site: Site;
   customer?: Customer;
   estimate?: EstimateSummary;
   kakaoManagerUrl?: string;
   onClose: () => void;
+  // Only for accounts that may post to the customer progress page (admin or the sites permission).
+  progressAuthHeaders?: () => Record<string, string>;
 }) {
-  type ReportPhoto = { id: string; name: string; dataUrl: string };
+  type ReportPhoto = { id: string; name: string; dataUrl: string; file: File };
   type DailyReportRecord = {
     id: string;
     reportDate: string;
@@ -4227,6 +4234,7 @@ function DailyReportModal({
                   id: `${Date.now()}-${file.name}-${Math.random().toString(16).slice(2)}`,
                   name: file.name,
                   dataUrl: String(reader.result || ''),
+                  file,
                 });
               reader.onerror = reject;
               reader.readAsDataURL(file);
@@ -4468,6 +4476,17 @@ function DailyReportModal({
                 브라우저 보안상 로컬/OneDrive 폴더는 사용자가 직접 선택해야 생성할 수 있습니다. 진행사항 내보내기 파일은 다른 컴퓨터에서 이어 작업할 때 기준 데이터로 사용할 수 있습니다.
               </p>
             </section>
+            {progressAuthHeaders && (
+              <DailyReportProgress
+                siteId={site._id}
+                siteStatus={site.status}
+                reportDate={reportDate}
+                designer={designer}
+                workDetail={workDetail}
+                photos={photos}
+                authHeaders={progressAuthHeaders}
+              />
+            )}
           </div>
 
           <aside className="grid gap-4 xl:sticky xl:top-4 xl:self-start">
