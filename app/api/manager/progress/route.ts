@@ -229,12 +229,17 @@ async function sendNotification(
   return { result, update: logged };
 }
 
-type LinkNotice = { enabled: boolean; created: boolean; url: string; reason?: 'no-customer-phone' | 'link-off' };
+type LinkNotice = { enabled: boolean; created: boolean; url: string; reason?: 'no-customer-phone' | 'link-off' | 'site-done' };
 
-// The first progress update for a site creates its customer link and switches it on. A link that already exists keeps the state
-// staff gave it: one switched off, by hand or by 완료, is never turned back on by an upload. Returns the site as it is afterwards.
+// The first progress update for a site creates its customer link and switches it on, unless the site is already 완료. A link that
+// already exists keeps the state staff gave it: one switched off, by hand or by 완료, is never turned back on by an upload.
+// Returns the site as it is afterwards.
 async function ensureLinkOnUpload(siteId: string, site: ProgressSite): Promise<{ site: ProgressSite; link: LinkNotice }> {
-  const decision = decideLinkOnUpload(site, phoneLast4(await resolveCustomerPhone(site)) !== '');
+  const status = typeof site.status === 'string' ? site.status : undefined;
+  const decision = decideLinkOnUpload(
+    { progressCode: site.progressCode, progressEnabled: site.progressEnabled, status },
+    phoneLast4(await resolveCustomerPhone(site)) !== '',
+  );
   const created = decision.action === 'create';
   const current = created ? await saveSiteProgressFields(siteId, { ...freshCodeFields(), progressEnabled: true }) : site;
   const { enabled, url } = linkOf(current);

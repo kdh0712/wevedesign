@@ -30,6 +30,33 @@ test('a code with the link off keeps it off: staff or 완료 turned it off and a
   assert.deepEqual(decideLinkOnUpload({ progressCode: 'abc', progressEnabled: false }, false), { action: 'keep-off', reason: 'link-off' });
 });
 
+// A site that is already '완료' never gets a link created: 완료 closes links, so the first upload must not open one.
+
+test('a 완료 site with no code and a phone gets no link', () => {
+  assert.deepEqual(decideLinkOnUpload({ status: '완료' }, true), { action: 'keep-off', reason: 'site-done' });
+  assert.deepEqual(decideLinkOnUpload({ progressCode: '', progressEnabled: false, status: '완료' }, true), { action: 'keep-off', reason: 'site-done' });
+});
+
+test('a 완료 site with no code and no phone is site-done, not no-customer-phone', () => {
+  assert.deepEqual(decideLinkOnUpload({ status: '완료' }, false), { action: 'keep-off', reason: 'site-done' });
+});
+
+test('a 완료 site with an existing enabled code keeps it on: only the move into 완료 closes a link', () => {
+  assert.deepEqual(decideLinkOnUpload({ progressCode: 'abc', progressEnabled: true, status: '완료' }, true), { action: 'keep-on' });
+  assert.deepEqual(decideLinkOnUpload({ progressCode: 'abc', progressEnabled: true, status: '완료' }, false), { action: 'keep-on' });
+});
+
+test('a 완료 site with an existing code that is off stays link-off', () => {
+  assert.deepEqual(decideLinkOnUpload({ progressCode: 'abc', progressEnabled: false, status: '완료' }, true), { action: 'keep-off', reason: 'link-off' });
+});
+
+test('a site that is not 완료 is decided as before whatever its status', () => {
+  assert.deepEqual(decideLinkOnUpload({ status: '시공중' }, true), { action: 'create' });
+  assert.deepEqual(decideLinkOnUpload({ status: '상담완료' }, true), { action: 'create' });
+  assert.deepEqual(decideLinkOnUpload({ status: '시공중' }, false), { action: 'none', reason: 'no-customer-phone' });
+  assert.deepEqual(decideLinkOnUpload({ progressCode: 'abc', progressEnabled: true, status: '시공중' }, true), { action: 'keep-on' });
+});
+
 // shouldCloseLinkOnSave: a site saved into '완료' closes its link, once.
 
 test('the transition into 완료 with the link on closes the link', () => {
