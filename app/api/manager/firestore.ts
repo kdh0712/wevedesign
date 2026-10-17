@@ -413,6 +413,9 @@ async function listEstimateSummariesFromFirestore(idToken: string) {
   );
 }
 
+// Office records in the 휴지통 (trash) carry deletedAt; every list except the trash view leaves them out.
+const notTrashed = <T extends Record<string, unknown>>(record: T) => !record.deletedAt;
+
 export async function readOfficeDataFromFirestore(request: Request) {
   const idToken = requestIdToken(request);
   const [consultations, customers, sites, estimates, sales, inventory, vendors] = await Promise.all([
@@ -426,14 +429,53 @@ export async function readOfficeDataFromFirestore(request: Request) {
   ]);
 
   return {
-    consultations: consultations.sort(byNewest(['createdAt'])).slice(0, 100),
-    customers: customers.sort(byNewest(['createdAt'])).slice(0, 100),
-    sites: sites.sort(byNewest(['createdAt'])).slice(0, 200),
+    consultations: consultations.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
+    customers: customers.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
+    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200),
     estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
-    sales: sales.sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
-    inventory: inventory.sort(byText('itemName')).slice(0, 200),
-    vendors: vendors.sort(byText('name')).slice(0, 100),
+    sales: sales.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
+    inventory: inventory.filter(notTrashed).sort(byText('itemName')).slice(0, 200),
+    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 100),
   };
+}
+
+export async function readOfficeTrashFromFirestore(request: Request) {
+  const idToken = requestIdToken(request);
+  const trashed = (collection: string) =>
+    listFirestoreCollection(collection, idToken).then((rows) =>
+      rows.filter((row) => Boolean(row.deletedAt)).sort(byNewest(['deletedAt'])).slice(0, 200),
+    );
+  const [consultations, customers, sites, sales, inventory, vendors] = await Promise.all([
+    trashed('officeConsultations'),
+    trashed('officeCustomers'),
+    trashed('officeSites'),
+    trashed('officeSales'),
+    trashed('officeInventoryItems'),
+    trashed('officeVendors'),
+  ]);
+
+  return { consultations, customers, sites, sales, inventory, vendors };
+}
+
+export async function getOfficeRecordFromFirestore(request: Request, type: PrivateOfficeType, id: string) {
+  return getFirestoreDocument<Record<string, unknown>>(officeFirestoreCollections[type], id, requestIdToken(request));
+}
+
+// Moves a record into the 휴지통, or back out with trash = null. The whole record is written so a failed re-read
+// inside saveFirestoreDocument cannot drop its other fields.
+export async function setOfficeRecordTrashInFirestore(
+  request: Request,
+  type: PrivateOfficeType,
+  id: string,
+  record: Record<string, unknown>,
+  trash: { deletedAt: string; deletedBy: string } | null,
+) {
+  return saveFirestoreDocument(
+    officeFirestoreCollections[type],
+    { ...record, deletedAt: trash?.deletedAt ?? null, deletedBy: trash?.deletedBy ?? null },
+    requestIdToken(request),
+    id,
+  );
 }
 
 export async function saveOfficeRecordToFirestore(
@@ -563,7 +605,7 @@ export async function readEstimateDataFromFirestore(
   const idToken = requestIdToken(request);
   const includeMaterials = options.includeMaterials !== false;
   const isSiteScoped = typeof options.estimatesSiteId === 'string';
-  const sitesRequest = listFirestoreCollection('officeSites', idToken).then((sites) => sites.sort(byNewest(['createdAt'])).slice(0, 300));
+  const sitesRequest = listFirestoreCollection('officeSites', idToken).then((sites) => sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 300));
   const estimatesSiteIdRequest = isSiteScoped
     ? options.estimatesSiteId
       ? Promise.resolve(options.estimatesSiteId)
@@ -590,7 +632,7 @@ export async function readEstimateDataFromFirestore(
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
     materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
     materialSettings,
-    vendors: vendors.sort(byText('name')).slice(0, 300),
+    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 300),
   };
 }
 

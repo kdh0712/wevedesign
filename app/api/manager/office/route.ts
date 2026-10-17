@@ -3,10 +3,13 @@ import { assertManager, assertSanityWriteConfigured, getOrCreateCategory, manage
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
+  getOfficeRecordFromFirestore,
   listFirestoreCollection,
   officeFirestoreCollections,
   readOfficeDataFromFirestore,
+  readOfficeTrashFromFirestore,
   saveOfficeRecordToFirestore,
+  setOfficeRecordTrashInFirestore,
   shouldUseFirestoreErp,
   type PrivateOfficeType,
 } from '../firestore';
@@ -27,26 +30,26 @@ const typeMap: Record<OfficeType, string> = {
 };
 
 const query = `{
-  "consultations": *[_type == "officeConsultation"] | order(createdAt desc, _createdAt desc)[0...100] {
+  "consultations": *[_type == "officeConsultation" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, siteType, propertyType, areaRange, homeStatus, reason, budget, timeline,
     postcode, address, detailAddress, fullAddress, message, privacyAgreed, status, source, memo, createdAt
   },
-  "customers": *[_type == "officeCustomer"] | order(createdAt desc, _createdAt desc)[0...100] {
+  "customers": *[_type == "officeCustomer" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, chatRoomUrl, siteType, address, status, memo, contractAlimtalkSentAt, createdAt
   },
-  "sites": *[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...200] {
+  "sites": *[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...200] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   },
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, linesJson, updatedAt, createdAt
   },
-  "sales": *[_type == "officeSale"] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
+  "sales": *[_type == "officeSale" && !defined(deletedAt)] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
     _id, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt
   },
-  "inventory": *[_type == "officeInventoryItem"] | order(itemName asc)[0...200] {
+  "inventory": *[_type == "officeInventoryItem" && !defined(deletedAt)] | order(itemName asc)[0...200] {
     _id, itemName, category, quantity, unit, minQuantity, vendor, memo, createdAt
   },
-  "vendors": *[_type == "officeVendor"] | order(name asc)[0...100] {
+  "vendors": *[_type == "officeVendor" && !defined(deletedAt)] | order(name asc)[0...100] {
     _id, name, manager, phone, service, status, memo, createdAt
   },
   "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
@@ -100,6 +103,17 @@ const publicQuery = `{
       alt, caption, roomType
     }
   }
+}`;
+
+const trashProjection = '{ _id, name, phone, title, customerName, projectTitle, amount, itemName, deletedAt, deletedBy, createdAt }';
+
+const trashQuery = `{
+  "consultations": *[_type == "officeConsultation" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "customers": *[_type == "officeCustomer" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "sites": *[_type == "officeSite" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "sales": *[_type == "officeSale" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "inventory": *[_type == "officeInventoryItem" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection},
+  "vendors": *[_type == "officeVendor" && defined(deletedAt)] | order(deletedAt desc)[0...200] ${trashProjection}
 }`;
 
 const emptyOfficeData = {
@@ -188,6 +202,12 @@ export async function GET(request: Request) {
   const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
   const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
+    // ?view=trash lists the records in the 휴지통 instead of the dashboard data.
+    if (new URL(request.url).searchParams.get('view') === 'trash') {
+      const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+      return NextResponse.json(useFirestore ? await readOfficeTrashFromFirestore(request) : await managerClient.fetch(trashQuery));
+    }
+
     if (shouldUseFirestoreErp()) {
       try {
         if (!canUseFirestoreForRequest(request)) {
@@ -313,6 +333,8 @@ export async function POST(request: Request) {
   }
 }
 
+// Moves an office record to the 휴지통 (sets deletedAt / deletedBy). With permanent: true, removes a record that is
+// already in the 휴지통.
 export async function DELETE(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
@@ -321,6 +343,7 @@ export async function DELETE(request: Request) {
     const body = await request.json();
     const id = String(body?.id || '').trim();
     const type = String(body?.type || '').trim() as PrivateOfficeType;
+    const permanent = body?.permanent === true;
 
     if (!id) {
       return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
@@ -346,22 +369,77 @@ export async function DELETE(request: Request) {
       }
     }
 
-    if (useFirestore) {
-      await deleteOfficeRecordFromFirestore(request, type, id);
-      return NextResponse.json({ ok: true });
+    const existing = await findOfficeRecord(request, type, id, useFirestore);
+    if (!existing) {
+      return NextResponse.json({ error: '이미 삭제되었거나 찾을 수 없는 항목입니다.' }, { status: 404 });
     }
 
-    const existingType = await managerClient.fetch<string | null>('*[_id == $id][0]._type', { id });
-    if (existingType && existingType !== typeMap[type]) {
+    if (!useFirestore && existing._type !== typeMap[type]) {
       return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
     }
 
-    await managerClient.delete(id);
-    return NextResponse.json({ ok: true });
+    if (permanent) {
+      if (!existing.deletedAt) {
+        return NextResponse.json({ error: '휴지통에 있는 항목만 영구 삭제할 수 있습니다.' }, { status: 409 });
+      }
+
+      if (useFirestore) await deleteOfficeRecordFromFirestore(request, type, id);
+      else await managerClient.delete(id);
+      return NextResponse.json({ ok: true });
+    }
+
+    const trash = {
+      deletedAt: new Date().toISOString(),
+      deletedBy: String(body?.deletedBy || request.headers.get('x-manager-user') || '').trim().slice(0, 80),
+    };
+
+    if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, trash);
+    else await managerClient.patch(id).set(trash).commit();
+    return NextResponse.json({ ok: true, ...trash });
   } catch (error) {
     console.error('Office data delete failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 삭제하지 못했습니다.') }, { status: 500 });
   }
+}
+
+// Restores an office record from the 휴지통.
+export async function PATCH(request: Request) {
+  const authError = assertManager(request);
+  if (authError) return authError;
+
+  try {
+    const body = await request.json();
+    const id = String(body?.id || '').trim();
+    const type = String(body?.type || '').trim() as PrivateOfficeType;
+
+    if (!id || !Object.hasOwn(officeFirestoreCollections, type)) {
+      return NextResponse.json({ error: '복구할 항목을 선택해 주세요.' }, { status: 400 });
+    }
+
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+    }
+
+    const existing = await findOfficeRecord(request, type, id, useFirestore);
+    if (!existing || (!useFirestore && existing._type !== typeMap[type])) {
+      return NextResponse.json({ error: '복구할 항목을 찾을 수 없습니다. 이미 영구 삭제되었을 수 있습니다.' }, { status: 404 });
+    }
+
+    if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, null);
+    else await managerClient.patch(id).unset(['deletedAt', 'deletedBy']).commit();
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    console.error('Office data restore failed:', error);
+    return NextResponse.json({ error: getErrorMessage(error, '휴지통에서 복구하지 못했습니다.') }, { status: 500 });
+  }
+}
+
+// The stored record (Firestore) or its _type and trash state (Sanity); null when it does not exist.
+async function findOfficeRecord(request: Request, type: PrivateOfficeType, id: string, useFirestore: boolean) {
+  if (useFirestore) return getOfficeRecordFromFirestore(request, type, id);
+  return managerClient.fetch<Record<string, unknown> | null>('*[_id == $id][0]{_type, deletedAt}', { id });
 }
 
 async function countSiteEstimates(request: Request, siteId: string, useFirestore: boolean) {
@@ -374,7 +452,8 @@ async function countSiteEstimates(request: Request, siteId: string, useFirestore
 }
 
 function sanitizeRecord(value: Record<string, unknown>) {
-  const blocked = new Set(['_id', '_type', '_createdAt', '_updatedAt', '_rev']);
+  // deletedAt / deletedBy change only through DELETE (휴지통) and PATCH (복구).
+  const blocked = new Set(['_id', '_type', '_createdAt', '_updatedAt', '_rev', 'deletedAt', 'deletedBy']);
   const clean: Record<string, unknown> = {};
 
   for (const [key, item] of Object.entries(value)) {
