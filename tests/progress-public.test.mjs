@@ -33,6 +33,17 @@ test('the lock message rounds the wait up to whole minutes', () => {
   assert.equal(progressLockedMessage(900), '확인 시도가 너무 많습니다. 15분 뒤에 다시 시도해 주세요.');
   assert.equal(progressLockedMessage(61), '확인 시도가 너무 많습니다. 2분 뒤에 다시 시도해 주세요.');
   assert.equal(progressLockedMessage(1), '확인 시도가 너무 많습니다. 1분 뒤에 다시 시도해 주세요.');
+  assert.equal(progressLockedMessage(59), '확인 시도가 너무 많습니다. 1분 뒤에 다시 시도해 주세요.');
+  assert.equal(progressLockedMessage(59 * 60), '확인 시도가 너무 많습니다. 59분 뒤에 다시 시도해 주세요.');
+});
+
+test('a lock of an hour or more is told in hours and minutes', () => {
+  assert.equal(progressLockedMessage(60 * 60), '확인 시도가 너무 많습니다. 1시간 뒤에 다시 시도해 주세요.');
+  assert.equal(progressLockedMessage(59 * 60 + 1), '확인 시도가 너무 많습니다. 1시간 뒤에 다시 시도해 주세요.', 'rounded up to 60 minutes');
+  assert.equal(progressLockedMessage(90 * 60), '확인 시도가 너무 많습니다. 1시간 30분 뒤에 다시 시도해 주세요.');
+  assert.equal(progressLockedMessage(90 * 60 - 30), '확인 시도가 너무 많습니다. 1시간 30분 뒤에 다시 시도해 주세요.', 'minutes round up');
+  assert.equal(progressLockedMessage(2 * 60 * 60 + 60), '확인 시도가 너무 많습니다. 2시간 1분 뒤에 다시 시도해 주세요.');
+  assert.equal(progressLockedMessage(24 * 60 * 60), '확인 시도가 너무 많습니다. 24시간 뒤에 다시 시도해 주세요.');
 });
 
 test('the link-off message is the one the spec asks for', () => {

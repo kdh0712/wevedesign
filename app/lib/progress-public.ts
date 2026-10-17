@@ -16,9 +16,13 @@ export const PROGRESS_UNAVAILABLE_MESSAGE = `지금은 확인할 수 없습니�
 // for a right and a wrong number, so it tells a visitor nothing.
 export const PROGRESS_RETRY_MESSAGE = '잠시 후 다시 시도해 주세요.';
 
+// The wait, rounded up to whole minutes: "15분" under an hour, "1시간 30분" or "24시간" from an hour on (locks reach 24 hours).
 export function progressLockedMessage(retryAfterSeconds: number): string {
-  const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
-  return `확인 시도가 너무 많습니다. ${minutes}분 뒤에 다시 시도해 주세요.`;
+  const totalMinutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const wait = hours === 0 ? `${minutes}분` : minutes === 0 ? `${hours}시간` : `${hours}시간 ${minutes}분`;
+  return `확인 시도가 너무 많습니다. ${wait} 뒤에 다시 시도해 주세요.`;
 }
 
 // Link codes are base64url (letters, digits, "-" and "_"). Anything else cannot be a code, so it is never looked up.
