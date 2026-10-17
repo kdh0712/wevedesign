@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitWithin, jpegFileName } from '../app/lib/resize-image.ts';
+import { fitWithin, jpegFileName, resizeImageFile } from '../app/lib/resize-image.ts';
 
 test('fitWithin shrinks the long edge to the limit and keeps the aspect ratio', () => {
   assert.deepEqual(fitWithin(4032, 3024, 1600), { width: 1600, height: 1200 });
@@ -36,4 +36,70 @@ test('jpegFileName swaps the extension for .jpg', () => {
   assert.equal(jpegFileName('noextension'), 'noextension.jpg');
   assert.equal(jpegFileName('.png'), 'photo.jpg');
   assert.equal(jpegFileName(''), 'photo.jpg');
+});
+
+// The browser pieces resizeImageFile uses, faked so the canvas can be inspected after the call.
+function fakeBrowser(blob) {
+  const saved = { Image: globalThis.Image, document: globalThis.document, create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+  const canvases = [];
+  globalThis.Image = class {
+    naturalWidth = 4032;
+    naturalHeight = 3024;
+    src = '';
+    async decode() {}
+  };
+  globalThis.document = {
+    createElement: () => {
+      const canvas = {
+        width: 300,
+        height: 150,
+        encodedAt: null,
+        getContext: () => ({ fillRect() {}, drawImage() {}, fillStyle: '', imageSmoothingQuality: '' }),
+        toBlob(callback) {
+          canvas.encodedAt = [canvas.width, canvas.height];
+          callback(blob);
+        },
+      };
+      canvases.push(canvas);
+      return canvas;
+    },
+  };
+  URL.createObjectURL = () => 'blob:photo';
+  URL.revokeObjectURL = () => {};
+  return {
+    canvases,
+    restore() {
+      globalThis.Image = saved.Image;
+      if (saved.document === undefined) delete globalThis.document;
+      else globalThis.document = saved.document;
+      URL.createObjectURL = saved.create;
+      URL.revokeObjectURL = saved.revoke;
+    },
+  };
+}
+
+test('resizeImageFile releases the canvas once the JPEG is made, which frees memory on iPhones', async () => {
+  const blob = new Blob(['jpeg'], { type: 'image/jpeg' });
+  const browser = fakeBrowser(blob);
+  try {
+    const result = await resizeImageFile(new File(['x'], 'IMG_0001.HEIC'), 1600);
+    assert.deepEqual(result, { blob, width: 1600, height: 1200 });
+    const [canvas] = browser.canvases;
+    assert.deepEqual(canvas.encodedAt, [1600, 1200], 'encoded at full size');
+    assert.equal(canvas.width, 0);
+    assert.equal(canvas.height, 0);
+  } finally {
+    browser.restore();
+  }
+});
+
+test('resizeImageFile releases the canvas when encoding fails too', async () => {
+  const browser = fakeBrowser(null);
+  try {
+    await assert.rejects(resizeImageFile(new File(['x'], 'big.png'), 1600), { message: '사진을 줄이지 못했습니다: big.png' });
+    assert.equal(browser.canvases[0].width, 0);
+    assert.equal(browser.canvases[0].height, 0);
+  } finally {
+    browser.restore();
+  }
 });

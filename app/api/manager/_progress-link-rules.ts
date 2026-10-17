@@ -61,3 +61,16 @@ export async function applyLinkOnUpload<S>(steps: {
     read = again;
   }
 }
+
+export const PROGRESS_LINK_DEFAULT_BASE_URL = 'https://www.wevedesign.co.kr';
+
+// Where customer links point. A Vercel preview links to its own branch URL, so a link made while testing a preview opens that
+// preview (and its data) instead of production; everywhere else NEXT_PUBLIC_SITE_URL, then the public domain.
+export function progressLinkBaseUrl(env: Record<string, string | undefined>): string {
+  const branchUrl = (env.VERCEL_BRANCH_URL || '').trim();
+  const base =
+    env.VERCEL_ENV === 'preview' && branchUrl
+      ? `https://${branchUrl}`
+      : (env.NEXT_PUBLIC_SITE_URL || '').trim() || PROGRESS_LINK_DEFAULT_BASE_URL;
+  return base.replace(/\/+$/, '');
+}

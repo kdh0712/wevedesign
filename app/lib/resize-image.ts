@@ -40,17 +40,22 @@ export async function resizeImageFile(file: File, maxEdge = 1600, quality = 0.82
     const canvas = document.createElement('canvas');
     canvas.width = size.width;
     canvas.height = size.height;
-    const context = canvas.getContext('2d');
-    if (!context) throw cannotShrink();
-    // JPEG has no transparency; without a white base a transparent PNG turns black.
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, size.width, size.height);
-    context.imageSmoothingQuality = 'high';
-    context.drawImage(image, 0, 0, size.width, size.height);
+    try {
+      const context = canvas.getContext('2d');
+      if (!context) throw cannotShrink();
+      // JPEG has no transparency; without a white base a transparent PNG turns black.
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, size.width, size.height);
+      context.imageSmoothingQuality = 'high';
+      context.drawImage(image, 0, 0, size.width, size.height);
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
-    if (!blob) throw cannotShrink();
-    return { blob, width: size.width, height: size.height };
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (!blob) throw cannotShrink();
+      return { blob, width: size.width, height: size.height };
+    } finally {
+      // Releases the canvas memory right away: iOS Safari caps the total canvas memory, and a post can shrink many photos.
+      canvas.width = canvas.height = 0;
+    }
   } finally {
     URL.revokeObjectURL(url);
   }

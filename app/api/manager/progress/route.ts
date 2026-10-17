@@ -11,7 +11,7 @@ import {
   type ProgressUpdate,
 } from '../../../lib/site-progress';
 import { readProgressAlimtalkConfig, sendAlimtalk, type ProgressAlimtalkConfig } from '../_aligo';
-import { applyLinkOnUpload, decideLinkOnUpload } from '../_progress-link-rules';
+import { applyLinkOnUpload, decideLinkOnUpload, progressLinkBaseUrl } from '../_progress-link-rules';
 import { checkPhotoUpload, parseCreateUpdate, progressPhotoFileName } from '../_progress-request';
 import {
   deleteProgressUpdate,
@@ -55,7 +55,7 @@ function siteCode(site: ProgressSite) {
 
 function linkOf(site: ProgressSite) {
   const code = siteCode(site);
-  const base = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.wevedesign.co.kr').replace(/\/+$/, '');
+  const base = progressLinkBaseUrl(process.env);
   return {
     enabled: Boolean(site.progressEnabled) && Boolean(code),
     code,

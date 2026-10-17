@@ -15,11 +15,13 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Customer progress pages hold per-customer data behind a private link: never cached, never indexed.
+        // Customer progress pages hold per-customer data behind a private link: never cached, never indexed, and the URL (the
+        // secret code) is never sent on as a referrer. This rule comes after '/:path*', so its Referrer-Policy wins.
         source: '/progress/:path*',
         headers: [
           { key: 'Cache-Control', value: 'private, no-store' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+          { key: 'Referrer-Policy', value: 'no-referrer' },
         ],
       },
     ];

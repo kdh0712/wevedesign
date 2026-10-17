@@ -29,6 +29,7 @@ export const LINK_REASON_MESSAGES: Record<LinkReason, string> = {
   'site-done': '완료된 현장이라 링크가 자동으로 열리지 않습니다',
 };
 export const NOTIFY_TEMPLATE_MISSING = '알림톡 템플릿 설정이 필요합니다';
+export const NETWORK_ERROR_MESSAGE = '네트워크 연결을 확인한 뒤 다시 시도해 주세요.';
 export const ROTATE_CONFIRM_MESSAGE = '이전 링크와 고객 확인 기록이 모두 무효가 됩니다. 계속할까요?';
 
 const isLinkReason = (value: unknown): value is LinkReason => typeof value === 'string' && Object.prototype.hasOwnProperty.call(LINK_REASON_MESSAGES, value);
@@ -203,11 +204,21 @@ export class ProgressRequestError extends Error {
   }
 }
 
+// fetch rejects only when no answer arrived at all (offline, a dropped connection), with the browser's own English text
+// ("Failed to fetch", "Load failed", ...). Staff see NETWORK_ERROR_MESSAGE instead, through errorText like any other error.
+export async function fetchOrNetworkError(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    throw new ProgressRequestError(NETWORK_ERROR_MESSAGE, 0);
+  }
+}
+
 // All calls carry the manager session (Authorization: Bearer). An error answer becomes a ProgressRequestError with the
 // server's own message, so refusals ("알림톡 템플릿 설정이 필요합니다", a missing mobile number, ...) reach staff as written.
 export function createProgressApi(authHeaders: () => Record<string, string>) {
   async function call<T>(query: string, init: RequestInit | undefined, fallback: string): Promise<T> {
-    const response = await fetch(`/api/manager/progress${query}`, {
+    const response = await fetchOrNetworkError(`/api/manager/progress${query}`, {
       ...init,
       headers: { ...authHeaders(), ...((init?.headers as Record<string, string> | undefined) ?? {}) },
     });

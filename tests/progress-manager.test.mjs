@@ -2,7 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   canPostAgain,
+  NETWORK_ERROR_MESSAGE,
+  ProgressRequestError,
   createProgressApi,
+  errorText,
+  fetchOrNetworkError,
   defaultPostToCustomer,
   formatReportDay,
   formatSeoulDateTime,
@@ -275,6 +279,51 @@ test('createProgressApi turns an error answer into an Error with the server mess
       return true;
     });
     await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg'), { message: '사진을 올리지 못했습니다. (HTTP 500)' });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('a request that gets no answer at all shows a Korean network message, not the browser text', async () => {
+  assert.equal(NETWORK_ERROR_MESSAGE, '네트워크 연결을 확인한 뒤 다시 시도해 주세요.');
+  const original = globalThis.fetch;
+  try {
+    for (const browserText of ['Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource.']) {
+      globalThis.fetch = async () => {
+        throw new TypeError(browserText);
+      };
+      await assert.rejects(fetchOrNetworkError('/api/manager/progress'), (error) => {
+        assert.ok(error instanceof ProgressRequestError);
+        assert.equal(error.message, NETWORK_ERROR_MESSAGE);
+        assert.equal(error.status, 0);
+        return true;
+      });
+
+      const api = createProgressApi(() => ({}));
+      for (const call of [() => api.load('s1'), () => api.setLink('s1', 'enable'), () => api.uploadPhoto('s1', new Blob(['x']), 'a.jpg')]) {
+        await assert.rejects(call(), (error) => {
+          assert.equal(errorText(error, '진행 현황을 불러오지 못했습니다.'), NETWORK_ERROR_MESSAGE);
+          return true;
+        });
+      }
+
+      // A photo upload that never reaches the server names the photo with the same message.
+      const result = await shrinkAndUploadPhotos([{ name: 'a.jpg' }], {
+        shrink: async () => new Blob(['x']),
+        upload: (blob) => api.uploadPhoto('s1', blob, 'a.jpg'),
+      });
+      assert.deepEqual(result, { ok: false, stage: 'upload', failed: [{ name: 'a.jpg', error: NETWORK_ERROR_MESSAGE }] });
+    }
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('an answer from the server still shows the server message', async () => {
+  const mock = mockFetch([{ status: 503, body: { error: '사진 저장소 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' } }]);
+  try {
+    const api = createProgressApi(() => ({}));
+    await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg'), { message: '사진 저장소 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' });
   } finally {
     mock.restore();
   }

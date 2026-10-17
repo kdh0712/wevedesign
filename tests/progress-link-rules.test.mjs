@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyLinkOnUpload, decideLinkOnUpload, shouldCloseLinkOnSave } from '../app/api/manager/_progress-link-rules.ts';
+import { applyLinkOnUpload, decideLinkOnUpload, progressLinkBaseUrl, shouldCloseLinkOnSave } from '../app/api/manager/_progress-link-rules.ts';
 
 // decideLinkOnUpload: what the first progress upload does to the customer link.
 
@@ -173,4 +173,24 @@ test('an error that is not a conflict is thrown at once, without a re-read', asy
 test('a site that is gone on the re-read is an error', async () => {
   const { steps } = uploadSteps({ first: { site: { _id: 's1' }, updateTime: 'v1' }, rereads: [null], creates: [new Conflict('gone')] });
   await assert.rejects(applyLinkOnUpload(steps), /현장을 찾을 수 없습니다/);
+});
+
+// progressLinkBaseUrl: where the customer links point.
+
+test('a Vercel preview links to its own branch URL', () => {
+  assert.equal(
+    progressLinkBaseUrl({ VERCEL_ENV: 'preview', VERCEL_BRANCH_URL: 'weve-design-git-feat-progress-team.vercel.app', NEXT_PUBLIC_SITE_URL: 'https://www.wevedesign.co.kr' }),
+    'https://weve-design-git-feat-progress-team.vercel.app',
+  );
+  assert.equal(progressLinkBaseUrl({ VERCEL_ENV: 'preview', VERCEL_BRANCH_URL: 'branch.vercel.app/' }), 'https://branch.vercel.app');
+});
+
+test('production and local use NEXT_PUBLIC_SITE_URL, then the public domain', () => {
+  assert.equal(progressLinkBaseUrl({ VERCEL_ENV: 'production', VERCEL_BRANCH_URL: 'branch.vercel.app', NEXT_PUBLIC_SITE_URL: 'https://www.wevedesign.co.kr/' }), 'https://www.wevedesign.co.kr');
+  assert.equal(progressLinkBaseUrl({ NEXT_PUBLIC_SITE_URL: 'http://localhost:3000//' }), 'http://localhost:3000');
+  assert.equal(progressLinkBaseUrl({ VERCEL_ENV: 'preview', VERCEL_BRANCH_URL: '', NEXT_PUBLIC_SITE_URL: 'https://staging.example' }), 'https://staging.example');
+  assert.equal(progressLinkBaseUrl({ VERCEL_ENV: 'preview' }), 'https://www.wevedesign.co.kr');
+  assert.equal(progressLinkBaseUrl({ VERCEL_ENV: 'development', VERCEL_BRANCH_URL: 'branch.vercel.app' }), 'https://www.wevedesign.co.kr');
+  assert.equal(progressLinkBaseUrl({}), 'https://www.wevedesign.co.kr');
+  assert.equal(progressLinkBaseUrl({ NEXT_PUBLIC_SITE_URL: '   ' }), 'https://www.wevedesign.co.kr');
 });
