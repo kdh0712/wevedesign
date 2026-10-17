@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 
 type Site = {
   _id: string;
@@ -239,6 +239,7 @@ type MaterialPickerState = {
 type DetailPrintRow =
   | { type: 'group'; key: string; groupIndex: number; category: string }
   | { type: 'line'; key: string; line: EstimateLine }
+  | { type: 'nameSubtotal'; key: string; name: string; amount: number }
   | { type: 'subtotal'; key: string; amount: number }
   | { type: 'total'; key: string; amount: number };
 
@@ -531,6 +532,8 @@ export default function EstimateWorkspacePage() {
   const [password, setPassword] = useState('');
   const [firebaseToken, setFirebaseToken] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
+  // Starts true so opening or refreshing with a saved session shows a loading screen instead of the password form.
+  const [isLoadingData, setIsLoadingData] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
   const [estimates, setEstimates] = useState<SiteEstimate[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -797,6 +800,7 @@ export default function EstimateWorkspacePage() {
     setFirebaseToken(savedFirebaseToken);
     if (siteIdFromUrl) setSelectedSiteId(siteIdFromUrl);
     if (savedPassword) void loadData(savedPassword, siteIdFromUrl, '', savedFirebaseToken);
+    else setIsLoadingData(false);
   }, []);
 
   useEffect(() => {
@@ -955,6 +959,7 @@ export default function EstimateWorkspacePage() {
     setStatus('');
     if (!nextPassword) return;
 
+    setIsLoadingData(true);
     try {
       const cachedMaterials = forceRefreshMaterials ? null : readMaterialCache();
       const shouldSkipMaterials = Boolean(cachedMaterials?.materials?.length);
@@ -991,6 +996,8 @@ export default function EstimateWorkspacePage() {
       window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, nextPassword);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 데이터 조회 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoadingData(false);
     }
   };
 
@@ -1894,6 +1901,17 @@ export default function EstimateWorkspacePage() {
     if (!holidayDate) return;
     setHolidays((current) => Array.from(new Set([...current, holidayDate])).sort());
   };
+
+  if (!isUnlocked && isLoadingData) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#edf2f5] px-5 text-[#171512]">
+        <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d]">
+          <Loader2 className="animate-spin text-[#38a9bd]" size={18} />
+          견적 데이터를 불러오는 중입니다
+        </p>
+      </main>
+    );
+  }
 
   if (!isUnlocked) {
     return (
@@ -5810,7 +5828,7 @@ function DetailEstimatePrintPage({
   );
 }
 
-// Consecutive lines with the same 품명 on one page share a single merged 품명 cell (0 = covered by the cell above).
+// Consecutive lines with the same 품명 on one page share a single merged 품명 cell, together with that 품명's 소계 row (0 = covered by the cell above).
 function detailNameRowSpans(rows: DetailPrintRow[]) {
   const spans = rows.map(() => 1);
   rows.forEach((row, index) => {
@@ -5820,9 +5838,16 @@ function detailNameRowSpans(rows: DetailPrintRow[]) {
     let end = index + 1;
     while (end < rows.length) {
       const next = rows[end];
-      if (next.type !== 'line' || next.line.name.trim() !== name) break;
-      spans[end] = 0;
-      end += 1;
+      if (next.type === 'line' && next.line.name.trim() === name) {
+        spans[end] = 0;
+        end += 1;
+        continue;
+      }
+      if (next.type === 'nameSubtotal' && next.name === name) {
+        spans[end] = 0;
+        end += 1;
+      }
+      break;
     }
     spans[index] = end - index;
   });
@@ -5856,9 +5881,23 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
         <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
         <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
         <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.customerUnitPrice)}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(line.quantity * line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity * line.customerUnitPrice)}</td>
         <td className="border border-[#111] px-3 py-1.5 text-xs">{line.note}</td>
+      </tr>
+    );
+  }
+
+  if (row.type === 'nameSubtotal') {
+    return (
+      <tr key={row.key} className="font-semibold">
+        {nameRowSpan === 0 ? null : <td className="border border-[#111] px-3 py-1.5 text-center">{row.name}</td>}
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5 text-center">소계</td>
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5 text-right">{formatPlainNumber(row.amount)}</td>
+        <td className="border border-[#111] bg-[#faf8f3] px-3 py-1.5"></td>
       </tr>
     );
   }
@@ -5871,7 +5910,7 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
       <td className="border border-[#111] px-3 py-1.5"></td>
       <td className="border border-[#111] px-3 py-1.5"></td>
       <td className="border border-[#111] px-3 py-1.5"></td>
-      <td className="border border-[#111] px-3 py-1.5 text-right">{formatWonAmount(row.amount)}</td>
+      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(row.amount)}</td>
       <td className="border border-[#111] px-3 py-1.5"></td>
     </tr>
   );
@@ -6892,14 +6931,14 @@ function groupLinesByCategory(lines: EstimateLine[]) {
   }));
 }
 
-// Keeps lines with the same 품명 together (in first-appearance order) so the detail sheet can merge their 품명 cells.
+// Groups lines with the same 품명 together (in first-appearance order) so the detail sheet can merge their 품명 cells.
 function clusterLinesByName(lines: EstimateLine[]) {
   const clusters = new Map<string, EstimateLine[]>();
   lines.forEach((line) => {
     const key = line.name.trim();
     clusters.set(key, [...(clusters.get(key) || []), line]);
   });
-  return Array.from(clusters.values()).flat();
+  return Array.from(clusters.values());
 }
 
 function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {
@@ -6920,9 +6959,23 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
   };
 
   grouped.forEach((group, groupIndex) => {
+    const nameClusters = clusterLinesByName(group.lines);
     const groupRows: DetailPrintRow[] = [
       { type: 'group', key: `detail-group-${group.category}-${groupIndex}`, groupIndex, category: group.category },
-      ...clusterLinesByName(group.lines).map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line })),
+      ...nameClusters.flatMap((clusterLines, clusterIndex): DetailPrintRow[] => {
+        const lineRows = clusterLines.map((line): DetailPrintRow => ({ type: 'line', key: `detail-line-${line.id}`, line }));
+        // A 품명 with several lines (e.g. 거실 욕실, 안방 욕실) gets its own 소계 when the category holds more than one 품명.
+        if (nameClusters.length < 2 || clusterLines.length < 2) return lineRows;
+        return [
+          ...lineRows,
+          {
+            type: 'nameSubtotal',
+            key: `detail-name-subtotal-${groupIndex}-${clusterIndex}`,
+            name: clusterLines[0].name.trim(),
+            amount: clusterLines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0),
+          },
+        ];
+      }),
       { type: 'subtotal', key: `detail-subtotal-${group.category}-${groupIndex}`, amount: group.customerAmount },
     ];
 

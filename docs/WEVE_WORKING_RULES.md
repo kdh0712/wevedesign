@@ -12,8 +12,10 @@ This file records durable product and implementation decisions. Review it before
 ## Manager Authentication
 
 - Never auto-login from local storage or a remembered manager credential.
-- Opening or refreshing `/manager-weve-7519` must show the login form.
-- Do not render or reveal the manager dashboard until a user explicitly submits valid credentials and initial data loads successfully.
+- Opening `/manager-weve-7519` without a session must show the login form. A refresh may restore the current tab's session (`sessionStorage`, 8 hours).
+- While a saved session is being checked (manager or estimate page), show a loading screen instead of the login or password form.
+- Do not render or reveal the manager dashboard until valid credentials are confirmed and initial data loads successfully.
+- Keep slow background work such as the Kakao BizForm sync off the login and restore path.
 - Keep account permissions aligned across the manager UI, auth API, account API, and Firebase profiles.
 
 ## Manager UX

@@ -536,7 +536,8 @@ export default function ManagerPage() {
     isActive: true,
   });
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [isRestoringSession, setIsRestoringSession] = useState(false);
+  // Starts true so a refresh shows the loading screen instead of flashing the login form before the saved session is checked.
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [selectedDashboardSiteId, setSelectedDashboardSiteId] = useState('');
   const [homepageTab, setHomepageTab] = useState<HomepageTabKey>('basic');
@@ -811,7 +812,10 @@ export default function ManagerPage() {
     window.localStorage.removeItem('weve-manager-session');
     window.localStorage.removeItem('weve-manager-password');
     const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
-    if (!savedSession) return;
+    if (!savedSession) {
+      setIsRestoringSession(false);
+      return;
+    }
 
     let cancelled = false;
     const restoreSession = async () => {
@@ -830,10 +834,13 @@ export default function ManagerPage() {
         setFirebaseToken(parsed.firebaseToken || '');
         setCurrentUser(parsed.user);
         setLoginId(parsed.user.loginId || 'admin');
-        await syncKakaoBizForm(parsed.token, parsed.firebaseToken || '');
         const loaded = await loadOfficeData(parsed.token, { silent: true }, parsed.firebaseToken || '');
         if (!loaded) throw new Error('저장된 로그인 정보를 확인할 수 없습니다.');
-        if (!cancelled) setStatus('로그인 상태를 복원했습니다.');
+        if (!cancelled) {
+          setStatus('로그인 상태를 복원했습니다.');
+          // Kakao sync can take several seconds, so it runs after the dashboard is open.
+          void refreshOfficeData(parsed.token, parsed.firebaseToken || '');
+        }
       } catch (caught) {
         window.sessionStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
         if (!cancelled) {
@@ -936,13 +943,14 @@ export default function ManagerPage() {
       setPassword(result.token);
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
-      await syncKakaoBizForm(result.token, result.firebaseToken || '');
       const loaded = await loadOfficeData(result.token, { silent: true }, result.firebaseToken || '');
       if (!loaded) throw new Error('관리자 데이터를 불러오지 못했습니다. 다시 로그인해 주세요.');
       window.sessionStorage.setItem(
         MANAGER_SESSION_STORAGE_KEY,
         JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user, savedAt: Date.now() }),
       );
+      // Kakao sync can take several seconds, so it runs after the dashboard is open.
+      void refreshOfficeData(result.token, result.firebaseToken || '');
       if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
       setStatus('로그인했습니다.');
     } catch (caught) {
@@ -1159,12 +1167,12 @@ export default function ManagerPage() {
     }
   };
 
-  const refreshOfficeData = async (managerPassword = password) => {
+  const refreshOfficeData = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
     if (!managerPassword) return;
 
     try {
-      await syncKakaoBizForm(managerPassword);
-      const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword) });
+      await syncKakaoBizForm(managerPassword, firebaseAuthToken);
+      const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) });
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
 
@@ -2043,7 +2051,15 @@ export default function ManagerPage() {
 
   return (
     <main className="min-h-screen bg-[#eef3f5] text-[#171512] [zoom:0.9]">
-      {!isUnlocked && (
+      {!isUnlocked && isRestoringSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#eef3f5] px-4">
+          <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d]">
+            <Loader2 className="animate-spin text-[#38a9bd]" size={18} />
+            관리자 화면을 여는 중입니다
+          </p>
+        </div>
+      )}
+      {!isUnlocked && !isRestoringSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
           <form
             onSubmit={(event) => {
@@ -2071,7 +2087,6 @@ export default function ManagerPage() {
                 value={loginId}
                 onChange={(event) => setLoginId(event.target.value)}
                 autoFocus
-                disabled={isRestoringSession}
                 className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
               />
             </label>
@@ -2081,17 +2096,16 @@ export default function ManagerPage() {
                 type="password"
                 value={loginPassword}
                 onChange={(event) => setLoginPassword(event.target.value)}
-                disabled={isRestoringSession}
                 className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
               />
             </label>
             <button
               type="submit"
-              disabled={loadingOffice || isRestoringSession}
+              disabled={loadingOffice}
               className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-3 font-semibold text-white disabled:opacity-60"
             >
-              {loadingOffice || isRestoringSession ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
-              {isRestoringSession ? '로그인 확인 중' : '로그인'}
+              {loadingOffice ? <Loader2 className="animate-spin" size={18} /> : <ShieldCheck size={18} />}
+              로그인
             </button>
             {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
           </form>
