@@ -119,6 +119,12 @@ await expectStatus('GET', '/api/manager/accounts', 'consult', 403);
 await expectStatus('GET', '/api/manager/accounts', 'admin', 200);
 await expectStatus('POST', '/api/manager/accounts', 'consult', 403, {});
 await expectStatus('DELETE', '/api/manager/accounts', 'consult', 403, {});
+await expectStatus('GET', '/api/manager/alert-phones', 'missing', 401);
+await expectStatus('GET', '/api/manager/alert-phones', 'consult', 403);
+await expectStatus('PUT', '/api/manager/alert-phones', 'consult', 403, { phones: [] });
+await expectStatus('GET', '/api/manager/alert-phones', 'admin', 200);
+// Locally there is no Firebase service account, so an allowed save stops at 503 before writing anything.
+await expectStatus('PUT', '/api/manager/alert-phones', 'admin', 503, { phones: ['010-1234-5678'] });
 await expectStatus('POST', '/api/manager/migrate-firestore', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});

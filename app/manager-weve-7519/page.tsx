@@ -31,6 +31,7 @@ import {
 import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
+import { AlertPhonesPanel } from './alert-phones-panel';
 
 type UploadResult = {
   projectTitle: string;
@@ -3132,6 +3133,7 @@ export default function ManagerPage() {
                 </button>
               </div>
             </Panel>
+            {currentUser?.role === 'admin' && <AlertPhonesPanel authHeaders={() => authHeaders()} />}
           </div>
         )}
 
