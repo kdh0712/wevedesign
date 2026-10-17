@@ -1406,7 +1406,7 @@ export default function ManagerPage() {
         : `현장과 고객 ${customerName}님을 함께 등록했습니다.`,
     );
 
-    if (!wasEditing && savedSite._id) {
+    if (!wasEditing && savedSite._id && hasAnyPermission(currentUser, ['estimates'])) {
       window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(savedSite._id)}`;
     }
   };
