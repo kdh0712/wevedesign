@@ -3,6 +3,8 @@ import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
 import { canUseFirestoreOnServer, savePublicConsultationToFirestore, shouldUseFirestoreErp } from '../manager/firestore';
 import { adminButtonJson, isAligoSuccess, normalizeTemplateText, type AligoResponse } from './aligo-admin';
+import { pickAlertPhones } from '../../lib/alert-phones';
+import { envAlertPhones, readSavedAlertPhones } from '../manager/_alert-phones-store';
 
 type ConsultationPayload = {
   name?: string;
@@ -89,21 +91,6 @@ const fieldRow = (label: string, value: string) => `
     <td style="padding:10px 12px; border-bottom:1px solid #e7dece;">${escapeHtml(value || '-')}</td>
   </tr>
 `;
-
-function normalizePhone(value: string) {
-  return value.replace(/\D/g, '');
-}
-
-function parsePhoneList(value: string) {
-  return Array.from(
-    new Set(
-      value
-        .split(/[,;|\n]+/)
-        .map(normalizePhone)
-        .filter(Boolean),
-    ),
-  );
-}
 
 function consultationSummary(fields: ConsultationNotificationFields) {
   return [
@@ -233,13 +220,12 @@ async function sendConsultationKakaoNotifications(fields: ConsultationNotificati
   }
 
   const adminEnabled = (process.env.ALIGO_CONSULTATION_ADMIN_ENABLED || '').trim().toLowerCase();
-  const adminPhones = parsePhoneList(
-    process.env.ALIGO_CONSULTATION_ADMIN_RECEIVER_PHONES ||
-      process.env.ALIGO_CONSULTATION_RECEIVER_PHONE ||
-      process.env.KAKAO_CONSULTATION_RECEIVER_PHONE ||
-      process.env.CONSULTATION_NOTIFY_PHONE ||
-      '',
-  );
+  // Numbers saved in the manager win; the Vercel variables are the fallback.
+  const savedPhones = await readSavedAlertPhones().catch((error) => {
+    console.error('상담 알림 번호를 불러오지 못해 Vercel 설정 번호를 사용합니다.', error);
+    return null;
+  });
+  const adminPhones = pickAlertPhones(savedPhones, envAlertPhones()).phones;
   const adminTemplateCode =
     process.env.ALIGO_CONSULTATION_ADMIN_TEMPLATE_CODE?.trim() ||
     process.env.ALIGO_CONSULTATION_TEMPLATE_CODE?.trim() ||

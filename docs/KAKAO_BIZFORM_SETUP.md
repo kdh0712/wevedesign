@@ -40,6 +40,8 @@ ALIGO_SENDER_KEY=
 ALIGO_SENDER_PHONE=
 ```
 
+The receiving phones are normally managed in the manager: 외부 채널 tab → 상담 알림 받을 번호 (admin only, up to 5). The list is stored in Firestore (`managerSettings/consultationAlimtalk`) and takes effect immediately without a redeploy. When that list is empty, the environment variable below is used as a fallback.
+
 Configure the manager notification separately. Separate multiple phone numbers with commas:
 
 ```text
