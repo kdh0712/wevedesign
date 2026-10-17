@@ -183,6 +183,9 @@ export async function GET(request: Request) {
   if (authError) return authError;
 
   const startedAt = Date.now();
+  // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
+  const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
+  const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
     if (shouldUseFirestoreErp()) {
       try {
@@ -192,17 +195,17 @@ export async function GET(request: Request) {
 
         const [officeData, publicData, visitStats] = await Promise.all([
           readOfficeDataFromFirestore(request),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
-        return timedJson({ ...officeData, ...publicData, visitStats }, startedAt, 'firestore');
+        return timedJson({ ...officeData, ...publicData, visitStats }, startedAt, isRefresh ? 'firestore refresh' : 'firestore');
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
         console.error('Firestore office data fetch failed:', firestoreError);
 
         const [fallbackData, publicData, visitStats] = await Promise.all([
           managerClient.fetch(query).catch(() => null),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
 
@@ -221,7 +224,11 @@ export async function GET(request: Request) {
 
     const data = await managerClient.fetch(query);
     data.visitStats = await getVisitStats();
-    return timedJson(data, startedAt, 'sanity');
+    if (isRefresh) {
+      delete data.categories;
+      delete data.projects;
+    }
+    return timedJson(data, startedAt, isRefresh ? 'sanity refresh' : 'sanity');
   } catch (error) {
     console.error('Office data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 불러오지 못했습니다.') }, { status: 500 });
