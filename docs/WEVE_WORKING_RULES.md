@@ -21,6 +21,7 @@ This file records durable product and implementation decisions. Review it before
 - Every manager API route must call `requireManager` (`app/api/manager/_session.ts`) with the permission its tab needs. Account management and data migration are admin-only.
 - Set `MANAGER_SESSION_SECRET` (32+ random bytes) in Vercel. Changing it signs everyone out.
 - Store manager account passwords only as scrypt hashes. Staff may not change their own role, permissions, or active state.
+- Failed manager logins are limited in server memory (`app/api/manager/_login-limit.ts`): 5 per address and login ID, 30 per address, per 15 minutes. Never limit by login ID alone, or anyone could lock the owner out.
 - Deploy `firebase-database.rules.json` to Firebase only after the code that writes profiles with server admin access is live. Merge only its `users` and `launcher_admins` rules into the live rules; another app may share the database.
 - Change `MANAGER_PASSWORD` whenever it may have been exposed. Before signed sessions every staff login received it, so it must be rotated when that change ships.
 - Production Firestore ERP needs the Firebase service account. Without it the browser holds a Firebase token that can read Firestore directly, and tab permissions are not enforced.

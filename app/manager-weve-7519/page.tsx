@@ -961,7 +961,7 @@ export default function ManagerPage() {
       saveStoredSession({ token: result.token, expiresAt: result.expiresAt, user: result.user, firebaseToken: result.firebaseToken });
       // Kakao sync can take several seconds, so it runs after the dashboard is open.
       void refreshOfficeData(result.token, result.firebaseToken || '', result.user);
-      if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
+      // The account list loads when the 계정 권한 tab opens, so its errors never block or clutter the login.
       setStatus('로그인했습니다.');
     } catch (caught) {
       setPassword('');
@@ -3433,7 +3433,10 @@ export default function ManagerPage() {
             disabled={savingOffice}
             onClose={() => setCompletionConsultation(null)}
             onCompleteOnly={() => completeConsultation(completionConsultation, false)}
-            onRegisterCustomer={() => completeConsultation(completionConsultation, true)}
+            onRegisterCustomer={
+              // Registering continues in the customer form, which needs the customers permission.
+              hasAnyPermission(currentUser, ['customers']) ? () => completeConsultation(completionConsultation, true) : undefined
+            }
           />
         )}
         {dailyReportSite && (
@@ -4865,7 +4868,7 @@ function ConsultationCompleteModal({
   disabled: boolean;
   onClose: () => void;
   onCompleteOnly: () => void;
-  onRegisterCustomer: () => void;
+  onRegisterCustomer?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#17212b]/60 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
@@ -4873,7 +4876,7 @@ function ConsultationCompleteModal({
         <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Complete</p>
         <h2 className="mt-2 text-2xl font-semibold">상담 완료 처리</h2>
         <p className="mt-3 text-sm leading-6 text-[#60717d]">
-          {consultation.name || '고객'}님의 상담을 완료합니다. 고객 등록과 함께 비공개 현장도 만들까요?
+          {consultation.name || '고객'}님의 상담을 완료합니다.{onRegisterCustomer ? ' 고객 등록과 함께 비공개 현장도 만들까요?' : ''}
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
@@ -4882,9 +4885,11 @@ function ConsultationCompleteModal({
           <button type="button" onClick={onCompleteOnly} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
             상담만 완료
           </button>
-          <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-            고객 + 현장 등록
-          </button>
+          {onRegisterCustomer && (
+            <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+              고객 + 현장 등록
+            </button>
+          )}
         </div>
       </div>
     </div>
