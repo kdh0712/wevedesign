@@ -58,7 +58,7 @@ function toKakaoConsultationRecord(formId: string, entry: KakaoBizFormResponse &
     .map((item) => [item.question, item.answer].filter(Boolean).join(': '))
     .filter(Boolean)
     .join('\n');
-  const inflowSource = String(entry.inflowSource || '湲고?').trim();
+  const inflowSource = String(entry.inflowSource || '기타').trim();
 
   return {
     _id: kakaoConsultationId(formId, entry.applyId),
@@ -75,12 +75,12 @@ function toKakaoConsultationRecord(formId: string, entry: KakaoBizFormResponse &
     budget: answerFor(answers, ['예산']),
     timeline: answerFor(answers, ['희망일정', '공사일정', '시작일', '시공시기']),
     message: answerText,
-    memo: [entry.email ? `?대찓?? ${entry.email}` : '', entry.channelAddStatus ? `梨꾨꼸 異붽?: ${entry.channelAddStatus}` : '']
+    memo: [entry.email ? `이메일: ${entry.email}` : '', entry.channelAddStatus ? `채널 추가: ${entry.channelAddStatus}` : '']
       .filter(Boolean)
       .join('\n'),
     privacyAgreed: true,
-    status: '?좉퇋',
-    source: `移댁뭅??鍮꾩쫰?덉뒪?? 쨌 ${inflowSource}`,
+    status: '신규',
+    source: `카카오 비즈니스폼+ · ${inflowSource}`,
     createdAt: entry.submittedAt || new Date().toISOString(),
   };
 }
