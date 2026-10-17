@@ -2,6 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { hasAnyPermission } from '../../lib/manager-permissions';
+import { clearStoredSession, readStoredSession, saveStoredSession, type StoredManagerUser } from '../../lib/manager-session-storage';
 
 type Site = {
   _id: string;
@@ -243,8 +245,7 @@ type DetailPrintRow =
   | { type: 'subtotal'; key: string; amount: number; hasNameSubtotals: boolean }
   | { type: 'total'; key: string; amount: number };
 
-const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
-const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
+const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
@@ -529,9 +530,14 @@ const defaultSpaces = ['거실', '주방', '침실', '욕실', '현관', '공용
 const workStatuses = ['예정', '발주', '진행', '완료', '보류'];
 
 export default function EstimateWorkspacePage() {
+  // Holds the signed session token shared with the manager dashboard (the name predates signed sessions).
   const [password, setPassword] = useState('');
   const [firebaseToken, setFirebaseToken] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [loginId, setLoginId] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
   // Starts true so opening or refreshing with a saved session shows a loading screen instead of the password form.
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
@@ -783,24 +789,23 @@ export default function EstimateWorkspacePage() {
   };
 
   useEffect(() => {
-    let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
-    let savedFirebaseToken = '';
-    const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession) as { token?: string; firebaseToken?: string };
-        savedPassword = parsed.token || savedPassword;
-        savedFirebaseToken = parsed.firebaseToken || '';
-      } catch {
-        savedFirebaseToken = '';
-      }
-    }
+    // Never auto-login from a stored password: only this tab's signed manager session is used.
+    window.localStorage.removeItem('weve-manager-password');
     const siteIdFromUrl = new URLSearchParams(window.location.search).get('siteId') || '';
-    setPassword(savedPassword);
-    setFirebaseToken(savedFirebaseToken);
     if (siteIdFromUrl) setSelectedSiteId(siteIdFromUrl);
-    if (savedPassword) void loadData(savedPassword, siteIdFromUrl, '', savedFirebaseToken);
-    else setIsLoadingData(false);
+    const session = readStoredSession();
+    if (!session) {
+      setIsLoadingData(false);
+      return;
+    }
+    setPassword(session.token);
+    setFirebaseToken(session.firebaseToken);
+    if (!hasAnyPermission(session.user, ['estimates'])) {
+      setAccessDenied(true);
+      setIsLoadingData(false);
+      return;
+    }
+    void loadData(session.token, siteIdFromUrl, '', session.firebaseToken);
   }, []);
 
   useEffect(() => {
@@ -944,9 +949,62 @@ export default function EstimateWorkspacePage() {
   }, [selectedPurchaseOrderId]);
 
   const authHeaders = (nextPassword = password, nextFirebaseToken = firebaseToken) => ({
-    'x-manager-password': nextPassword,
+    Authorization: `Bearer ${nextPassword}`,
     ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
   });
+
+  // 401: the session expired or was rejected, so show the login form. 403: the account lacks the estimates permission.
+  const handleAuthFailure = (response: Response) => {
+    if (response.status === 401) {
+      clearStoredSession();
+      setPassword('');
+      setFirebaseToken('');
+      setIsUnlocked(false);
+      setError(SESSION_EXPIRED_MESSAGE);
+      return true;
+    }
+    if (response.status === 403) {
+      setAccessDenied(true);
+      return true;
+    }
+    return false;
+  };
+
+  const handleLogin = async () => {
+    setError('');
+    setIsLoggingIn(true);
+    try {
+      const response = await fetch('/api/manager/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ loginId, password: loginPassword }),
+      });
+      const result = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        token?: string;
+        expiresAt?: number;
+        firebaseToken?: string;
+        user?: StoredManagerUser;
+      };
+      if (!response.ok || !result.token || !result.user || !result.expiresAt) {
+        throw new Error(result.error || '로그인에 실패했습니다.');
+      }
+
+      const session = saveStoredSession({ token: result.token, expiresAt: result.expiresAt, user: result.user, firebaseToken: result.firebaseToken });
+      setLoginPassword('');
+      setPassword(session.token);
+      setFirebaseToken(session.firebaseToken);
+      if (!hasAnyPermission(session.user, ['estimates'])) {
+        setAccessDenied(true);
+        return;
+      }
+      await loadData(session.token, selectedSiteId, '', session.firebaseToken);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
 
   const loadData = async (
     nextPassword = password,
@@ -966,6 +1024,7 @@ export default function EstimateWorkspacePage() {
       const response = await fetch(`/api/manager/estimate${shouldSkipMaterials ? '?materials=skip' : ''}`, {
         headers: authHeaders(nextPassword, nextFirebaseToken),
       });
+      if (handleAuthFailure(response)) return;
       let data = (await response.json()) as EstimateApiData;
       if (!response.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
 
@@ -973,6 +1032,7 @@ export default function EstimateWorkspacePage() {
         const refreshResponse = await fetch('/api/manager/estimate', {
           headers: authHeaders(nextPassword, nextFirebaseToken),
         });
+        if (handleAuthFailure(refreshResponse)) return;
         data = (await refreshResponse.json()) as EstimateApiData;
         if (!refreshResponse.ok) throw new Error(data.error || '견적 데이터를 불러오지 못했습니다.');
       }
@@ -993,7 +1053,6 @@ export default function EstimateWorkspacePage() {
         setSelectedEstimateId(preferredEstimateId);
       }
       setIsUnlocked(true);
-      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, nextPassword);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 데이터 조회 중 오류가 발생했습니다.');
     } finally {
@@ -1902,6 +1961,27 @@ export default function EstimateWorkspacePage() {
     setHolidays((current) => Array.from(new Set([...current, holidayDate])).sort());
   };
 
+  if (accessDenied) {
+    return (
+      <main className="min-h-screen bg-[#edf2f5] px-5 py-10 text-[#171512]">
+        <div className="mx-auto max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE ESTIMATE</p>
+          <h1 className="mt-2 text-3xl font-semibold">견적 작업 권한이 없습니다</h1>
+          <p className="mt-3 text-sm text-[#60717d]">총괄 관리자에게 &apos;견적 작업&apos; 권한을 요청해 주세요.</p>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/manager-weve-7519';
+            }}
+            className="mt-5 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white"
+          >
+            매니저로 돌아가기
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (!isUnlocked && isLoadingData) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#edf2f5] px-5 text-[#171512]">
@@ -1919,21 +1999,29 @@ export default function EstimateWorkspacePage() {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void loadData(password);
+            void handleLogin();
           }}
           className="mx-auto max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm"
         >
           <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE ESTIMATE</p>
           <h1 className="mt-2 text-3xl font-semibold">견적 작업 로그인</h1>
           <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="관리자 비밀번호"
+            value={loginId}
+            onChange={(event) => setLoginId(event.target.value)}
+            placeholder="아이디 또는 이메일"
+            autoComplete="username"
             className="mt-5 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
           />
-          <button type="submit" className="mt-4 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white">
-            들어가기
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(event) => setLoginPassword(event.target.value)}
+            placeholder="비밀번호"
+            autoComplete="current-password"
+            className="mt-3 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
+          />
+          <button type="submit" disabled={isLoggingIn} className="mt-4 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-60">
+            {isLoggingIn ? '확인 중...' : '들어가기'}
           </button>
           {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
         </form>

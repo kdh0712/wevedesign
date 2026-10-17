@@ -16,7 +16,12 @@ This file records durable product and implementation decisions. Review it before
 - While a saved session is being checked (manager or estimate page), show a loading screen instead of the login or password form.
 - Do not render or reveal the manager dashboard until valid credentials are confirmed and initial data loads successfully.
 - Keep slow background work such as the Kakao BizForm sync off the login and restore path.
-- Keep account permissions aligned across the manager UI, auth API, account API, and Firebase profiles.
+- Keep account permissions aligned across the manager UI, auth API, account API, and Firebase profiles. The permission table lives in `app/lib/manager-permissions.ts` and is shared by the UI and the API.
+- Manager APIs authenticate only with the signed per-user session token (`Authorization: Bearer`) issued by `/api/manager/auth`. The master password (`MANAGER_PASSWORD`) never leaves the server and is never stored in the browser.
+- Every manager API route must call `requireManager` (`app/api/manager/_session.ts`) with the permission its tab needs. Account management and data migration are admin-only.
+- Set `MANAGER_SESSION_SECRET` (32+ random bytes) in Vercel. Changing it signs everyone out.
+- Store manager account passwords only as scrypt hashes. Staff may not change their own role, permissions, or active state.
+- Deploy `firebase-database.rules.json` to Firebase only after the code that writes profiles with server admin access is live.
 
 ## Manager UX
 
