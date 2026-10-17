@@ -27,6 +27,7 @@ import {
   WalletCards,
   Instagram,
 } from 'lucide-react';
+import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type UploadResult = {
   projectTitle: string;
@@ -2051,14 +2052,7 @@ export default function ManagerPage() {
 
   return (
     <main className="min-h-screen bg-[#eef3f5] text-[#171512] [zoom:0.9]">
-      {!isUnlocked && isRestoringSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#eef3f5] px-4">
-          <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d]">
-            <Loader2 className="animate-spin text-[#38a9bd]" size={18} />
-            관리자 화면을 여는 중입니다
-          </p>
-        </div>
-      )}
+      {!isUnlocked && isRestoringSession && <ManagerLoadingScreen message="관리자 화면을 여는 중입니다" />}
       {!isUnlocked && !isRestoringSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
           <form

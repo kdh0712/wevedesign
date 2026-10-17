@@ -1,7 +1,8 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type Site = {
   _id: string;
@@ -1904,11 +1905,8 @@ export default function EstimateWorkspacePage() {
 
   if (!isUnlocked && isLoadingData) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#edf2f5] px-5 text-[#171512]">
-        <p className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d]">
-          <Loader2 className="animate-spin text-[#38a9bd]" size={18} />
-          견적 데이터를 불러오는 중입니다
-        </p>
+      <main className="min-h-screen bg-[#eef3f5]">
+        <ManagerLoadingScreen message="견적 데이터를 불러오는 중입니다" />
       </main>
     );
   }
