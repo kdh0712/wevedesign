@@ -28,7 +28,13 @@ export type ScheduleSummary = {
   tasks: ProgressTaskView[];
 };
 
-export type ProgressPhoto = { assetId: string; url: string; width: number; height: number };
+// A progress photo as stored in Firestore: where it sits in the private Firebase Storage bucket, never a URL. The browser sees
+// a pathname only once, in the upload answer, so the staff screen can send it back with the record.
+export type StoredProgressPhoto = { id: string; pathname: string; width: number; height: number };
+
+// A progress photo as a browser receives it: a short-lived signed URL the server made after checking who is asking.
+// An empty url means the URL could not be made (see photosUnavailable).
+export type ProgressPhotoView = { id: string; url: string; width: number; height: number };
 
 export type NotifyLogEntry = { sentAt: string; ok: boolean; error?: string; by: string };
 
@@ -38,18 +44,23 @@ export type ProgressUpdate = {
   reportDate: string;
   designer: string;
   workDetail: string;
-  photos: ProgressPhoto[];
+  photos: StoredProgressPhoto[];
   createdAt: string;
   createdBy?: string;
   notifyLog?: NotifyLogEntry[];
 };
 
+// A progress record as the manager screen receives it: the same record with signed photo URLs instead of pathnames.
+export type ProgressUpdateView = Omit<ProgressUpdate, 'photos'> & { photos: ProgressPhotoView[] };
+
 export type CustomerProgressView = {
   siteTitle: string;
   customerName: string;
   schedule: ScheduleSummary | null;
-  updates: Array<{ id: string; reportDate: string; designer: string; workDetail: string; photos: ProgressPhoto[] }>;
+  updates: Array<{ id: string; reportDate: string; designer: string; workDetail: string; photos: ProgressPhotoView[] }>;
   contactPhone: '031-381-0489';
+  // Set when the photo URLs could not be made: the records are shown without photos and with a short notice.
+  photosUnavailable?: boolean;
 };
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -165,13 +176,16 @@ function compareDescending(a: string, b: string): number {
   return a < b ? 1 : a > b ? -1 : 0;
 }
 
+// Takes the records with their photos already signed (signProgressUpdatePhotos). A photo without a URL (signing failed)
+// is left out, so the page never shows a broken image; photosUnavailable tells it to say so instead.
 export function buildCustomerProgressView(input: {
   site: { title?: string; customerName?: string; [key: string]: unknown };
-  updates: ProgressUpdate[];
+  updates: ProgressUpdateView[];
   estimates: Array<Record<string, unknown>>;
   today: string;
+  photosUnavailable?: boolean;
 }): CustomerProgressView {
-  const { site, updates, estimates, today } = input;
+  const { site, updates, estimates, today, photosUnavailable } = input;
   // Only the title and the customer name are read from the site; every other field stays on the server.
   const picked = pickScheduleEstimate(estimates);
   const schedule = picked ? summarizeSchedule(parseScheduleTasks(picked.scheduleJson), today) : null;
@@ -187,9 +201,12 @@ export function buildCustomerProgressView(input: {
         reportDate: update.reportDate,
         designer: update.designer,
         workDetail: update.workDetail,
-        photos: (update.photos ?? []).map((photo) => ({ assetId: photo.assetId, url: photo.url, width: photo.width, height: photo.height })),
+        photos: (update.photos ?? [])
+          .filter((photo) => typeof photo.url === 'string' && photo.url !== '')
+          .map((photo) => ({ id: photo.id, url: photo.url, width: photo.width, height: photo.height })),
       })),
     contactPhone: '031-381-0489',
+    ...(photosUnavailable ? { photosUnavailable: true } : {}),
   };
 }
 

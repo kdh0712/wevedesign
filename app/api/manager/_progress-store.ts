@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import type { NotifyLogEntry, ProgressPhoto, ProgressUpdate } from '../../lib/site-progress';
+import type { NotifyLogEntry, ProgressUpdate, StoredProgressPhoto } from '../../lib/site-progress';
 import type { ProgressAccessState } from '../progress/_access';
 import { needsCustomerRecordPhone, pickCustomerPhone } from './_customer-phone';
+import { readStoredPhoto } from './_progress-request';
 import {
   canUseFirestoreOnServer,
   deleteFirestoreDocument,
@@ -84,11 +85,6 @@ const isObject = (value: unknown): value is Record<string, unknown> => typeof va
 
 const asText = (value: unknown) => (typeof value === 'string' ? value : '');
 
-function toPhoto(value: unknown): ProgressPhoto | null {
-  if (!isObject(value)) return null;
-  return { assetId: asText(value.assetId), url: asText(value.url), width: Number(value.width) || 0, height: Number(value.height) || 0 };
-}
-
 function toNotifyLogEntry(value: unknown): NotifyLogEntry | null {
   if (!isObject(value)) return null;
   const error = asText(value.error);
@@ -104,7 +100,8 @@ function toProgressUpdate(record: Record<string, unknown>): ProgressUpdate {
     reportDate: asText(record.reportDate),
     designer: asText(record.designer),
     workDetail: asText(record.workDetail),
-    photos: (Array.isArray(record.photos) ? record.photos : []).map(toPhoto).filter((photo): photo is ProgressPhoto => photo !== null),
+    // Pathnames only; a photo reaches a browser as a signed URL made per request (_progress-photos.ts).
+    photos: (Array.isArray(record.photos) ? record.photos : []).map(readStoredPhoto).filter((photo): photo is StoredProgressPhoto => photo !== null),
     createdAt: asText(record.createdAt),
     ...(createdBy ? { createdBy } : {}),
     notifyLog: (Array.isArray(record.notifyLog) ? record.notifyLog : [])

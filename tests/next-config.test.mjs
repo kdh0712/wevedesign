@@ -19,3 +19,7 @@ test('customer progress pages send no referrer, are never cached and never index
   assert.ok(siteWideIndex >= 0 && siteWideIndex < progressIndex);
   assert.equal(headerMap(rules[siteWideIndex])['Referrer-Policy'], 'strict-origin-when-cross-origin');
 });
+
+test('the Google Cloud Storage client stays an unbundled server package, the same code the photo tests run', () => {
+  assert.ok(nextConfig.serverExternalPackages?.includes('@google-cloud/storage'));
+});

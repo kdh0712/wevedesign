@@ -1,21 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as progressPublic from '../app/lib/progress-public.ts';
 import {
   PROGRESS_LINK_OFF_MESSAGE,
+  PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE,
   PROGRESS_RETRY_MESSAGE,
   isProgressCodeShape,
   progressLockedMessage,
-  progressPhotoUrl,
 } from '../app/lib/progress-public.ts';
 
-test('photo urls ask the Sanity CDN for a resized, auto-format image', () => {
-  const url = 'https://cdn.sanity.io/images/p/d/abc123-2000x1500.jpg';
-  assert.equal(progressPhotoUrl(url, 800), `${url}?w=800&auto=format`);
-  assert.equal(progressPhotoUrl(url, 1600), `${url}?w=1600&auto=format`);
+test('the notice for photos whose URLs could not be made asks for a reload', () => {
+  assert.equal(PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE, '사진을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.');
 });
 
-test('photo urls that already have a query string get the parameters appended', () => {
-  assert.equal(progressPhotoUrl('https://cdn.example/a.jpg?dl=1', 800), 'https://cdn.example/a.jpg?dl=1&w=800&auto=format');
+test('photo URLs are used as signed, with no Sanity resize helper left', () => {
+  assert.equal('progressPhotoUrl' in progressPublic, false);
 });
 
 test('code shape accepts base64url codes and rejects anything else', () => {

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Check, Phone } from 'lucide-react';
-import { PROGRESS_CONTACT_PHONE } from './progress-public';
+import { PROGRESS_CONTACT_PHONE, PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE } from './progress-public';
 import { ProgressPhotoGallery } from './progress-photo-gallery';
 import type { CustomerProgressView, ProgressTaskView } from './site-progress';
 
@@ -210,6 +210,11 @@ export function ProgressView({ view }: { view: CustomerProgressView }) {
 
       <section className={sectionClass} aria-labelledby="progress-records-title">
         <SectionTitle id="progress-records-title">진행 기록</SectionTitle>
+        {view.photosUnavailable && (
+          <p role="status" className="mb-3 rounded-lg bg-[#fff8e6] px-3 py-2.5 text-sm font-semibold text-[#8b6420]">
+            {PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE}
+          </p>
+        )}
         {view.updates.length === 0 ? (
           <p className="rounded-lg bg-[#f7f9fa] px-3 py-6 text-center text-sm text-[#60717d]">아직 등록된 진행 기록이 없습니다.</p>
         ) : (

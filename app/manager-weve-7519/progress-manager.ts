@@ -2,23 +2,27 @@
 // the response shapes of /api/manager/progress, and the small rules that decide what staff see. No React and no Next.js
 // imports, so Node tests load this file directly.
 import { decideLinkOnUpload, type AutoLinkDecision } from '../api/manager/_progress-link-rules.ts';
-import type { CustomerProgressView, NotifyLogEntry, ProgressPhoto, ProgressUpdate } from '../lib/site-progress.ts';
+import type { CustomerProgressView, NotifyLogEntry, ProgressUpdate, ProgressUpdateView, StoredProgressPhoto } from '../lib/site-progress.ts';
 
 export type ProgressLink = { enabled: boolean; code: string; url: string; createdAt: string };
 
+// Every answer that carries records carries their photos as signed URLs. When the server could not make them, each photo
+// has an empty url and photosUnavailable is true (the record and its photo count are still right).
 export type ProgressManagerState = {
   link: ProgressLink;
   // Only means some number with four or more digits exists; a landline still cannot get an alimtalk.
   hasCustomerPhone: boolean;
   notifyConfigured: boolean;
-  updates: ProgressUpdate[];
+  updates: ProgressUpdateView[];
+  photosUnavailable?: boolean;
 };
 
 export type LinkReason = 'no-customer-phone' | 'link-off' | 'site-done';
 export type UploadLinkNotice = { enabled: boolean; created: boolean; url: string; reason?: LinkReason | string };
 export type NotifyResult = { ok: boolean; error?: string };
-export type CreateUpdateResponse = { update: ProgressUpdate; notify?: NotifyResult; link: UploadLinkNotice };
-export type NotifyResponse = { update: ProgressUpdate; notify: NotifyResult };
+export type CreateUpdateResponse = { update: ProgressUpdateView; notify?: NotifyResult; link: UploadLinkNotice; photosUnavailable?: boolean };
+export type NotifyResponse = { update: ProgressUpdateView; notify: NotifyResult; photosUnavailable?: boolean };
+export type PhotoSize = { width: number; height: number };
 export type LinkMode = 'enable' | 'disable' | 'rotate';
 export type Notice = { tone: 'ok' | 'warn' | 'error'; lines: string[] };
 
@@ -146,7 +150,7 @@ export function photoProgressLabel(stage: 'resize' | 'upload', done: number, tot
 
 export type PhotoFailure = { name: string; error: string };
 export type PhotoPipelineFailure = { ok: false; stage: 'resize' | 'upload'; failed: PhotoFailure[] };
-export type PhotoPipelineResult = { ok: true; photos: ProgressPhoto[] } | PhotoPipelineFailure;
+export type PhotoPipelineResult = { ok: true; photos: StoredProgressPhoto[] } | PhotoPipelineFailure;
 
 // Every photo is shrunk first, so one the browser cannot open stops the post before anything is sent, and all such photos
 // are named at once. Then the photos go up one per request, in order (Vercel caps a request near 4.5MB). The first failed
@@ -155,7 +159,7 @@ export async function shrinkAndUploadPhotos<T extends { name: string }, R>(
   photos: readonly T[],
   steps: {
     shrink: (photo: T) => Promise<R>;
-    upload: (shrunk: R, photo: T) => Promise<ProgressPhoto>;
+    upload: (shrunk: R, photo: T) => Promise<StoredProgressPhoto>;
     onProgress?: (stage: 'resize' | 'upload', done: number, total: number) => void;
   },
 ): Promise<PhotoPipelineResult> {
@@ -172,7 +176,7 @@ export async function shrinkAndUploadPhotos<T extends { name: string }, R>(
   }
   if (failed.length > 0) return { ok: false, stage: 'resize', failed };
 
-  const uploaded: ProgressPhoto[] = [];
+  const uploaded: StoredProgressPhoto[] = [];
   for (let index = 0; index < total; index += 1) {
     steps.onProgress?.('upload', index + 1, total);
     try {
@@ -237,15 +241,19 @@ export function createProgressApi(authHeaders: () => Record<string, string>) {
   return {
     load: (siteId: string) => call<ProgressManagerState>(siteQuery(siteId), undefined, '진행 현황을 불러오지 못했습니다.'),
     preview: (siteId: string) => call<CustomerProgressView>(`${siteQuery(siteId)}&preview=1`, undefined, '미리보기를 불러오지 못했습니다.'),
-    // One photo per request. No Content-Type header: the browser adds the multipart boundary itself.
-    uploadPhoto: (siteId: string, blob: Blob, fileName: string) => {
+    // One photo per request, with its pixel size (the server does not read images). No Content-Type header: the browser
+    // adds the multipart boundary itself. The answer is the one place a pathname reaches the browser; createUpdate sends
+    // it back as it came.
+    uploadPhoto: (siteId: string, blob: Blob, fileName: string, size: PhotoSize) => {
       const form = new FormData();
       form.append('action', 'uploadPhoto');
       form.append('siteId', siteId);
+      form.append('width', String(size.width));
+      form.append('height', String(size.height));
       form.append('file', blob, fileName);
-      return call<{ photo: ProgressPhoto }>('', { method: 'POST', body: form }, '사진을 올리지 못했습니다.');
+      return call<{ photo: StoredProgressPhoto }>('', { method: 'POST', body: form }, '사진을 올리지 못했습니다.');
     },
-    createUpdate: (input: { siteId: string; reportDate: string; designer: string; workDetail: string; photos: ProgressPhoto[]; notify: boolean }) =>
+    createUpdate: (input: { siteId: string; reportDate: string; designer: string; workDetail: string; photos: StoredProgressPhoto[]; notify: boolean }) =>
       post<CreateUpdateResponse>({ action: 'createUpdate', ...input }, '진행 기록을 저장하지 못했습니다.'),
     deleteUpdate: (id: string) => post<{ ok: boolean }>({ action: 'deleteUpdate', id }, '진행 기록을 삭제하지 못했습니다.'),
     setLink: (siteId: string, mode: LinkMode) => post<{ link: ProgressLink }>({ action: 'setLink', siteId, mode }, '링크 설정을 바꾸지 못했습니다.'),
@@ -254,3 +262,16 @@ export function createProgressApi(authHeaders: () => Record<string, string>) {
 }
 
 export type ProgressApi = ReturnType<typeof createProgressApi>;
+
+// The upload step of the photo pipeline: the shrunk JPEG goes up with the size the browser measured while shrinking it
+// (resizeImageFile either returns that size or throws, so a photo never goes up without one).
+export async function uploadShrunkPhoto(
+  api: Pick<ProgressApi, 'uploadPhoto'>,
+  siteId: string,
+  shrunk: { blob: Blob } & PhotoSize,
+  fileName: string,
+): Promise<StoredProgressPhoto> {
+  const result = await api.uploadPhoto(siteId, shrunk.blob, fileName, { width: shrunk.width, height: shrunk.height });
+  if (!result.photo) throw new Error('사진 정보를 받지 못했습니다.');
+  return result.photo;
+}

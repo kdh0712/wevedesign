@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState, type TouchEvent } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import type { ProgressPhoto } from './site-progress';
-import { progressPhotoUrl } from './progress-public';
+import type { ProgressPhotoView } from './site-progress';
 
 const SWIPE_MIN_PX = 50;
 
 // Photo grid for one progress record. Tapping a photo opens it large; swipe, arrow keys or the arrows move between photos.
-export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhoto[]; label: string }) {
+// Each photo is one stored size (long edge up to 1600px) behind a signed URL from the server, used as given for both the
+// thumbnail and the large view. Thumbnails load lazily. buildCustomerProgressView already left out any photo without a URL.
+export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhotoView[]; label: string }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -68,7 +69,7 @@ export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhoto[
   useEffect(() => {
     if (openIndex === null) return;
     for (const neighbour of [photos[openIndex - 1], photos[openIndex + 1]]) {
-      if (neighbour) new Image().src = progressPhotoUrl(neighbour.url, 1600);
+      if (neighbour) new Image().src = neighbour.url;
     }
   }, [openIndex, photos]);
 
@@ -96,7 +97,7 @@ export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhoto[
     <>
       <ul className={`grid gap-1.5 ${gridClass}`}>
         {photos.map((photo, index) => (
-          <li key={`${photo.assetId}-${index}`}>
+          <li key={`${photo.id}-${index}`}>
             <button
               type="button"
               onClick={() => setOpenIndex(index)}
@@ -104,7 +105,7 @@ export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhoto[
               className="block w-full overflow-hidden rounded-md bg-[#eef3f5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38a9bd]"
             >
               <img
-                src={progressPhotoUrl(photo.url, 800)}
+                src={photo.url}
                 alt={`${label} 공사 사진 ${index + 1}`}
                 width={photo.width || undefined}
                 height={photo.height || undefined}
@@ -145,7 +146,7 @@ export function ProgressPhotoGallery({ photos, label }: { photos: ProgressPhoto[
             {/* The wrapper closes on a tap outside the photo; a tap on the photo itself keeps it open. */}
             <img
               key={current.url}
-              src={progressPhotoUrl(current.url, 1600)}
+              src={current.url}
               alt={`${label} 공사 사진 ${openIndex + 1}`}
               draggable={false}
               onClick={(event) => event.stopPropagation()}

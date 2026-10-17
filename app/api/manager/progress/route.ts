@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { normalizeKoreanMobile } from '../../../lib/alert-phones';
 import {
@@ -12,7 +11,19 @@ import {
 } from '../../../lib/site-progress';
 import { readProgressAlimtalkConfig, sendAlimtalk, type ProgressAlimtalkConfig } from '../_aligo';
 import { applyLinkOnUpload, decideLinkOnUpload, progressLinkBaseUrl } from '../_progress-link-rules';
-import { checkPhotoUpload, parseCreateUpdate, progressPhotoFileName } from '../_progress-request';
+import {
+  deleteProgressPhotos,
+  isProgressPhotoStoreConfigured,
+  signProgressUpdatePhotos,
+  uploadProgressPhoto,
+} from '../_progress-photo-storage';
+import {
+  PHOTO_STORE_MISSING_MESSAGE,
+  PHOTO_STORE_PERMISSION_MESSAGE,
+  isStoragePermissionError,
+  storageErrorSummary,
+} from '../_progress-photos';
+import { checkPhotoUpload, parseCreateUpdate, parsePhotoSize } from '../_progress-request';
 import {
   deleteProgressUpdate,
   generateProgressCode,
@@ -30,9 +41,7 @@ import {
   type ProgressSite,
   type ProgressSiteFields,
 } from '../_progress-store';
-import { createSanityPrivacyCheck, photoStoreRefusal } from '../_sanity-privacy';
 import { requireManager } from '../_session';
-import { managerClient } from '../_utils';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -48,6 +57,16 @@ const fail = (error: string, status: number) => json({ error }, status);
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+
+// Every answer that carries records carries their photos as signed URLs, never pathnames. When signing fails (logged in
+// signProgressUpdatePhotos), each photo keeps its place with an empty url and the answer says photosUnavailable: true, so a
+// record that was already saved never turns into an error answer (the browser would post it again).
+const photosFlag = (photosUnavailable: boolean) => (photosUnavailable ? { photosUnavailable: true } : {});
+
+async function jsonWithUpdate(update: ProgressUpdate, rest: Record<string, unknown>) {
+  const signed = await signProgressUpdatePhotos([update]);
+  return json({ update: signed.updates[0], ...rest, ...photosFlag(signed.photosUnavailable) });
+}
 
 function siteCode(site: ProgressSite) {
   return typeof site.progressCode === 'string' ? site.progressCode : '';
@@ -88,15 +107,20 @@ export async function GET(request: Request) {
     // The preview is the customer's own view of the data, without the phone check.
     if (params.get('preview') === '1') {
       const [updates, estimates] = await Promise.all([listProgressUpdates(siteId), listSiteEstimates(siteId)]);
-      return json(buildCustomerProgressView({ site, updates, estimates, today: todayInSeoul() }));
+      const signed = await signProgressUpdatePhotos(updates);
+      return json(
+        buildCustomerProgressView({ site, updates: signed.updates, estimates, today: todayInSeoul(), photosUnavailable: signed.photosUnavailable }),
+      );
     }
 
     const [updates, phone] = await Promise.all([listProgressUpdates(siteId), resolveCustomerPhone(site)]);
+    const signed = await signProgressUpdatePhotos(updates);
     return json({
       link: linkOf(site),
       hasCustomerPhone: phoneLast4(phone) !== '',
       notifyConfigured: readProgressAlimtalkConfig() !== null,
-      updates,
+      updates: signed.updates,
+      ...photosFlag(signed.photosUnavailable),
     });
   } catch (error) {
     console.error('Progress load failed:', error);
@@ -134,21 +158,15 @@ export async function POST(request: Request) {
   }
 }
 
-// Asks the same project and dataset the photos are uploaded to. Module memory, so a 'private' answer is reused for 10 minutes.
-const { projectId: photoProjectId, dataset: photoDataset } = managerClient.config();
-const checkPhotoStorePrivacy = createSanityPrivacyCheck({ projectId: photoProjectId, dataset: photoDataset });
+const PHOTO_SIZE_INVALID = '사진 크기 정보가 올바르지 않습니다. 사진을 다시 올려주세요.';
+const PHOTO_SAVE_FAILED = '사진을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.';
 
-// The browser sends width and height only from its own resizing, so the size stored with a photo comes from Sanity.
-function assetSize(asset: { _id: string; metadata?: { dimensions?: { width?: number; height?: number } } }) {
-  const width = Number(asset.metadata?.dimensions?.width);
-  const height = Number(asset.metadata?.dimensions?.height);
-  if (width > 0 && height > 0) return { width, height };
-  // Sanity asset ids end with the pixel size: image-<hash>-<width>x<height>-<format>.
-  const match = /-(\d+)x(\d+)-[a-z0-9]+$/i.exec(asset._id);
-  return match ? { width: Number(match[1]), height: Number(match[2]) } : null;
-}
-
+// Photos go to the private Firebase Storage bucket (_progress-photos.ts). Anyone who can open a photo got its URL from the
+// server after a check: the customer page's cookie or this API's 'sites' session.
 async function uploadPhoto(request: Request) {
+  // Before the body is read: without a store the photo has nowhere to go.
+  if (!isProgressPhotoStoreConfigured()) return fail(PHOTO_STORE_MISSING_MESSAGE, 503);
+
   let form: FormData;
   try {
     form = await request.formData();
@@ -164,27 +182,26 @@ async function uploadPhoto(request: Request) {
 
   const check = checkPhotoUpload(file.type, file.size);
   if (!check.ok) return fail(check.error, check.status);
-  if (!process.env.SANITY_WRITE_TOKEN) return fail('사진 저장 설정(SANITY_WRITE_TOKEN)이 필요합니다.', 500);
+  // The browser measured the photo when it shrank it; the server does not read images.
+  const size = parsePhotoSize(form.get('width'), form.get('height'));
+  if (!size) return fail(PHOTO_SIZE_INVALID, 400);
 
-  // Looked up before the upload so a wrong site never leaves a stray image behind.
+  // Looked up before the upload so a wrong site never leaves a stray photo behind.
   if (!(await getSiteForProgress(siteId))) return fail(SITE_NOT_FOUND, 404);
 
-  // In a public dataset anyone could list the customer's photos, so nothing goes up unless the dataset is known to be private.
-  const privacy = await checkPhotoStorePrivacy();
-  const refusal = photoStoreRefusal(privacy);
-  if (refusal) {
-    console.error(`Progress photo upload refused: the Sanity dataset privacy check answered "${privacy}".`);
-    return fail(refusal, 503);
+  // Stored under a new random pathname: the phone's own file name may carry the customer's name and is never used.
+  const bytes = Buffer.from(await file.arrayBuffer());
+  let stored: { id: string; pathname: string };
+  try {
+    stored = await uploadProgressPhoto(bytes, file.type);
+  } catch (error) {
+    // A 403 means the service account has no rights on the bucket: the owner grants "Storage Object Admin" (spec §8).
+    console.error('Progress photo upload to Firebase Storage failed:', storageErrorSummary(error));
+    return isStoragePermissionError(error) ? fail(PHOTO_STORE_PERMISSION_MESSAGE, 500) : fail(PHOTO_SAVE_FAILED, 502);
   }
 
-  // A neutral name: the phone's own file name may carry the customer's name, and Sanity keeps it as originalFilename.
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const filename = progressPhotoFileName(file.type, randomBytes(6).toString('hex'));
-  const asset = await managerClient.assets.upload('image', bytes, { filename, contentType: file.type });
-  const size = assetSize(asset);
-  if (!size || !asset.url) return fail('사진 정보를 확인하지 못했습니다. 다시 올려주세요.', 500);
-
-  return json({ photo: { assetId: asset._id, url: asset.url, width: size.width, height: size.height } });
+  // The one answer that carries a pathname: the staff screen sends the photo back unchanged with createUpdate.
+  return json({ photo: { id: stored.id, pathname: stored.pathname, width: size.width, height: size.height } });
 }
 
 type NotifyResult = { ok: boolean; error?: string };
@@ -294,31 +311,34 @@ async function createUpdate(body: Record<string, unknown>, by: string) {
   const { site, link } = await ensureLinkOnUpload(siteId, found);
 
   const saved = await saveProgressUpdate({ siteId, reportDate, designer, workDetail, photos, createdAt: new Date().toISOString(), createdBy: by, notifyLog: [] });
-  if (!notify) return json({ update: saved, link });
+  // The record is already saved, so nothing below may turn this into an error response (the browser would retry and post it
+  // twice): photo signing never throws (jsonWithUpdate), and a send that cannot start is logged like a send that failed.
+  if (!notify) return jsonWithUpdate(saved, { link });
 
-  // The record is already saved, so nothing below may turn this into an error response (the browser would retry and post it twice).
-  // A send that cannot start is logged like a send that failed.
   try {
     const prepared = await prepareNotification(site);
     if (!prepared.ok) {
       const logged = await logNotification(saved, { sentAt: new Date().toISOString(), ok: false, error: prepared.error, by });
-      return json({ update: logged, notify: { ok: false, error: prepared.error }, link });
+      return await jsonWithUpdate(logged, { notify: { ok: false, error: prepared.error }, link });
     }
     const sent = await sendNotification(site, saved, prepared, by);
-    return json({ update: sent.update, notify: sent.result, link });
+    return await jsonWithUpdate(sent.update, { notify: sent.result, link });
   } catch (error) {
     console.error('Progress notify failed after the update was saved:', error);
-    return json({ update: saved, notify: { ok: false, error: error instanceof Error ? error.message : '알림톡을 보내지 못했습니다.' }, link });
+    return jsonWithUpdate(saved, { notify: { ok: false, error: error instanceof Error ? error.message : '알림톡을 보내지 못했습니다.' }, link });
   }
 }
 
 async function deleteUpdate(body: Record<string, unknown>) {
   const id = text(body.id);
   if (!id) return fail('삭제할 기록을 선택해주세요.', 400);
-  if (!(await getProgressUpdate(id))) return fail('진행 기록을 찾을 수 없습니다.', 404);
+  const update = await getProgressUpdate(id);
+  if (!update) return fail('진행 기록을 찾을 수 없습니다.', 404);
 
-  // Only the record goes; the Sanity photos stay (they may be used elsewhere and this keeps a way back).
+  // The record goes first, then its photos. A photo that cannot be deleted is logged and stays behind; it never fails
+  // the delete, since the customer page already stopped showing the record.
   await deleteProgressUpdate(id);
+  await deleteProgressPhotos(update.photos.map((photo) => photo.pathname));
   return json({ ok: true });
 }
 
@@ -360,5 +380,5 @@ async function notifyUpdate(body: Record<string, unknown>, by: string) {
   if (!prepared.ok) return fail(prepared.error, 400);
 
   const sent = await sendNotification(site, update, prepared, by);
-  return json({ update: sent.update, notify: sent.result });
+  return jsonWithUpdate(sent.update, { notify: sent.result });
 }

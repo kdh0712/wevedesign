@@ -21,6 +21,7 @@ import {
   predictLinkOnUpload,
   shrinkAndUploadPhotos,
   uploadLinkMessages,
+  uploadShrunkPhoto,
 } from '../app/manager-weve-7519/progress-manager.ts';
 
 test('the report just posted cannot be posted again until something in it changes', () => {
@@ -39,7 +40,9 @@ test('the report just posted cannot be posted again until something in it change
 });
 
 const link = (enabled, code = 'abc') => ({ enabled, code, url: code ? `https://www.wevedesign.co.kr/progress/${code}` : '', createdAt: '' });
-const photo = (n) => ({ assetId: `image-${n}-1600x1200-jpg`, url: `https://cdn.sanity.io/images/p/d/${n}.jpg`, width: 1600, height: 1200 });
+// The photo as the upload answers it and createUpdate sends it back: where it is stored, never a URL.
+const photo = (n) => ({ id: `photo-${n}`, pathname: `progress/${n}.jpg`, width: 1600, height: 1200 });
+const SIZE = { width: 1600, height: 1200 };
 
 test('the upload box starts checked unless the link was switched off', () => {
   assert.equal(defaultPostToCustomer(link(true)), true);
@@ -235,7 +238,7 @@ test('createProgressApi sends the session header and the request shapes the API 
   try {
     const api = createProgressApi(() => ({ Authorization: 'Bearer token-1' }));
     await api.load('site 1');
-    await api.uploadPhoto('site 1', new Blob(['x'], { type: 'image/jpeg' }), 'a.jpg');
+    await api.uploadPhoto('site 1', new Blob(['x'], { type: 'image/jpeg' }), 'a.jpg', { width: 1600, height: 900 });
     await api.createUpdate({ siteId: 'site 1', reportDate: '2026-10-17', designer: 'd', workDetail: 'w', photos: [photo(1)], notify: true });
     await api.setLink('site 1', 'disable');
     await api.deleteUpdate('u1');
@@ -252,6 +255,8 @@ test('createProgressApi sends the session header and the request shapes the API 
     assert.equal(upload.init.body.get('action'), 'uploadPhoto');
     assert.equal(upload.init.body.get('siteId'), 'site 1');
     assert.equal(upload.init.body.get('file').name, 'a.jpg');
+    assert.equal(upload.init.body.get('width'), '1600');
+    assert.equal(upload.init.body.get('height'), '900');
     assert.equal(upload.init.headers['Content-Type'], undefined, 'the browser sets the multipart boundary');
     assert.equal(upload.init.headers.Authorization, 'Bearer token-1');
 
@@ -278,7 +283,24 @@ test('createProgressApi turns an error answer into an Error with the server mess
       assert.equal(error.status, 409);
       return true;
     });
-    await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg'), { message: '사진을 올리지 못했습니다. (HTTP 500)' });
+    await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg', SIZE), { message: '사진을 올리지 못했습니다. (HTTP 500)' });
+  } finally {
+    mock.restore();
+  }
+});
+
+test('the upload step sends the shrunk photo with the size the browser measured while shrinking it', async () => {
+  const mock = mockFetch([{ status: 200, body: { photo: photo(1) } }, { status: 200, body: {} }]);
+  try {
+    const api = createProgressApi(() => ({}));
+    const shrunk = { blob: new Blob(['x'], { type: 'image/jpeg' }), width: 1200, height: 1600 };
+    assert.deepEqual(await uploadShrunkPhoto(api, 's1', shrunk, 'a.jpg'), photo(1));
+    const form = mock.requests[0].init.body;
+    assert.equal(form.get('file').name, 'a.jpg');
+    assert.equal(form.get('width'), '1200');
+    assert.equal(form.get('height'), '1600');
+    // An answer without a photo is a failed upload, so no record is made from it.
+    await assert.rejects(uploadShrunkPhoto(api, 's1', shrunk, 'b.jpg'), { message: '사진 정보를 받지 못했습니다.' });
   } finally {
     mock.restore();
   }
@@ -300,7 +322,7 @@ test('a request that gets no answer at all shows a Korean network message, not t
       });
 
       const api = createProgressApi(() => ({}));
-      for (const call of [() => api.load('s1'), () => api.setLink('s1', 'enable'), () => api.uploadPhoto('s1', new Blob(['x']), 'a.jpg')]) {
+      for (const call of [() => api.load('s1'), () => api.setLink('s1', 'enable'), () => api.uploadPhoto('s1', new Blob(['x']), 'a.jpg', SIZE)]) {
         await assert.rejects(call(), (error) => {
           assert.equal(errorText(error, '진행 현황을 불러오지 못했습니다.'), NETWORK_ERROR_MESSAGE);
           return true;
@@ -309,8 +331,8 @@ test('a request that gets no answer at all shows a Korean network message, not t
 
       // A photo upload that never reaches the server names the photo with the same message.
       const result = await shrinkAndUploadPhotos([{ name: 'a.jpg' }], {
-        shrink: async () => new Blob(['x']),
-        upload: (blob) => api.uploadPhoto('s1', blob, 'a.jpg'),
+        shrink: async () => ({ blob: new Blob(['x']), ...SIZE }),
+        upload: (shrunk) => uploadShrunkPhoto(api, 's1', shrunk, 'a.jpg'),
       });
       assert.deepEqual(result, { ok: false, stage: 'upload', failed: [{ name: 'a.jpg', error: NETWORK_ERROR_MESSAGE }] });
     }
@@ -320,10 +342,10 @@ test('a request that gets no answer at all shows a Korean network message, not t
 });
 
 test('an answer from the server still shows the server message', async () => {
-  const mock = mockFetch([{ status: 503, body: { error: '사진 저장소 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' } }]);
+  const mock = mockFetch([{ status: 503, body: { error: '사진 저장소(Firebase Storage)가 설정되지 않았습니다. 관리자에게 문의해 주세요.' } }]);
   try {
     const api = createProgressApi(() => ({}));
-    await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg'), { message: '사진 저장소 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.' });
+    await assert.rejects(api.uploadPhoto('s', new Blob(['x']), 'a.jpg', SIZE), { message: '사진 저장소(Firebase Storage)가 설정되지 않았습니다. 관리자에게 문의해 주세요.' });
   } finally {
     mock.restore();
   }

@@ -95,6 +95,9 @@ const serviceAccount = (): ServiceAccount | null => {
   return { client_email, private_key, project_id: process.env.FIREBASE_PROJECT_ID };
 };
 
+// The same service account for the other server-only Google API: progress photos in Firebase Storage.
+export const firebaseServiceAccount = (): ServiceAccount | null => serviceAccount();
+
 const parsedProjectIdFromDatabaseUrl = () => {
   const url = process.env.FIREBASE_DATABASE_URL || process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || '';
   const match = url.match(/^https:\/\/([a-z0-9-]+?)(?:-default-rtdb)?\.(?:asia-southeast1\.)?firebasedatabase\.app/i)

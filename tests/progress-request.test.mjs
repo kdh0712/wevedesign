@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_PHOTO_BYTES, checkPhotoUpload, parseCreateUpdate, progressPhotoFileName } from '../app/api/manager/_progress-request.ts';
+import {
+  MAX_PHOTO_BYTES,
+  checkPhotoUpload,
+  isProgressPhotoPathname,
+  parseCreateUpdate,
+  parsePhotoSize,
+  progressPhotoPathname,
+  readStoredPhoto,
+} from '../app/api/manager/_progress-request.ts';
 
 const photo = (overrides = {}) => ({
-  assetId: 'image-abc123-800x600-jpg',
-  url: 'https://cdn.sanity.io/images/q2qjj1se/production/abc123-800x600.jpg',
+  id: '0123456789abcdef',
+  pathname: 'progress/0123456789abcdef01234567.jpg',
   width: 800,
   height: 600,
   ...overrides,
@@ -42,10 +50,11 @@ test('parseCreateUpdate sends a notification only when notify is exactly true', 
 });
 
 test('parseCreateUpdate keeps only the known photo fields, in order', () => {
-  const parsed = parseCreateUpdate(body({ photos: [photo({ extra: 'x' }), photo({ assetId: 'image-def456-100x100-png', url: 'https://cdn.sanity.io/images/q2qjj1se/production/def456-100x100.png', width: 100, height: 100 })] }));
+  const second = photo({ id: 'fedcba9876543210', pathname: 'progress/ffffffffffffffffffffffff.png', width: 100, height: 100 });
+  const parsed = parseCreateUpdate(body({ photos: [photo({ extra: 'x' }), second] }));
   assert.equal(parsed.ok, true);
-  assert.deepEqual(Object.keys(parsed.value.photos[0]), ['assetId', 'url', 'width', 'height']);
-  assert.deepEqual(parsed.value.photos.map((item) => item.assetId), ['image-abc123-800x600-jpg', 'image-def456-100x100-png']);
+  assert.deepEqual(Object.keys(parsed.value.photos[0]), ['id', 'pathname', 'width', 'height']);
+  assert.deepEqual(parsed.value.photos, [photo(), second]);
 });
 
 test('parseCreateUpdate requires at least one photo', () => {
@@ -65,27 +74,67 @@ test('parseCreateUpdate rejects a date that is not a real YYYY-MM-DD day', () =>
   }
 });
 
-test('parseCreateUpdate rejects photos that are not Sanity CDN images', () => {
-  for (const url of [
-    'http://cdn.sanity.io/images/q2qjj1se/production/a.jpg',
-    'https://cdn.sanity.io.evil.example/images/a.jpg',
-    'https://example.com/a.jpg',
-    'javascript:alert(1)',
-    '',
-    undefined,
-  ]) {
-    assert.equal(parseCreateUpdate(body({ photos: [photo({ url })] })).ok, false, String(url));
-  }
-  // One bad photo among good ones still fails the whole request.
-  assert.equal(parseCreateUpdate(body({ photos: [photo(), photo({ url: 'https://example.com/a.jpg' })] })).ok, false);
+const BAD_PATHNAMES = [
+  'progress/0123456789abcdef01234567.gif',
+  'progress/0123456789ABCDEF01234567.jpg',
+  'progress/0123456789abcdef0123456.jpg',
+  'progress/0123456789abcdef012345678.jpg',
+  'progress/0123456789abcdef01234567.jpg?x=1',
+  'progress/0123456789abcdef01234567.jpeg',
+  'progress/../0123456789abcdef01234567.jpg',
+  'progress/a/0123456789abcdef01234567.jpg',
+  '/progress/0123456789abcdef01234567.jpg',
+  ' progress/0123456789abcdef01234567.jpg',
+  'other/0123456789abcdef01234567.jpg',
+  'progress-a1b2c3d4e5f6.jpg',
+  'https://abc.private.blob.vercel-storage.com/progress/0123456789abcdef01234567.jpg',
+  'https://cdn.sanity.io/images/q2qjj1se/production/abc123-800x600.jpg',
+  '',
+  undefined,
+  42,
+];
+
+test('parseCreateUpdate rejects a Sanity-shaped photo', () => {
+  const sanity = {
+    assetId: 'image-abc123-800x600-jpg',
+    url: 'https://cdn.sanity.io/images/q2qjj1se/production/abc123-800x600.jpg',
+    width: 800,
+    height: 600,
+  };
+  assert.deepEqual(parseCreateUpdate(body({ photos: [sanity] })), { ok: false, error: '사진 정보가 올바르지 않습니다. 사진을 다시 올려주세요.' });
+  assert.equal(parseCreateUpdate(body({ photos: [photo({ pathname: sanity.url })] })).ok, false);
 });
 
-test('parseCreateUpdate rejects photos without an asset id or a usable size', () => {
-  assert.equal(parseCreateUpdate(body({ photos: [photo({ assetId: '' })] })).ok, false);
-  assert.equal(parseCreateUpdate(body({ photos: [photo({ assetId: undefined })] })).ok, false);
-  for (const width of [0, -5, NaN, Infinity, '800', undefined]) assert.equal(parseCreateUpdate(body({ photos: [photo({ width })] })).ok, false, String(width));
-  for (const height of [0, -5, NaN, undefined]) assert.equal(parseCreateUpdate(body({ photos: [photo({ height })] })).ok, false, String(height));
-  assert.equal(parseCreateUpdate(body({ photos: ['https://cdn.sanity.io/images/q2qjj1se/production/a.jpg'] })).ok, false);
+test('parseCreateUpdate accepts only a progress/<24 hex>.<jpg|png|webp> pathname', () => {
+  for (const pathname of BAD_PATHNAMES) assert.equal(parseCreateUpdate(body({ photos: [photo({ pathname })] })).ok, false, String(pathname));
+  for (const pathname of ['progress/0123456789abcdef01234567.png', 'progress/ffffffffffffffffffffffff.webp']) {
+    assert.equal(parseCreateUpdate(body({ photos: [photo({ pathname })] })).ok, true, pathname);
+  }
+  // One bad photo among good ones still fails the whole request.
+  assert.equal(parseCreateUpdate(body({ photos: [photo(), photo({ pathname: 'other/x.jpg' })] })).ok, false);
+});
+
+test('parseCreateUpdate rejects a photo that carries a url, since a stored record never holds one', () => {
+  for (const url of ['https://abc.private.blob.vercel-storage.com/progress/0123456789abcdef01234567.jpg?vercel-blob-signature=x', '', null]) {
+    assert.equal(parseCreateUpdate(body({ photos: [photo({ url })] })).ok, false, String(url));
+  }
+});
+
+test('parseCreateUpdate needs whole-pixel sizes from 1 to 20000', () => {
+  for (const width of [0, -5, 1.5, 20001, NaN, Infinity, '800', undefined, null]) {
+    assert.equal(parseCreateUpdate(body({ photos: [photo({ width })] })).ok, false, String(width));
+  }
+  for (const height of [0, -5, 0.5, 20001, NaN, '600', undefined]) {
+    assert.equal(parseCreateUpdate(body({ photos: [photo({ height })] })).ok, false, String(height));
+  }
+  assert.equal(parseCreateUpdate(body({ photos: [photo({ width: 1, height: 20000 })] })).ok, true);
+});
+
+test('parseCreateUpdate needs the photo id the upload gave', () => {
+  for (const id of ['', undefined, 42, '0123456789ABCDEF', '0123456789abcde', '0123456789abcdef0', 'progress/0123456789abcdef01234567.jpg']) {
+    assert.equal(parseCreateUpdate(body({ photos: [photo({ id })] })).ok, false, String(id));
+  }
+  assert.equal(parseCreateUpdate(body({ photos: ['progress/0123456789abcdef01234567.jpg'] })).ok, false);
   assert.equal(parseCreateUpdate(body({ photos: [null] })).ok, false);
 });
 
@@ -135,12 +184,41 @@ test('checkPhotoUpload rejects an empty file', () => {
   assert.equal(result.status, 400);
 });
 
-test('a photo is uploaded under a neutral name taken from its type, never its own file name', () => {
-  assert.equal(progressPhotoFileName('image/jpeg', 'a1b2c3d4e5f6'), 'progress-a1b2c3d4e5f6.jpg');
-  assert.equal(progressPhotoFileName('image/png', '000000000000'), 'progress-000000000000.png');
-  assert.equal(progressPhotoFileName('image/webp', 'ffffffffffff'), 'progress-ffffffffffff.webp');
-  assert.throws(() => progressPhotoFileName('image/gif', 'a1b2c3d4e5f6'));
-  for (const random of ['', 'a1b2c3', 'A1B2C3D4E5F6', '홍길동_거실.jpg', 'a1b2c3d4e5f6/x']) {
-    assert.throws(() => progressPhotoFileName('image/jpeg', random), random);
+test('a photo is stored as progress/<24 random hex>.<ext>, the extension taken from its type, never its own file name', () => {
+  assert.equal(progressPhotoPathname('image/jpeg', '0123456789abcdef01234567'), 'progress/0123456789abcdef01234567.jpg');
+  assert.equal(progressPhotoPathname('image/png', '000000000000000000000000'), 'progress/000000000000000000000000.png');
+  assert.equal(progressPhotoPathname('image/webp', 'ffffffffffffffffffffffff'), 'progress/ffffffffffffffffffffffff.webp');
+  assert.throws(() => progressPhotoPathname('image/gif', '0123456789abcdef01234567'));
+  for (const random of ['', 'a1b2c3d4e5f6', '0123456789ABCDEF01234567', '0123456789abcdef0123456', '0123456789abcdef012345678', '홍길동_거실.jpg', '0123456789abcdef01234567/x']) {
+    assert.throws(() => progressPhotoPathname('image/jpeg', random), random);
+  }
+});
+
+test('isProgressPhotoPathname accepts exactly the shape progressPhotoPathname makes', () => {
+  assert.equal(isProgressPhotoPathname(progressPhotoPathname('image/jpeg', '0123456789abcdef01234567')), true);
+  assert.equal(isProgressPhotoPathname('progress/ffffffffffffffffffffffff.webp'), true);
+  for (const pathname of BAD_PATHNAMES) assert.equal(isProgressPhotoPathname(pathname), false, String(pathname));
+});
+
+test('parsePhotoSize reads the width and height form fields as whole pixels from 1 to 20000', () => {
+  assert.deepEqual(parsePhotoSize('1600', '1200'), { width: 1600, height: 1200 });
+  assert.deepEqual(parsePhotoSize('1', '20000'), { width: 1, height: 20000 });
+  for (const value of ['0', '20001', '1.5', '-1', '1e3', '0x10', ' 1600', '1600 ', '01600', '', null, undefined, 1600]) {
+    assert.equal(parsePhotoSize(value, '1200'), null, `width ${String(value)}`);
+    assert.equal(parsePhotoSize('1600', value), null, `height ${String(value)}`);
+  }
+});
+
+test('a stored photo is read back as id, pathname, width and height only, never with a url', () => {
+  const stored = { id: '0123456789abcdef', pathname: 'progress/0123456789abcdef01234567.jpg', width: 1600, height: 1200 };
+  assert.deepEqual(readStoredPhoto(stored), stored);
+  assert.deepEqual(readStoredPhoto({ ...stored, url: 'https://abc.private.blob.vercel-storage.com/x', extra: 1 }), stored);
+  assert.deepEqual(readStoredPhoto({ ...stored, width: 'x', height: undefined }), { ...stored, width: 0, height: 0 });
+});
+
+test('an old Sanity-shaped stored photo, or anything without a photo pathname, is dropped', () => {
+  assert.equal(readStoredPhoto({ assetId: 'image-abc-800x600-jpg', url: 'https://cdn.sanity.io/images/p/d/abc-800x600.jpg', width: 800, height: 600 }), null);
+  for (const value of [null, undefined, 'progress/0123456789abcdef01234567.jpg', [], { id: 'a', pathname: 'other/x.jpg', width: 1, height: 1 }]) {
+    assert.equal(readStoredPhoto(value), null, JSON.stringify(value));
   }
 });

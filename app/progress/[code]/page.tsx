@@ -8,6 +8,7 @@ import {
 } from '../../lib/progress-public';
 import { ProgressNotice, ProgressShell, ProgressView } from '../../lib/progress-view';
 import { buildCustomerProgressView, phoneLast4, todayInSeoul } from '../../lib/site-progress';
+import { signProgressUpdatePhotos } from '../../api/manager/_progress-photo-storage';
 import {
   findSiteByProgressCode,
   isProgressStoreReady,
@@ -60,8 +61,17 @@ export default async function ProgressPage({ params }: { params: Promise<{ code:
 
   try {
     const [updates, estimates] = await Promise.all([listProgressUpdates(site._id), listSiteEstimates(site._id)]);
+    // Photos are private: only now, after the cookie check, does the server make their short-lived URLs. If that fails
+    // (logged without the code or the phone), the records show without photos and with a short notice.
+    const signed = await signProgressUpdatePhotos(updates);
     // Only the view (site title, customer name, schedule, records) leaves the server; prices, vendors and phones never do.
-    const view = buildCustomerProgressView({ site, updates, estimates, today: todayInSeoul() });
+    const view = buildCustomerProgressView({
+      site,
+      updates: signed.updates,
+      estimates,
+      today: todayInSeoul(),
+      photosUnavailable: signed.photosUnavailable,
+    });
     return (
       <ProgressShell>
         <ProgressView view={view} />

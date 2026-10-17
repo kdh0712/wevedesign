@@ -30,8 +30,5 @@ export function isProgressCodeShape(code: string): boolean {
   return /^[A-Za-z0-9_-]{1,128}$/.test(code);
 }
 
-// Sanity's image CDN resizes with query parameters: list thumbnails use w=800, the enlarged view w=1600.
-export function progressPhotoUrl(url: string, width: number): string {
-  const separator = url.includes('?') ? '&' : '?';
-  return `${url}${separator}w=${width}&auto=format`;
-}
+// Shown above the records when the server could not make the photo URLs (the records show without photos).
+export const PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE = '사진을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.';

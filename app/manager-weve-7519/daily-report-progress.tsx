@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Loader2, Send, Trash2, UploadCloud } from 'lucide-react';
 import { jpegFileName, resizeImageFile } from '../lib/resize-image';
-import type { ProgressUpdate } from '../lib/site-progress';
+import type { ProgressUpdateView } from '../lib/site-progress';
 import {
   LINK_REASON_MESSAGES,
   NOTIFY_STATUS_LABEL,
@@ -22,6 +22,7 @@ import {
   postSignature,
   predictLinkOnUpload,
   shrinkAndUploadPhotos,
+  uploadShrunkPhoto,
   type Notice,
   type NotifyStatus,
   type ProgressManagerState,
@@ -162,12 +163,9 @@ export function DailyReportProgress({
     const notify = sendNotify && !notifyBlocked;
     try {
       const uploaded = await shrinkAndUploadPhotos(selected, {
+        // resizeImageFile returns the JPEG with its pixel size, or throws (then nothing is uploaded or posted).
         shrink: (photo) => resizeImageFile(photo.file),
-        upload: async (shrunk, photo) => {
-          const result = await api.uploadPhoto(siteId, shrunk.blob, jpegFileName(photo.name));
-          if (!result.photo) throw new Error('사진 정보를 받지 못했습니다.');
-          return result.photo;
-        },
+        upload: (shrunk, photo) => uploadShrunkPhoto(api, siteId, shrunk, jpegFileName(photo.name)),
         onProgress: (stage, done, total) => setProgressLabel(photoProgressLabel(stage, done, total)),
       });
       if (!uploaded.ok) {
@@ -193,10 +191,10 @@ export function DailyReportProgress({
     }
   };
 
-  const replaceUpdate = (update: ProgressUpdate) =>
+  const replaceUpdate = (update: ProgressUpdateView) =>
     setState((current) => (current ? { ...current, updates: current.updates.map((item) => (item._id === update._id ? update : item)) } : current));
 
-  const sendAlimtalk = async (update: ProgressUpdate) => {
+  const sendAlimtalk = async (update: ProgressUpdateView) => {
     if (busyRef.current) return;
     const status = notifyStatus(update);
     if (status === 'sent' && !window.confirm('이미 알림톡을 보낸 기록입니다. 고객에게 다시 보낼까요?')) return;
@@ -219,7 +217,7 @@ export function DailyReportProgress({
     }
   };
 
-  const removeUpdate = async (update: ProgressUpdate) => {
+  const removeUpdate = async (update: ProgressUpdateView) => {
     if (busyRef.current) return;
     if (!window.confirm(`${formatReportDay(update.reportDate)} 진행 기록을 삭제할까요?\n고객 진행 현황에서 바로 사라집니다.`)) return;
     busyRef.current = true;

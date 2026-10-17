@@ -62,18 +62,60 @@ test('summarizeSchedule ignores broken tasks and never returns NaN', () => {
   assert.equal(summarizeSchedule([], '2026-10-05'), null);
 });
 
+const signedPhoto = (n, overrides = {}) => ({
+  id: `${n}`.padStart(16, '0'),
+  url: `https://store.private.blob.vercel-storage.com/signed-${n}?vercel-blob-signature=sig${n}`,
+  width: 1600,
+  height: 1200,
+  ...overrides,
+});
+
 test('buildCustomerProgressView drops prices, vendors and memos', () => {
   const view = buildCustomerProgressView({
     site: { title: '용호마을 24평', customerName: '홍길동', customerPhone: '010-1111-2222' },
-    updates: [{ _id: 'u1', siteId: 's', reportDate: '2026-10-05', designer: '김동호 실장', workDetail: '철거 완료', photos: [], createdAt: 'x', notifyLog: [] }],
+    updates: [{ _id: 'u1', siteId: 's', reportDate: '2026-10-05', designer: '김동호 실장', workDetail: '철거 완료', photos: [signedPhoto(1)], createdAt: 'x', createdBy: 'staff-login', notifyLog: [{ sentAt: 'x', ok: true, by: 'staff-login' }] }],
     estimates: [{ versionType: 'final', updatedAt: '2026-10-01', linesJson: '[{"customerUnitPrice":900000}]',
       scheduleJson: JSON.stringify([{ id: '1', name: '철거', startDate: '2026-10-01', endDate: '2026-10-02', durationDays: 2, progress: 0, vendorName: '거래처', vendorPhone: '010-9999-9999', memo: '내부 메모' }]) }],
     today: '2026-10-05',
   });
   const text = JSON.stringify(view);
-  for (const banned of ['900000', '거래처', '010-9999-9999', '내부 메모', '010-1111-2222', 'customerUnitPrice']) assert.ok(!text.includes(banned), banned);
+  for (const banned of ['900000', '거래처', '010-9999-9999', '내부 메모', '010-1111-2222', 'customerUnitPrice', 'customerPhone', 'staff-login', 'notifyLog', 'pathname']) {
+    assert.ok(!text.includes(banned), banned);
+  }
   assert.equal(view.contactPhone, '031-381-0489');
   assert.equal(view.updates[0].workDetail, '철거 완료');
+  assert.deepEqual(view.updates[0].photos, [signedPhoto(1)]);
+});
+
+test('buildCustomerProgressView passes signed photos through as id, url, width and height only', () => {
+  const view = buildCustomerProgressView({
+    site: { title: '현장' },
+    updates: [
+      {
+        _id: 'u1',
+        siteId: 's',
+        reportDate: '2026-10-05',
+        designer: '',
+        workDetail: 'w',
+        // A stray pathname is never copied; a photo whose URL could not be made is left out.
+        photos: [signedPhoto(1, { pathname: 'progress/0123456789abcdef01234567.jpg' }), signedPhoto(2, { url: '' }), signedPhoto(3, { width: 900, height: 1600 })],
+        createdAt: 'x',
+      },
+    ],
+    estimates: [],
+    today: '2026-10-05',
+  });
+  assert.deepEqual(view.updates[0].photos, [signedPhoto(1), signedPhoto(3, { width: 900, height: 1600 })]);
+  for (const photo of view.updates[0].photos) assert.deepEqual(Object.keys(photo), ['id', 'url', 'width', 'height']);
+  assert.equal('photosUnavailable' in view, false);
+});
+
+test('buildCustomerProgressView carries photosUnavailable so the page can say the photos did not load', () => {
+  const update = { _id: 'u1', siteId: 's', reportDate: '2026-10-05', designer: '', workDetail: 'w', photos: [signedPhoto(1, { url: '' })], createdAt: 'x' };
+  const view = buildCustomerProgressView({ site: {}, updates: [update], estimates: [], today: '2026-10-05', photosUnavailable: true });
+  assert.equal(view.photosUnavailable, true);
+  assert.deepEqual(view.updates[0].photos, []);
+  assert.equal(view.updates[0].workDetail, 'w', 'the record itself still shows');
 });
 
 test('fillProgressTemplate and canNotify', () => {

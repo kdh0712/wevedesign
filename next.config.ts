@@ -2,6 +2,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Customer progress photos (Firebase Storage). Loaded by Node as installed, like firebase-admin (which wraps it) is by
+  // default, instead of being bundled.
+  serverExternalPackages: ['@google-cloud/storage'],
   async headers() {
     return [
       {

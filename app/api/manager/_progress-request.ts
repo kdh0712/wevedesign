@@ -1,20 +1,24 @@
 // Request checks for the manager progress API. Pure functions with no Next.js or Firestore imports, so tests can load them directly.
-import type { ProgressPhoto } from '../../lib/site-progress';
+import type { StoredProgressPhoto } from '../../lib/site-progress';
 
 export const MAX_PHOTO_BYTES = 4_000_000;
 
 const PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const SANITY_CDN_PREFIX = 'https://cdn.sanity.io/';
 const MAX_DESIGNER_LENGTH = 100;
 const MAX_WORK_DETAIL_LENGTH = 5000;
 const MAX_PHOTOS_PER_UPDATE = 40;
+const MAX_PHOTO_EDGE = 20000;
+
+// The two shapes the server gives a photo at upload: its place in the photo bucket and its id.
+const PHOTO_PATHNAME = /^progress\/[0-9a-f]{24}\.(jpg|png|webp)$/;
+const PHOTO_ID = /^[0-9a-f]{16}$/;
 
 export type CreateUpdateValue = {
   siteId: string;
   reportDate: string;
   designer: string;
   workDetail: string;
-  photos: ProgressPhoto[];
+  photos: StoredProgressPhoto[];
   notify: boolean;
 };
 
@@ -31,17 +35,38 @@ function isCalendarDate(value: string) {
   return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
 }
 
-const isPositiveNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
+// A photo's width or height: whole pixels from 1 to 20000. The browser measured them when it shrank the photo.
+const isPhotoEdge = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_PHOTO_EDGE;
 
-// Photos arrive from the browser, so each one is rebuilt from the known fields instead of being stored as sent.
-function parsePhoto(value: unknown): ProgressPhoto | null {
+export const isProgressPhotoPathname = (value: unknown): value is string => typeof value === 'string' && PHOTO_PATHNAME.test(value);
+
+// Photos arrive from the browser, so each one is rebuilt from the known fields instead of being stored as sent. A photo with
+// a url is refused, not cleaned: the record keeps only the pathname from the upload, and a url here means the browser sent
+// a photo it was shown (a signed URL that expires) instead of one it uploaded.
+function parsePhoto(value: unknown): StoredProgressPhoto | null {
   if (typeof value !== 'object' || value === null) return null;
   const item = value as Record<string, unknown>;
-  const assetId = text(item.assetId);
-  const url = text(item.url);
-  if (!assetId || !url.startsWith(SANITY_CDN_PREFIX)) return null;
-  if (!isPositiveNumber(item.width) || !isPositiveNumber(item.height)) return null;
-  return { assetId, url, width: item.width, height: item.height };
+  if (item.url !== undefined) return null;
+  if (typeof item.id !== 'string' || !PHOTO_ID.test(item.id) || !isProgressPhotoPathname(item.pathname)) return null;
+  if (!isPhotoEdge(item.width) || !isPhotoEdge(item.height)) return null;
+  return { id: item.id, pathname: item.pathname, width: item.width, height: item.height };
+}
+
+// A photo as read back from a stored record: only the known fields (a url is never copied out of a record). Anything
+// without a progress photo pathname, such as an old Sanity-shaped photo, is dropped; no such photos exist in production.
+export function readStoredPhoto(value: unknown): StoredProgressPhoto | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const item = value as Record<string, unknown>;
+  if (!isProgressPhotoPathname(item.pathname)) return null;
+  return { id: typeof item.id === 'string' ? item.id : '', pathname: item.pathname, width: Number(item.width) || 0, height: Number(item.height) || 0 };
+}
+
+// The width and height form fields of an upload ("1600"), as whole pixels from 1 to 20000; null when either is unusable.
+export function parsePhotoSize(width: unknown, height: unknown): { width: number; height: number } | null {
+  const edge = (value: unknown) => (typeof value === 'string' && /^[1-9][0-9]{0,4}$/.test(value) ? Number(value) : NaN);
+  const size = { width: edge(width), height: edge(height) };
+  return isPhotoEdge(size.width) && isPhotoEdge(size.height) ? size : null;
 }
 
 export function parseCreateUpdate(body: unknown): ParseResult {
@@ -57,7 +82,7 @@ export function parseCreateUpdate(body: unknown): ParseResult {
   const rawPhotos = Array.isArray(input.photos) ? input.photos : [];
   if (rawPhotos.length === 0) return fail('현장 사진을 첨부해주세요.');
   if (rawPhotos.length > MAX_PHOTOS_PER_UPDATE) return fail(`사진은 한 번에 ${MAX_PHOTOS_PER_UPDATE}장까지 올릴 수 있습니다.`);
-  const photos: ProgressPhoto[] = [];
+  const photos: StoredProgressPhoto[] = [];
   for (const raw of rawPhotos) {
     const photo = parsePhoto(raw);
     if (!photo) return fail('사진 정보가 올바르지 않습니다. 사진을 다시 올려주세요.');
@@ -80,13 +105,13 @@ const PHOTO_EXTENSIONS = new Map([
   ['image/webp', 'webp'],
 ]);
 
-// Sanity keeps the upload's file name as the asset's originalFilename, and staff phone photos are often named after the
-// customer or the site. So every progress photo goes up as progress-<12 random hex>.<ext>, the extension taken from its type.
-export function progressPhotoFileName(contentType: string, randomHex: string): string {
+// Where a progress photo is stored in the bucket: progress/<24 random hex>.<ext>, the extension taken from its type.
+// Nothing from the site or the phone goes into it (staff phone photos are often named after the customer or the site).
+export function progressPhotoPathname(contentType: string, randomHex: string): string {
   const extension = PHOTO_EXTENSIONS.get(contentType);
   if (!extension) throw new Error(`No progress photo extension for ${contentType}`);
-  if (!/^[0-9a-f]{12}$/.test(randomHex)) throw new Error('A progress photo name needs 12 random hex characters.');
-  return `progress-${randomHex}.${extension}`;
+  if (!/^[0-9a-f]{24}$/.test(randomHex)) throw new Error('A progress photo pathname needs 24 random hex characters.');
+  return `progress/${randomHex}.${extension}`;
 }
 
 export function checkPhotoUpload(type: string, size: number): { ok: true } | { ok: false; status: 400 | 413; error: string } {
