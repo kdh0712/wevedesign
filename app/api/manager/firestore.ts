@@ -295,6 +295,35 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
   return rows;
 }
 
+type FirestoreRunQueryResponse = Array<{ document?: FirestoreDocument; error?: { message?: string } }>;
+
+// Equality query on one string field. Single-field indexes are automatic, so no composite index is needed.
+export async function queryFirestoreCollectionByField<T extends Record<string, unknown>>(
+  collection: string,
+  fieldPath: string,
+  value: string,
+  idToken?: string,
+) {
+  const response = await fetch(`${docBaseUrl()}:runQuery`, {
+    method: 'POST',
+    headers: await firestoreHeaders(idToken),
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: collection }],
+        where: { fieldFilter: { field: { fieldPath }, op: 'EQUAL', value: { stringValue: value } } },
+      },
+    }),
+    cache: 'no-store',
+  });
+  const data = (await response.json().catch(() => null)) as FirestoreRunQueryResponse | { error?: { message?: string } } | null;
+  const results = Array.isArray(data) ? data : [];
+  const errorMessage = (Array.isArray(data) ? results.find((item) => item.error)?.error?.message : data?.error?.message) || '';
+  if (!response.ok || errorMessage) {
+    throw new Error(firestorePermissionMessage(errorMessage || `Firestore query failed: ${collection}.${fieldPath}`));
+  }
+  return results.flatMap((item) => (item.document ? [toRecord<T>(item.document)] : []));
+}
+
 export async function getFirestoreDocument<T extends Record<string, unknown>>(collection: string, id: string, idToken?: string) {
   const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}`, {
     headers: await firestoreHeaders(idToken, false),
@@ -465,26 +494,67 @@ export async function saveEstimateMaterialSettingsToFirestore(request: Request, 
   );
 }
 
-export async function readEstimateDataFromFirestore(request: Request, options: { includeMaterials?: boolean } = {}) {
+const sortMaterials = (materials: Array<Record<string, unknown>>) =>
+  materials.sort((a, b) =>
+    [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
+      .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
+  ).slice(0, 5000);
+
+// Every version of one site, in full. Falls back to listing the whole collection if the query is rejected.
+export async function readSiteEstimatesFromFirestore(request: Request, siteId: string) {
+  if (!siteId) return [];
+  const idToken = requestIdToken(request);
+  const estimates = await queryFirestoreCollectionByField('siteEstimates', 'siteId', siteId, idToken).catch(async (error) => {
+    console.warn('Site estimate query failed, listing all estimates instead:', error);
+    const all = await listFirestoreCollection('siteEstimates', idToken);
+    return all.filter((estimate) => estimate.siteId === siteId);
+  });
+  return estimates.sort(byNewest(['updatedAt', 'createdAt']));
+}
+
+export async function readEstimateMaterialsFromFirestore(request: Request) {
+  const [materials, materialsMeta, materialSettings] = await Promise.all([
+    listFirestoreCollection('estimateMaterials', requestIdToken(request), 5000),
+    readEstimateMaterialMetaFromFirestore(request),
+    readEstimateMaterialSettingsFromFirestore(request),
+  ]);
+  const sortedMaterials = sortMaterials(materials);
+  return { materials: sortedMaterials, materialsMeta: materialsMeta || materialMetaFromRows(sortedMaterials), materialSettings };
+}
+
+// estimatesSiteId: undefined returns the newest 300 versions of all sites (the original payload);
+// a string returns only that site's versions, with '' meaning the newest site.
+export async function readEstimateDataFromFirestore(
+  request: Request,
+  options: { includeMaterials?: boolean; estimatesSiteId?: string } = {},
+) {
   const idToken = requestIdToken(request);
   const includeMaterials = options.includeMaterials !== false;
-  const [sites, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
-    listFirestoreCollection('officeSites', idToken),
-    listFirestoreCollection('siteEstimates', idToken),
+  const isSiteScoped = typeof options.estimatesSiteId === 'string';
+  const sitesRequest = listFirestoreCollection('officeSites', idToken).then((sites) => sites.sort(byNewest(['createdAt'])).slice(0, 300));
+  const estimatesSiteIdRequest = isSiteScoped
+    ? options.estimatesSiteId
+      ? Promise.resolve(options.estimatesSiteId)
+      : sitesRequest.then((sites) => String(sites[0]?._id || ''))
+    : Promise.resolve('');
+  const [sites, estimatesSiteId, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
+    sitesRequest,
+    estimatesSiteIdRequest,
+    isSiteScoped
+      ? estimatesSiteIdRequest.then((siteId) => readSiteEstimatesFromFirestore(request, siteId))
+      : listFirestoreCollection('siteEstimates', idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
     listFirestoreCollection('officeVendors', idToken),
     readEstimateMaterialMetaFromFirestore(request),
     readEstimateMaterialSettingsFromFirestore(request),
     includeMaterials ? listFirestoreCollection('estimateMaterials', idToken, 5000) : Promise.resolve([]),
   ]);
 
-  const sortedMaterials = materials.sort((a, b) =>
-    [String(a.category || ''), String(a.process || ''), String(a.name || '')].join('|')
-      .localeCompare([String(b.category || ''), String(b.process || ''), String(b.name || '')].join('|'), 'ko'),
-  ).slice(0, 5000);
+  const sortedMaterials = sortMaterials(materials);
 
   return {
-    sites: sites.sort(byNewest(['createdAt'])).slice(0, 300),
-    estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
+    sites,
+    estimates,
+    ...(isSiteScoped ? { estimatesSiteId } : {}),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
     materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
     materialSettings,
