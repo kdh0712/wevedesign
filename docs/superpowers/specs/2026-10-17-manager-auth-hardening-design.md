@@ -207,13 +207,24 @@
 ## 8. 배포 순서 (대표님 작업)
 
 1. (권장, 병합 전) Vercel에 `MANAGER_SESSION_SECRET` 추가. 병합 뒤에 추가하면 그때 한 번 더 전원 재로그인이 필요하다.
+   Production 환경에만 넣으면 미리보기 배포의 토큰이 운영에서 통하지 않는다.
 2. PR 병합 → Vercel 배포 → 열려 있는 탭은 다시 로그인.
-3. 코드 배포 **뒤에** Firebase 콘솔 → Realtime Database → 규칙에 새 `firebase-database.rules.json`을 붙여넣는다.
-   순서가 바뀌면 배포 전 코드의 계정 추가가 실패한다.
-4. 계정 탭에서 Firebase 계정 목록이 보이는지 확인한다. 권한 오류가 나면 Google Cloud IAM에서 서비스 계정에
+3. **배포와 함께 Vercel의 `MANAGER_PASSWORD`를 새 값으로 바꾸고 다시 배포한다.** 이 변경 전에는 모든 직원 로그인이
+   마스터 비밀번호를 받았고, 견적 화면은 그 값을 직원 컴퓨터의 `localStorage`에 남겼다. 바꾸지 않으면 지금이나
+   예전 직원이 그 값으로 계속 admin 로그인을 할 수 있다.
+4. 코드 배포 **뒤에** Firebase 규칙을 반영한다. 순서가 바뀌면 배포 전 코드의 계정 추가가 실패한다.
+   먼저 콘솔(Realtime Database → 규칙)의 현재 규칙과 `firebase-database.rules.json`을 비교한다. `launcher_admins`라는
+   이름으로 보아 다른 앱이 같은 데이터베이스를 쓸 수 있으므로, 통째로 덮어쓰지 말고 `users`와 `launcher_admins`
+   부분만 바꾸고 다른 노드의 규칙은 그대로 둔다.
+5. 규칙 반영 직후 콘솔에서 `/users`와 `launcher_admins`를 점검한다. 예전 규칙에서는 누구나 자기 `role`을 `admin`으로
+   바꿀 수 있었으므로, `role: 'admin'`인 계정과 모르는 계정을 확인하고 정리한다.
+6. 계정 탭에서 Firebase 계정 목록이 보이는지 확인한다. 권한 오류가 나면 Google Cloud IAM에서 서비스 계정에
    'Firebase Realtime Database Admin' 역할을 추가한다.
-5. Firestore 규칙이 클라이언트 직접 접근을 막는지 확인한다 (이 저장소에 규칙 파일이 없다).
-6. 실제 직원 계정으로 체크리스트를 확인한다.
+7. Firestore를 쓰는 운영 환경에는 Firebase 서비스 계정이 설정돼 있어야 한다. 서비스 계정 없이 사용자 토큰으로
+   Firestore를 읽는 구성에서는 Firestore 규칙이 직원에게 모든 업무 컬렉션 접근을 허용해야 하므로, 직원이 서버를
+   거치지 않고 Firestore를 직접 조회할 수 있어 탭 권한이 지켜지지 않는다. 서비스 계정이 있으면 Firestore 규칙이
+   클라이언트 직접 접근을 막는지도 확인한다 (이 저장소에 규칙 파일이 없다).
+8. 실제 직원 계정으로 체크리스트를 확인한다.
 
 ## 9. 범위 밖 (별도 작업으로 제안)
 
