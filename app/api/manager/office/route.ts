@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
+import { OFFICE_TRACKED_COLLECTIONS, parseOfficeVersionsParam } from '../../../lib/office-changes';
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
@@ -8,7 +9,7 @@ import {
   getOfficeRecordFromFirestore,
   listFirestoreCollection,
   officeFirestoreCollections,
-  readOfficeDataFromFirestore,
+  readOfficeDataWithVersionsFromFirestore,
   readOfficeTrashFromFirestore,
   saveOfficeRecordToFirestore,
   setOfficeRecordTrashInFirestore,
@@ -203,6 +204,9 @@ export async function GET(request: Request) {
   const startedAt = Date.now();
   // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
   const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
+  // A refresh may send versions=<base64url JSON> from its last answer: then only the lists that changed are read.
+  // Without it (or when it is invalid) everything is read.
+  const knownVersions = isRefresh ? parseOfficeVersionsParam(new URL(request.url).searchParams.get('versions')) : null;
   const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
     // ?view=trash lists the records in the 휴지통 instead of the dashboard data. Like the 휴지통 tab, it is admin-only.
@@ -219,14 +223,15 @@ export async function GET(request: Request) {
         }
 
         const [officeData, publicData, visitStats] = await Promise.all([
-          readOfficeDataFromFirestore(request),
+          readOfficeDataWithVersionsFromFirestore(request, knownVersions),
           readPortfolio(),
           getVisitStats(),
         ]);
+        const listsRead = OFFICE_TRACKED_COLLECTIONS.length - (officeData.unchangedCollections?.length || 0);
         return timedJson(
           filterOfficeData(session, { ...officeData, ...publicData, visitStats }),
           startedAt,
-          isRefresh ? 'firestore refresh' : 'firestore',
+          `${isRefresh ? 'firestore refresh' : 'firestore'} (${listsRead}/${OFFICE_TRACKED_COLLECTIONS.length} lists)`,
         );
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';

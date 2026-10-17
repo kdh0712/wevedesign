@@ -1,4 +1,19 @@
 import { createSign } from 'node:crypto';
+import {
+  OFFICE_CHANGES_COLLECTION,
+  OFFICE_CHANGES_DOCUMENT_ID,
+  OFFICE_COLLECTION_LISTS,
+  OFFICE_TRACKED_COLLECTIONS,
+  changedOfficeCollections,
+  completeOfficeVersions,
+  createOfficeVersionToken,
+  shouldBumpOfficeChanges,
+  unchangedOfficeCollections,
+  type FullOfficeVersions,
+  type OfficeListKey,
+  type OfficeTrackedCollection,
+  type OfficeVersions,
+} from '../../lib/office-changes';
 import { hashId } from './_utils';
 
 type FirestorePrimitive =
@@ -343,6 +358,35 @@ export async function getFirestoreDocument<T extends Record<string, unknown>>(co
   return toRecord<T>(data);
 }
 
+// Writes only the given fields of the change marker (managerSettings/officeChanges) with an update mask, creating
+// the document when needed, so bumps of different collections never overwrite each other. managerSettings is not
+// a tracked collection, so this write never bumps anything itself.
+async function patchOfficeChanges(fields: OfficeVersions, idToken?: string) {
+  const url = new URL(`${docBaseUrl()}/${encodePath(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID)}`);
+  Object.keys(fields).forEach((fieldPath) => url.searchParams.append('updateMask.fieldPaths', fieldPath));
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: await firestoreHeaders(idToken),
+    body: JSON.stringify({ fields: toFirestoreFields(fields) }),
+  });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore change marker update failed (${response.status})`));
+  }
+}
+
+// Runs after every successful write or delete, with the write's own credentials, so dashboards re-read that list.
+// Awaited because serverless may freeze unawaited work; a failed bump is only logged and never fails the write
+// (the dashboard's 10-minute full refresh catches it up).
+async function bumpOfficeChanges(collection: string, idToken?: string) {
+  if (!shouldBumpOfficeChanges(collection)) return;
+  try {
+    await patchOfficeChanges({ [collection]: createOfficeVersionToken() }, idToken);
+  } catch (error) {
+    console.error(`Firestore change marker bump failed for ${collection}:`, error);
+  }
+}
+
 export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   collection: string,
   record: T,
@@ -363,6 +407,7 @@ export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   if (!response.ok || !data?.name) {
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document save failed: ${collection}/${id}`));
   }
+  await bumpOfficeChanges(collection, idToken);
   return toRecord<T>(data);
 }
 
@@ -371,11 +416,13 @@ export async function deleteFirestoreDocument(collection: string, id: string, id
     method: 'DELETE',
     headers: await firestoreHeaders(idToken, false),
   });
+  // A document that was already gone changed nothing, so it does not bump the change marker.
   if (response.status === 404) return;
   const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!response.ok) {
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document delete failed: ${collection}/${id}`));
   }
+  await bumpOfficeChanges(collection, idToken);
 }
 
 const byNewest = <T extends Record<string, unknown>>(dateFields: string[]) => (a: T, b: T) => {
@@ -419,27 +466,70 @@ async function listEstimateSummariesFromFirestore(idToken: string) {
 // Office records in the 휴지통 (trash) carry deletedAt; every list except the trash view leaves them out.
 const notTrashed = <T extends Record<string, unknown>>(record: T) => !record.deletedAt;
 
-export async function readOfficeDataFromFirestore(request: Request) {
-  const idToken = requestIdToken(request);
-  const [consultations, customers, sites, estimates, sales, inventory, vendors] = await Promise.all([
-    listFirestoreCollection('officeConsultations', idToken),
-    listFirestoreCollection('officeCustomers', idToken),
-    listFirestoreCollection('officeSites', idToken),
-    listEstimateSummariesFromFirestore(idToken),
-    listFirestoreCollection('officeSales', idToken),
-    listFirestoreCollection('officeInventoryItems', idToken),
-    listFirestoreCollection('officeVendors', idToken),
-  ]);
+type OfficeRows = Array<Record<string, unknown>>;
+type OfficeLists = Record<OfficeListKey, OfficeRows>;
 
-  return {
-    consultations: consultations.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
-    customers: customers.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
-    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200),
-    estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
-    sales: sales.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
-    inventory: inventory.filter(notTrashed).sort(byText('itemName')).slice(0, 200),
-    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 100),
-  };
+// Each dashboard list is one collection, filtered, sorted and limited the same way however it is read.
+const officeListReaders: Record<OfficeTrackedCollection, (idToken: string) => Promise<OfficeRows>> = {
+  officeConsultations: (idToken) =>
+    listFirestoreCollection('officeConsultations', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  officeCustomers: (idToken) =>
+    listFirestoreCollection('officeCustomers', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  officeSites: (idToken) =>
+    listFirestoreCollection('officeSites', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200)),
+  siteEstimates: (idToken) =>
+    listEstimateSummariesFromFirestore(idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
+  officeSales: (idToken) =>
+    listFirestoreCollection('officeSales', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100)),
+  officeInventoryItems: (idToken) =>
+    listFirestoreCollection('officeInventoryItems', idToken).then((rows) => rows.filter(notTrashed).sort(byText('itemName')).slice(0, 200)),
+  officeVendors: (idToken) =>
+    listFirestoreCollection('officeVendors', idToken).then((rows) => rows.filter(notTrashed).sort(byText('name')).slice(0, 100)),
+};
+
+async function readOfficeListsFromFirestore(idToken: string, collections: readonly OfficeTrackedCollection[]) {
+  const lists = await Promise.all(collections.map((collection) => officeListReaders[collection](idToken)));
+  return Object.fromEntries(collections.map((collection, index) => [OFFICE_COLLECTION_LISTS[collection], lists[index]])) as Partial<OfficeLists>;
+}
+
+export async function readOfficeDataFromFirestore(request: Request) {
+  return (await readOfficeListsFromFirestore(requestIdToken(request), OFFICE_TRACKED_COLLECTIONS)) as OfficeLists;
+}
+
+// The change marker's tokens. A missing marker (or field) gets fresh tokens, saved with a masked write.
+async function readOfficeVersionsFromFirestore(idToken: string) {
+  const stored = await getFirestoreDocument<Record<string, unknown>>(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID, idToken);
+  const { versions, missing } = completeOfficeVersions(stored);
+  if (Object.keys(missing).length) {
+    // If this fails the tokens are not stored, so the next refresh makes new ones and re-reads those lists.
+    await patchOfficeChanges(missing, idToken).catch((error) => console.error('Firestore change marker create failed:', error));
+  }
+  return versions;
+}
+
+type OfficeDataWithVersions = Partial<OfficeLists> & {
+  officeVersions?: FullOfficeVersions;
+  unchangedCollections?: OfficeTrackedCollection[];
+};
+
+// The dashboard lists plus the change marker's version map. Given the client's last map (known), only the
+// collections whose token changed are listed, and unchangedCollections names the ones left out.
+// Order matters: the marker is read BEFORE the lists. A write that lands in between bumps the marker after this
+// read, so the next refresh sees a newer token and re-reads that list. Reading the marker after the lists could
+// pair the newer token with a list that misses the write, hiding it until the next change.
+export async function readOfficeDataWithVersionsFromFirestore(request: Request, known: OfficeVersions | null): Promise<OfficeDataWithVersions> {
+  const idToken = requestIdToken(request);
+  let versions: FullOfficeVersions;
+  try {
+    versions = await readOfficeVersionsFromFirestore(idToken);
+  } catch (error) {
+    // Without the marker every list is read and no versions are sent, so the dashboard keeps reading everything.
+    console.error('Firestore change marker read failed, reading every list:', error);
+    return readOfficeDataFromFirestore(request);
+  }
+  const changed = changedOfficeCollections(versions, known);
+  const lists = await readOfficeListsFromFirestore(idToken, changed);
+  return { ...lists, officeVersions: versions, unchangedCollections: unchangedOfficeCollections(changed) };
 }
 
 export async function readOfficeTrashFromFirestore(request: Request) {

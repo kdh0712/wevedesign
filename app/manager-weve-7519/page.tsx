@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
+import { mergeOfficeLists, officeRefreshVersionsParam, type OfficeVersions } from '../lib/office-changes';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 
@@ -323,6 +324,9 @@ type PreviewTarget = {
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
   storageWarning?: string;
+  // Firestore only: the change marker's tokens, and on a refresh the collections left out as unchanged.
+  officeVersions?: OfficeVersions;
+  unchangedCollections?: string[];
   record?: Consultation | Customer | Site | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
@@ -706,6 +710,9 @@ export default function ManagerPage() {
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
   const refreshInFlightRef = useRef(false);
   const kakaoConfiguredRef = useRef(true);
+  // The version map from the last office answer; the refresh sends it so only the changed lists are re-read.
+  const officeVersionsRef = useRef<OfficeVersions | null>(null);
+  const lastFullOfficeReadAtRef = useRef(0);
 
   const visibleTabs = useMemo(() => {
     if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts' && tab.key !== 'trash');
@@ -1143,6 +1150,8 @@ export default function ManagerPage() {
         projects: data.projects || [],
         visitStats: data.visitStats,
       });
+      officeVersionsRef.current = data.officeVersions || null;
+      lastFullOfficeReadAtRef.current = Date.now();
       setVisitStats(data.visitStats || null);
       const settings = settingsData.settings || {};
       const savedSurveyConfig = settings.consultationSurveyConfig || JSON.stringify(defaultSurveyConfig);
@@ -1241,27 +1250,31 @@ export default function ManagerPage() {
       // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
       if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
       // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
-      const response = await fetch('/api/manager/office?scope=refresh', { headers: authHeaders(managerPassword, firebaseAuthToken) });
+      // versions asks for only the lists that changed since the last answer; at least every 10 minutes it is left out
+      // and everything is read, in case a change was not recorded.
+      const sentVersions = officeVersionsRef.current;
+      const versionsParam = officeRefreshVersionsParam(sentVersions, lastFullOfficeReadAtRef.current, Date.now());
+      const response = await fetch(`/api/manager/office?scope=refresh${versionsParam ? `&versions=${versionsParam}` : ''}`, {
+        headers: authHeaders(managerPassword, firebaseAuthToken),
+      });
       if (response.status === 401) {
         expireSession();
         return;
       }
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
+      // A full load that finished meanwhile replaced the lists this answer was compared with; the next refresh catches up.
+      if (data.unchangedCollections?.length && officeVersionsRef.current !== sentVersions) return;
 
       setOfficeData((current) => ({
         ...current,
-        consultations: data.consultations || [],
-        customers: data.customers || [],
-        sites: data.sites || [],
-        estimates: data.estimates || [],
-        sales: data.sales || [],
-        inventory: data.inventory || [],
-        vendors: data.vendors || [],
+        ...mergeOfficeLists(current, data),
         categories: data.categories || current.categories,
         projects: data.projects || current.projects,
         visitStats: data.visitStats,
       }));
+      officeVersionsRef.current = data.officeVersions || null;
+      if (!versionsParam) lastFullOfficeReadAtRef.current = Date.now();
       setVisitStats(data.visitStats || null);
       setLastRefreshedAt(formatTime(new Date()));
     } catch (caught) {
