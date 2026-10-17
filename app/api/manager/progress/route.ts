@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { normalizeKoreanMobile } from '../../../lib/alert-phones';
 import {
   buildCustomerProgressView,
@@ -335,10 +335,12 @@ async function deleteUpdate(body: Record<string, unknown>) {
   const update = await getProgressUpdate(id);
   if (!update) return fail('진행 기록을 찾을 수 없습니다.', 404);
 
-  // The record goes first, then its photos. A photo that cannot be deleted is logged and stays behind; it never fails
-  // the delete, since the customer page already stopped showing the record.
+  // The record goes first; its photos are deleted after the answer is sent (after()), so a slow Storage call never holds
+  // up staff. A photo that cannot be deleted is logged and stays behind; it never fails the delete, since the customer page
+  // already stopped showing the record.
   await deleteProgressUpdate(id);
-  await deleteProgressPhotos(update.photos.map((photo) => photo.pathname));
+  const pathnames = update.photos.map((photo) => photo.pathname);
+  after(() => deleteProgressPhotos(pathnames));
   return json({ ok: true });
 }
 

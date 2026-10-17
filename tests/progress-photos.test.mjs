@@ -271,6 +271,9 @@ test('deleteProgressPhotos logs a failed delete, still deletes the rest and neve
 test('@google-cloud/storage signs the V4 read URL locally and gives the same URL within the hour', async () => {
   const blocked = [];
   const saved = { fetch: globalThis.fetch, httpRequest: http.request, httpsRequest: https.request, httpGet: http.get, httpsGet: https.get };
+  // An emulator host in the environment would move the signed URL to the emulator; this test is about the real endpoint.
+  const savedEmulatorHost = process.env.STORAGE_EMULATOR_HOST;
+  delete process.env.STORAGE_EMULATOR_HOST;
   const block = (name) => () => {
     blocked.push(name);
     throw new Error(`network blocked in tests: ${name}`);
@@ -311,5 +314,7 @@ test('@google-cloud/storage signs the V4 read URL locally and gives the same URL
     https.request = saved.httpsRequest;
     http.get = saved.httpGet;
     https.get = saved.httpsGet;
+    if (savedEmulatorHost === undefined) delete process.env.STORAGE_EMULATOR_HOST;
+    else process.env.STORAGE_EMULATOR_HOST = savedEmulatorHost;
   }
 });

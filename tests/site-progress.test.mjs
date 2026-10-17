@@ -64,7 +64,7 @@ test('summarizeSchedule ignores broken tasks and never returns NaN', () => {
 
 const signedPhoto = (n, overrides = {}) => ({
   id: `${n}`.padStart(16, '0'),
-  url: `https://store.private.blob.vercel-storage.com/signed-${n}?vercel-blob-signature=sig${n}`,
+  url: `https://storage.googleapis.com/weve-7420b.firebasestorage.app/progress/${`${n}`.padStart(24, '0')}.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=7200&X-Goog-Signature=sig${n}`,
   width: 1600,
   height: 1200,
   ...overrides,

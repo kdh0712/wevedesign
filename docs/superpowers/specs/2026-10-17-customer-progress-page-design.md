@@ -57,8 +57,8 @@
 
 - 브라우저에서 긴 변 1600px, JPEG 품질 0.82로 줄인 뒤 올린다. 모든 사진을 다시 저장하므로 카메라 정보(위치 포함)는 사라진다.
   사진마다 이 한 크기만 저장하고, 목록과 크게 보기가 같은 파일을 쓴다 (목록은 지연 로딩).
-- 저장소는 비공개 Firebase Storage 버킷이다. 기본 버킷 `weve-7420b.firebasestorage.app`, 위치 US-WEST1, 규칙은 프로덕션 모드라
-  브라우저의 접근을 모두 막는다. 서버만 Firestore와 같은 Firebase 서비스 계정(`FIREBASE_SERVICE_ACCOUNT_JSON`, 또는
+- 저장소는 비공개 Firebase Storage 버킷이다. 기본 버킷 `weve-7420b.firebasestorage.app`, 위치 US-WEST1. 규칙은 프로덕션 모드라
+  Firebase 클라이언트(브라우저 SDK)의 접근을 모두 막고, 버킷은 공개하지 않아 서명 없는 주소는 Google Cloud IAM이 막는다. 서버만 Firestore와 같은 Firebase 서비스 계정(`FIREBASE_SERVICE_ACCOUNT_JSON`, 또는
   `FIREBASE_SERVICE_ACCOUNT_EMAIL`과 `FIREBASE_SERVICE_ACCOUNT_PRIVATE_KEY`)으로 읽고 쓴다 (`@google-cloud/storage`,
   `app/api/manager/_progress-photos.ts`). 버킷 이름은 `FIREBASE_STORAGE_BUCKET`, 없으면 `<프로젝트 ID>.firebasestorage.app`이다.
   서비스 계정과 버킷 이름이 둘 다 있어야 "설정됨"으로 본다.
@@ -95,7 +95,9 @@
 - 코드로 현장을 찾을 때는 서버(Firestore 서비스 계정)에서만 읽는다. 브라우저는 Firestore에 직접 접근하지 않는다.
 - 사진: 쿠키 확인을 통과한 뒤에만 서버가 그 페이지의 사진마다 서명 주소를 만든다. 서명 주소는 다음 정각의 끝에 만료되므로
   (§2) 한 주소는 길게는 2시간 동안 열린다. 그 사이에 주소를 복사해 넘기면 받은 사람도 그 사진을 볼 수 있다. 서명 주소 없이
-  버킷 주소로는 열리지 않는다 (프로덕션 모드 규칙). 서명을 만들지 못하면 기록은 사진 없이 보여주고 "사진을 불러오지 못했습니다.
+  `storage.googleapis.com`의 버킷 주소로는 열리지 않는다. 버킷이 공개되어 있지 않아 Google Cloud IAM이 막기 때문이다. 프로덕션 모드
+  규칙은 Firebase 클라이언트 SDK의 접근만 막고 이 주소에는 관여하지 않는다. 그래서 버킷을 공개로 바꾸거나 `progress/` 파일에 Firebase
+  다운로드 토큰을 만들면 안 된다 (§8). 서명을 만들지 못하면 기록은 사진 없이 보여주고 "사진을 불러오지 못했습니다.
   잠시 후 새로고침해 주세요."를 띄운다. 페이지는 서명되지 않은 주소를 내보내지 않는다.
 
 ### 뒷자리 확인
@@ -303,7 +305,7 @@ ALIGO_PROGRESS_SUBJECT=공사 진행 안내   # 선택
    링크가 없는 현장의 첫 기록, '완료' 저장이 링크를 닫는지, 링크가 있는 현장을 사무 화면에서 저장해도 `progressCode`가 그대로인지.
    Firestore의 조건부 쓰기는 로컬에서 실제 Firestore로 돌려 보지 못했다.
 7. Preview(실제 버킷)에서 확인: 사진 올리기, 고객 페이지와 미리보기의 사진 표시, 기록 삭제 뒤 Storage에서 사진이 사라지는지, 서명 주소의
-   `?` 뒤를 지운 버킷 주소가 열리지 않는지(403), 같은 한 시간 안에 새로고침해도 사진 주소가 같은지. 서비스 계정의 Storage 권한과 실제
+   `?` 뒤를 지운 버킷 주소가 열리지 않는지(403, IAM), `progress/` 파일에 Firebase 다운로드 토큰이 없는지, 같은 한 시간 안에 새로고침해도 사진 주소가 같은지. 서비스 계정의 Storage 권한과 실제
    업로드·삭제는 로컬에서 돌려 보지 못했다 (서명은 가짜 키로 형식만 확인).
 
 ## 8. 배포 순서 (대표님 작업)
@@ -313,21 +315,27 @@ ALIGO_PROGRESS_SUBJECT=공사 진행 안내   # 선택
 Preview 확인과 병합에 앞서 아래를 끝낸다.
 
 1. **Firebase Storage 버킷.** Firebase 콘솔의 Storage에서 기본 버킷 `weve-7420b.firebasestorage.app`을 만든다. 위치는 US-WEST1,
-   규칙은 프로덕션 모드(모든 클라이언트 접근 거부)로 고른다. 서버는 Firestore와 같은 서비스 계정을 쓰므로 새 키는 필요 없다. 다른 이름의
+   규칙은 프로덕션 모드(모든 Firebase 클라이언트 접근 거부)로 고른다. 서버는 Firestore와 같은 서비스 계정을 쓰므로 새 키는 필요 없다. 다른 이름의
    버킷을 쓸 때만 Vercel(Production과 Preview)에 `FIREBASE_STORAGE_BUCKET`을 넣는다. 서비스 계정이나 버킷 이름이 없으면 사진 올리기가
    "사진 저장소(Firebase Storage)가 설정되지 않았습니다. 관리자에게 문의해 주세요."로 막히고, 버킷을 만들지 않았으면
    "사진을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요."가 나온다. Preview도 같은 버킷을 쓰므로 Preview에서 올린 시험 사진도
    이 버킷에 들어간다 (시험 기록을 지우면 사진도 지워진다).
-2. **권한.** 사진 올리기가 "사진 저장소 권한이 없습니다. 관리자에게 문의해 주세요."로 막히면, Google Cloud 콘솔의 IAM에서 서비스 계정
-   (서비스 계정 JSON의 `client_email`)에 그 버킷의 "Storage 개체 관리자(Storage Object Admin)" 역할을 준다.
-3. **비용.** Blaze 요금제의 무료 사용량은 미국 리전 기준으로 저장 약 5GB와 일정량의 다운로드까지다. 넘으면 Google Cloud가 요금을
+2. **권한.** 사진 올리기가 "사진 저장소 권한이 없습니다. 관리자에게 문의해 주세요."로 막히면 Google Cloud 콘솔 → IAM 및 관리자 → IAM에서
+   서비스 계정(서비스 계정 JSON의 `client_email`)을 찾아 수정(연필)을 누르고, "Storage 개체 관리자(Storage Object Admin)" 역할을
+   추가해 저장한다. 프로젝트 전체에 주는 권한이라 이 프로젝트의 모든 버킷에 적용되지만, 서버만 쓰는 계정이라 받아들일 만하다.
+3. **버킷을 공개하지 않는다.** 버킷 권한에 `allUsers`나 `allAuthenticatedUsers`를 넣지 않는다. 서명 없는 주소를 막는 것은 Firebase
+   규칙이 아니라 이 IAM 설정이다 (§3). 공개로 바꾸면 사진 위치를 아는 누구나 사진을 볼 수 있다.
+4. **`progress/` 파일에 다운로드 토큰을 만들지 않는다.** Firebase 콘솔의 Storage에서 `progress/` 안의 파일을 열어 보거나 "새 액세스 토큰
+   만들기(Create new access token)"를 누르면 콘솔이 Firebase 다운로드 토큰을 만들 수 있다. 그 토큰이 붙은 주소는 규칙을 거치지 않고
+   만료되지도 않는다. 고객 사진은 관리자 화면의 미리보기로 확인한다. 토큰이 생겼다면 콘솔의 파일 정보에서 그 토큰을 취소한다.
+5. **비용.** Blaze 요금제의 무료 사용량은 미국 리전 기준으로 저장 약 5GB와 일정량의 다운로드까지다. 넘으면 Google Cloud가 요금을
    청구한다. Google Cloud Billing에서 예산 알림을 걸어 두기를 권한다.
-4. Sanity 데이터셋 비공개 전환은 더 이상 이 기능의 준비 단계가 아니다. Sanity 무료 요금제는 데이터셋을 비공개로 바꿀 수 없어서
+6. Sanity 데이터셋 비공개 전환은 더 이상 이 기능의 준비 단계가 아니다. Sanity 무료 요금제는 데이터셋을 비공개로 바꿀 수 없어서
    고객 사진을 Firebase Storage로 옮겼다 (§2).
-5. Firestore 보안 규칙이 사무 컬렉션(`officeSites`, `officeCustomers` 등)과 `siteProgressUpdates`에 대한 브라우저의 직접 접근을 막는지
+7. Firestore 보안 규칙이 사무 컬렉션(`officeSites`, `officeCustomers` 등)과 `siteProgressUpdates`에 대한 브라우저의 직접 접근을 막는지
    확인한다. 진행 현황 코드가 `officeSites`에 들어 있어서, 규칙이 열려 있으면 Firebase 토큰을 가진 브라우저가 코드를 직접 읽을 수 있다.
-6. `MANAGER_SESSION_SECRET`은 32바이트 이상의 긴 무작위 값이어야 한다. 고객 쿠키는 이 값에서 파생한 키로 서명한다 (§3).
-7. `ALIGO_TEST_MODE=Y`는 Vercel의 Preview 환경에만 넣는다 (§5).
+8. `MANAGER_SESSION_SECRET`은 32바이트 이상의 긴 무작위 값이어야 한다. 고객 쿠키는 이 값에서 파생한 키로 서명한다 (§3).
+9. `ALIGO_TEST_MODE=Y`는 Vercel의 Preview 환경에만 넣는다 (§5).
 
 ### 순서
 

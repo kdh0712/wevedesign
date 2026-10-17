@@ -87,7 +87,7 @@ const BAD_PATHNAMES = [
   ' progress/0123456789abcdef01234567.jpg',
   'other/0123456789abcdef01234567.jpg',
   'progress-a1b2c3d4e5f6.jpg',
-  'https://abc.private.blob.vercel-storage.com/progress/0123456789abcdef01234567.jpg',
+  'https://storage.googleapis.com/weve-7420b.firebasestorage.app/progress/0123456789abcdef01234567.jpg',
   'https://cdn.sanity.io/images/q2qjj1se/production/abc123-800x600.jpg',
   '',
   undefined,
@@ -115,7 +115,9 @@ test('parseCreateUpdate accepts only a progress/<24 hex>.<jpg|png|webp> pathname
 });
 
 test('parseCreateUpdate rejects a photo that carries a url, since a stored record never holds one', () => {
-  for (const url of ['https://abc.private.blob.vercel-storage.com/progress/0123456789abcdef01234567.jpg?vercel-blob-signature=x', '', null]) {
+  const signedUrl =
+    'https://storage.googleapis.com/weve-7420b.firebasestorage.app/progress/0123456789abcdef01234567.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Expires=7200&X-Goog-Signature=abc123';
+  for (const url of [signedUrl, '', null]) {
     assert.equal(parseCreateUpdate(body({ photos: [photo({ url })] })).ok, false, String(url));
   }
 });
@@ -212,7 +214,8 @@ test('parsePhotoSize reads the width and height form fields as whole pixels from
 test('a stored photo is read back as id, pathname, width and height only, never with a url', () => {
   const stored = { id: '0123456789abcdef', pathname: 'progress/0123456789abcdef01234567.jpg', width: 1600, height: 1200 };
   assert.deepEqual(readStoredPhoto(stored), stored);
-  assert.deepEqual(readStoredPhoto({ ...stored, url: 'https://abc.private.blob.vercel-storage.com/x', extra: 1 }), stored);
+  const url = 'https://storage.googleapis.com/weve-7420b.firebasestorage.app/progress/0123456789abcdef01234567.jpg?X-Goog-Signature=abc123';
+  assert.deepEqual(readStoredPhoto({ ...stored, url, extra: 1 }), stored);
   assert.deepEqual(readStoredPhoto({ ...stored, width: 'x', height: undefined }), { ...stored, width: 0, height: 0 });
 });
 
