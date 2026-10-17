@@ -1023,6 +1023,10 @@ export default function ManagerPage() {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
+    const account = visibleAccounts.find((item) => item._id === id);
+    const accountName = account?.name || account?.loginId || '';
+    const selfWarning = id === currentUser?.id ? '\n지금 로그인한 본인 계정입니다.' : '';
+    if (!window.confirm(`${accountName ? `'${accountName}'` : '선택한'} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`)) return;
     setSavingOffice(true);
     try {
       const response = await fetch('/api/manager/accounts', {
@@ -1225,10 +1229,26 @@ export default function ManagerPage() {
     }
   };
 
+  const confirmOfficeRecordDelete = (id: string, type?: OfficeType) => {
+    const name = officeRecordDisplayName(officeData, id, type);
+    const target = `${name ? `'${name}'` : '선택한'} ${type ? officeRecordDeleteLabels[type] : '항목을'}`;
+
+    if (type === 'site') {
+      const linkedEstimateCount = officeData.estimates.filter((estimate) => estimate.siteId === id).length;
+      if (linkedEstimateCount > 0) {
+        window.alert(`${name ? `'${name}'` : '이'} 현장에 견적 버전 ${linkedEstimateCount}개가 연결되어 있어 삭제할 수 없습니다.\n견적 작업에서 견적 버전을 먼저 삭제한 뒤 다시 시도해 주세요.`);
+        return false;
+      }
+    }
+
+    return window.confirm(`${target} 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.`);
+  };
+
   const deleteOfficeRecord = async (id: string, type?: OfficeType) => {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
+    if (!confirmOfficeRecordDelete(id, type)) return;
 
     setSavingOffice(true);
     try {
@@ -4353,6 +4373,7 @@ function DailyReportModal({
                       <button
                         type="button"
                         onClick={() => {
+                          if (!window.confirm(`${record.reportDate || ''} ${index + 1}번째 보고서를 삭제할까요?\n삭제 후에는 되돌릴 수 없습니다.`.trim())) return;
                           const nextRecords = previewReportGroup.records.filter((item) => item.id !== record.id);
                           deleteReportRecord(record.id);
                           setPreviewReportGroup(nextRecords.length ? { ...previewReportGroup, records: nextRecords } : null);
@@ -6233,6 +6254,45 @@ function toJpegFileName(fileName: string) {
 
 function formatMoney(value: number) {
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
+}
+
+const officeRecordDeleteLabels: Record<OfficeType, string> = {
+  consultation: '상담을',
+  customer: '고객을',
+  site: '현장을',
+  sale: '매출을',
+  inventory: '재고 품목을',
+  vendor: '거래처를',
+  project: '프로젝트를',
+};
+
+function officeRecordDisplayName(data: OfficeData, id: string, type?: OfficeType) {
+  switch (type) {
+    case 'consultation': {
+      const record = data.consultations.find((item) => item._id === id);
+      return record?.name || record?.phone || '';
+    }
+    case 'customer': {
+      const record = data.customers.find((item) => item._id === id);
+      return record?.name || record?.phone || '';
+    }
+    case 'site': {
+      const record = data.sites.find((item) => item._id === id);
+      return record?.title || record?.customerName || '';
+    }
+    case 'sale': {
+      const record = data.sales.find((item) => item._id === id);
+      return record ? `${record.projectTitle || record.customerName || '매출 항목'} · ${formatMoney(Number(record.amount || 0))}` : '';
+    }
+    case 'inventory':
+      return data.inventory.find((item) => item._id === id)?.itemName || '';
+    case 'vendor':
+      return data.vendors.find((item) => item._id === id)?.name || '';
+    case 'project':
+      return data.projects.find((item) => item._id === id)?.title || '';
+    default:
+      return '';
+  }
 }
 
 function formatDate(value?: string) {
