@@ -678,6 +678,8 @@ export default function ManagerPage() {
   const saleFormRef = useRef<HTMLDivElement | null>(null);
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
+  const refreshInFlightRef = useRef(false);
+  const kakaoConfiguredRef = useRef(true);
 
   const visibleTabs = useMemo(() => {
     if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts');
@@ -866,11 +868,21 @@ export default function ManagerPage() {
   useEffect(() => {
     if (!isUnlocked || !password) return;
 
-    const timer = window.setInterval(() => {
+    // Hidden tabs skip the refresh; coming back to the tab refreshes right away when the data is stale.
+    let lastRefreshAt = Date.now();
+    const refreshIfDue = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastRefreshAt < (OFFICE_REFRESH_SECONDS - 1) * 1000) return;
+      lastRefreshAt = Date.now();
       void refreshOfficeData(password);
-    }, OFFICE_REFRESH_SECONDS * 1000);
+    };
+    const timer = window.setInterval(refreshIfDue, OFFICE_REFRESH_SECONDS * 1000);
+    document.addEventListener('visibilitychange', refreshIfDue);
 
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshIfDue);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUnlocked, password]);
 
@@ -919,6 +931,7 @@ export default function ManagerPage() {
       });
       const data = await readJsonResponse<KakaoSyncStatus>(response);
       setKakaoSyncStatus(data);
+      kakaoConfiguredRef.current = data.configured !== false;
       return response.ok ? data : null;
     } catch {
       setKakaoSyncStatus({ configured: true, error: '카카오 연동 서버에 연결하지 못했습니다.' });
@@ -1173,11 +1186,14 @@ export default function ManagerPage() {
   };
 
   const refreshOfficeData = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
-    if (!managerPassword) return;
+    if (!managerPassword || refreshInFlightRef.current) return;
 
+    refreshInFlightRef.current = true;
     try {
-      await syncKakaoBizForm(managerPassword, firebaseAuthToken);
-      const response = await fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) });
+      // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
+      if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken);
+      // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
+      const response = await fetch('/api/manager/office?scope=refresh', { headers: authHeaders(managerPassword, firebaseAuthToken) });
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
 
@@ -1190,14 +1206,16 @@ export default function ManagerPage() {
         sales: data.sales || [],
         inventory: data.inventory || [],
         vendors: data.vendors || [],
-        categories: data.categories || [],
-        projects: data.projects || [],
+        categories: data.categories || current.categories,
+        projects: data.projects || current.projects,
         visitStats: data.visitStats,
       }));
       setVisitStats(data.visitStats || null);
       setLastRefreshedAt(formatTime(new Date()));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 자동 갱신 중 오류가 발생했습니다.');
+    } finally {
+      refreshInFlightRef.current = false;
     }
   };
 
@@ -1903,6 +1921,8 @@ export default function ManagerPage() {
       setUploadDescription('');
       setFeatured(false);
       setStatus('현장 사진 업로드가 완료되었습니다.');
+      // The periodic refresh skips the portfolio, so load the new project here.
+      void loadOfficeData(password, { silent: true });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업로드 중 오류가 발생했습니다.');
     } finally {

@@ -156,10 +156,37 @@ async function getVisitStats() {
   };
 }
 
+// Server-Timing shows in the browser's network panel and the log line in Vercel, so the dashboard payload
+// (and how much of it is estimate lines) can be checked against real data.
+function timedJson(payload: Record<string, unknown>, startedAt: number, label: string) {
+  const readMs = Date.now() - startedAt;
+  const body = JSON.stringify(payload);
+  const jsonMs = Date.now() - startedAt - readMs;
+  const estimates = Array.isArray(payload.estimates) ? (payload.estimates as Array<{ linesJson?: unknown }>) : [];
+  const estimateBytes = Buffer.byteLength(JSON.stringify(estimates));
+  const linesBytes = estimates.reduce(
+    (sum, estimate) => sum + (typeof estimate.linesJson === 'string' ? Buffer.byteLength(estimate.linesJson) : 0),
+    0,
+  );
+  console.info(
+    `Office GET ${label}: ${Buffer.byteLength(body)} bytes, estimates ${estimates.length} versions ${estimateBytes} bytes (linesJson ${linesBytes}), read ${readMs}ms, json ${jsonMs}ms`,
+  );
+  return new NextResponse(body, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Server-Timing': `read;dur=${readMs}, json;dur=${jsonMs}`,
+    },
+  });
+}
+
 export async function GET(request: Request) {
   const authError = assertManager(request);
   if (authError) return authError;
 
+  const startedAt = Date.now();
+  // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
+  const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
+  const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
     if (shouldUseFirestoreErp()) {
       try {
@@ -169,32 +196,40 @@ export async function GET(request: Request) {
 
         const [officeData, publicData, visitStats] = await Promise.all([
           readOfficeDataFromFirestore(request),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
-        return NextResponse.json({ ...officeData, ...publicData, visitStats });
+        return timedJson({ ...officeData, ...publicData, visitStats }, startedAt, isRefresh ? 'firestore refresh' : 'firestore');
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
         console.error('Firestore office data fetch failed:', firestoreError);
 
         const [fallbackData, publicData, visitStats] = await Promise.all([
           managerClient.fetch(query).catch(() => null),
-          readPublicData(),
+          readPortfolio(),
           getVisitStats(),
         ]);
 
-        return NextResponse.json({
-          ...(fallbackData || emptyOfficeData),
-          ...publicData,
-          visitStats,
-          storageWarning: `Firestore 연결 확인 필요: ${warning}`,
-        });
+        return timedJson(
+          {
+            ...(fallbackData || emptyOfficeData),
+            ...publicData,
+            visitStats,
+            storageWarning: `Firestore 연결 확인 필요: ${warning}`,
+          },
+          startedAt,
+          'sanity fallback',
+        );
       }
     }
 
     const data = await managerClient.fetch(query);
     data.visitStats = await getVisitStats();
-    return NextResponse.json(data);
+    if (isRefresh) {
+      delete data.categories;
+      delete data.projects;
+    }
+    return timedJson(data, startedAt, isRefresh ? 'sanity refresh' : 'sanity');
   } catch (error) {
     console.error('Office data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 불러오지 못했습니다.') }, { status: 500 });
