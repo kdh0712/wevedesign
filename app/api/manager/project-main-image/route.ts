@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { assertManager, managerClient } from '../_utils';
+import { managerClient } from '../_utils';
+import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -7,8 +8,8 @@ export const maxDuration = 60;
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['portfolio'] });
+  if (access.error) return access.error;
 
   try {
     const formData = await request.formData();

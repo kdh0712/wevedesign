@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
-import { assertManager, managerClient } from '../_utils';
+import { managerClient } from '../_utils';
+import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
 
 const imageFields = new Set(['heroImage', 'heroImage2', 'heroImage3', 'popupImage', 'popupUpload']);
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['portfolio'] });
+  if (access.error) return access.error;
 
   try {
     const formData = await request.formData();

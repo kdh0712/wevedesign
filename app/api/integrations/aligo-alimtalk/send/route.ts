@@ -1,4 +1,5 @@
-import { assertManager, assertSanityWriteConfigured, managerClient } from '../../../manager/_utils';
+import { assertSanityWriteConfigured, managerClient } from '../../../manager/_utils';
+import { requireManager } from '../../../manager/_session';
 import {
   canUseFirestoreForRequest,
   readOfficeDataFromFirestore,
@@ -88,8 +89,8 @@ async function markContractAlimtalkSent(request: Request, customer: StoredCustom
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['customers'] });
+  if (access.error) return access.error;
 
   try {
     const body = (await request.json()) as AligoSendRequest;

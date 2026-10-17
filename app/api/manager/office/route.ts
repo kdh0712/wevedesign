@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { assertManager, assertSanityWriteConfigured, getOrCreateCategory, managerClient } from '../_utils';
+import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
+import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
+import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -194,16 +196,18 @@ function timedJson(payload: Record<string, unknown>, startedAt: number, label: s
 }
 
 export async function GET(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
+  const { session } = access;
 
   const startedAt = Date.now();
   // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
   const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
   const readPortfolio = () => (isRefresh ? Promise.resolve({}) : readPublicData());
   try {
-    // ?view=trash lists the records in the 휴지통 instead of the dashboard data.
+    // ?view=trash lists the records in the 휴지통 instead of the dashboard data. Like the 휴지통 tab, it is admin-only.
     if (new URL(request.url).searchParams.get('view') === 'trash') {
+      if (session.role !== 'admin') return NextResponse.json({ error: '총괄 관리자만 사용할 수 있습니다.' }, { status: 403 });
       const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
       return NextResponse.json(useFirestore ? await readOfficeTrashFromFirestore(request) : await managerClient.fetch(trashQuery));
     }
@@ -219,7 +223,11 @@ export async function GET(request: Request) {
           readPortfolio(),
           getVisitStats(),
         ]);
-        return timedJson({ ...officeData, ...publicData, visitStats }, startedAt, isRefresh ? 'firestore refresh' : 'firestore');
+        return timedJson(
+          filterOfficeData(session, { ...officeData, ...publicData, visitStats }),
+          startedAt,
+          isRefresh ? 'firestore refresh' : 'firestore',
+        );
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
         console.error('Firestore office data fetch failed:', firestoreError);
@@ -231,12 +239,12 @@ export async function GET(request: Request) {
         ]);
 
         return timedJson(
-          {
+          filterOfficeData(session, {
             ...(fallbackData || emptyOfficeData),
             ...publicData,
             visitStats,
             storageWarning: `Firestore 연결 확인 필요: ${warning}`,
-          },
+          }),
           startedAt,
           'sanity fallback',
         );
@@ -249,7 +257,7 @@ export async function GET(request: Request) {
       delete data.categories;
       delete data.projects;
     }
-    return timedJson(data, startedAt, isRefresh ? 'sanity refresh' : 'sanity');
+    return timedJson(filterOfficeData(session, data), startedAt, isRefresh ? 'sanity refresh' : 'sanity');
   } catch (error) {
     console.error('Office data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 불러오지 못했습니다.') }, { status: 500 });
@@ -257,8 +265,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
@@ -267,6 +275,10 @@ export async function POST(request: Request) {
 
     if (!sanityType) {
       return NextResponse.json({ error: '지원하지 않는 업무 데이터 유형입니다.' }, { status: 400 });
+    }
+
+    if (!canWriteOffice(access.session, type)) {
+      return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
     const cleanData = sanitizeRecord(body?.data || {});
@@ -279,6 +291,10 @@ export async function POST(request: Request) {
     }
 
     if (type === 'project') {
+      if (body?.id && !(await isSanityIdWritable(String(body.id).replace(/^drafts\./, ''), 'project'))) {
+        return NextResponse.json({ error: '수정할 프로젝트를 찾을 수 없습니다.' }, { status: 400 });
+      }
+
       const sanityError = assertSanityWriteConfigured();
       if (sanityError) return sanityError;
 
@@ -319,6 +335,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ record });
     }
 
+    if (body?.id && !(await isSanityIdWritable(String(body.id), sanityType))) {
+      return NextResponse.json({ error: '수정할 항목을 찾을 수 없습니다.' }, { status: 400 });
+    }
+
     const sanityError = assertSanityWriteConfigured();
     if (sanityError) return sanityError;
 
@@ -336,8 +356,8 @@ export async function POST(request: Request) {
 // Moves an office record to the 휴지통 (sets deletedAt / deletedBy). With permanent: true, removes a record that is
 // already in the 휴지통.
 export async function DELETE(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
@@ -353,11 +373,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
     }
 
-    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
-    if (!useFirestore) {
-      const sanityError = assertSanityWriteConfigured();
-      if (sanityError) return sanityError;
+    if (!canWriteOffice(access.session, type)) {
+      return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
+
+    // Moving to the 휴지통 follows the record type's permission; emptying it is admin-only like the 휴지통 tab.
+    if (permanent && access.session.role !== 'admin') return NextResponse.json({ error: '총괄 관리자만 사용할 수 있습니다.' }, { status: 403 });
+
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
 
     if (type === 'site') {
       const linkedEstimateCount = await countSiteEstimates(request, id, useFirestore);
@@ -378,6 +401,11 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: '삭제할 수 없는 항목입니다.' }, { status: 400 });
     }
 
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
+    }
+
     if (permanent) {
       if (!existing.deletedAt) {
         return NextResponse.json({ error: '휴지통에 있는 항목만 영구 삭제할 수 있습니다.' }, { status: 409 });
@@ -390,7 +418,8 @@ export async function DELETE(request: Request) {
 
     const trash = {
       deletedAt: new Date().toISOString(),
-      deletedBy: String(body?.deletedBy || request.headers.get('x-manager-user') || '').trim().slice(0, 80),
+      // Who deleted it comes from the signed session, not from anything the browser sends.
+      deletedBy: (access.session.name || access.session.loginId).slice(0, 80),
     };
 
     if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, trash);
@@ -404,8 +433,9 @@ export async function DELETE(request: Request) {
 
 // Restores an office record from the 휴지통.
 export async function PATCH(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  // Restoring happens in the admin-only 휴지통 tab.
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
@@ -417,14 +447,15 @@ export async function PATCH(request: Request) {
     }
 
     const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
-    if (!useFirestore) {
-      const sanityError = assertSanityWriteConfigured();
-      if (sanityError) return sanityError;
-    }
 
     const existing = await findOfficeRecord(request, type, id, useFirestore);
     if (!existing || (!useFirestore && existing._type !== typeMap[type])) {
       return NextResponse.json({ error: '복구할 항목을 찾을 수 없습니다. 이미 영구 삭제되었을 수 있습니다.' }, { status: 404 });
+    }
+
+    if (!useFirestore) {
+      const sanityError = assertSanityWriteConfigured();
+      if (sanityError) return sanityError;
     }
 
     if (useFirestore) await setOfficeRecordTrashInFirestore(request, type, id, existing, null);

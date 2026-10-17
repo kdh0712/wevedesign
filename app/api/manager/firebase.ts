@@ -1,3 +1,5 @@
+import { googleAccessToken } from './firestore';
+
 const firebaseApiKey = () => process.env.FIREBASE_API_KEY || process.env.NEXT_PUBLIC_FIREBASE_API_KEY || '';
 const firebaseDatabaseUrl = () =>
   (process.env.FIREBASE_DATABASE_URL || process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || '').replace(/\/$/, '');
@@ -69,18 +71,33 @@ export async function firebaseLookup(idToken: string) {
   return data.users?.[0] || null;
 }
 
-export async function getFirebaseProfile(uid: string, idToken: string) {
+export type FirebaseDbAuth = { idToken: string } | { accessToken: string };
+
+const RTDB_ADMIN_SCOPE = 'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
+
+const dbAuthQuery = (auth: FirebaseDbAuth) =>
+  'accessToken' in auth ? `access_token=${encodeURIComponent(auth.accessToken)}` : `auth=${encodeURIComponent(auth.idToken)}`;
+
+// Account management needs admin access to /users. The service account is not bound by the database rules;
+// without one, the signed-in Firebase admin's own token is used.
+export async function firebaseAdminDbAuth(adminIdToken?: string): Promise<FirebaseDbAuth | null> {
+  const accessToken = await googleAccessToken(RTDB_ADMIN_SCOPE);
+  if (accessToken) return { accessToken };
+  return adminIdToken ? { idToken: adminIdToken } : null;
+}
+
+export async function getFirebaseProfile(uid: string, auth: FirebaseDbAuth) {
   const profile = await firebaseFetch<Omit<FirebaseProfile, 'uid'> | null>(
-    `${firebaseDatabaseUrl()}/users/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(idToken)}`,
+    `${firebaseDatabaseUrl()}/users/${encodeURIComponent(uid)}.json?${dbAuthQuery(auth)}`,
   );
 
   return profile ? { ...profile, uid } : null;
 }
 
-export async function getFirebaseAdminFlag(uid: string, idToken: string) {
+export async function getFirebaseAdminFlag(uid: string, auth: FirebaseDbAuth) {
   try {
     const value = await firebaseFetch<boolean | string | null>(
-      `${firebaseDatabaseUrl()}/launcher_admins/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(idToken)}`,
+      `${firebaseDatabaseUrl()}/launcher_admins/${encodeURIComponent(uid)}.json?${dbAuthQuery(auth)}`,
     );
     return value === true || String(value).toLowerCase() === 'true';
   } catch {
@@ -88,17 +105,17 @@ export async function getFirebaseAdminFlag(uid: string, idToken: string) {
   }
 }
 
-export async function getFirebaseAccounts(idToken: string) {
+export async function getFirebaseAccounts(auth: FirebaseDbAuth) {
   const rows = await firebaseFetch<Record<string, Omit<FirebaseProfile, 'uid'>> | null>(
-    `${firebaseDatabaseUrl()}/users.json?auth=${encodeURIComponent(idToken)}`,
+    `${firebaseDatabaseUrl()}/users.json?${dbAuthQuery(auth)}`,
   );
 
   return Object.entries(rows || {}).map(([uid, profile]) => ({ uid, ...profile }));
 }
 
-export async function setFirebaseProfile(uid: string, idToken: string, profile: Omit<FirebaseProfile, 'uid'>) {
+export async function setFirebaseProfile(uid: string, auth: FirebaseDbAuth, profile: Omit<FirebaseProfile, 'uid'>) {
   return firebaseFetch<Omit<FirebaseProfile, 'uid'>>(
-    `${firebaseDatabaseUrl()}/users/${encodeURIComponent(uid)}.json?auth=${encodeURIComponent(idToken)}`,
+    `${firebaseDatabaseUrl()}/users/${encodeURIComponent(uid)}.json?${dbAuthQuery(auth)}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },

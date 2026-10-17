@@ -28,6 +28,8 @@ import {
   WalletCards,
   Instagram,
 } from 'lucide-react';
+import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
+import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type UploadResult = {
@@ -71,7 +73,7 @@ type ManagerUser = {
   name: string;
   loginId: string;
   role: 'admin' | 'staff';
-  permissions: TabKey[];
+  permissions: ManagerPermission[];
 };
 
 type ManagerAccount = {
@@ -326,6 +328,7 @@ type OfficeApiResponse = Partial<OfficeData> & {
 type AuthApiResponse = {
   error?: string;
   token?: string;
+  expiresAt?: number;
   firebaseToken?: string;
   user?: ManagerUser;
 };
@@ -356,8 +359,7 @@ const emptyOfficeData: OfficeData = {
 };
 
 const OFFICE_REFRESH_SECONDS = 30;
-const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
-const MANAGER_SESSION_MAX_AGE_MS = 8 * 60 * 60 * 1000;
+const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
 
 const homepagePreviewTargets = {
   heroLabel: { key: 'heroLabel', label: '배너 작은 문구', src: '/#home' },
@@ -540,6 +542,7 @@ const managerSections: Array<{ key: string; label: string; icon: React.ReactNode
 ];
 
 export default function ManagerPage() {
+  // Holds the signed session token from /api/manager/auth (the name predates signed sessions).
   const [password, setPassword] = useState('');
   const [firebaseToken, setFirebaseToken] = useState('');
   const [loginId, setLoginId] = useState('admin');
@@ -706,8 +709,19 @@ export default function ManagerPage() {
   const visibleTabs = useMemo(() => {
     if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts' && tab.key !== 'trash');
     if (currentUser.role === 'admin') return tabs;
-    return tabs.filter((tab) => tab.key !== 'trash' && currentUser.permissions.includes(tab.key));
+    const granted: string[] = effectivePermissions('staff', currentUser.permissions);
+    return tabs.filter((tab) => granted.includes(tab.key));
   }, [currentUser]);
+
+  const dashboardAccess = useMemo(
+    () => ({
+      sales: hasAnyPermission(currentUser, ['sales']),
+      estimates: hasAnyPermission(currentUser, ['estimates', 'sales']),
+      estimateWorkspace: hasAnyPermission(currentUser, ['estimates']),
+      alimtalk: hasAnyPermission(currentUser, ['customers']),
+    }),
+    [currentUser],
+  );
 
   const visibleSections = useMemo(() => {
     const visibleKeys = new Set(visibleTabs.map((tab) => tab.key));
@@ -852,9 +866,8 @@ export default function ManagerPage() {
   }, [officeData.sites, selectedDashboardSiteId]);
 
   useEffect(() => {
-    window.localStorage.removeItem('weve-manager-session');
-    window.localStorage.removeItem('weve-manager-password');
-    const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
+    // Also drops sessions saved before signed tokens and the old localStorage keys.
+    const savedSession = readStoredSession();
     if (!savedSession) {
       setIsRestoringSession(false);
       return;
@@ -864,34 +877,26 @@ export default function ManagerPage() {
     const restoreSession = async () => {
       setIsRestoringSession(true);
       try {
-        const parsed = JSON.parse(savedSession) as {
-          token?: string;
-          firebaseToken?: string;
-          user?: ManagerUser;
-          savedAt?: number;
-        };
-        const isExpired = !parsed.savedAt || Date.now() - parsed.savedAt > MANAGER_SESSION_MAX_AGE_MS;
-        if (!parsed.token || !parsed.user || isExpired) throw new Error('저장된 로그인 세션이 만료되었습니다.');
-
-        setPassword(parsed.token);
-        setFirebaseToken(parsed.firebaseToken || '');
-        setCurrentUser(parsed.user);
-        setLoginId(parsed.user.loginId || 'admin');
-        const loaded = await loadOfficeData(parsed.token, { silent: true }, parsed.firebaseToken || '');
+        setPassword(savedSession.token);
+        setFirebaseToken(savedSession.firebaseToken);
+        setCurrentUser(savedSession.user);
+        setLoginId(savedSession.user.loginId || 'admin');
+        const loaded = await loadOfficeData(savedSession.token, { silent: true }, savedSession.firebaseToken);
         if (!loaded) throw new Error('저장된 로그인 정보를 확인할 수 없습니다.');
         if (!cancelled) {
           setStatus('로그인 상태를 복원했습니다.');
           // Kakao sync can take several seconds, so it runs after the dashboard is open.
-          void refreshOfficeData(parsed.token, parsed.firebaseToken || '');
+          void refreshOfficeData(savedSession.token, savedSession.firebaseToken, savedSession.user);
         }
       } catch (caught) {
-        window.sessionStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
+        clearStoredSession();
         if (!cancelled) {
           setPassword('');
           setFirebaseToken('');
           setCurrentUser(null);
           setIsUnlocked(false);
-          setError(caught instanceof Error ? caught.message : '다시 로그인해 주세요.');
+          // Keep a more specific message (e.g. session expired) that loadOfficeData already set.
+          setError((current) => current || (caught instanceof Error ? caught.message : '다시 로그인해 주세요.'));
         }
       } finally {
         if (!cancelled) setIsRestoringSession(false);
@@ -943,10 +948,18 @@ export default function ManagerPage() {
   }, [activeTab, currentUser?.role]);
 
   const authHeaders = (managerPassword = password, firebaseAuthToken = firebaseToken) => ({
-    'x-manager-password': managerPassword,
-    'x-manager-user': currentUser?.loginId || 'admin',
+    Authorization: `Bearer ${managerPassword}`,
     ...(firebaseAuthToken ? { 'x-firebase-token': firebaseAuthToken } : {}),
   });
+
+  const expireSession = () => {
+    clearStoredSession();
+    setPassword('');
+    setFirebaseToken('');
+    setCurrentUser(null);
+    setIsUnlocked(false);
+    setError(SESSION_EXPIRED_MESSAGE);
+  };
 
   const readJsonResponse = async <T,>(response: Response): Promise<T> => {
     const text = await response.text();
@@ -965,8 +978,8 @@ export default function ManagerPage() {
     return false;
   };
 
-  const syncKakaoBizForm = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
-    if (!managerPassword) return null;
+  const syncKakaoBizForm = async (managerPassword = password, firebaseAuthToken = firebaseToken, user = currentUser) => {
+    if (!managerPassword || !hasAnyPermission(user, ['consultations'])) return null;
     try {
       const response = await fetch('/api/integrations/kakao-bizform/sync', {
         method: 'POST',
@@ -993,7 +1006,7 @@ export default function ManagerPage() {
         body: JSON.stringify({ loginId, password: loginPassword }),
       });
       const result = await readJsonResponse<AuthApiResponse>(response);
-      if (!response.ok || !result.token || !result.user) {
+      if (!response.ok || !result.token || !result.user || !result.expiresAt) {
         throw new Error(result.error || '로그인에 실패했습니다.');
       }
 
@@ -1002,13 +1015,10 @@ export default function ManagerPage() {
       setCurrentUser(result.user);
       const loaded = await loadOfficeData(result.token, { silent: true }, result.firebaseToken || '');
       if (!loaded) throw new Error('관리자 데이터를 불러오지 못했습니다. 다시 로그인해 주세요.');
-      window.sessionStorage.setItem(
-        MANAGER_SESSION_STORAGE_KEY,
-        JSON.stringify({ token: result.token, firebaseToken: result.firebaseToken || '', user: result.user, savedAt: Date.now() }),
-      );
+      saveStoredSession({ token: result.token, expiresAt: result.expiresAt, user: result.user, firebaseToken: result.firebaseToken });
       // Kakao sync can take several seconds, so it runs after the dashboard is open.
-      void refreshOfficeData(result.token, result.firebaseToken || '');
-      if (result.user.role === 'admin') await loadAccounts(result.token, result.firebaseToken || '');
+      void refreshOfficeData(result.token, result.firebaseToken || '', result.user);
+      // The account list loads when the 계정 권한 tab opens, so its errors never block or clutter the login.
       setStatus('로그인했습니다.');
     } catch (caught) {
       setPassword('');
@@ -1022,9 +1032,7 @@ export default function ManagerPage() {
   };
 
   const handleLogout = () => {
-    window.sessionStorage.removeItem(MANAGER_SESSION_STORAGE_KEY);
-    window.localStorage.removeItem('weve-manager-session');
-    window.localStorage.removeItem('weve-manager-password');
+    clearStoredSession();
     setPassword('');
     setFirebaseToken('');
     setLoginPassword('');
@@ -1036,12 +1044,7 @@ export default function ManagerPage() {
   const loadAccounts = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
     if (!managerPassword) return;
     try {
-      const response = await fetch('/api/manager/accounts', {
-        headers: {
-          'x-manager-password': managerPassword,
-          ...(firebaseAuthToken ? { 'x-firebase-token': firebaseAuthToken } : {}),
-        },
-      });
+      const response = await fetch('/api/manager/accounts', { headers: authHeaders(managerPassword, firebaseAuthToken) });
       const data = await readJsonResponse<AccountApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '계정 목록을 불러오지 못했습니다.');
       setAccounts(data.accounts || []);
@@ -1118,6 +1121,10 @@ export default function ManagerPage() {
         fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
         fetch('/api/manager/settings', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
       ]);
+      if (response.status === 401 || settingsResponse.status === 401) {
+        expireSession();
+        return false;
+      }
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 불러오지 못했습니다.');
       const settingsData = await readJsonResponse<{ settings?: Partial<typeof homepageSettings>; error?: string }>(settingsResponse);
@@ -1219,24 +1226,25 @@ export default function ManagerPage() {
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
-      if (caught instanceof Error && caught.message.includes('비밀번호')) {
-        window.localStorage.removeItem('weve-manager-password');
-      }
       return false;
     } finally {
       if (!options.silent) setLoadingOffice(false);
     }
   };
 
-  const refreshOfficeData = async (managerPassword = password, firebaseAuthToken = firebaseToken) => {
+  const refreshOfficeData = async (managerPassword = password, firebaseAuthToken = firebaseToken, user = currentUser) => {
     if (!managerPassword || refreshInFlightRef.current) return;
 
     refreshInFlightRef.current = true;
     try {
       // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
-      if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken);
+      if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
       // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
       const response = await fetch('/api/manager/office?scope=refresh', { headers: authHeaders(managerPassword, firebaseAuthToken) });
+      if (response.status === 401) {
+        expireSession();
+        return;
+      }
       const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
 
@@ -1535,7 +1543,7 @@ export default function ManagerPage() {
         : `현장과 고객 ${customerName}님을 함께 등록했습니다.`,
     );
 
-    if (!wasEditing && savedSite._id) {
+    if (!wasEditing && savedSite._id && hasAnyPermission(currentUser, ['estimates'])) {
       window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(savedSite._id)}`;
     }
   };
@@ -2346,8 +2354,15 @@ export default function ManagerPage() {
           )}
 
           <div className="grid gap-4">
-        {activeTab === 'dashboard' && (
+        {visibleTabs.length === 0 && (
+          <Panel title="메뉴 권한 없음">
+            <p className="text-sm text-[#60717d]">이 계정에는 사용할 수 있는 메뉴 권한이 없습니다. 총괄 관리자에게 권한을 요청해 주세요.</p>
+          </Panel>
+        )}
+
+        {activeTab === 'dashboard' && visibleTabs.some((tab) => tab.key === 'dashboard') && (
           <DashboardOverview
+            access={dashboardAccess}
             officeData={officeData}
             homepageSettings={homepageSettings}
             visitStats={visitStats}
@@ -3609,7 +3624,10 @@ export default function ManagerPage() {
             disabled={savingOffice}
             onClose={() => setCompletionConsultation(null)}
             onCompleteOnly={() => completeConsultation(completionConsultation, false)}
-            onRegisterCustomer={() => completeConsultation(completionConsultation, true)}
+            onRegisterCustomer={
+              // Registering continues in the customer form, which needs the customers permission.
+              hasAnyPermission(currentUser, ['customers']) ? () => completeConsultation(completionConsultation, true) : undefined
+            }
           />
         )}
         {dailyReportSite && (
@@ -3824,7 +3842,10 @@ function DashboardOverview({
   onDeleteRecord,
   onOpenAlimtalk,
   onOpenDailyReport,
+  access,
 }: {
+  // What the signed-in account may see or start from the dashboard; the server already empties the data behind it.
+  access: { sales: boolean; estimates: boolean; estimateWorkspace: boolean; alimtalk: boolean };
   officeData: OfficeData;
   homepageSettings: {
     kakaoUrl?: string;
@@ -3877,8 +3898,10 @@ function DashboardOverview({
             <p className="mt-1 text-sm text-[#60717d]">상담, 현장, 견적, 매출 흐름을 한 화면에서 확인합니다.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[560px]">
-            <SummaryMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
-            <SummaryMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
+            {access.sales && <SummaryMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />}
+            {access.estimates && (
+              <SummaryMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
+            )}
             <SummaryMetric label="방문" value={`${visitStats?.todayCount || 0} / ${visitStats?.weekCount || 0}`} sub="오늘 / 이번 주" />
           </div>
         </div>
@@ -3946,12 +3969,16 @@ function DashboardOverview({
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={() => selectedSite?._id && onOpenEstimate(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#171512] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-40">
-                견적 작업
-              </button>
-              <button type="button" onClick={() => selectedSite?._id && onStartSale(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#f1c76a] px-3.5 py-2 text-sm font-semibold disabled:opacity-40">
-                매출 등록
-              </button>
+              {access.estimateWorkspace && (
+                <button type="button" onClick={() => selectedSite?._id && onOpenEstimate(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#171512] px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                  견적 작업
+                </button>
+              )}
+              {access.sales && (
+                <button type="button" onClick={() => selectedSite?._id && onStartSale(selectedSite._id)} disabled={!selectedSite?._id} className="rounded-md bg-[#f1c76a] px-3.5 py-2 text-sm font-semibold disabled:opacity-40">
+                  매출 등록
+                </button>
+              )}
             </div>
 
             {selectedSite ? (
@@ -3964,12 +3991,15 @@ function DashboardOverview({
                   </div>
                   <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(selectedSite.status || '상담중')}`}>{selectedSite.status || '상담중'}</span>
                 </div>
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  <MiniMetric label="최신 견적" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} />
-                  <MiniMetric label="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} />
-                  <MiniMetric label="등록 매출" value={selectedSale ? formatMoney(Number(selectedSale.amount || 0)) : '미등록'} />
-                </div>
+                {(access.estimates || access.sales) && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    {access.estimates && <MiniMetric label="최신 견적" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} />}
+                    {access.estimates && <MiniMetric label="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} />}
+                    {access.sales && <MiniMetric label="등록 매출" value={selectedSale ? formatMoney(Number(selectedSale.amount || 0)) : '미등록'} />}
+                  </div>
+                )}
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {access.alimtalk && (
                   <button
                     type="button"
                     onClick={() =>
@@ -3989,6 +4019,7 @@ function DashboardOverview({
                   >
                     알림톡
                   </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onOpenDailyReport(selectedSite._id)}
@@ -5029,7 +5060,7 @@ function ConsultationCompleteModal({
   disabled: boolean;
   onClose: () => void;
   onCompleteOnly: () => void;
-  onRegisterCustomer: () => void;
+  onRegisterCustomer?: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#17212b]/60 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
@@ -5037,7 +5068,7 @@ function ConsultationCompleteModal({
         <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Complete</p>
         <h2 className="mt-2 text-2xl font-semibold">상담 완료 처리</h2>
         <p className="mt-3 text-sm leading-6 text-[#60717d]">
-          {consultation.name || '고객'}님의 상담을 완료합니다. 고객 등록과 함께 비공개 현장도 만들까요?
+          {consultation.name || '고객'}님의 상담을 완료합니다.{onRegisterCustomer ? ' 고객 등록과 함께 비공개 현장도 만들까요?' : ''}
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
@@ -5046,9 +5077,11 @@ function ConsultationCompleteModal({
           <button type="button" onClick={onCompleteOnly} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
             상담만 완료
           </button>
-          <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-            고객 + 현장 등록
-          </button>
+          {onRegisterCustomer && (
+            <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+              고객 + 현장 등록
+            </button>
+          )}
         </div>
       </div>
     </div>

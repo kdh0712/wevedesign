@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { gzipSync, gunzipSync } from 'zlib';
 import * as XLSX from 'xlsx';
-import { assertManager, hashId, managerClient } from '../_utils';
+import { checkSanityDocumentType, hashId, isSanityIdWritable, managerClient } from '../_utils';
+import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
   deleteEstimateFromFirestore,
@@ -204,8 +205,8 @@ type EstimateReadOptions = {
 // - part=estimates&siteId=: { estimates, estimatesSiteId } for one site
 // - part=materials: { materials, materialsMeta, materialSettings }
 export async function GET(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['estimates'] });
+  if (access.error) return access.error;
 
   try {
     const startedAt = Date.now();
@@ -281,8 +282,8 @@ function timedJson(payload: unknown, startedAt: number, label: string) {
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['estimates'] });
+  if (access.error) return access.error;
 
   try {
     const contentType = request.headers.get('content-type') || '';
@@ -305,6 +306,9 @@ export async function POST(request: Request) {
         await deleteEstimateFromFirestore(request, id);
         return NextResponse.json({ ok: true });
       }
+      if ((await checkSanityDocumentType(id, 'siteEstimate')) !== 'ok') {
+        return NextResponse.json({ error: '삭제할 견적 버전을 찾을 수 없습니다.' }, { status: 404 });
+      }
       await managerClient.delete(id);
       return NextResponse.json({ ok: true });
     }
@@ -324,6 +328,9 @@ export async function POST(request: Request) {
         await deleteMaterialFromFirestore(request, id);
         await touchEstimateMaterialMetaInFirestore(request);
       } else {
+        if ((await checkSanityDocumentType(id, 'estimateMaterial')) !== 'ok') {
+          return NextResponse.json({ error: '삭제할 자재를 찾을 수 없습니다.' }, { status: 404 });
+        }
         await managerClient.delete(id);
       }
       const settings = await readMaterialSettings(request);
@@ -399,6 +406,10 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
     await saveEstimateToFirestore(doc, request);
     return NextResponse.json({ record: doc });
+  }
+
+  if (existingId && !(await isSanityIdWritable(existingId, 'siteEstimate', { allowNew: true }))) {
+    return NextResponse.json({ error: '저장할 견적 버전이 올바르지 않습니다.' }, { status: 400 });
   }
 
   await managerClient.createOrReplace(doc);
@@ -601,6 +612,9 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
     await saveMaterialToFirestore(doc, request);
     await touchEstimateMaterialMetaInFirestore(request);
   } else {
+    if (!(await isSanityIdWritable(id, 'estimateMaterial', { allowNew: true }))) {
+      return NextResponse.json({ error: '저장할 자재가 올바르지 않습니다.' }, { status: 400 });
+    }
     await managerClient.createOrReplace(doc);
   }
 

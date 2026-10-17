@@ -10,7 +10,23 @@
       ".read": "auth != null && (root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
       "$uid": {
         ".read": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
-        ".write": "auth != null && (auth.uid === $uid || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        ".write": "auth != null && (root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        "name": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isString() && newData.val().length < 200"
+        },
+        "email": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isString() && newData.val().length < 200 && (newData.val() === auth.token.email || root.child('launcher_admins').child(auth.uid).val() === true || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+        },
+        "updatedAt": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isString() && newData.val().length < 40"
+        },
+        "createdAt": {
+          ".write": "auth != null && auth.uid === $uid && !data.exists()",
+          ".validate": "newData.isString() && newData.val().length < 40"
+        }
       }
     }
   }

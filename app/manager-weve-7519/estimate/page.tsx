@@ -2,6 +2,8 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { hasAnyPermission } from '../../lib/manager-permissions';
+import { clearStoredSession, readStoredSession, saveStoredSession, type StoredManagerUser } from '../../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 
 type Site = {
@@ -245,8 +247,7 @@ type DetailPrintRow =
   | { type: 'subtotal'; key: string; amount: number; hasNameSubtotals: boolean }
   | { type: 'total'; key: string; amount: number };
 
-const MANAGER_PASSWORD_STORAGE_KEY = 'weve-manager-password';
-const MANAGER_SESSION_STORAGE_KEY = 'weve-manager-session-v2';
+const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
@@ -531,9 +532,15 @@ const defaultSpaces = ['거실', '주방', '침실', '욕실', '현관', '공용
 const workStatuses = ['예정', '발주', '진행', '완료', '보류'];
 
 export default function EstimateWorkspacePage() {
+  // Holds the signed session token shared with the manager dashboard (the name predates signed sessions).
   const [password, setPassword] = useState('');
   const [firebaseToken, setFirebaseToken] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [loginId, setLoginId] = useState('admin');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [accessDenied, setAccessDenied] = useState(false);
+  const [needsRelogin, setNeedsRelogin] = useState(false);
   // Starts true so opening or refreshing with a saved session shows a loading screen instead of the password form.
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
@@ -787,24 +794,24 @@ export default function EstimateWorkspacePage() {
   };
 
   useEffect(() => {
-    let savedPassword = window.localStorage.getItem(MANAGER_PASSWORD_STORAGE_KEY) || '';
-    let savedFirebaseToken = '';
-    const savedSession = window.sessionStorage.getItem(MANAGER_SESSION_STORAGE_KEY);
-    if (savedSession) {
-      try {
-        const parsed = JSON.parse(savedSession) as { token?: string; firebaseToken?: string };
-        savedPassword = parsed.token || savedPassword;
-        savedFirebaseToken = parsed.firebaseToken || '';
-      } catch {
-        savedFirebaseToken = '';
-      }
-    }
+    // Never auto-login from a stored password: only this tab's signed manager session is used.
+    window.localStorage.removeItem('weve-manager-password');
     const siteIdFromUrl = new URLSearchParams(window.location.search).get('siteId') || '';
-    setPassword(savedPassword);
-    setFirebaseToken(savedFirebaseToken);
     if (siteIdFromUrl) setSelectedSiteId(siteIdFromUrl);
-    if (savedPassword) void loadData(savedPassword, siteIdFromUrl, '', savedFirebaseToken);
-    else setIsLoadingData(false);
+    const session = readStoredSession();
+    if (!session) {
+      setIsLoadingData(false);
+      return;
+    }
+    setPassword(session.token);
+    setFirebaseToken(session.firebaseToken);
+    setLoginId(session.user.loginId || 'admin');
+    if (!hasAnyPermission(session.user, ['estimates'])) {
+      setAccessDenied(true);
+      setIsLoadingData(false);
+      return;
+    }
+    void loadData(session.token, siteIdFromUrl, '', session.firebaseToken);
   }, []);
 
   useEffect(() => {
@@ -948,12 +955,100 @@ export default function EstimateWorkspacePage() {
   }, [selectedPurchaseOrderId]);
 
   const authHeaders = (nextPassword = password, nextFirebaseToken = firebaseToken) => ({
-    'x-manager-password': nextPassword,
+    Authorization: `Bearer ${nextPassword}`,
     ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
   });
 
+  // 401: the session expired or was rejected, so show the login form. 403: the account lacks the estimates permission.
+  const handleAuthFailure = (response: Response) => {
+    if (response.status === 401) {
+      clearStoredSession();
+      setPassword('');
+      setFirebaseToken('');
+      setIsUnlocked(false);
+      setError(SESSION_EXPIRED_MESSAGE);
+      return true;
+    }
+    if (response.status === 403) {
+      setAccessDenied(true);
+      return true;
+    }
+    return false;
+  };
+
+  // Requests made while editing: a 401 opens the re-login overlay instead of leaving the page, so edits survive.
+  const managerFetch = async (input: string, init: RequestInit = {}) => {
+    const response = await fetch(input, { ...init, headers: { ...authHeaders(), ...(init.headers as Record<string, string> | undefined) } });
+    if (response.status === 401) setNeedsRelogin(true);
+    return response;
+  };
+
+  const requestSession = async () => {
+    const response = await fetch('/api/manager/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ loginId, password: loginPassword }),
+    });
+    const result = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      token?: string;
+      expiresAt?: number;
+      firebaseToken?: string;
+      user?: StoredManagerUser;
+    };
+    if (!response.ok || !result.token || !result.user || !result.expiresAt) {
+      throw new Error(result.error || '로그인에 실패했습니다.');
+    }
+
+    const session = saveStoredSession({ token: result.token, expiresAt: result.expiresAt, user: result.user, firebaseToken: result.firebaseToken });
+    setLoginPassword('');
+    setPassword(session.token);
+    setFirebaseToken(session.firebaseToken);
+    return session;
+  };
+
+  const handleLogin = async () => {
+    setError('');
+    setIsLoggingIn(true);
+    try {
+      const session = await requestSession();
+      if (!hasAnyPermission(session.user, ['estimates'])) {
+        setAccessDenied(true);
+        return;
+      }
+      await loadData(session.token, selectedSiteId, '', session.firebaseToken);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  // Only the token is replaced; nothing is reloaded, so unsaved edits stay on screen.
+  const handleRelogin = async () => {
+    setError('');
+    setIsLoggingIn(true);
+    try {
+      const session = await requestSession();
+      setNeedsRelogin(false);
+      if (!hasAnyPermission(session.user, ['estimates'])) {
+        setAccessDenied(true);
+        return;
+      }
+      setStatus('다시 로그인했습니다. 저장 버튼을 다시 눌러 주세요.');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
   const fetchEstimateApi = async (query: Record<string, string>, headers = authHeaders(), fallbackError = '견적 데이터를 불러오지 못했습니다.') => {
     const response = await fetch(`/api/manager/estimate?${new URLSearchParams(query)}`, { headers });
+    // Before the workspace opens, a rejected session shows the login form (or the no-permission screen);
+    // once it is open, a 401 brings up the re-login overlay so unsaved edits survive.
+    if (response.status === 401 && isUnlocked) setNeedsRelogin(true);
+    else if (handleAuthFailure(response)) throw new Error(response.status === 401 ? SESSION_EXPIRED_MESSAGE : '견적 작업 권한이 없습니다.');
     const data = (await response.json()) as EstimateApiData;
     if (!response.ok) throw new Error(data.error || fallbackError);
     return data;
@@ -1002,8 +1097,6 @@ export default function EstimateWorkspacePage() {
         setSelectedEstimateId(preferredEstimateId);
       }
       setIsUnlocked(true);
-      window.localStorage.setItem(MANAGER_PASSWORD_STORAGE_KEY, nextPassword);
-
       if (materialsRequest) void applyMaterials(materialsRequest);
       else if (!isMaterialCacheFresh(cachedMaterials, data.materialsMeta)) void applyMaterials(fetchEstimateApi({ part: 'materials' }, headers));
     } catch (caught) {
@@ -1043,7 +1136,7 @@ export default function EstimateWorkspacePage() {
     setStatus('');
 
     try {
-      const response = await fetch('/api/manager/estimate', {
+      const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1098,7 +1191,7 @@ export default function EstimateWorkspacePage() {
     setStatus('');
 
     try {
-      const response = await fetch('/api/manager/estimate', {
+      const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'deleteEstimate', id: estimateId }),
@@ -1141,7 +1234,7 @@ export default function EstimateWorkspacePage() {
     try {
       const formData = new FormData();
       formData.append('file', uploadFile);
-      const response = await fetch('/api/manager/estimate', {
+      const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
         headers: authHeaders(),
         body: formData,
@@ -1168,7 +1261,7 @@ export default function EstimateWorkspacePage() {
       // 카테고리 is no longer entered separately; it follows 공정.
       const materialToSave = materialOverride || { ...editingMaterial, category: (editingMaterial.process || editingMaterial.category || '').trim() };
       const estimateCategory = materialOverride ? options.estimateCategory : editingMaterialEstimateCategory;
-      const response = await fetch('/api/manager/estimate', {
+      const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'saveMaterial', material: materialToSave, estimateCategory }),
@@ -1199,7 +1292,7 @@ export default function EstimateWorkspacePage() {
     setStatus('');
 
     try {
-      const response = await fetch('/api/manager/estimate', {
+      const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'updateMaterialSettings', ...payload }),
@@ -1931,6 +2024,27 @@ export default function EstimateWorkspacePage() {
     setHolidays((current) => Array.from(new Set([...current, holidayDate])).sort());
   };
 
+  if (accessDenied) {
+    return (
+      <main className="min-h-screen bg-[#edf2f5] px-5 py-10 text-[#171512]">
+        <div className="mx-auto max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE ESTIMATE</p>
+          <h1 className="mt-2 text-3xl font-semibold">견적 작업 권한이 없습니다</h1>
+          <p className="mt-3 text-sm text-[#60717d]">총괄 관리자에게 &apos;견적 작업&apos; 권한을 요청해 주세요.</p>
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/manager-weve-7519';
+            }}
+            className="mt-5 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white"
+          >
+            매니저로 돌아가기
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (!isUnlocked && isLoadingData) {
     return (
       <main className="min-h-screen bg-[#eef3f5]">
@@ -1945,21 +2059,29 @@ export default function EstimateWorkspacePage() {
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void loadData(password);
+            void handleLogin();
           }}
           className="mx-auto max-w-md rounded-lg border border-[#d5dde2] bg-white p-6 shadow-sm"
         >
           <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE ESTIMATE</p>
           <h1 className="mt-2 text-3xl font-semibold">견적 작업 로그인</h1>
           <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="관리자 비밀번호"
+            value={loginId}
+            onChange={(event) => setLoginId(event.target.value)}
+            placeholder="아이디 또는 이메일"
+            autoComplete="username"
             className="mt-5 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
           />
-          <button type="submit" className="mt-4 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white">
-            들어가기
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(event) => setLoginPassword(event.target.value)}
+            placeholder="비밀번호"
+            autoComplete="current-password"
+            className="mt-3 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
+          />
+          <button type="submit" disabled={isLoggingIn} className="mt-4 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-60">
+            {isLoggingIn ? '확인 중...' : '들어가기'}
           </button>
           {error && <p className="mt-4 text-sm font-semibold text-red-600">{error}</p>}
         </form>
@@ -1969,6 +2091,40 @@ export default function EstimateWorkspacePage() {
 
   return (
     <main className="min-h-screen bg-[#edf2f5] text-[#171512]">
+      {needsRelogin && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-[#171512]/40 px-5 print:hidden">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleRelogin();
+            }}
+            className="w-full max-w-sm rounded-lg border border-[#d5dde2] bg-white p-6 shadow-lg"
+          >
+            <p className="text-sm font-bold uppercase tracking-[0.2em] text-[#38a9bd]">WEVE ESTIMATE</p>
+            <h2 className="mt-2 text-xl font-semibold">다시 로그인해 주세요</h2>
+            <p className="mt-2 text-sm text-[#60717d]">로그인이 만료되었습니다. 작업 중인 내용은 화면에 그대로 남아 있습니다.</p>
+            <input
+              value={loginId}
+              onChange={(event) => setLoginId(event.target.value)}
+              placeholder="아이디 또는 이메일"
+              autoComplete="username"
+              className="mt-4 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
+            />
+            <input
+              type="password"
+              value={loginPassword}
+              onChange={(event) => setLoginPassword(event.target.value)}
+              placeholder="비밀번호"
+              autoComplete="current-password"
+              className="mt-3 w-full rounded-md border border-[#d5dde2] px-4 py-3 outline-none focus:border-[#38a9bd]"
+            />
+            <button type="submit" disabled={isLoggingIn} className="mt-4 w-full rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-60">
+              {isLoggingIn ? '확인 중...' : '다시 로그인'}
+            </button>
+            {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
+          </form>
+        </div>
+      )}
       <style>{`
         @media print {
           @page { size: A4 ${printPageOrientation}; margin: ${printPageOrientation === 'portrait' ? '10mm 12mm' : '8mm 10mm'}; }

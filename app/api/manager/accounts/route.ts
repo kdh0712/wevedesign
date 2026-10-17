@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { assertManager, hashId, managerClient } from '../_utils';
+import { MANAGER_PERMISSIONS, normalizePermissions } from '../../../lib/manager-permissions';
+import { checkSanityDocumentType, hashId, managerClient } from '../_utils';
+import { hashPassword } from '../_password';
+import { requireManager } from '../_session';
 import {
-  firebaseLookup,
+  firebaseAdminDbAuth,
   firebaseSignUp,
   getFirebaseAccounts,
-  getFirebaseAdminFlag,
-  getFirebaseProfile,
   isFirebaseManagerConfigured,
   setFirebaseProfile,
   type FirebaseProfile,
@@ -13,52 +14,24 @@ import {
 
 export const runtime = 'nodejs';
 
-const allowedPermissions = new Set(['dashboard', 'consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors', 'portfolio', 'integrations', 'accounts']);
+const FIREBASE_ADMIN_REQUIRED = 'Firebase 계정 관리에는 서비스 계정 설정이 필요합니다.';
 
-const normalizePermissions = (value: unknown) => {
-  if (Array.isArray(value)) {
-    return value.filter((permission) => allowedPermissions.has(String(permission))).map(String);
-  }
-
-  if (value && typeof value === 'object') {
-    return Object.values(value as Record<string, unknown>)
-      .filter((permission) => allowedPermissions.has(String(permission)))
-      .map(String);
-  }
-
-  return [];
-};
-
-async function assertAccountAdmin(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
-
-  const firebaseToken = request.headers.get('x-firebase-token') || '';
-  if (!isFirebaseManagerConfigured() || !firebaseToken) return null;
-
-  const user = await firebaseLookup(firebaseToken);
-  const uid = user?.localId;
-  if (!uid) {
-    return NextResponse.json({ error: 'Firebase 로그인 정보를 확인할 수 없습니다. 다시 로그인해 주세요.' }, { status: 401 });
-  }
-
-  const profile = await getFirebaseProfile(uid, firebaseToken);
-  const isAdmin = profile?.role === 'admin' || (await getFirebaseAdminFlag(uid, firebaseToken));
-  if (!isAdmin) {
-    return NextResponse.json({ error: '총괄 관리자 계정만 계정을 추가, 수정, 삭제할 수 있습니다.' }, { status: 403 });
-  }
-
-  return null;
+// Account management runs only for admin sessions. Firebase profiles are written with admin access
+// (service account, or the signed-in Firebase admin's token), never with the edited user's own token.
+async function firebaseAdminAccess(request: Request) {
+  return firebaseAdminDbAuth(request.headers.get('x-firebase-token') || undefined);
 }
 
 export async function GET(request: Request) {
-  const authError = await assertAccountAdmin(request);
-  if (authError) return authError;
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   try {
-    const firebaseToken = request.headers.get('x-firebase-token') || '';
-    if (isFirebaseManagerConfigured() && firebaseToken) {
-      const accounts = await getFirebaseAccounts(firebaseToken);
+    if (isFirebaseManagerConfigured()) {
+      const dbAuth = await firebaseAdminAccess(request);
+      if (!dbAuth) return NextResponse.json({ error: FIREBASE_ADMIN_REQUIRED }, { status: 400 });
+
+      const accounts = await getFirebaseAccounts(dbAuth);
       return NextResponse.json({
         accounts: accounts.map((account) => ({
           _id: account.uid,
@@ -83,8 +56,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authError = await assertAccountAdmin(request);
-  if (authError) return authError;
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
@@ -93,7 +66,7 @@ export async function POST(request: Request) {
     const loginId = String(body?.loginId || '').trim();
     const password = String(body?.password || '').trim();
     const role = body?.role === 'admin' ? 'admin' : 'staff';
-    const permissions = normalizePermissions(body?.permissions);
+    const permissions = role === 'admin' ? [...MANAGER_PERMISSIONS] : normalizePermissions(body?.permissions);
     const isActive = body?.isActive !== false;
     const now = new Date().toISOString();
 
@@ -105,34 +78,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '새 계정은 비밀번호가 필요합니다.' }, { status: 400 });
     }
 
-    const firebaseToken = request.headers.get('x-firebase-token') || '';
     if (isFirebaseManagerConfigured()) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginId)) {
         return NextResponse.json({ error: 'Firebase 계정은 로그인 이메일 형식으로 입력해야 합니다.' }, { status: 400 });
       }
 
-      const profile: Omit<FirebaseProfile, 'uid'> = {
-        name,
-        email: loginId,
-        role,
-        permissions: role === 'admin' ? Array.from(allowedPermissions) : permissions,
-        isActive,
-        updatedAt: now,
-      };
+      const dbAuth = await firebaseAdminAccess(request);
+      if (!dbAuth) return NextResponse.json({ error: FIREBASE_ADMIN_REQUIRED }, { status: 400 });
+
+      const profile: Omit<FirebaseProfile, 'uid'> = { name, email: loginId, role, permissions, isActive, updatedAt: now };
 
       if (id) {
-        if (!firebaseToken) {
-          return NextResponse.json({ error: 'Firebase 계정 수정은 Firebase 관리자 계정으로 로그인해야 합니다.' }, { status: 401 });
-        }
-        const record = await setFirebaseProfile(id, firebaseToken, profile);
+        const record = await setFirebaseProfile(id, dbAuth, profile);
         return NextResponse.json({ account: { _id: id, loginId, ...record } });
       }
 
       const createdUser = await firebaseSignUp(loginId, password);
-      const record = await setFirebaseProfile(createdUser.localId, createdUser.idToken, {
-        ...profile,
-        createdAt: now,
-      });
+      const record = await setFirebaseProfile(createdUser.localId, dbAuth, { ...profile, createdAt: now });
       return NextResponse.json({ account: { _id: createdUser.localId, loginId, ...record } });
     }
 
@@ -145,15 +107,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '이미 사용 중인 로그인 ID입니다.' }, { status: 400 });
     }
 
-    const updates: Record<string, unknown> = {
-      name,
-      loginId,
-      role,
-      permissions: role === 'admin' ? Array.from(allowedPermissions) : permissions,
-      isActive,
-      updatedAt: now,
-    };
-    if (password) updates.password = password;
+    const updates: Record<string, unknown> = { name, loginId, role, permissions, isActive, updatedAt: now };
+    if (password) updates.password = await hashPassword(password);
 
     const record = id
       ? await managerClient.patch(id).set(updates).commit()
@@ -164,26 +119,33 @@ export async function POST(request: Request) {
           createdAt: now,
         });
 
-    return NextResponse.json({ account: record });
+    // Never send the stored hash back to the browser.
+    const { password: _storedPassword, ...account } = record as Record<string, unknown>;
+    return NextResponse.json({ account });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '계정을 저장하지 못했습니다.' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
-  const authError = await assertAccountAdmin(request);
-  if (authError) return authError;
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
     const id = String(body?.id || '').trim();
     if (!id) return NextResponse.json({ error: '삭제할 계정을 선택해 주세요.' }, { status: 400 });
 
-    const firebaseToken = request.headers.get('x-firebase-token') || '';
-    if (isFirebaseManagerConfigured() && firebaseToken) {
-      await setFirebaseProfile(id, firebaseToken, { isActive: false, updatedAt: new Date().toISOString() });
+    if (isFirebaseManagerConfigured()) {
+      const dbAuth = await firebaseAdminAccess(request);
+      if (!dbAuth) return NextResponse.json({ error: FIREBASE_ADMIN_REQUIRED }, { status: 400 });
+
+      await setFirebaseProfile(id, dbAuth, { isActive: false, updatedAt: new Date().toISOString() });
       return NextResponse.json({ ok: true });
     }
+
+    const documentType = await checkSanityDocumentType(id, 'managerAccount');
+    if (documentType !== 'ok') return NextResponse.json({ error: '삭제할 계정을 찾을 수 없습니다.' }, { status: 404 });
 
     await managerClient.delete(id);
     return NextResponse.json({ ok: true });
