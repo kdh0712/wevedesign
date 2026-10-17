@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
-import { OFFICE_TRACKED_COLLECTIONS, parseOfficeVersionsParam } from '../../../lib/office-changes';
+import { canReadOffice, canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
+import { OFFICE_TRACKED_COLLECTIONS, parseOfficeVersionsParam, readableOfficeCollections } from '../../../lib/office-changes';
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
@@ -222,12 +222,14 @@ export async function GET(request: Request) {
           throw new Error('Firestore 인증 정보가 없습니다. Firebase 서비스 계정 환경변수 또는 Firebase 로그인 토큰을 확인해 주세요.');
         }
 
+        // Lists this session cannot read are not read at all; filterOfficeData below would blank them anyway.
+        const readable = readableOfficeCollections((list) => canReadOffice(session, list));
         const [officeData, publicData, visitStats] = await Promise.all([
-          readOfficeDataWithVersionsFromFirestore(request, knownVersions),
+          readOfficeDataWithVersionsFromFirestore(request, knownVersions, readable),
           readPortfolio(),
           getVisitStats(),
         ]);
-        const listsRead = OFFICE_TRACKED_COLLECTIONS.length - (officeData.unchangedCollections?.length || 0);
+        const listsRead = readable.length - (officeData.unchangedCollections?.length || 0);
         return timedJson(
           filterOfficeData(session, { ...officeData, ...publicData, visitStats }),
           startedAt,

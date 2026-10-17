@@ -15,9 +15,13 @@ import {
   mergeOfficeLists,
   officeRefreshVersionsParam,
   parseOfficeVersionsParam,
+  readOfficeDataWithVersions,
+  readableOfficeCollections,
+  shouldApplyOfficeRefresh,
   shouldBumpOfficeChanges,
   unchangedOfficeCollections,
 } from '../app/lib/office-changes.ts';
+import { canReadOffice, filterOfficeData } from '../app/lib/manager-permissions.ts';
 
 const ALL = [
   'officeConsultations',
@@ -237,4 +241,181 @@ test('officeRefreshVersionsParam sends the map, but nothing when unknown or the 
   assert.deepEqual(parseOfficeVersionsParam(officeRefreshVersionsParam(map, now - OFFICE_FULL_REFRESH_MS + 1, now)), map);
   assert.equal(officeRefreshVersionsParam(map, now - OFFICE_FULL_REFRESH_MS, now), '');
   assert.equal(OFFICE_FULL_REFRESH_MS, 10 * 60 * 1000);
+});
+
+// --- Session switches and stale refresh answers -------------------------------------------------------------
+
+const LIST_KEYS = ['consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors'];
+const listsOf = (owner) => Object.fromEntries(LIST_KEYS.map((key) => [key, [{ _id: `${owner}-${key}` }]]));
+const fullAnswerOf = (owner) => ({ ...listsOf(owner), officeVersions: versions(owner), unchangedCollections: [] });
+const deltaAnswerOf = (owner) => ({
+  sites: [{ _id: `${owner}-sites-new` }],
+  officeVersions: { ...versions(owner), officeSites: `${owner}-newer` },
+  unchangedCollections: ALL.filter((collection) => collection !== 'officeSites'),
+});
+
+// Mirrors refreshOfficeData: the answer is merged only when shouldApplyOfficeRefresh keeps it.
+function applyRefreshAnswer(page, sent, answer) {
+  if (!shouldApplyOfficeRefresh(sent, { session: page.session, versions: page.versions })) return false;
+  page.lists = mergeOfficeLists(page.lists, answer);
+  page.versions = answer.officeVersions;
+  return true;
+}
+
+test('shouldApplyOfficeRefresh keeps an answer only for the same session and the same version map', () => {
+  const map = versions('a');
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: map }, { session: 1, versions: map }), true);
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: null }, { session: 1, versions: null }), true);
+  // Logout, login or restore started another session.
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: map }, { session: 2, versions: map }), false);
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: null }, { session: 2, versions: null }), false);
+  // A full load replaced the map, even with equal tokens.
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: map }, { session: 1, versions: { ...map } }), false);
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: null }, { session: 1, versions: map }), false);
+  assert.equal(shouldApplyOfficeRefresh({ session: 1, versions: map }, { session: 1, versions: null }), false);
+});
+
+test('refresh answers apply in the same session and are dropped after a session switch or a full load, full or delta', () => {
+  for (const [kind, answerOf] of [['full', fullAnswerOf], ['delta', deltaAnswerOf]]) {
+    // Same session, same map: applied.
+    const same = { session: 1, versions: versions('a'), lists: listsOf('a') };
+    assert.equal(applyRefreshAnswer(same, { session: 1, versions: same.versions }, answerOf('a')), true, kind);
+    assert.deepEqual(same.lists.sites, answerOf('a').sites, kind);
+
+    // A's refresh is in flight; A logs out (refs reset), B logs in and B's full load lands first.
+    const switched = { session: 1, versions: versions('a'), lists: listsOf('a') };
+    const sentByA = { session: switched.session, versions: switched.versions };
+    switched.session += 1;
+    switched.versions = null;
+    switched.lists = listsOf('b');
+    switched.versions = versions('b');
+    assert.equal(applyRefreshAnswer(switched, sentByA, answerOf('a')), false, kind);
+    assert.deepEqual(switched.lists, listsOf('b'), kind);
+    assert.deepEqual(switched.versions, versions('b'), kind);
+
+    // Same session, but a full load replaced the lists and the map while the refresh was in flight.
+    const reloaded = { session: 1, versions: versions('a'), lists: listsOf('a') };
+    const sent = { session: 1, versions: reloaded.versions };
+    reloaded.lists = listsOf('reload');
+    reloaded.versions = versions('reload');
+    assert.equal(applyRefreshAnswer(reloaded, sent, answerOf('a')), false, kind);
+    assert.deepEqual(reloaded.lists, listsOf('reload'), kind);
+  }
+});
+
+// --- Lists the session cannot read ---------------------------------------------------------------------------
+
+const staff = (permissions) => ({ role: 'staff', permissions });
+const USERS = [
+  { role: 'admin', permissions: [] },
+  staff([]),
+  staff(['dashboard']),
+  staff(['consultations']),
+  staff(['sales']),
+  staff(['sites']),
+  staff(['customers', 'inventory']),
+  staff(['estimates', 'vendors', 'portfolio']),
+];
+
+test('readableOfficeCollections follows the same check as filterOfficeData', () => {
+  for (const user of USERS) {
+    const readable = readableOfficeCollections((list) => canReadOffice(user, list));
+    const filtered = filterOfficeData(user, listsOf('x'));
+    for (const collection of ALL) {
+      const list = OFFICE_COLLECTION_LISTS[collection];
+      assert.equal(readable.includes(collection), filtered[list].length > 0, `${JSON.stringify(user)} ${collection}`);
+    }
+  }
+  assert.deepEqual(readableOfficeCollections(() => true), ALL);
+  assert.deepEqual(readableOfficeCollections((list) => canReadOffice(staff(['sales']), list)), ['officeSites', 'siteEstimates', 'officeSales']);
+});
+
+test('mergeOfficeLists clears lists answered empty and never brings them back', () => {
+  const current = listsOf('old');
+  // Consultations are unreadable: answered as [] and never reported unchanged.
+  const answer = { consultations: [], officeVersions: {}, unchangedCollections: ALL.filter((collection) => collection !== 'officeConsultations') };
+  const merged = mergeOfficeLists(current, answer);
+  assert.deepEqual(merged.consultations, []);
+  assert.deepEqual(mergeOfficeLists(merged, answer).consultations, []);
+  assert.equal(merged.sites, current.sites);
+});
+
+// --- Server orchestration: marker first, then only the changed readable lists ---------------------------------
+
+function fakeReaders({ stored = versions(), failVersions = false, failLists = false } = {}) {
+  const calls = [];
+  return {
+    calls,
+    readers: {
+      readVersions: async () => {
+        calls.push('versions:start');
+        await Promise.resolve();
+        if (failVersions) throw new Error('marker denied');
+        calls.push('versions:end');
+        return stored;
+      },
+      readLists: async (collections) => {
+        calls.push(`lists:${collections.join(',')}`);
+        if (failLists) throw new Error('list failed');
+        return Object.fromEntries(collections.map((collection) => [OFFICE_COLLECTION_LISTS[collection], [{ _id: `new-${collection}` }]]));
+      },
+      onVersionsError: (error) => calls.push(`error:${error.message}`),
+    },
+  };
+}
+
+test('readOfficeDataWithVersions reads the marker before the lists and lists only what changed', async () => {
+  const { calls, readers } = fakeReaders();
+  const result = await readOfficeDataWithVersions(readers, { ...versions(), officeSites: 'older' });
+  assert.deepEqual(calls, ['versions:start', 'versions:end', 'lists:officeSites']);
+  assert.deepEqual(result, {
+    sites: [{ _id: 'new-officeSites' }],
+    officeVersions: versions(),
+    unchangedCollections: ALL.filter((collection) => collection !== 'officeSites'),
+  });
+});
+
+test('readOfficeDataWithVersions: nothing changed reads no list; no known map reads every list', async () => {
+  const idle = fakeReaders();
+  const unchanged = await readOfficeDataWithVersions(idle.readers, versions());
+  assert.deepEqual(idle.calls, ['versions:start', 'versions:end']);
+  assert.deepEqual(unchanged, { officeVersions: versions(), unchangedCollections: ALL });
+
+  const full = fakeReaders();
+  const everything = await readOfficeDataWithVersions(full.readers, null);
+  assert.deepEqual(full.calls, ['versions:start', 'versions:end', `lists:${ALL.join(',')}`]);
+  assert.deepEqual(everything.unchangedCollections, []);
+  assert.deepEqual(Object.keys(everything).filter((key) => LIST_KEYS.includes(key)), LIST_KEYS);
+});
+
+test('readOfficeDataWithVersions falls back to reading every list without versions when the marker read fails', async () => {
+  const { calls, readers } = fakeReaders({ failVersions: true });
+  const result = await readOfficeDataWithVersions(readers, versions());
+  assert.deepEqual(calls, ['versions:start', 'error:marker denied', `lists:${ALL.join(',')}`]);
+  assert.equal('officeVersions' in result, false);
+  assert.equal('unchangedCollections' in result, false);
+  assert.deepEqual(Object.keys(result), LIST_KEYS);
+});
+
+test('readOfficeDataWithVersions never lists or reveals collections the session cannot read', async () => {
+  const readable = ['officeSites', 'siteEstimates', 'officeSales'];
+  // The client claims to know every token, including the unreadable ones.
+  const { calls, readers } = fakeReaders();
+  const result = await readOfficeDataWithVersions(readers, { ...versions(), officeSales: 'older', officeConsultations: 'older' }, readable);
+  assert.deepEqual(calls, ['versions:start', 'versions:end', 'lists:officeSales']);
+  assert.deepEqual(result.officeVersions, { officeSites: 'v-officeSites', siteEstimates: 'v-siteEstimates', officeSales: 'v-officeSales' });
+  assert.deepEqual(result.unchangedCollections, ['officeSites', 'siteEstimates']);
+  for (const list of ['consultations', 'customers', 'inventory', 'vendors']) assert.deepEqual(result[list], [], list);
+  assert.deepEqual(result.sales, [{ _id: 'new-officeSales' }]);
+
+  const fallback = fakeReaders({ failVersions: true });
+  const fallbackResult = await readOfficeDataWithVersions(fallback.readers, null, readable);
+  assert.deepEqual(fallback.calls.at(-1), `lists:${readable.join(',')}`);
+  assert.equal('officeVersions' in fallbackResult, false);
+  assert.deepEqual(fallbackResult.consultations, []);
+});
+
+test('readOfficeDataWithVersions lets a list failure through, so the route can fall back', async () => {
+  const { readers } = fakeReaders({ failLists: true });
+  await assert.rejects(readOfficeDataWithVersions(readers, null), /list failed/);
 });

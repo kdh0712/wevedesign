@@ -95,6 +95,72 @@ export function unchangedOfficeCollections(changed: readonly string[]): OfficeTr
   return OFFICE_TRACKED_COLLECTIONS.filter((collection) => !changed.includes(collection));
 }
 
+// The tracked collections whose list the session may read. The server passes the same per-list check that
+// filterOfficeData uses (canReadOffice), so the two cannot disagree.
+export function readableOfficeCollections(canRead: (list: OfficeListKey) => boolean): OfficeTrackedCollection[] {
+  return OFFICE_TRACKED_COLLECTIONS.filter((collection) => canRead(OFFICE_COLLECTION_LISTS[collection]));
+}
+
+export type OfficeListsOf<Row> = Partial<Record<OfficeListKey, Row[]>>;
+
+export type OfficeDataReaders<Row> = {
+  // The change marker's tokens (the caller creates missing ones).
+  readVersions: () => Promise<OfficeVersions>;
+  // The given collections' lists, keyed by list.
+  readLists: (collections: OfficeTrackedCollection[]) => Promise<OfficeListsOf<Row>>;
+  onVersionsError?: (error: unknown) => void;
+};
+
+export type OfficeDataWithVersions<Row> = OfficeListsOf<Row> & {
+  officeVersions?: OfficeVersions;
+  unchangedCollections?: OfficeTrackedCollection[];
+};
+
+// The dashboard lists for one session, plus the version map when the marker can be read.
+// - Order matters: the marker is read BEFORE the lists. A write that lands in between bumps the marker after this
+//   read, so the next refresh sees a newer token and re-reads that list. Reading the marker after the lists could
+//   pair the newer token with a list that misses the write, hiding it until the next change.
+// - Only readable collections whose token differs from `known` are listed; unchangedCollections names the
+//   readable ones left out. A null `known` lists every readable collection.
+// - Collections the session cannot read are never listed: their lists come back empty (as filterOfficeData leaves
+//   them), their tokens are left out and they are never reported unchanged, so the dashboard clears them.
+// - If the marker cannot be read, every readable list is read and no versions are returned, so the dashboard
+//   keeps reading everything. A list failure is passed on.
+export async function readOfficeDataWithVersions<Row>(
+  readers: OfficeDataReaders<Row>,
+  known: OfficeVersions | null,
+  readable: readonly OfficeTrackedCollection[] = OFFICE_TRACKED_COLLECTIONS,
+): Promise<OfficeDataWithVersions<Row>> {
+  const readableCollections = OFFICE_TRACKED_COLLECTIONS.filter((collection) => readable.includes(collection));
+  const unreadableLists: OfficeListsOf<Row> = Object.fromEntries(
+    OFFICE_TRACKED_COLLECTIONS.filter((collection) => !readableCollections.includes(collection)).map((collection) => [
+      OFFICE_COLLECTION_LISTS[collection],
+      [],
+    ]),
+  );
+  const readLists = async (collections: OfficeTrackedCollection[]) => (collections.length ? readers.readLists(collections) : {});
+
+  let stored: OfficeVersions;
+  try {
+    stored = await readers.readVersions();
+  } catch (error) {
+    readers.onVersionsError?.(error);
+    return { ...unreadableLists, ...(await readLists(readableCollections)) };
+  }
+
+  const officeVersions: OfficeVersions = Object.fromEntries(
+    readableCollections.filter((collection) => isToken(stored[collection])).map((collection) => [collection, stored[collection]]),
+  );
+  const changed = changedOfficeCollections(officeVersions, known).filter((collection) => readableCollections.includes(collection));
+  const lists = await readLists(changed);
+  return {
+    ...unreadableLists,
+    ...lists,
+    officeVersions,
+    unchangedCollections: unchangedOfficeCollections(changed).filter((collection) => readableCollections.includes(collection)),
+  };
+}
+
 function toBase64Url(text: string) {
   let binary = '';
   new TextEncoder().encode(text).forEach((byte) => {
@@ -161,4 +227,14 @@ export function mergeOfficeLists<T extends OfficeLists>(
     merged[key] = unchanged.includes(collection) ? current[key] : answer[key] || [];
   }
   return merged as Pick<T, OfficeListKey>;
+}
+
+// What a refresh was sent with: the dashboard's session counter and the version map object at that moment.
+export type OfficeRefreshBasis = { session: number; versions: OfficeVersions | null };
+
+// Whether a refresh answer, full or delta, may still be applied. Logout, login and session restore start a new
+// session, and a full load replaces the map object, so an answer sent before either is dropped: it may belong to
+// another user's permissions, or it was compared with lists the dashboard no longer shows.
+export function shouldApplyOfficeRefresh(sent: OfficeRefreshBasis, current: OfficeRefreshBasis) {
+  return sent.session === current.session && sent.versions === current.versions;
 }

@@ -4,12 +4,10 @@ import {
   OFFICE_CHANGES_DOCUMENT_ID,
   OFFICE_COLLECTION_LISTS,
   OFFICE_TRACKED_COLLECTIONS,
-  changedOfficeCollections,
   completeOfficeVersions,
   createOfficeVersionToken,
+  readOfficeDataWithVersions,
   shouldBumpOfficeChanges,
-  unchangedOfficeCollections,
-  type FullOfficeVersions,
   type OfficeListKey,
   type OfficeTrackedCollection,
   type OfficeVersions,
@@ -361,6 +359,10 @@ export async function getFirestoreDocument<T extends Record<string, unknown>>(co
 // Writes only the given fields of the change marker (managerSettings/officeChanges) with an update mask, creating
 // the document when needed, so bumps of different collections never overwrite each other. managerSettings is not
 // a tracked collection, so this write never bumps anything itself.
+// It gives up after OFFICE_CHANGES_TIMEOUT_MS, so a slow marker write cannot stall the save it follows; the timeout
+// is logged like any failed bump.
+const OFFICE_CHANGES_TIMEOUT_MS = 5000;
+
 async function patchOfficeChanges(fields: OfficeVersions, idToken?: string) {
   const url = new URL(`${docBaseUrl()}/${encodePath(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID)}`);
   Object.keys(fields).forEach((fieldPath) => url.searchParams.append('updateMask.fieldPaths', fieldPath));
@@ -368,11 +370,14 @@ async function patchOfficeChanges(fields: OfficeVersions, idToken?: string) {
     method: 'PATCH',
     headers: await firestoreHeaders(idToken),
     body: JSON.stringify({ fields: toFirestoreFields(fields) }),
+    signal: AbortSignal.timeout(OFFICE_CHANGES_TIMEOUT_MS),
   });
   if (!response.ok) {
     const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore change marker update failed (${response.status})`));
   }
+  // The updated marker is not needed; cancel the body so the connection is released.
+  await response.body?.cancel();
 }
 
 // Runs after every successful write or delete, with the write's own credentials, so dashboards re-read that list.
@@ -416,7 +421,8 @@ export async function deleteFirestoreDocument(collection: string, id: string, id
     method: 'DELETE',
     headers: await firestoreHeaders(idToken, false),
   });
-  // A document that was already gone changed nothing, so it does not bump the change marker.
+  // Without a precondition Firestore answers 200 even when the document did not exist, so such a delete still bumps
+  // the change marker (one harmless extra re-read). A 404, if one ever comes back, changed nothing and does not bump.
   if (response.status === 404) return;
   const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!response.ok) {
@@ -507,29 +513,24 @@ async function readOfficeVersionsFromFirestore(idToken: string) {
   return versions;
 }
 
-type OfficeDataWithVersions = Partial<OfficeLists> & {
-  officeVersions?: FullOfficeVersions;
-  unchangedCollections?: OfficeTrackedCollection[];
-};
-
-// The dashboard lists plus the change marker's version map. Given the client's last map (known), only the
-// collections whose token changed are listed, and unchangedCollections names the ones left out.
-// Order matters: the marker is read BEFORE the lists. A write that lands in between bumps the marker after this
-// read, so the next refresh sees a newer token and re-reads that list. Reading the marker after the lists could
-// pair the newer token with a list that misses the write, hiding it until the next change.
-export async function readOfficeDataWithVersionsFromFirestore(request: Request, known: OfficeVersions | null): Promise<OfficeDataWithVersions> {
+// The dashboard lists for one session plus the change marker's version map. readOfficeDataWithVersions
+// (app/lib/office-changes.ts) reads the marker BEFORE the lists (see the comment there for why), lists only the
+// readable collections that changed since `known`, and falls back to every readable list when the marker fails.
+export async function readOfficeDataWithVersionsFromFirestore(
+  request: Request,
+  known: OfficeVersions | null,
+  readable: readonly OfficeTrackedCollection[],
+) {
   const idToken = requestIdToken(request);
-  let versions: FullOfficeVersions;
-  try {
-    versions = await readOfficeVersionsFromFirestore(idToken);
-  } catch (error) {
-    // Without the marker every list is read and no versions are sent, so the dashboard keeps reading everything.
-    console.error('Firestore change marker read failed, reading every list:', error);
-    return readOfficeDataFromFirestore(request);
-  }
-  const changed = changedOfficeCollections(versions, known);
-  const lists = await readOfficeListsFromFirestore(idToken, changed);
-  return { ...lists, officeVersions: versions, unchangedCollections: unchangedOfficeCollections(changed) };
+  return readOfficeDataWithVersions<Record<string, unknown>>(
+    {
+      readVersions: () => readOfficeVersionsFromFirestore(idToken),
+      readLists: (collections) => readOfficeListsFromFirestore(idToken, collections),
+      onVersionsError: (error) => console.error('Firestore change marker read failed, reading every readable list:', error),
+    },
+    known,
+    readable,
+  );
 }
 
 export async function readOfficeTrashFromFirestore(request: Request) {
