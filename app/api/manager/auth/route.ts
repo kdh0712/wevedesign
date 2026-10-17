@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server';
+import type { ManagerRole } from '../../../lib/manager-permissions';
 import { managerClient } from '../_utils';
+import { hashPassword, safeEqual, verifyPassword } from '../_password';
+import { issueManagerSession, SESSION_KEY_MISSING_MESSAGE } from '../_session';
+import type { SessionSource } from '../_token';
 import {
   firebaseLookup,
   firebaseSignIn,
@@ -21,7 +25,15 @@ type ManagerAccount = {
   isActive?: boolean;
 };
 
-const allPermissions = ['dashboard', 'consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors', 'portfolio', 'integrations', 'accounts'];
+function sessionResponse(
+  user: { id: string; name: string; loginId: string; role: ManagerRole; permissions: unknown },
+  src: SessionSource,
+  extra: Record<string, unknown> = {},
+) {
+  const session = issueManagerSession(user, src);
+  if (!session) return NextResponse.json({ error: SESSION_KEY_MISSING_MESSAGE }, { status: 500 });
+  return NextResponse.json({ ...session, ...extra });
+}
 
 export async function POST(request: Request) {
   try {
@@ -29,10 +41,6 @@ export async function POST(request: Request) {
     const loginId = String(body?.loginId || 'admin').trim();
     const loginPassword = String(body?.password || '').trim();
     const managerPassword = process.env.MANAGER_PASSWORD;
-
-    if (!managerPassword) {
-      return NextResponse.json({ error: 'MANAGER_PASSWORD is not configured.' }, { status: 500 });
-    }
 
     if (!loginPassword) {
       return NextResponse.json({ error: '비밀번호를 입력해 주세요.' }, { status: 400 });
@@ -64,51 +72,51 @@ export async function POST(request: Request) {
       }
 
       const isAdmin = profile.role === 'admin' || (await getFirebaseAdminFlag(uid, firebaseUser.idToken));
-      return NextResponse.json({
-        token: managerPassword,
-        firebaseToken: firebaseUser.idToken,
-        user: {
+      return sessionResponse(
+        {
           id: uid,
           name: profile.name || email.split('@')[0],
           loginId: email,
           role: isAdmin ? 'admin' : 'staff',
-          permissions: isAdmin ? allPermissions : profile.permissions || [],
+          permissions: profile.permissions,
         },
-      });
+        'firebase',
+        { firebaseToken: firebaseUser.idToken },
+      );
     }
 
-    if ((loginId === 'admin' || loginId === 'manager') && loginPassword === managerPassword) {
-      return NextResponse.json({
-        token: managerPassword,
-        user: {
-          id: 'admin',
-          name: '총괄 관리자',
-          loginId: 'admin',
-          role: 'admin',
-          permissions: allPermissions,
-        },
-      });
+    if (managerPassword && (loginId === 'admin' || loginId === 'manager') && safeEqual(loginPassword, managerPassword)) {
+      return sessionResponse({ id: 'admin', name: '총괄 관리자', loginId: 'admin', role: 'admin', permissions: [] }, 'master');
     }
 
     const account = await managerClient.fetch<ManagerAccount | null>(
       '*[_type == "managerAccount" && loginId == $loginId && isActive != false][0]{_id,name,loginId,password,role,permissions,isActive}',
       { loginId },
     );
+    const verified = account?.password ? await verifyPassword(loginPassword, account.password) : { ok: false, needsRehash: false };
 
-    if (!account || account.password !== loginPassword) {
+    if (!account || !verified.ok) {
       return NextResponse.json({ error: '계정 또는 비밀번호가 올바르지 않습니다.' }, { status: 401 });
     }
 
-    return NextResponse.json({
-      token: managerPassword,
-      user: {
+    if (verified.needsRehash && process.env.SANITY_WRITE_TOKEN) {
+      try {
+        await managerClient.patch(account._id).set({ password: await hashPassword(loginPassword) }).commit();
+      } catch (error) {
+        console.warn('Manager account password rehash failed:', error);
+      }
+    }
+
+    return sessionResponse(
+      {
         id: account._id,
         name: account.name || account.loginId || '관리자',
-        loginId: account.loginId,
-        role: account.role || 'staff',
-        permissions: account.role === 'admin' ? allPermissions : account.permissions || [],
+        loginId: account.loginId || loginId,
+        role: account.role === 'admin' ? 'admin' : 'staff',
+        permissions: account.permissions,
       },
-    });
+      'account',
+    );
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : '로그인 처리 중 오류가 발생했습니다.' }, { status: 500 });
   }
