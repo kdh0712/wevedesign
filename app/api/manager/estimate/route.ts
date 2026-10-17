@@ -159,7 +159,8 @@ type MaterialSettings = {
 const MATERIAL_SETTINGS_ID = 'estimateMaterialSettings';
 const materialSettingsProjection = '{estimateCategoriesJson, estimateItemsJson, materialOrderJson}';
 
-const sitesGroq = `*[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0...300] {
+// Sites and vendors in the 휴지통 (deletedAt set) stay out of the estimate workspace.
+const sitesGroq = `*[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...300] {
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   }`;
 const estimateProjection = `{
@@ -172,12 +173,12 @@ const estimateProjection = `{
   }`;
 const allEstimatesGroq = `*[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] ${estimateProjection}`;
 const siteEstimatesGroq = `*[_type == "siteEstimate" && siteId == $siteId] | order(updatedAt desc, _updatedAt desc) ${estimateProjection}`;
-const newestSiteIdGroq = `*[_type == "officeSite"] | order(createdAt desc, _createdAt desc)[0]._id`;
+const newestSiteIdGroq = `*[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0]._id`;
 const materialsGroq = `*[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
     _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
   }`;
 const materialSettingsGroq = `*[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection}`;
-const vendorsGroq = `*[_type == "officeVendor"] | order(name asc)[0...300] {
+const vendorsGroq = `*[_type == "officeVendor" && !defined(deletedAt)] | order(name asc)[0...300] {
     _id, name, manager, phone, service, status, memo, createdAt
   }`;
 
