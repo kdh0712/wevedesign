@@ -900,8 +900,9 @@ export default function ManagerPage() {
           void refreshOfficeData(savedSession.token, savedSession.firebaseToken, savedSession.user);
         }
       } catch (caught) {
-        clearStoredSession();
+        // A cancelled run (React StrictMode runs this effect twice in dev) must not wipe the saved session the live run uses.
         if (!cancelled) {
+          clearStoredSession();
           setPassword('');
           setFirebaseToken('');
           setCurrentUser(null);
