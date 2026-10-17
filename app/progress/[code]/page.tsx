@@ -16,7 +16,7 @@ import {
   resolveCustomerPhone,
   type ProgressSite,
 } from '../../api/manager/_progress-store';
-import { progressCookieName, resolveProgressKey, verifyProgressCookie } from '../../api/progress/_access';
+import { progressCookieName, progressPhoneDigits, resolveProgressKey, verifyProgressCookie } from '../../api/progress/_access';
 import { ProgressGate } from './progress-gate';
 
 // Per-customer data behind a cookie: never prerendered or cached.
@@ -39,23 +39,24 @@ export default async function ProgressPage({ params }: { params: Promise<{ code:
   if (!isProgressCodeShape(code) || !isProgressStoreReady()) return <ProgressNotice message={PROGRESS_LINK_OFF_MESSAGE} />;
 
   let site: ProgressSite | null;
-  let last4: string;
+  let phone: string;
   try {
     site = await findSiteByProgressCode(code);
     if (!site || !site.progressEnabled) return <ProgressNotice message={PROGRESS_LINK_OFF_MESSAGE} />;
-    last4 = phoneLast4(await resolveCustomerPhone(site));
+    phone = await resolveCustomerPhone(site);
   } catch (error) {
     console.error('Progress page lookup failed:', error);
     return <ProgressNotice message={PROGRESS_UNAVAILABLE_MESSAGE} />;
   }
 
   // Without a customer number nothing can be checked, so the gate would only ever fail.
-  if (!last4) return <ProgressNotice message={PROGRESS_NO_PHONE_MESSAGE} />;
+  if (!phoneLast4(phone)) return <ProgressNotice message={PROGRESS_NO_PHONE_MESSAGE} />;
 
-  // The cookie is bound to the code and the current last 4 digits: a new link or a changed number invalidates it.
+  // The cookie is bound to the code and the customer's whole number (the same one verify resolved): a new link or a changed
+  // number invalidates it.
   const key = resolveProgressKey();
   const cookie = (await cookies()).get(progressCookieName(code))?.value;
-  if (!key || !verifyProgressCookie(cookie, code, last4, key)) return <ProgressGate code={code} />;
+  if (!key || !verifyProgressCookie(cookie, code, progressPhoneDigits(phone), key)) return <ProgressGate code={code} />;
 
   try {
     const [updates, estimates] = await Promise.all([listProgressUpdates(site._id), listSiteEstimates(site._id)]);

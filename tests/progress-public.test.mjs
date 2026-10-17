@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PROGRESS_LINK_OFF_MESSAGE,
+  PROGRESS_RETRY_MESSAGE,
   isProgressCodeShape,
   progressLockedMessage,
   progressPhotoUrl,
@@ -36,4 +37,8 @@ test('the lock message rounds the wait up to whole minutes', () => {
 
 test('the link-off message is the one the spec asks for', () => {
   assert.equal(PROGRESS_LINK_OFF_MESSAGE, '링크가 꺼져 있습니다. 위브디자인(031-381-0489)으로 문의해 주세요.');
+});
+
+test('the retry message for a check that could not be recorded', () => {
+  assert.equal(PROGRESS_RETRY_MESSAGE, '잠시 후 다시 시도해 주세요.');
 });

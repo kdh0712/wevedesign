@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import type { NotifyLogEntry, ProgressPhoto, ProgressUpdate } from '../../lib/site-progress';
 import type { ProgressAccessState } from '../progress/_access';
+import { needsCustomerRecordPhone, pickCustomerPhone } from './_customer-phone';
 import {
   canUseFirestoreOnServer,
   deleteFirestoreDocument,
@@ -67,16 +68,16 @@ export async function findSiteByProgressCode(code: string): Promise<ProgressSite
   return sites.find((site) => site.progressCode === value && !isTrashed(site)) ?? null;
 }
 
-// The site's own number first; a site saved without one falls back to the linked customer's number.
+// A mobile wins: the site's own mobile, then the linked customer's mobile, then any site number, then any customer number
+// (see pickCustomerPhone). Verify, the customer cookie and the alimtalk all use this one answer. The customer record is read
+// only when the site's own number is not a mobile.
 export async function resolveCustomerPhone(site: ProgressSite): Promise<string> {
-  const own = String(site.customerPhone ?? '').trim();
-  if (/\d/.test(own)) return own;
-
   const customerId = String(site.customerId ?? '').trim();
-  if (!customerId) return '';
-  const customer = await getFirestoreDocument<{ phone?: unknown }>(officeFirestoreCollections.customer, customerId);
-  const phone = String(customer?.phone ?? '').trim();
-  return /\d/.test(phone) ? phone : '';
+  const customer =
+    customerId && needsCustomerRecordPhone(site.customerPhone)
+      ? await getFirestoreDocument<{ phone?: unknown }>(officeFirestoreCollections.customer, customerId)
+      : null;
+  return pickCustomerPhone(site.customerPhone, customer?.phone);
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);

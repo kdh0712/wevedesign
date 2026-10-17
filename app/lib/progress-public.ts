@@ -12,6 +12,10 @@ export const PROGRESS_NO_PHONE_MESSAGE = `등록된 고객 번호가 없어 확�
 
 export const PROGRESS_UNAVAILABLE_MESSAGE = `지금은 확인할 수 없습니다. 잠시 후 다시 시도하거나 위브디자인(${PROGRESS_CONTACT_PHONE})으로 문의해 주세요.`;
 
+// A check that could not be recorded (another check or a staff edit got there first, or the store failed). The same answer
+// for a right and a wrong number, so it tells a visitor nothing.
+export const PROGRESS_RETRY_MESSAGE = '잠시 후 다시 시도해 주세요.';
+
 export function progressLockedMessage(retryAfterSeconds: number): string {
   const minutes = Math.max(1, Math.ceil(retryAfterSeconds / 60));
   return `확인 시도가 너무 많습니다. ${minutes}분 뒤에 다시 시도해 주세요.`;
