@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { assertManager, hashId, managerClient } from '../../../manager/_utils';
+import { hashId, managerClient } from '../../../manager/_utils';
+import { requireManager } from '../../../manager/_session';
 import {
   canUseFirestoreOnServer,
   getFirestoreDocument,
@@ -86,8 +87,8 @@ function toKakaoConsultationRecord(formId: string, entry: KakaoBizFormResponse &
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['consultations'] });
+  if (access.error) return access.error;
 
   const accessToken = process.env.KAKAO_BUSINESS_ACCESS_TOKEN?.trim();
   const adAccountId = process.env.KAKAO_MOMENT_AD_ACCOUNT_ID?.trim();

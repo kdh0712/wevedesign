@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server';
-import { assertManager, managerClient } from '../_utils';
+import { managerClient } from '../_utils';
+import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
 
   try {
     const settings = await managerClient.fetch(
@@ -18,8 +19,8 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['portfolio', 'integrations'] });
+  if (access.error) return access.error;
 
   try {
     const body = (await request.json()) as Record<string, unknown>;

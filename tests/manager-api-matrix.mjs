@@ -1,0 +1,122 @@
+// Manual check of every manager API against signed sessions with different permissions.
+// Usage: node tests/manager-api-matrix.mjs [baseUrl]   (reads test values from .env.local)
+// Writes stay harmless: allowed writes either fail for lack of a write token or target ids that do not exist.
+import { localEnv, mintSession } from './manager-test-env.mjs';
+
+const base = process.argv[2] || 'http://localhost:3217';
+const sessions = {
+  admin: mintSession('admin', []),
+  none: mintSession('staff', []),
+  consult: mintSession('staff', ['dashboard', 'consultations']),
+  estimates: mintSession('staff', ['estimates']),
+  sales: mintSession('staff', ['sales']),
+  portfolio: mintSession('staff', ['portfolio']),
+  expired: mintSession('staff', ['dashboard', 'consultations'], { remainingSeconds: -60 }),
+};
+const [consultBody, consultSignature] = sessions.consult.token.split('.');
+const forgedBody = Buffer.from(
+  JSON.stringify({ ...JSON.parse(Buffer.from(consultBody, 'base64url').toString('utf8')), role: 'admin' }),
+).toString('base64url');
+const forgedToken = `${forgedBody}.${consultSignature}`;
+
+const tokenFor = (who) => (who === 'forged' ? forgedToken : who === 'missing' ? '' : sessions[who].token);
+
+async function call(method, path, who, body) {
+  const headers = {};
+  const token = tokenFor(who);
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const response = await fetch(`${base}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const text = await response.text();
+  let json = null;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = null;
+  }
+  return { status: response.status, json, text };
+}
+
+const results = [];
+const record = (name, pass, detail = '') => results.push({ name, pass, detail });
+const expectStatus = async (method, path, who, expected, body) => {
+  const { status } = await call(method, path, who, body);
+  const pass = typeof expected === 'function' ? expected(status) : status === expected;
+  record(`${method} ${path} as ${who}`, pass, `status ${status}`);
+};
+const notAuthBlocked = (status) => status !== 401 && status !== 403;
+
+for (const who of ['missing', 'forged', 'expired']) await expectStatus('GET', '/api/manager/office', who, 401);
+
+const adminOffice = await call('GET', '/api/manager/office', 'admin');
+record('GET /api/manager/office as admin', adminOffice.status === 200, `status ${adminOffice.status}`);
+const collections = ['consultations', 'customers', 'sites', 'estimates', 'sales', 'inventory', 'vendors', 'projects', 'categories'];
+const readable = {
+  consult: ['consultations'],
+  sales: ['sites', 'estimates', 'sales'],
+  none: [],
+};
+for (const who of Object.keys(readable)) {
+  const office = await call('GET', '/api/manager/office', who);
+  record(`GET /api/manager/office as ${who}`, office.status === 200, `status ${office.status}`);
+  if (office.status !== 200 || adminOffice.status !== 200) continue;
+  for (const collection of collections) {
+    const adminCount = adminOffice.json?.[collection]?.length ?? 0;
+    const count = office.json?.[collection]?.length ?? 0;
+    const expected = readable[who].includes(collection) ? adminCount : 0;
+    record(`  ${who} sees ${collection}`, count === expected, `${count} (admin ${adminCount}, expected ${expected})`);
+  }
+  const hasVisits = office.json?.visitStats != null;
+  record(`  ${who} visitStats`, hasVisits === (who === 'consult'), `present=${hasVisits}`);
+}
+const dataRows = collections.filter((collection) => (adminOffice.json?.[collection]?.length ?? 0) > 0);
+record('office data available for filtering checks', dataRows.length > 0, dataRows.join(',') || 'admin saw no data');
+
+await expectStatus('GET', '/api/manager/estimate?materials=skip', 'consult', 403);
+await expectStatus('GET', '/api/manager/estimate?materials=skip', 'estimates', 200);
+await expectStatus('GET', '/api/manager/estimate?materials=skip', 'admin', 200);
+await expectStatus('POST', '/api/manager/estimate', 'consult', 403, { action: 'deleteEstimate', id: 'missing-estimate' });
+
+await expectStatus('POST', '/api/manager/office', 'consult', 403, { type: 'sale', data: {} });
+await expectStatus('POST', '/api/manager/office', 'sales', notAuthBlocked, { type: 'sale', data: {} });
+await expectStatus('POST', '/api/manager/office', 'consult', 403, { type: 'project', data: {} });
+await expectStatus('DELETE', '/api/manager/office', 'consult', 403, { id: 'missing-sale', type: 'sale' });
+await expectStatus('DELETE', '/api/manager/office', 'admin', 400, { id: 'siteSettings', type: 'consultation' });
+await expectStatus('DELETE', '/api/manager/office', 'admin', 400, { id: 'missing-account', type: 'managerAccount' });
+await expectStatus('DELETE', '/api/manager/office', 'admin', 400, { id: 'missing-account' });
+
+await expectStatus('GET', '/api/manager/settings', 'none', 200);
+await expectStatus('PATCH', '/api/manager/settings', 'consult', 403, {});
+await expectStatus('PATCH', '/api/manager/settings', 'portfolio', notAuthBlocked, {});
+
+await expectStatus('GET', '/api/manager/accounts', 'consult', 403);
+await expectStatus('GET', '/api/manager/accounts', 'admin', 200);
+await expectStatus('POST', '/api/manager/accounts', 'consult', 403, {});
+await expectStatus('DELETE', '/api/manager/accounts', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/migrate-firestore', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/project-main-image', 'consult', 403, {});
+await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'consult', 403, {});
+await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'none', 403);
+await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'consult', 200);
+await expectStatus('GET', '/api/manager/office', 'estimates', 200);
+
+const login = await fetch(`${base}/api/manager/auth`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ loginId: 'admin', password: localEnv.MANAGER_PASSWORD }),
+});
+const loginText = await login.text();
+record('POST /api/manager/auth (test master password)', login.status === 200 && !loginText.includes(localEnv.MANAGER_PASSWORD), `status ${login.status}`);
+const badLogin = await fetch(`${base}/api/manager/auth`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ loginId: 'admin', password: 'wrong-password' }),
+});
+record('POST /api/manager/auth (wrong password)', badLogin.status === 401, `status ${badLogin.status}`);
+
+for (const { name, pass, detail } of results) console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  ${detail}`);
+const failed = results.filter((result) => !result.pass).length;
+console.log(`\n${results.length - failed}/${results.length} passed`);
+process.exit(failed ? 1 : 0);

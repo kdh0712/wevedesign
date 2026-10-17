@@ -9,20 +9,11 @@ export const managerClient = createClient({
   token: process.env.SANITY_WRITE_TOKEN,
 });
 
-export function assertManager(request: Request) {
-  const password = process.env.MANAGER_PASSWORD;
-
-  if (!password) {
-    return Response.json({ error: 'MANAGER_PASSWORD is not configured.' }, { status: 500 });
-  }
-
-  const provided = request.headers.get('x-manager-password');
-
-  if (!provided || provided !== password) {
-    return Response.json({ error: '관리자 비밀번호가 올바르지 않습니다.' }, { status: 401 });
-  }
-
-  return null;
+// Read-only check run before a delete, so an id of another document type (an account, the site settings) is never deleted.
+export async function checkSanityDocumentType(id: string, expectedType: string): Promise<'ok' | 'missing' | 'mismatch'> {
+  const document = await managerClient.fetch<{ _type?: string } | null>('*[_id == $id][0]{_type}', { id });
+  if (!document?._type) return 'missing';
+  return document._type === expectedType ? 'ok' : 'mismatch';
 }
 
 export function assertSanityWriteConfigured() {

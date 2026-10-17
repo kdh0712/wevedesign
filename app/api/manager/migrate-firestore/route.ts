@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { assertManager, managerClient } from '../_utils';
+import { managerClient } from '../_utils';
+import { requireManager } from '../_session';
 import { canUseFirestoreOnServer, saveServerRecordToFirestore } from '../firestore';
 
 export const runtime = 'nodejs';
@@ -47,8 +48,8 @@ const collectionMap: Array<[keyof MigrationData, string]> = [
 ];
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   if (!process.env.SANITY_WRITE_TOKEN) {
     return NextResponse.json({ error: '기존 Sanity ERP 데이터를 읽으려면 SANITY_WRITE_TOKEN이 필요합니다.' }, { status: 500 });

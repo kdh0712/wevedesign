@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
-import { assertManager, assertSanityWriteConfigured, getOrCreateCategory, managerClient } from '../_utils';
+import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
+import { assertSanityWriteConfigured, checkSanityDocumentType, getOrCreateCategory, managerClient } from '../_utils';
+import { requireManager } from '../_session';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -156,8 +158,9 @@ async function getVisitStats() {
 }
 
 export async function GET(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
+  const { session } = access;
 
   try {
     if (shouldUseFirestoreErp()) {
@@ -171,7 +174,7 @@ export async function GET(request: Request) {
           readPublicData(),
           getVisitStats(),
         ]);
-        return NextResponse.json({ ...officeData, ...publicData, visitStats });
+        return NextResponse.json(filterOfficeData(session, { ...officeData, ...publicData, visitStats }));
       } catch (firestoreError) {
         const warning = firestoreError instanceof Error ? firestoreError.message : 'Firestore 데이터를 불러오지 못했습니다.';
         console.error('Firestore office data fetch failed:', firestoreError);
@@ -182,18 +185,20 @@ export async function GET(request: Request) {
           getVisitStats(),
         ]);
 
-        return NextResponse.json({
-          ...(fallbackData || emptyOfficeData),
-          ...publicData,
-          visitStats,
-          storageWarning: `Firestore 연결 확인 필요: ${warning}`,
-        });
+        return NextResponse.json(
+          filterOfficeData(session, {
+            ...(fallbackData || emptyOfficeData),
+            ...publicData,
+            visitStats,
+            storageWarning: `Firestore 연결 확인 필요: ${warning}`,
+          }),
+        );
       }
     }
 
     const data = await managerClient.fetch(query);
     data.visitStats = await getVisitStats();
-    return NextResponse.json(data);
+    return NextResponse.json(filterOfficeData(session, data));
   } catch (error) {
     console.error('Office data fetch failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '업무 데이터를 불러오지 못했습니다.') }, { status: 500 });
@@ -201,8 +206,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
@@ -211,6 +216,10 @@ export async function POST(request: Request) {
 
     if (!sanityType) {
       return NextResponse.json({ error: '지원하지 않는 업무 데이터 유형입니다.' }, { status: 400 });
+    }
+
+    if (!canWriteOffice(access.session, type)) {
+      return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
     const cleanData = sanitizeRecord(body?.data || {});
@@ -278,21 +287,37 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request);
+  if (access.error) return access.error;
 
   try {
     const body = await request.json();
     const id = String(body?.id || '').trim();
-    const type = String(body?.type || '').trim() as PrivateOfficeType;
+    const type = String(body?.type || '').trim();
 
     if (!id) {
       return NextResponse.json({ error: '삭제할 항목을 선택해 주세요.' }, { status: 400 });
     }
 
+    if (!Object.prototype.hasOwnProperty.call(typeMap, type)) {
+      return NextResponse.json({ error: '삭제할 항목 유형이 올바르지 않습니다.' }, { status: 400 });
+    }
+
+    if (!canWriteOffice(access.session, type)) {
+      return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
+    }
+
     if (type in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      await deleteOfficeRecordFromFirestore(request, type, id);
+      await deleteOfficeRecordFromFirestore(request, type as PrivateOfficeType, id);
       return NextResponse.json({ ok: true });
+    }
+
+    const documentType = await checkSanityDocumentType(id, typeMap[type as OfficeType]);
+    if (documentType === 'missing') {
+      return NextResponse.json({ error: '삭제할 항목을 찾을 수 없습니다.' }, { status: 404 });
+    }
+    if (documentType === 'mismatch') {
+      return NextResponse.json({ error: '삭제할 항목 유형이 올바르지 않습니다.' }, { status: 400 });
     }
 
     const sanityError = assertSanityWriteConfigured();

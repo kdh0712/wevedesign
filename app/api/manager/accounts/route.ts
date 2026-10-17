@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { assertManager, hashId, managerClient } from '../_utils';
+import { hashId, managerClient } from '../_utils';
+import { requireManager } from '../_session';
 import {
   firebaseLookup,
   firebaseSignUp,
@@ -30,8 +31,8 @@ const normalizePermissions = (value: unknown) => {
 };
 
 async function assertAccountAdmin(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { admin: true });
+  if (access.error) return access.error;
 
   const firebaseToken = request.headers.get('x-firebase-token') || '';
   if (!isFirebaseManagerConfigured() || !firebaseToken) return null;

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { assertManager, getOrCreateCategory, hashId, managerClient } from '../_utils';
+import { getOrCreateCategory, hashId, managerClient } from '../_utils';
+import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -17,8 +18,8 @@ type ParsedImage = {
 };
 
 export async function POST(request: Request) {
-  const authError = assertManager(request);
-  if (authError) return authError;
+  const access = requireManager(request, { anyOf: ['portfolio'] });
+  if (access.error) return access.error;
 
   try {
     return await handleBulkUpload(request);
