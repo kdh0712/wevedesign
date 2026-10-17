@@ -1,5 +1,6 @@
 import { createSign } from 'node:crypto';
 import { hashId } from './_utils';
+import { stripServerOwnedSiteFields } from './_site-fields';
 
 type FirestorePrimitive =
   | { nullValue: null }
@@ -434,7 +435,8 @@ export async function readOfficeDataFromFirestore(request: Request) {
   return {
     consultations: consultations.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
     customers: customers.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
-    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200),
+    // The link code and its lockout record are server-owned; no browser gets them (see _site-fields.ts).
+    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200).map(stripServerOwnedSiteFields),
     estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
     sales: sales.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
     inventory: inventory.filter(notTrashed).sort(byText('itemName')).slice(0, 200),
@@ -451,7 +453,7 @@ export async function readOfficeTrashFromFirestore(request: Request) {
   const [consultations, customers, sites, sales, inventory, vendors] = await Promise.all([
     trashed('officeConsultations'),
     trashed('officeCustomers'),
-    trashed('officeSites'),
+    trashed('officeSites').then((rows) => rows.map(stripServerOwnedSiteFields)),
     trashed('officeSales'),
     trashed('officeInventoryItems'),
     trashed('officeVendors'),
@@ -492,7 +494,8 @@ export async function saveOfficeRecordToFirestore(
   const now = new Date().toISOString();
   const previous = id ? await getFirestoreDocument<Record<string, unknown>>(collection, id, idToken).catch(() => null) : null;
   const record = {
-    ...data,
+    // A site form must not write the server-owned progress fields, whatever it sends.
+    ...(type === 'site' ? stripServerOwnedSiteFields(data) : data),
     createdAt: typeof previous?.createdAt === 'string' ? previous.createdAt : typeof data.createdAt === 'string' ? data.createdAt : now,
     updatedAt: now,
   };
@@ -629,7 +632,7 @@ export async function readEstimateDataFromFirestore(
   const sortedMaterials = sortMaterials(materials);
 
   return {
-    sites,
+    sites: sites.map(stripServerOwnedSiteFields),
     estimates,
     ...(isSiteScoped ? { estimatesSiteId } : {}),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),

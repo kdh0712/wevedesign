@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
+import { stripServerOwnedSiteFields } from '../_site-fields';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -172,9 +173,20 @@ async function getVisitStats() {
   };
 }
 
+// Site records leave this route without the server-owned progress fields (link code, enabled flag, lockout record).
+// The Firestore readers already drop them; this also covers the Sanity paths and the 휴지통 list.
+function withoutServerOwnedSiteFields<T extends Record<string, unknown>>(data: T): T {
+  if (!Array.isArray(data.sites)) return data;
+  const sites = data.sites.map((site: unknown) =>
+    typeof site === 'object' && site !== null ? stripServerOwnedSiteFields(site as Record<string, unknown>) : site,
+  );
+  return { ...data, sites };
+}
+
 // Server-Timing shows in the browser's network panel and the log line in Vercel, so the dashboard payload
 // (and how much of it is estimate lines) can be checked against real data.
-function timedJson(payload: Record<string, unknown>, startedAt: number, label: string) {
+function timedJson(rawPayload: Record<string, unknown>, startedAt: number, label: string) {
+  const payload = withoutServerOwnedSiteFields(rawPayload);
   const readMs = Date.now() - startedAt;
   const body = JSON.stringify(payload);
   const jsonMs = Date.now() - startedAt - readMs;
@@ -209,7 +221,8 @@ export async function GET(request: Request) {
     if (new URL(request.url).searchParams.get('view') === 'trash') {
       if (session.role !== 'admin') return NextResponse.json({ error: '총괄 관리자만 사용할 수 있습니다.' }, { status: 403 });
       const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
-      return NextResponse.json(useFirestore ? await readOfficeTrashFromFirestore(request) : await managerClient.fetch(trashQuery));
+      const trash = useFirestore ? await readOfficeTrashFromFirestore(request) : await managerClient.fetch(trashQuery);
+      return NextResponse.json(withoutServerOwnedSiteFields(trash));
     }
 
     if (shouldUseFirestoreErp()) {
@@ -281,12 +294,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
     }
 
-    const cleanData = sanitizeRecord(body?.data || {});
+    const sanitized = sanitizeRecord(body?.data || {});
+    // The progress link fields belong to /api/manager/progress. A site form, possibly opened before a link change,
+    // must not overwrite or revive them, so they are dropped before anything is merged over the stored record.
+    const cleanData = type === 'site' ? stripServerOwnedSiteFields(sanitized) : sanitized;
     const now = new Date().toISOString();
     const firestoreType = type as PrivateOfficeType;
 
     if (firestoreType in officeFirestoreCollections && shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-      const record = await saveOfficeRecordToFirestore(request, firestoreType, cleanData, body?.id ? String(body.id) : undefined);
+      const saved = await saveOfficeRecordToFirestore(request, firestoreType, cleanData, body?.id ? String(body.id) : undefined);
+      // The stored site carries the progress link fields; the browser gets it back without them.
+      const record = type === 'site' ? stripServerOwnedSiteFields(saved) : saved;
       return NextResponse.json({ record });
     }
 
