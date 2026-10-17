@@ -269,6 +269,7 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
   collection: string,
   idToken?: string,
   pageSize = 1000,
+  fieldPaths?: string[],
 ) {
   const rows: T[] = [];
   let pageToken = '';
@@ -277,6 +278,8 @@ export async function listFirestoreCollection<T extends Record<string, unknown>>
     const url = new URL(`${docBaseUrl()}/${encodePath(collection)}`);
     url.searchParams.set('pageSize', String(pageSize));
     if (pageToken) url.searchParams.set('pageToken', pageToken);
+    // A field mask makes Firestore return only these fields, so large JSON fields are not read or sent.
+    fieldPaths?.forEach((fieldPath) => url.searchParams.append('mask.fieldPaths', fieldPath));
 
     const response = await fetch(url, {
       headers: await firestoreHeaders(idToken, false),
@@ -352,13 +355,42 @@ const byNewest = <T extends Record<string, unknown>>(dateFields: string[]) => (a
 const byText = <T extends Record<string, unknown>>(field: string) => (a: T, b: T) =>
   String(a[field] || '').localeCompare(String(b[field] || ''), 'ko');
 
+// The dashboard only shows estimate summaries (same fields as the Sanity office query). Work lines, schedules,
+// purchase orders and legacy workbooks stay in Firestore until the estimate workspace opens the site.
+// linesJson stays: the daily report picks work items from the latest estimate's lines.
+const estimateSummaryFields = [
+  '_id',
+  'siteId',
+  'siteTitle',
+  'customerName',
+  'versionType',
+  'versionLabel',
+  'customerEstimateTotal',
+  'executionCostTotal',
+  'marginAmount',
+  'marginRate',
+  'linesJson',
+  'updatedAt',
+  'createdAt',
+];
+
+async function listEstimateSummariesFromFirestore(idToken: string) {
+  const rows = await listFirestoreCollection('siteEstimates', idToken, 1000, estimateSummaryFields).catch((error) => {
+    console.warn('Firestore estimate field mask failed, reading full documents instead:', error);
+    return listFirestoreCollection('siteEstimates', idToken);
+  });
+  return rows.map((row) =>
+    Object.fromEntries(estimateSummaryFields.filter((field) => field in row).map((field) => [field, row[field]])),
+  );
+}
+
 export async function readOfficeDataFromFirestore(request: Request) {
   const idToken = requestIdToken(request);
   const [consultations, customers, sites, estimates, sales, inventory, vendors] = await Promise.all([
     listFirestoreCollection('officeConsultations', idToken),
     listFirestoreCollection('officeCustomers', idToken),
     listFirestoreCollection('officeSites', idToken),
-    listFirestoreCollection('siteEstimates', idToken),
+    listEstimateSummariesFromFirestore(idToken),
     listFirestoreCollection('officeSales', idToken),
     listFirestoreCollection('officeInventoryItems', idToken),
     listFirestoreCollection('officeVendors', idToken),
