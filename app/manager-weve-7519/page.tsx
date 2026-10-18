@@ -31,8 +31,11 @@ import {
 import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
+import { todayInSeoul } from '../lib/site-progress';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
+import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
+import { ProgressLinkPanel } from './progress-link-panel';
 
 type UploadResult = {
   projectTitle: string;
@@ -2657,6 +2660,7 @@ export default function ManagerPage() {
                   onSecondary={resetSiteForm}
                 />
               </div>
+              {editingSiteId && hasAnyPermission(currentUser, ['sites']) && <ProgressLinkPanel key={editingSiteId} siteId={editingSiteId} authHeaders={() => authHeaders()} />}
             </Panel>
             <Panel title="현장 목록">
               <RecordList
@@ -3680,6 +3684,7 @@ export default function ManagerPage() {
             estimate={dailyReportEstimate}
             kakaoManagerUrl={homepageSettings.kakaoChannelManagerUrl || homepageSettings.kakaoUrl}
             onClose={() => setDailyReportSiteId('')}
+            progressAuthHeaders={hasAnyPermission(currentUser, ['sites']) ? () => authHeaders() : undefined}
           />
         )}
         {alimtalkCustomer && (
@@ -4163,14 +4168,17 @@ function DailyReportModal({
   estimate,
   kakaoManagerUrl,
   onClose,
+  progressAuthHeaders,
 }: {
   site: Site;
   customer?: Customer;
   estimate?: EstimateSummary;
   kakaoManagerUrl?: string;
   onClose: () => void;
+  // Only for accounts that may post to the customer progress page (admin or the sites permission).
+  progressAuthHeaders?: () => Record<string, string>;
 }) {
-  type ReportPhoto = { id: string; name: string; dataUrl: string };
+  type ReportPhoto = { id: string; name: string; dataUrl: string; file: File };
   type DailyReportRecord = {
     id: string;
     reportDate: string;
@@ -4183,7 +4191,7 @@ function DailyReportModal({
   };
 
   const reportStorageKey = `weve-daily-reports-${site._id}`;
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reportDate, setReportDate] = useState(() => todayInSeoul());
   const [designer, setDesigner] = useState('김동호 실장');
   const [workDetail, setWorkDetail] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -4215,6 +4223,12 @@ function DailyReportModal({
     }));
   }, [reportRecords]);
   const customerChatUrl = customer?.chatRoomUrl || kakaoManagerUrl || '';
+  // A post to the customer page keeps running after the window closes, so closing mid-post asks first.
+  const [progressBusy, setProgressBusy] = useState(false);
+  const requestClose = () => {
+    if (progressBusy && !window.confirm(PROGRESS_BUSY_CLOSE_CONFIRM)) return;
+    onClose();
+  };
 
   useEffect(() => {
     try {
@@ -4268,6 +4282,7 @@ function DailyReportModal({
                   id: `${Date.now()}-${file.name}-${Math.random().toString(16).slice(2)}`,
                   name: file.name,
                   dataUrl: String(reader.result || ''),
+                  file,
                 });
               reader.onerror = reject;
               reader.readAsDataURL(file);
@@ -4379,14 +4394,14 @@ function DailyReportModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={requestClose}>
       <section className="max-h-[92vh] w-full max-w-7xl overflow-y-auto rounded-xl bg-[#f4f1ea] shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-[#ded6c9] bg-[#171512] px-5 py-4 text-white">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#f1c76a]">WEVE DESIGN</p>
             <h2 className="mt-1 text-xl font-semibold">고객용 일일 보고서 작성</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full border border-white/20 px-3 py-1.5 text-sm font-bold">
+          <button type="button" onClick={requestClose} className="rounded-full border border-white/20 px-3 py-1.5 text-sm font-bold">
             닫기
           </button>
         </header>
@@ -4509,6 +4524,18 @@ function DailyReportModal({
                 브라우저 보안상 로컬/OneDrive 폴더는 사용자가 직접 선택해야 생성할 수 있습니다. 진행사항 내보내기 파일은 다른 컴퓨터에서 이어 작업할 때 기준 데이터로 사용할 수 있습니다.
               </p>
             </section>
+            {progressAuthHeaders && (
+              <DailyReportProgress
+                siteId={site._id}
+                siteStatus={site.status}
+                reportDate={reportDate}
+                designer={designer}
+                workDetail={workDetail}
+                photos={photos}
+                authHeaders={progressAuthHeaders}
+                onBusyChange={setProgressBusy}
+              />
+            )}
           </div>
 
           <aside className="grid gap-4 xl:sticky xl:top-4 xl:self-start">

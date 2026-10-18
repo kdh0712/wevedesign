@@ -13,6 +13,16 @@ import {
   type OfficeVersions,
 } from '../../lib/office-changes';
 import { hashId } from './_utils';
+import { SERVER_OWNED_SITE_FIELDS, stripServerOwnedSiteFields } from './_site-fields';
+import {
+  FirestoreConflictError,
+  buildPatchQuery,
+  isFirestoreConflictResponse,
+  maskedWrite,
+  type FirestorePrecondition,
+} from './_firestore-rest';
+
+export { FirestoreConflictError, isFirestoreConflictError } from './_firestore-rest';
 
 type FirestorePrimitive =
   | { nullValue: null }
@@ -97,6 +107,9 @@ const serviceAccount = (): ServiceAccount | null => {
   if (!client_email || !private_key) return null;
   return { client_email, private_key, project_id: process.env.FIREBASE_PROJECT_ID };
 };
+
+// The same service account for the other server-only Google API: progress photos in Firebase Storage.
+export const firebaseServiceAccount = (): ServiceAccount | null => serviceAccount();
 
 const parsedProjectIdFromDatabaseUrl = () => {
   const url = process.env.FIREBASE_DATABASE_URL || process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL || '';
@@ -343,15 +356,52 @@ export async function queryFirestoreCollectionByField<T extends Record<string, u
   return results.flatMap((item) => (item.document ? [toRecord<T>(item.document)] : []));
 }
 
-export async function getFirestoreDocument<T extends Record<string, unknown>>(collection: string, id: string, idToken?: string) {
+type FirestoreError = { message?: string; status?: string };
+
+// The document and the version it was read at (its updateTime), for a write that must not land on a newer version.
+export async function getFirestoreDocumentWithVersion<T extends Record<string, unknown>>(
+  collection: string,
+  id: string,
+  idToken?: string,
+): Promise<{ record: T; updateTime: string } | null> {
   const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}`, {
     headers: await firestoreHeaders(idToken, false),
     cache: 'no-store',
   });
-  const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: { message?: string } }) | null;
+  const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: FirestoreError }) | null;
   if (response.status === 404) return null;
   if (!response.ok || !data?.name) {
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document read failed: ${collection}/${id}`));
+  }
+  return { record: toRecord<T>(data), updateTime: data.updateTime || '' };
+}
+
+export async function getFirestoreDocument<T extends Record<string, unknown>>(collection: string, id: string, idToken?: string) {
+  return (await getFirestoreDocumentWithVersion<T>(collection, id, idToken))?.record ?? null;
+}
+
+// Writes only the given top-level fields (one updateMask path per key); every other field of the stored document stays as it is.
+// precondition { updateTime } fails when the document changed after that read, { exists: true } when it no longer exists.
+// Those failures and contention throw FirestoreConflictError, and nothing was written. Returns the whole saved document.
+export async function patchFirestoreFields<T extends Record<string, unknown>>(
+  collection: string,
+  id: string,
+  fields: Record<string, unknown>,
+  options: { idToken?: string; precondition?: FirestorePrecondition } = {},
+) {
+  const query = buildPatchQuery(Object.keys(fields), options.precondition);
+  const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}?${query}`, {
+    method: 'PATCH',
+    headers: await firestoreHeaders(options.idToken),
+    body: JSON.stringify({ fields: toFirestoreFields(fields) }),
+  });
+  const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: FirestoreError }) | null;
+  if (!response.ok || !data?.name) {
+    const message = data?.error?.message || `Firestore document save failed: ${collection}/${id}`;
+    if (!response.ok && isFirestoreConflictResponse(response.status, data?.error?.status)) {
+      throw new FirestoreConflictError(data?.error?.status || `HTTP ${response.status}`, message);
+    }
+    throw new Error(firestorePermissionMessage(message));
   }
   return toRecord<T>(data);
 }
@@ -392,21 +442,25 @@ async function bumpOfficeChanges(collection: string, idToken?: string) {
   }
 }
 
+// preserveFields: fields this save must never write. The PATCH then masks every other field of the merged record and leaves
+// these out of the body, so their stored values stay exactly as they are. Without it the whole document is written, as before.
 export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   collection: string,
   record: T,
   idToken?: string,
   preferredId?: string,
+  preserveFields?: readonly string[],
 ) {
   const rawId = String(preferredId || record._id || `${collection}-${hashId(`${Date.now()}-${Math.random()}`)}`).trim();
   const id = rawId.replace(/\//g, '-');
   const previous = await getFirestoreDocument<T>(collection, id, idToken).catch(() => null);
   const next = { ...(previous || {}), ...record, _id: id } as T;
+  const masked = preserveFields ? maskedWrite(next, preserveFields) : null;
 
-  const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}`, {
+  const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}${masked ? `?${buildPatchQuery(masked.fieldPaths)}` : ''}`, {
     method: 'PATCH',
     headers: await firestoreHeaders(idToken),
-    body: JSON.stringify({ fields: toFirestoreFields(next) }),
+    body: JSON.stringify({ fields: toFirestoreFields(masked ? masked.fields : next) }),
   });
   const data = (await response.json().catch(() => null)) as (FirestoreDocument & { error?: { message?: string } }) | null;
   if (!response.ok || !data?.name) {
@@ -481,8 +535,12 @@ const officeListReaders: Record<OfficeTrackedCollection, (idToken: string) => Pr
     listFirestoreCollection('officeConsultations', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
   officeCustomers: (idToken) =>
     listFirestoreCollection('officeCustomers', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  // The link code and its lockout record are server-owned; no browser gets them (see _site-fields.ts). Full and delta
+  // reads both come through here.
   officeSites: (idToken) =>
-    listFirestoreCollection('officeSites', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200)),
+    listFirestoreCollection('officeSites', idToken).then((rows) =>
+      rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200).map(stripServerOwnedSiteFields),
+    ),
   siteEstimates: (idToken) =>
     listEstimateSummariesFromFirestore(idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
   officeSales: (idToken) =>
@@ -542,7 +600,7 @@ export async function readOfficeTrashFromFirestore(request: Request) {
   const [consultations, customers, sites, sales, inventory, vendors] = await Promise.all([
     trashed('officeConsultations'),
     trashed('officeCustomers'),
-    trashed('officeSites'),
+    trashed('officeSites').then((rows) => rows.map(stripServerOwnedSiteFields)),
     trashed('officeSales'),
     trashed('officeInventoryItems'),
     trashed('officeVendors'),
@@ -556,7 +614,7 @@ export async function getOfficeRecordFromFirestore(request: Request, type: Priva
 }
 
 // Moves a record into the 휴지통, or back out with trash = null. The whole record is written so a failed re-read
-// inside saveFirestoreDocument cannot drop its other fields.
+// inside saveFirestoreDocument cannot drop its other fields; a site's server-owned progress fields are masked out.
 export async function setOfficeRecordTrashInFirestore(
   request: Request,
   type: PrivateOfficeType,
@@ -569,10 +627,13 @@ export async function setOfficeRecordTrashInFirestore(
     { ...record, deletedAt: trash?.deletedAt ?? null, deletedBy: trash?.deletedBy ?? null },
     requestIdToken(request),
     id,
+    type === 'site' ? SERVER_OWNED_SITE_FIELDS : undefined,
   );
 }
 
-export async function saveOfficeRecordToFirestore(
+// Also returns the stored record as it was before this save merged over it (null for a new record), so the caller can tell
+// what the save changed, for example a site moving into 완료.
+export async function saveOfficeRecordToFirestoreWithPrevious(
   request: Request,
   type: PrivateOfficeType,
   data: Record<string, unknown>,
@@ -583,12 +644,24 @@ export async function saveOfficeRecordToFirestore(
   const now = new Date().toISOString();
   const previous = id ? await getFirestoreDocument<Record<string, unknown>>(collection, id, idToken).catch(() => null) : null;
   const record = {
-    ...data,
+    // A site form must not write the server-owned progress fields, whatever it sends.
+    ...(type === 'site' ? stripServerOwnedSiteFields(data) : data),
     createdAt: typeof previous?.createdAt === 'string' ? previous.createdAt : typeof data.createdAt === 'string' ? data.createdAt : now,
     updatedAt: now,
   };
   const documentId = id || `${collection}-${hashId(`${type}-${now}-${Math.random()}`)}`;
-  return saveFirestoreDocument(collection, record, idToken, documentId);
+  // A site save is masked so it never writes the progress fields: a link created or changed while the form was open stays.
+  const saved = await saveFirestoreDocument(collection, record, idToken, documentId, type === 'site' ? SERVER_OWNED_SITE_FIELDS : undefined);
+  return { saved, previous };
+}
+
+export async function saveOfficeRecordToFirestore(
+  request: Request,
+  type: PrivateOfficeType,
+  data: Record<string, unknown>,
+  id?: string,
+) {
+  return (await saveOfficeRecordToFirestoreWithPrevious(request, type, data, id)).saved;
 }
 
 export async function deleteOfficeRecordFromFirestore(request: Request, type: PrivateOfficeType, id: string) {
@@ -720,7 +793,7 @@ export async function readEstimateDataFromFirestore(
   const sortedMaterials = sortMaterials(materials);
 
   return {
-    sites,
+    sites: sites.map(stripServerOwnedSiteFields),
     estimates,
     ...(isSiteScoped ? { estimatesSiteId } : {}),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
