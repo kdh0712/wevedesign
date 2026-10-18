@@ -82,6 +82,27 @@ export function findCommonSaveTarget<M extends MaterialKeyFields>(
   return materials.find((item) => materialSaveKey({ ...item, category: trimmed(item.process) || item.category }) === key);
 }
 
+// The "공통 항목" list editor: one input per item, up to the 50-item cap.
+export function canAddCommonOptionRow(rowCount: number) {
+  return rowCount < COMMON_OPTIONS_MAX_COUNT;
+}
+
+// Moves items[index] by offset (-1 = up, 1 = down). A move past either end, or a bad index, returns an unchanged copy.
+export function moveListItem<T>(items: readonly T[], index: number, offset: number): T[] {
+  const target = index + offset;
+  if (!Number.isInteger(index) || !Number.isInteger(target) || index < 0 || index >= items.length || target < 0 || target >= items.length) {
+    return [...items];
+  }
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
+export function removeListItem<T>(items: readonly T[], index: number): T[] {
+  return items.filter((_, itemIndex) => itemIndex !== index);
+}
+
 export type CommonBulkRow = {
   space: string;
   name: string;

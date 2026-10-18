@@ -6,14 +6,17 @@ import {
   COMMON_OPTIONS_MAX_COUNT,
   appendCommonOption,
   buildCommonBulkLines,
+  canAddCommonOptionRow,
   commonOptionsForSave,
   defaultCommonBulkRows,
   findCommonSaveTarget,
   formatCommonOptions,
   isCommonMaterialName,
   materialSaveKey,
+  moveListItem,
   parseCommonOptions,
   placeCommonBulkLines,
+  removeListItem,
   replaceLineAt,
   sanitizeCommonOptions,
   validateCommonBulkRows,
@@ -363,3 +366,44 @@ test('placeCommonBulkLines appends to the end without a target', () => {
   assert.deepEqual(placeCommonBulkLines([], added, '').map((line) => line.id), ['n1', 'n2', 'n3']);
 });
 
+test('moveListItem moves one item up or down and keeps the rest in order', () => {
+  assert.deepEqual(moveListItem(['a', 'b', 'c', 'd'], 2, -1), ['a', 'c', 'b', 'd']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c', 'd'], 1, 1), ['a', 'c', 'b', 'd']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a']);
+});
+
+test('moveListItem leaves the list as it is for a move past either end or a bad index', () => {
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 0, -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 2, 1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 5, -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 1.5, 1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem([], 0, 1), []);
+});
+
+test('moveListItem and removeListItem do not change the input list', () => {
+  const items = ['a', 'b', 'c'];
+  moveListItem(items, 0, 1);
+  removeListItem(items, 1);
+  assert.deepEqual(items, ['a', 'b', 'c']);
+});
+
+test('removeListItem removes one item and ignores a bad index', () => {
+  assert.deepEqual(removeListItem(['a', 'b', 'c'], 1), ['a', 'c']);
+  assert.deepEqual(removeListItem(['a', 'b', 'c'], 0), ['b', 'c']);
+  assert.deepEqual(removeListItem(['a'], 0), []);
+  assert.deepEqual(removeListItem(['a', 'b'], 2), ['a', 'b']);
+  assert.deepEqual(removeListItem(['a', 'b'], -1), ['a', 'b']);
+});
+
+test('canAddCommonOptionRow allows rows up to the 50-item cap', () => {
+  assert.equal(canAddCommonOptionRow(0), true);
+  assert.equal(canAddCommonOptionRow(49), true);
+  assert.equal(canAddCommonOptionRow(50), false);
+  assert.equal(canAddCommonOptionRow(51), false);
+});
+
+test('one input per item saves through the same cleanup as before', () => {
+  const inputs = [' 1. 안방 욕실 ', '', '2) 거실 욕실', '   ', '안방 욕실', '- 현관'];
+  assert.deepEqual(sanitizeCommonOptions(inputs), ['안방 욕실', '거실 욕실', '현관']);
+  assert.deepEqual(sanitizeCommonOptions(['', '  ']), []);
+});
