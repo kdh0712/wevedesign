@@ -1503,12 +1503,12 @@ export default function EstimateWorkspacePage() {
   const lineDraftDbProcess = () => lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
 
   // A '공통' save has no _id, so it overwrites the '공통' item with the same 공종 / 규격 / 단위. Its list starts from that item's
-  // 공통 항목 (else the picked item's), plus the typed 품명; saveKey tells which item the list was loaded for.
+  // 공통 항목 (the picked item's only when no such item exists yet), plus the typed 품명; saveKey tells which item the list was loaded for.
   const lineDraftCommonPrefill = () => {
     const draft = { category: lineDraftDbProcess(), spec: lineDraft.spec, unit: lineDraft.unit };
     const target = findCommonSaveTarget(materials, draft);
     return {
-      options: appendCommonOption(target?.commonOptions ?? lineDraftSource?.commonOptions, lineDraft.name),
+      options: appendCommonOption(target ? target.commonOptions : lineDraftSource?.commonOptions, lineDraft.name),
       saveKey: materialSaveKey({ ...draft, name: COMMON_MATERIAL_NAME }),
     };
   };
