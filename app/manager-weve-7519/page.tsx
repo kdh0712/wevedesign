@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
+import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
 import { todayInSeoul } from '../lib/site-progress';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
@@ -326,6 +327,9 @@ type PreviewTarget = {
 type OfficeApiResponse = Partial<OfficeData> & {
   error?: string;
   storageWarning?: string;
+  // Firestore only: the change marker's tokens, and on a refresh the collections left out as unchanged.
+  officeVersions?: OfficeVersions;
+  unchangedCollections?: string[];
   record?: Consultation | Customer | Site | Sale | InventoryItem | Vendor | ManagedProject;
 };
 
@@ -709,6 +713,11 @@ export default function ManagerPage() {
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
   const refreshInFlightRef = useRef(false);
   const kakaoConfiguredRef = useRef(true);
+  // The version map from the last office answer; the refresh sends it so only the changed lists are re-read.
+  const officeVersionsRef = useRef<OfficeVersions | null>(null);
+  const lastFullOfficeReadAtRef = useRef(0);
+  // Counts sessions (login, restore, logout, expiry); answers to office requests from an earlier one are dropped.
+  const officeSessionRef = useRef(0);
 
   const visibleTabs = useMemo(() => {
     if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts' && tab.key !== 'trash');
@@ -881,6 +890,7 @@ export default function ManagerPage() {
     const restoreSession = async () => {
       setIsRestoringSession(true);
       try {
+        resetOfficeSession();
         setPassword(savedSession.token);
         setFirebaseToken(savedSession.firebaseToken);
         setCurrentUser(savedSession.user);
@@ -893,8 +903,9 @@ export default function ManagerPage() {
           void refreshOfficeData(savedSession.token, savedSession.firebaseToken, savedSession.user);
         }
       } catch (caught) {
-        clearStoredSession();
+        // A cancelled run (React StrictMode runs this effect twice in dev) must not wipe the saved session the live run uses.
         if (!cancelled) {
+          clearStoredSession();
           setPassword('');
           setFirebaseToken('');
           setCurrentUser(null);
@@ -956,7 +967,16 @@ export default function ManagerPage() {
     ...(firebaseAuthToken ? { 'x-firebase-token': firebaseAuthToken } : {}),
   });
 
+  // A login, a restore, a logout or an expired session starts over: the version map is forgotten and answers to
+  // office requests sent before it are dropped, so one user's lists never reach another user's dashboard.
+  const resetOfficeSession = () => {
+    officeSessionRef.current += 1;
+    officeVersionsRef.current = null;
+    lastFullOfficeReadAtRef.current = 0;
+  };
+
   const expireSession = () => {
+    resetOfficeSession();
     clearStoredSession();
     setPassword('');
     setFirebaseToken('');
@@ -1014,6 +1034,7 @@ export default function ManagerPage() {
         throw new Error(result.error || '로그인에 실패했습니다.');
       }
 
+      resetOfficeSession();
       setPassword(result.token);
       setFirebaseToken(result.firebaseToken || '');
       setCurrentUser(result.user);
@@ -1036,6 +1057,7 @@ export default function ManagerPage() {
   };
 
   const handleLogout = () => {
+    resetOfficeSession();
     clearStoredSession();
     setPassword('');
     setFirebaseToken('');
@@ -1119,12 +1141,15 @@ export default function ManagerPage() {
     }
     if (!requirePassword(managerPassword)) return false;
 
+    // An answer that arrives after a logout or another login belongs to the old session and is dropped.
+    const session = officeSessionRef.current;
     if (!options.silent) setLoadingOffice(true);
     try {
       const [response, settingsResponse] = await Promise.all([
         fetch('/api/manager/office', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
         fetch('/api/manager/settings', { headers: authHeaders(managerPassword, firebaseAuthToken) }),
       ]);
+      if (officeSessionRef.current !== session) return false;
       if (response.status === 401 || settingsResponse.status === 401) {
         expireSession();
         return false;
@@ -1133,6 +1158,7 @@ export default function ManagerPage() {
       if (!response.ok) throw new Error(data.error || '업무 데이터를 불러오지 못했습니다.');
       const settingsData = await readJsonResponse<{ settings?: Partial<typeof homepageSettings>; error?: string }>(settingsResponse);
       if (!settingsResponse.ok) throw new Error(settingsData.error || '홈페이지 설정을 불러오지 못했습니다.');
+      if (officeSessionRef.current !== session) return false;
 
       setOfficeData({
         consultations: data.consultations || [],
@@ -1146,6 +1172,8 @@ export default function ManagerPage() {
         projects: data.projects || [],
         visitStats: data.visitStats,
       });
+      officeVersionsRef.current = data.officeVersions || null;
+      lastFullOfficeReadAtRef.current = Date.now();
       setVisitStats(data.visitStats || null);
       const settings = settingsData.settings || {};
       const savedSurveyConfig = settings.consultationSurveyConfig || JSON.stringify(defaultSurveyConfig);
@@ -1229,7 +1257,7 @@ export default function ManagerPage() {
       if (!options.silent) setStatus('업무 데이터를 불러왔습니다.');
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
+      if (officeSessionRef.current === session) setError(caught instanceof Error ? caught.message : '업무 데이터 조회 중 오류가 발생했습니다.');
       return false;
     } finally {
       if (!options.silent) setLoadingOffice(false);
@@ -1240,35 +1268,48 @@ export default function ManagerPage() {
     if (!managerPassword || refreshInFlightRef.current) return;
 
     refreshInFlightRef.current = true;
+    const session = officeSessionRef.current;
     try {
       // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
       if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
       // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
-      const response = await fetch('/api/manager/office?scope=refresh', { headers: authHeaders(managerPassword, firebaseAuthToken) });
+      // versions asks for only the lists that changed since the last answer; at least every 10 minutes it is left out
+      // and everything is read, in case a change was not recorded.
+      const sentVersions = officeVersionsRef.current;
+      const versionsParam = officeRefreshVersionsParam(sentVersions, lastFullOfficeReadAtRef.current, Date.now());
+      const response = await fetch(`/api/manager/office?scope=refresh${versionsParam ? `&versions=${versionsParam}` : ''}`, {
+        headers: authHeaders(managerPassword, firebaseAuthToken),
+      });
+      const data = await readJsonResponse<OfficeApiResponse>(response);
+      // Drop the answer, full or delta, if a logout, a login or a full load happened meanwhile: it may hold another
+      // user's lists, or it was compared with lists the dashboard no longer shows. The next refresh catches up.
+      if (
+        !shouldApplyOfficeRefresh(
+          { session, versions: sentVersions },
+          { session: officeSessionRef.current, versions: officeVersionsRef.current },
+        )
+      ) {
+        return;
+      }
       if (response.status === 401) {
         expireSession();
         return;
       }
-      const data = await readJsonResponse<OfficeApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '업무 데이터를 갱신하지 못했습니다.');
 
       setOfficeData((current) => ({
         ...current,
-        consultations: data.consultations || [],
-        customers: data.customers || [],
-        sites: data.sites || [],
-        estimates: data.estimates || [],
-        sales: data.sales || [],
-        inventory: data.inventory || [],
-        vendors: data.vendors || [],
+        ...mergeOfficeLists(current, data),
         categories: data.categories || current.categories,
         projects: data.projects || current.projects,
         visitStats: data.visitStats,
       }));
+      officeVersionsRef.current = data.officeVersions || null;
+      if (!versionsParam) lastFullOfficeReadAtRef.current = Date.now();
       setVisitStats(data.visitStats || null);
       setLastRefreshedAt(formatTime(new Date()));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '업무 데이터 자동 갱신 중 오류가 발생했습니다.');
+      if (officeSessionRef.current === session) setError(caught instanceof Error ? caught.message : '업무 데이터 자동 갱신 중 오류가 발생했습니다.');
     } finally {
       refreshInFlightRef.current = false;
     }

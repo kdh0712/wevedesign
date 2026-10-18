@@ -1,4 +1,18 @@
 import { createSign } from 'node:crypto';
+import {
+  OFFICE_CHANGES_COLLECTION,
+  OFFICE_CHANGES_DOCUMENT_ID,
+  OFFICE_COLLECTION_LISTS,
+  OFFICE_TRACKED_COLLECTIONS,
+  completeOfficeVersions,
+  createOfficeVersionToken,
+  readOfficeDataWithVersions,
+  shouldBumpForPatch,
+  shouldBumpOfficeChanges,
+  type OfficeListKey,
+  type OfficeTrackedCollection,
+  type OfficeVersions,
+} from '../../lib/office-changes';
 import { hashId } from './_utils';
 import { SERVER_OWNED_SITE_FIELDS, stripServerOwnedSiteFields } from './_site-fields';
 import {
@@ -390,7 +404,47 @@ export async function patchFirestoreFields<T extends Record<string, unknown>>(
     }
     throw new Error(firestorePermissionMessage(message));
   }
+  // Only after a successful write (a conflict threw above and wrote nothing). A patch of only a site's server-owned
+  // progress fields does not bump: the dashboard strips them, and the customer verify lockout is public traffic.
+  if (shouldBumpForPatch(collection, Object.keys(fields), { officeSites: SERVER_OWNED_SITE_FIELDS })) {
+    await bumpOfficeChanges(collection, options.idToken);
+  }
   return toRecord<T>(data);
+}
+
+// Writes only the given fields of the change marker (managerSettings/officeChanges) with an update mask, creating
+// the document when needed, so bumps of different collections never overwrite each other. managerSettings is not
+// a tracked collection, so this write never bumps anything itself.
+// It gives up after OFFICE_CHANGES_TIMEOUT_MS, so a slow marker write cannot stall the save it follows; the timeout
+// is logged like any failed bump.
+const OFFICE_CHANGES_TIMEOUT_MS = 5000;
+
+async function patchOfficeChanges(fields: OfficeVersions, idToken?: string) {
+  const query = buildPatchQuery(Object.keys(fields));
+  const response = await fetch(`${docBaseUrl()}/${encodePath(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID)}?${query}`, {
+    method: 'PATCH',
+    headers: await firestoreHeaders(idToken),
+    body: JSON.stringify({ fields: toFirestoreFields(fields) }),
+    signal: AbortSignal.timeout(OFFICE_CHANGES_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore change marker update failed (${response.status})`));
+  }
+  // The updated marker is not needed; cancel the body so the connection is released.
+  await response.body?.cancel();
+}
+
+// Runs after every successful write or delete, with the write's own credentials, so dashboards re-read that list.
+// Awaited because serverless may freeze unawaited work; a failed bump is only logged and never fails the write
+// (the dashboard's 10-minute full refresh catches it up).
+async function bumpOfficeChanges(collection: string, idToken?: string) {
+  if (!shouldBumpOfficeChanges(collection)) return;
+  try {
+    await patchOfficeChanges({ [collection]: createOfficeVersionToken() }, idToken);
+  } catch (error) {
+    console.error(`Firestore change marker bump failed for ${collection}:`, error);
+  }
 }
 
 // preserveFields: fields this save must never write. The PATCH then masks every other field of the merged record and leaves
@@ -417,6 +471,7 @@ export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   if (!response.ok || !data?.name) {
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document save failed: ${collection}/${id}`));
   }
+  await bumpOfficeChanges(collection, idToken);
   return toRecord<T>(data);
 }
 
@@ -425,11 +480,14 @@ export async function deleteFirestoreDocument(collection: string, id: string, id
     method: 'DELETE',
     headers: await firestoreHeaders(idToken, false),
   });
+  // Without a precondition Firestore answers 200 even when the document did not exist, so such a delete still bumps
+  // the change marker (one harmless extra re-read). A 404, if one ever comes back, changed nothing and does not bump.
   if (response.status === 404) return;
   const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
   if (!response.ok) {
     throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document delete failed: ${collection}/${id}`));
   }
+  await bumpOfficeChanges(collection, idToken);
 }
 
 const byNewest = <T extends Record<string, unknown>>(dateFields: string[]) => (a: T, b: T) => {
@@ -473,28 +531,69 @@ async function listEstimateSummariesFromFirestore(idToken: string) {
 // Office records in the 휴지통 (trash) carry deletedAt; every list except the trash view leaves them out.
 const notTrashed = <T extends Record<string, unknown>>(record: T) => !record.deletedAt;
 
-export async function readOfficeDataFromFirestore(request: Request) {
-  const idToken = requestIdToken(request);
-  const [consultations, customers, sites, estimates, sales, inventory, vendors] = await Promise.all([
-    listFirestoreCollection('officeConsultations', idToken),
-    listFirestoreCollection('officeCustomers', idToken),
-    listFirestoreCollection('officeSites', idToken),
-    listEstimateSummariesFromFirestore(idToken),
-    listFirestoreCollection('officeSales', idToken),
-    listFirestoreCollection('officeInventoryItems', idToken),
-    listFirestoreCollection('officeVendors', idToken),
-  ]);
+type OfficeRows = Array<Record<string, unknown>>;
+type OfficeLists = Record<OfficeListKey, OfficeRows>;
 
-  return {
-    consultations: consultations.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
-    customers: customers.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100),
-    // The link code and its lockout record are server-owned; no browser gets them (see _site-fields.ts).
-    sites: sites.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200).map(stripServerOwnedSiteFields),
-    estimates: estimates.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300),
-    sales: sales.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100),
-    inventory: inventory.filter(notTrashed).sort(byText('itemName')).slice(0, 200),
-    vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 100),
-  };
+// Each dashboard list is one collection, filtered, sorted and limited the same way however it is read.
+const officeListReaders: Record<OfficeTrackedCollection, (idToken: string) => Promise<OfficeRows>> = {
+  officeConsultations: (idToken) =>
+    listFirestoreCollection('officeConsultations', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  officeCustomers: (idToken) =>
+    listFirestoreCollection('officeCustomers', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  // The link code and its lockout record are server-owned; no browser gets them (see _site-fields.ts). Full and delta
+  // reads both come through here.
+  officeSites: (idToken) =>
+    listFirestoreCollection('officeSites', idToken).then((rows) =>
+      rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 200).map(stripServerOwnedSiteFields),
+    ),
+  siteEstimates: (idToken) =>
+    listEstimateSummariesFromFirestore(idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
+  officeSales: (idToken) =>
+    listFirestoreCollection('officeSales', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100)),
+  officeInventoryItems: (idToken) =>
+    listFirestoreCollection('officeInventoryItems', idToken).then((rows) => rows.filter(notTrashed).sort(byText('itemName')).slice(0, 200)),
+  officeVendors: (idToken) =>
+    listFirestoreCollection('officeVendors', idToken).then((rows) => rows.filter(notTrashed).sort(byText('name')).slice(0, 100)),
+};
+
+async function readOfficeListsFromFirestore(idToken: string, collections: readonly OfficeTrackedCollection[]) {
+  const lists = await Promise.all(collections.map((collection) => officeListReaders[collection](idToken)));
+  return Object.fromEntries(collections.map((collection, index) => [OFFICE_COLLECTION_LISTS[collection], lists[index]])) as Partial<OfficeLists>;
+}
+
+export async function readOfficeDataFromFirestore(request: Request) {
+  return (await readOfficeListsFromFirestore(requestIdToken(request), OFFICE_TRACKED_COLLECTIONS)) as OfficeLists;
+}
+
+// The change marker's tokens. A missing marker (or field) gets fresh tokens, saved with a masked write.
+async function readOfficeVersionsFromFirestore(idToken: string) {
+  const stored = await getFirestoreDocument<Record<string, unknown>>(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID, idToken);
+  const { versions, missing } = completeOfficeVersions(stored);
+  if (Object.keys(missing).length) {
+    // If this fails the tokens are not stored, so the next refresh makes new ones and re-reads those lists.
+    await patchOfficeChanges(missing, idToken).catch((error) => console.error('Firestore change marker create failed:', error));
+  }
+  return versions;
+}
+
+// The dashboard lists for one session plus the change marker's version map. readOfficeDataWithVersions
+// (app/lib/office-changes.ts) reads the marker BEFORE the lists (see the comment there for why), lists only the
+// readable collections that changed since `known`, and falls back to every readable list when the marker fails.
+export async function readOfficeDataWithVersionsFromFirestore(
+  request: Request,
+  known: OfficeVersions | null,
+  readable: readonly OfficeTrackedCollection[],
+) {
+  const idToken = requestIdToken(request);
+  return readOfficeDataWithVersions<Record<string, unknown>>(
+    {
+      readVersions: () => readOfficeVersionsFromFirestore(idToken),
+      readLists: (collections) => readOfficeListsFromFirestore(idToken, collections),
+      onVersionsError: (error) => console.error('Firestore change marker read failed, reading every readable list:', error),
+    },
+    known,
+    readable,
+  );
 }
 
 export async function readOfficeTrashFromFirestore(request: Request) {
