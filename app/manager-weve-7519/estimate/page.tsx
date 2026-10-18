@@ -5,6 +5,19 @@ import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy
 import { hasAnyPermission } from '../../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession, type StoredManagerUser } from '../../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
+import {
+  COMMON_MATERIAL_NAME,
+  appendCommonOption,
+  buildCommonBulkLines,
+  findCommonSaveTarget,
+  isCommonMaterialName,
+  materialSaveKey,
+  placeCommonBulkLines,
+  type CommonBulkRow,
+  type CommonBulkShared,
+} from '../../lib/estimate-common-options';
+import { CommonBulkAddDialog } from './common-bulk-add-dialog';
+import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
   _id: string;
@@ -28,6 +41,8 @@ type Material = {
   note?: string;
   sourceSheet?: string;
   updatedAt?: string;
+  // Saved 품명s of a '공통' item, offered when it is picked into an estimate.
+  commonOptions?: string[];
 };
 
 type EstimateLine = {
@@ -240,6 +255,20 @@ type MaterialPickerState = {
   search: string;
 };
 
+// "공통 항목 한번에 추가": the '공통' item and the options ticked in the picker, and the line (or the draft) it was opened for.
+type CommonBulkAddState = {
+  material: Material;
+  options: string[];
+  library: MaterialLibrary;
+  category: string;
+  targetLineId: string;
+  space: string;
+  // The line row 1 replaces ('' = every row is added), and its 수량 / 비고 for row 1's defaults.
+  replaceLineId: string;
+  replacedLine: { quantity: number; note: string } | null;
+  opener: HTMLElement | null;
+};
+
 type DetailPrintRow =
   | { type: 'group'; key: string; groupIndex: number; category: string }
   | { type: 'line'; key: string; line: EstimateLine }
@@ -252,7 +281,6 @@ const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
 const DETAIL_PRINT_ROWS_PER_PAGE = 20;
-const COMMON_MATERIAL_NAME = '공통';
 const NEW_ESTIMATE_CATEGORY_OPTION = '__new_estimate_category__';
 const SAME_AS_CATEGORY_TARGET = '__same_as_category__';
 const emptyMaterialSettings: MaterialSettings = { estimateCategories: [], estimateItems: {}, materialOrder: [] };
@@ -596,6 +624,10 @@ export default function EstimateWorkspacePage() {
   const [isLineDbSaveOpen, setIsLineDbSaveOpen] = useState(false);
   const [lineDbSaveCategory, setLineDbSaveCategory] = useState('');
   const [lineDbSaveCommon, setLineDbSaveCommon] = useState(false);
+  const [lineDbSaveOptions, setLineDbSaveOptions] = useState<string[]>([]);
+  const [lineDbSaveKey, setLineDbSaveKey] = useState('');
+  const [commonBulkAdd, setCommonBulkAdd] = useState<CommonBulkAddState | null>(null);
+  const pickerOpenerRef = useRef<HTMLElement | null>(null);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -1259,7 +1291,12 @@ export default function EstimateWorkspacePage() {
 
     try {
       // 카테고리 is no longer entered separately; it follows 공정.
-      const materialToSave = materialOverride || { ...editingMaterial, category: (editingMaterial.process || editingMaterial.category || '').trim() };
+      // A '공통' item always sends its 공통 항목, so an emptied list clears them.
+      const materialToSave = materialOverride || {
+        ...editingMaterial,
+        category: (editingMaterial.process || editingMaterial.category || '').trim(),
+        ...(isCommonMaterialName(editingMaterial.name) ? { commonOptions: editingMaterial.commonOptions || [] } : {}),
+      };
       const estimateCategory = materialOverride ? options.estimateCategory : editingMaterialEstimateCategory;
       const response = await managerFetch('/api/manager/estimate', {
         method: 'POST',
@@ -1434,7 +1471,13 @@ export default function EstimateWorkspacePage() {
     return step;
   };
 
+  // The cell that opened the picker; "공통 항목 한번에 추가" gives focus back to it when it closes.
+  const rememberPickerOpener = () => {
+    pickerOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+
   const openMaterialPicker = (line: EstimateLine, step: MaterialPickerState['step'] = 'category') => {
+    rememberPickerOpener();
     setSelectedLineId(line.id);
     setMaterialPicker({
       lineId: line.id,
@@ -1446,6 +1489,7 @@ export default function EstimateWorkspacePage() {
   };
 
   const openLineDraftMaterialPicker = (step: MaterialPickerState['step'] = 'category') => {
+    rememberPickerOpener();
     setMaterialPicker({
       lineId: LINE_DRAFT_PICKER_ID,
       step: pickerStepFor(step, lineDraft.category, lineDraft.process),
@@ -1455,9 +1499,26 @@ export default function EstimateWorkspacePage() {
     });
   };
 
+  // 카테고리 follows 공정; a line from the estimate DB carries the estimate category in 분류, so it is not used here.
+  const lineDraftDbProcess = () => lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
+
+  // A '공통' save has no _id, so it overwrites the '공통' item with the same 공종 / 규격 / 단위. Its list starts from that item's
+  // 공통 항목 (the picked item's only when no such item exists yet), plus the typed 품명; saveKey tells which item the list was loaded for.
+  const lineDraftCommonPrefill = () => {
+    const draft = { category: lineDraftDbProcess(), spec: lineDraft.spec, unit: lineDraft.unit };
+    const target = findCommonSaveTarget(materials, draft);
+    return {
+      options: appendCommonOption(target ? target.commonOptions : lineDraftSource?.commonOptions, lineDraft.name),
+      saveKey: materialSaveKey({ ...draft, name: COMMON_MATERIAL_NAME }),
+    };
+  };
+
   const openLineDbSave = () => {
+    const prefill = lineDraftCommonPrefill();
     setLineDbSaveCategory(estimateCategories.includes(lineDraft.category) ? lineDraft.category : '');
     setLineDbSaveCommon(Boolean(lineDraft.commonName));
+    setLineDbSaveOptions(prefill.options);
+    setLineDbSaveKey(prefill.saveKey);
     setIsLineDbSaveOpen(true);
   };
 
@@ -1467,8 +1528,15 @@ export default function EstimateWorkspacePage() {
       setError('DB에 저장할 품명을 입력하거나 품명을 공통으로 저장해주세요.');
       return;
     }
-    // 카테고리 follows 공정; a line from the estimate DB carries the estimate category in 분류, so it is not used here.
-    const process = lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
+    // The draft's 공종 / 규격 / 단위 changed after the list was loaded: the list belongs to another item, so reload it first.
+    const prefill = lineDraftCommonPrefill();
+    if (lineDbSaveCommon && prefill.saveKey !== lineDbSaveKey) {
+      setLineDbSaveOptions(prefill.options);
+      setLineDbSaveKey(prefill.saveKey);
+      setError('저장할 DB 품목이 바뀌어 공통 항목을 다시 불러왔습니다. 확인한 뒤 다시 저장해주세요.');
+      return;
+    }
+    const process = lineDraftDbProcess();
     const saved = await saveMaterial(
       {
         category: process,
@@ -1479,6 +1547,7 @@ export default function EstimateWorkspacePage() {
         unitPrice: lineDraft.customerUnitPrice,
         note: lineDraftSource?.note || '',
         sourceSheet: '견적서 입력',
+        ...(lineDbSaveCommon ? { commonOptions: lineDbSaveOptions } : {}),
       },
       { estimateCategory: lineDbSaveCategory },
     );
@@ -1503,18 +1572,70 @@ export default function EstimateWorkspacePage() {
     setMaterialPicker((current) => (current ? { ...current, step: 'material', process, search: '' } : current));
   };
 
-  const choosePickerMaterial = (material: Material) => {
+  // commonOption: a saved 공통 항목 of a '공통' item, used as the 품명.
+  const choosePickerMaterial = (material: Material, commonOption = '') => {
     if (!materialPicker) return;
+    const apply = (line: EstimateLine) => {
+      const next = applyMaterialToLine(line, material);
+      return commonOption ? { ...next, name: commonOption } : next;
+    };
     if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
-      setLineDraft((current) => applyMaterialToLine(current, material));
+      setLineDraft((current) => apply(current));
       setLineDraftSource(material);
+      // A DB-save list loaded for the draft before this pick must not be saved over another item.
+      setIsLineDbSaveOpen(false);
       setMaterialPicker(null);
       setActiveTab('lines');
       return;
     }
-    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? applyMaterialToLine(line, material) : line)));
+    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? apply(line) : line)));
     setMaterialPicker(null);
     setActiveTab('lines');
+  };
+
+  // One ticked 공통 항목 goes straight in as the 품명; several open "공통 항목 한번에 추가".
+  const choosePickerCommonOptions = (material: Material, options: string[]) => {
+    if (!materialPicker || !options.length) return;
+    if (options.length === 1) {
+      choosePickerMaterial(material, options[0]);
+      return;
+    }
+    const fromDraft = materialPicker.lineId === LINE_DRAFT_PICKER_ID;
+    const target = fromDraft ? lineDraft : lines.find((line) => line.id === materialPicker.lineId);
+    // Row 1 replaces a line when the picker was opened for a line in the list, or for a draft that is editing one.
+    const replaceLineId = fromDraft ? editingLineId : materialPicker.lineId;
+    const replacing = Boolean(target && replaceLineId && lines.some((line) => line.id === replaceLineId));
+    setCommonBulkAdd({
+      material,
+      options,
+      library: dbLibrary,
+      category: materialToLine(material, dbLibrary).category || '',
+      targetLineId: materialPicker.lineId,
+      space: target?.space || '',
+      replaceLineId: replacing ? replaceLineId : '',
+      replacedLine: replacing && target ? { quantity: target.quantity, note: target.note } : null,
+      opener: pickerOpenerRef.current,
+    });
+    if (fromDraft) setIsLineDbSaveOpen(false);
+    setMaterialPicker(null);
+  };
+
+  // Every row becomes a line built like a single pick of the item. From the draft the lines are added like 항목 추가
+  // (replacing the line being edited, like 수정 반영); from a line in the list, that line becomes row 1 and the rest follow it.
+  const addCommonBulkLines = (shared: CommonBulkShared, rows: CommonBulkRow[]) => {
+    if (!commonBulkAdd) return;
+    const { material, library, targetLineId, replaceLineId } = commonBulkAdd;
+    const fromDraft = targetLineId === LINE_DRAFT_PICKER_ID;
+    const base = fromDraft ? lineDraft : lines.find((line) => line.id === targetLineId) || emptyLine();
+    const newLines = buildCommonBulkLines(applyMaterialToLine(base, material, library), shared, rows, () => emptyLine().id);
+    setLines((current) => placeCommonBulkLines(current, newLines, replaceLineId));
+    if (fromDraft) {
+      resetLineDraft();
+      setSelectedLineId(replaceLineId && newLines.length === 1 ? replaceLineId : newLines[newLines.length - 1].id);
+    }
+    setCommonBulkAdd(null);
+    setActiveTab('lines');
+    setError('');
   };
 
   const startNewVersion = (copyCurrent = true) => {
@@ -2713,6 +2834,7 @@ export default function EstimateWorkspacePage() {
                     <button type="button" onClick={() => setIsLineDbSaveOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
                       닫기
                     </button>
+                    {lineDbSaveCommon && <CommonOptionsField options={lineDbSaveOptions} onChange={setLineDbSaveOptions} className="md:col-span-4" />}
                     <p className="text-xs leading-5 text-[#60717d] md:col-span-4">
                       분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다. 공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
                     </p>
@@ -2992,6 +3114,9 @@ export default function EstimateWorkspacePage() {
                   <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
                   <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} className="min-w-0 py-1.5 text-sm" />
                 </div>
+                {isCommonMaterialName(editingMaterial.name) && (
+                  <CommonOptionsField options={editingMaterial.commonOptions} onChange={(commonOptions) => setEditingMaterial((current) => ({ ...current, commonOptions }))} />
+                )}
                 <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                   견적 카테고리
                   <select
@@ -4079,8 +4204,23 @@ export default function EstimateWorkspacePage() {
           onChooseCategory={choosePickerCategory}
           onChooseProcess={choosePickerProcess}
           onChooseMaterial={choosePickerMaterial}
+          onChooseCommonOptions={choosePickerCommonOptions}
           onSaveMaterial={saveMaterial}
           onClose={() => setMaterialPicker(null)}
+        />
+      )}
+
+      {commonBulkAdd && (
+        <CommonBulkAddDialog
+          material={commonBulkAdd.material}
+          category={commonBulkAdd.category}
+          options={commonBulkAdd.options}
+          defaultSpace={commonBulkAdd.space}
+          replacedLine={commonBulkAdd.replacedLine}
+          returnFocusTo={commonBulkAdd.opener}
+          spaceOptions={defaultSpaces}
+          onCancel={() => setCommonBulkAdd(null)}
+          onAdd={addCommonBulkLines}
         />
       )}
 
@@ -5129,6 +5269,7 @@ function MaterialPickerModal({
   onChooseCategory,
   onChooseProcess,
   onChooseMaterial,
+  onChooseCommonOptions,
   onSaveMaterial,
   onClose,
 }: {
@@ -5142,10 +5283,17 @@ function MaterialPickerModal({
   onChooseCategory: (category: string) => void;
   onChooseProcess: (process: string) => void;
   onChooseMaterial: (material: Material) => void;
+  onChooseCommonOptions: (material: Material, options: string[]) => void;
   onSaveMaterial: (material: Material) => Promise<boolean>;
   onClose: () => void;
 }) {
   const [editingPickerMaterial, setEditingPickerMaterial] = useState<Material | null>(null);
+  // A '공통' item with saved 공통 항목 opens the option view first instead of going straight into the estimate.
+  const [commonChoice, setCommonChoice] = useState<Material | null>(null);
+  const pickMaterial = (material: Material) => {
+    if (isCommonMaterialName(material.name) && material.commonOptions?.length) setCommonChoice(material);
+    else onChooseMaterial(material);
+  };
   const keyword = state.search.trim().toLowerCase();
   // In the estimate DB the first step groups by estimate category; processes and items stay those of the linked material.
   const categoryOf = (item: Material) => (library === 'estimate' ? estimateItems[item._id || ''] || '' : item.category || '미분류');
@@ -5176,7 +5324,7 @@ function MaterialPickerModal({
     ),
   ).sort((a, b) => a.localeCompare(b, 'ko-KR'));
 
-  const stepLabel = state.step === 'category' ? '분류 선택' : state.step === 'process' ? '공종 선택' : '품명 선택';
+  const stepLabel = commonChoice ? '공통 항목 선택' : state.step === 'category' ? '분류 선택' : state.step === 'process' ? '공종 선택' : '품명 선택';
 
   return (
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
@@ -5195,17 +5343,30 @@ function MaterialPickerModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">{library === 'estimate' ? 'ESTIMATE DB' : 'MATERIAL DB'}</p>
             <h2 className="mt-1 text-2xl font-semibold">{stepLabel}</h2>
-            <p className="mt-1 text-sm text-[#60717d]">분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.</p>
+            <p className="mt-1 text-sm text-[#60717d]">
+              {commonChoice
+                ? '이 공통 품목에 저장된 항목 중에서 견적서에 넣을 품명을 고릅니다.'
+                : '분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.'}
+            </p>
           </div>
           <div className="flex items-start gap-3">
-            <LibraryToggle value={library} estimateCount={materials.filter((item) => estimateItems[item._id || '']).length} fullCount={materials.length} onChange={onLibraryChange} className="w-64" />
+            <LibraryToggle
+              value={library}
+              estimateCount={materials.filter((item) => estimateItems[item._id || '']).length}
+              fullCount={materials.length}
+              onChange={(next) => {
+                setCommonChoice(null);
+                onLibraryChange(next);
+              }}
+              className="w-64"
+            />
             <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d] hover:bg-[#f7fafb]">
               <X size={18} />
             </button>
           </div>
         </header>
 
-        <div className="grid gap-4 border-b border-[#edf2f5] p-4 lg:grid-cols-[1fr_280px]">
+        <div className={`grid gap-4 border-b border-[#edf2f5] p-4 lg:grid-cols-[1fr_280px] ${commonChoice ? 'hidden' : ''}`}>
           <div className="flex flex-wrap gap-2">
             <StepButton label="1 분류" active={state.step === 'category'} enabled onClick={() => onChange({ ...state, step: 'category', search: '' })} />
             <StepButton label="2 공종" active={state.step === 'process'} enabled={Boolean(state.category)} onClick={() => state.category && onChange({ ...state, step: 'process', search: '' })} />
@@ -5223,7 +5384,17 @@ function MaterialPickerModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto p-5">
-          {state.step === 'category' && (
+          {commonChoice && (
+            <CommonOptionPicker
+              material={commonChoice}
+              category={categoryOf(commonChoice) || commonChoice.category || ''}
+              onBack={() => setCommonChoice(null)}
+              onDirect={() => onChooseMaterial(commonChoice)}
+              onSubmit={(options) => onChooseCommonOptions(commonChoice, options)}
+            />
+          )}
+
+          {!commonChoice && state.step === 'category' && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {categoryGroups.map((group) => (
                 <button key={group.label} type="button" onClick={() => onChooseCategory(group.label)} className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 text-left transition hover:-translate-y-0.5 hover:border-[#38a9bd] hover:shadow-md">
@@ -5234,7 +5405,7 @@ function MaterialPickerModal({
             </div>
           )}
 
-          {state.step === 'process' && (
+          {!commonChoice && state.step === 'process' && (
             <div>
               <div className="mb-4 rounded-lg bg-[#f7fafb] px-4 py-3 text-sm text-[#60717d]">
                 선택 분류 <b className="text-[#171512]">{state.category}</b>
@@ -5250,7 +5421,7 @@ function MaterialPickerModal({
             </div>
           )}
 
-          {state.step === 'material' && (
+          {!commonChoice && state.step === 'material' && (
             <div>
               <div className="mb-4 flex flex-wrap gap-2 rounded-lg bg-[#f7fafb] px-4 py-3 text-sm text-[#60717d]">
                 <span>분류 <b className="text-[#171512]">{state.category}</b></span>
@@ -5273,10 +5444,22 @@ function MaterialPickerModal({
                     <input value={editingPickerMaterial.unit || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
                     <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} className="bg-white text-sm" />
                   </div>
+                  {isCommonMaterialName(editingPickerMaterial.name) && (
+                    <CommonOptionsField
+                      options={editingPickerMaterial.commonOptions}
+                      onChange={(commonOptions) => setEditingPickerMaterial((current) => (current ? { ...current, commonOptions } : current))}
+                      className="mt-3"
+                    />
+                  )}
                   <button
                     type="button"
                     onClick={async () => {
-                      await onSaveMaterial(editingPickerMaterial);
+                      // A '공통' item always sends its 공통 항목, so an emptied list clears them.
+                      await onSaveMaterial(
+                        isCommonMaterialName(editingPickerMaterial.name)
+                          ? { ...editingPickerMaterial, commonOptions: editingPickerMaterial.commonOptions || [] }
+                          : editingPickerMaterial,
+                      );
                       setEditingPickerMaterial(null);
                     }}
                     className="mt-3 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
@@ -5291,8 +5474,13 @@ function MaterialPickerModal({
                     key={material._id || `${material.category}-${material.process}-${material.name}-${material.spec}`}
                     className="grid gap-2 rounded-lg border border-[#d5dde2] bg-white p-4 text-left transition hover:border-[#38a9bd] hover:bg-[#edf8fb] md:grid-cols-[1.2fr_1fr_90px_130px]"
                   >
-                    <button type="button" onClick={() => onChooseMaterial(material)} className="min-w-0 text-left md:col-span-3">
-                      <b className="block truncate">{material.name || '품명 없음'}</b>
+                    <button type="button" onClick={() => pickMaterial(material)} className="min-w-0 text-left md:col-span-3">
+                      <b className="block truncate">
+                        {material.name || '품명 없음'}
+                        {isCommonMaterialName(material.name) && material.commonOptions?.length ? (
+                          <span className="ml-2 rounded-full bg-[#fff3c7] px-2 py-0.5 text-xs font-bold text-[#8b6420]">공통 항목 {material.commonOptions.length}개</span>
+                        ) : null}
+                      </b>
                       <small className="mt-1 block text-[#60717d]">{[material.category, material.process, material.spec, material.unit].filter(Boolean).join(' · ') || material.note || material.sourceSheet || ''}</small>
                     </button>
                     <div className="flex items-center justify-between gap-2 md:justify-end">
@@ -5311,7 +5499,7 @@ function MaterialPickerModal({
             </div>
           )}
 
-          {((state.step === 'category' && categoryGroups.length === 0) || (state.step === 'process' && processGroups.length === 0) || (state.step === 'material' && materialResults.length === 0)) && (
+          {!commonChoice && ((state.step === 'category' && categoryGroups.length === 0) || (state.step === 'process' && processGroups.length === 0) || (state.step === 'material' && materialResults.length === 0)) && (
             <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-10 text-center text-sm text-[#60717d]">
               {library === 'estimate' && libraryMaterials.length === 0
                 ? '견적 DB가 비어 있습니다. `자재 / 견적 단가` 탭의 견적 데이터베이스에서 카테고리를 만들고 품목을 넣어주세요.'
@@ -7360,10 +7548,6 @@ function moveIdInOrder(order: string[], fromId: string, toId: string) {
   next.splice(from, 1);
   next.splice(to, 0, fromId);
   return next;
-}
-
-function isCommonMaterialName(name?: string) {
-  return String(name || '').replace(/\s/g, '') === COMMON_MATERIAL_NAME;
 }
 
 function colorForName(name: string) {

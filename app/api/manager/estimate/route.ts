@@ -17,6 +17,7 @@ import {
   shouldUseFirestoreErp,
   touchEstimateMaterialMetaInFirestore,
 } from '../firestore';
+import { commonOptionsForSave, sanitizeCommonOptions } from '../../../lib/estimate-common-options';
 
 export const runtime = 'nodejs';
 
@@ -146,6 +147,8 @@ type MaterialDoc = {
   unitPrice: number;
   note: string;
   sourceSheet: string;
+  // Only meaningful when name is '공통': the 품명s offered when the item is picked into an estimate, in order.
+  commonOptions?: string[];
   updatedAt: string;
 };
 
@@ -176,7 +179,7 @@ const allEstimatesGroq = `*[_type == "siteEstimate"] | order(updatedAt desc, _up
 const siteEstimatesGroq = `*[_type == "siteEstimate" && siteId == $siteId] | order(updatedAt desc, _updatedAt desc) ${estimateProjection}`;
 const newestSiteIdGroq = `*[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0]._id`;
 const materialsGroq = `*[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
-    _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
+    _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt, defined(commonOptions) => { commonOptions }
   }`;
 const materialSettingsGroq = `*[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection}`;
 const vendorsGroq = `*[_type == "officeVendor" && !defined(deletedAt)] | order(name asc)[0...300] {
@@ -594,7 +597,7 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
   const id = String(material._id || '').trim() || materialId(category, name, spec, unit);
   const now = new Date().toISOString();
 
-  const doc = {
+  const doc: MaterialDoc = {
     _id: id,
     _type: 'estimateMaterial',
     category,
@@ -607,9 +610,15 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
     sourceSheet: String(material.sourceSheet || '직접 입력').trim(),
     updatedAt: now,
   };
+  // Only a request that sends commonOptions changes them; without the field the Firestore merge keeps the stored list.
+  const commonOptions = commonOptionsForSave(name, material.commonOptions);
+  if (commonOptions) doc.commonOptions = commonOptions;
 
+  let record: MaterialDoc = doc;
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-    await saveMaterialToFirestore(doc, request);
+    const stored = await saveMaterialToFirestore(doc, request);
+    const storedOptions = sanitizeCommonOptions(stored?.commonOptions);
+    if (storedOptions) record = { ...doc, commonOptions: storedOptions };
     await touchEstimateMaterialMetaInFirestore(request);
   } else {
     if (!(await isSanityIdWritable(id, 'estimateMaterial', { allowNew: true }))) {
@@ -618,18 +627,18 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
     await managerClient.createOrReplace(doc);
   }
 
-  if (typeof estimateCategory !== 'string') return NextResponse.json({ record: doc });
+  if (typeof estimateCategory !== 'string') return NextResponse.json({ record });
 
   const settings = await readMaterialSettings(request);
   const nextCategory = cleanCell(estimateCategory);
   if ((settings.estimateItems[id] || '') === nextCategory || (nextCategory && !settings.estimateCategories.includes(nextCategory))) {
-    return NextResponse.json({ record: doc, materialSettings: settings });
+    return NextResponse.json({ record, materialSettings: settings });
   }
   const estimateItems = { ...settings.estimateItems };
   if (nextCategory) estimateItems[id] = nextCategory;
   else delete estimateItems[id];
   const materialSettings = await writeMaterialSettings({ ...settings, estimateItems }, request);
-  return NextResponse.json({ record: doc, materialSettings });
+  return NextResponse.json({ record, materialSettings });
 }
 
 async function importMaterials(request: Request) {

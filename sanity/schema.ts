@@ -1105,6 +1105,7 @@ const estimateMaterial = defineType({
     defineField({ name: 'unitPrice', title: '단가', type: 'number' }),
     defineField({ name: 'note', title: '비고', type: 'text', rows: 3 }),
     defineField({ name: 'sourceSheet', title: '업로드 시트명', type: 'string' }),
+    defineField({ name: 'commonOptions', title: '공통 항목', type: 'array', of: [{ type: 'string' }] }),
     defineField({ name: 'updatedAt', title: '수정일', type: 'datetime' }),
   ],
   preview: {
