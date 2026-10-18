@@ -2834,7 +2834,7 @@ export default function EstimateWorkspacePage() {
                     <button type="button" onClick={() => setIsLineDbSaveOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
                       닫기
                     </button>
-                    {lineDbSaveCommon && <CommonOptionsField options={lineDbSaveOptions} onChange={setLineDbSaveOptions} className="md:col-span-4" />}
+                    {lineDbSaveCommon && <CommonOptionsField key={lineDbSaveKey || 'new'} options={lineDbSaveOptions} onChange={setLineDbSaveOptions} className="md:col-span-4" />}
                     <p className="text-xs leading-5 text-[#60717d] md:col-span-4">
                       분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다. 공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
                     </p>
@@ -3115,7 +3115,7 @@ export default function EstimateWorkspacePage() {
                   <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} className="min-w-0 py-1.5 text-sm" />
                 </div>
                 {isCommonMaterialName(editingMaterial.name) && (
-                  <CommonOptionsField options={editingMaterial.commonOptions} onChange={(commonOptions) => setEditingMaterial((current) => ({ ...current, commonOptions }))} />
+                  <CommonOptionsField key={editingMaterial._id || 'new'} options={editingMaterial.commonOptions} onChange={(commonOptions) => setEditingMaterial((current) => ({ ...current, commonOptions }))} />
                 )}
                 <label className="grid gap-1 text-xs font-bold text-[#60717d]">
                   견적 카테고리
@@ -4215,7 +4215,7 @@ export default function EstimateWorkspacePage() {
           material={commonBulkAdd.material}
           category={commonBulkAdd.category}
           options={commonBulkAdd.options}
-          defaultSpace={commonBulkAdd.space}
+          firstRowSpace={commonBulkAdd.space}
           replacedLine={commonBulkAdd.replacedLine}
           returnFocusTo={commonBulkAdd.opener}
           spaceOptions={defaultSpaces}
@@ -5446,6 +5446,7 @@ function MaterialPickerModal({
                   </div>
                   {isCommonMaterialName(editingPickerMaterial.name) && (
                     <CommonOptionsField
+                      key={editingPickerMaterial._id || 'new'}
                       options={editingPickerMaterial.commonOptions}
                       onChange={(commonOptions) => setEditingPickerMaterial((current) => (current ? { ...current, commonOptions } : current))}
                       className="mt-3"

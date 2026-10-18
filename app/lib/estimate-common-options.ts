@@ -31,16 +31,9 @@ function normalizeOptions(values: readonly string[]) {
   return options;
 }
 
-// The "공통 항목 (한 줄에 하나)" textarea: one option per line.
-export function parseCommonOptions(text: string): string[] {
-  return normalizeOptions(String(text ?? '').split(/\r\n|\r|\n/));
-}
-
-export function formatCommonOptions(options?: readonly string[] | null): string {
-  return (options || []).join('\n');
-}
-
-// The server's input check. undefined means the request did not send a list, so the stored options stay as they are.
+// The one cleanup for a 공통 항목 list, used by the "공통 항목" editor on every change and by the server on save: trimmed,
+// inner whitespace collapsed, a leading list marker stripped, empties and duplicates dropped, 50 items of 60 characters.
+// undefined means the value is not a list; for the server that means the request did not send one, so the stored options stay.
 export function sanitizeCommonOptions(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return normalizeOptions(value.filter((item): item is string => typeof item === 'string'));
@@ -82,7 +75,29 @@ export function findCommonSaveTarget<M extends MaterialKeyFields>(
   return materials.find((item) => materialSaveKey({ ...item, category: trimmed(item.process) || item.category }) === key);
 }
 
+// The "공통 항목" list editor: one input per item, up to the 50-item cap.
+export function canAddCommonOptionRow(rowCount: number) {
+  return rowCount < COMMON_OPTIONS_MAX_COUNT;
+}
+
+// Moves items[index] by offset (-1 = up, 1 = down). A move past either end, or a bad index, returns an unchanged copy.
+export function moveListItem<T>(items: readonly T[], index: number, offset: number): T[] {
+  const target = index + offset;
+  if (!Number.isInteger(index) || !Number.isInteger(target) || index < 0 || index >= items.length || target < 0 || target >= items.length) {
+    return [...items];
+  }
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(target, 0, item);
+  return next;
+}
+
+export function removeListItem<T>(items: readonly T[], index: number): T[] {
+  return items.filter((_, itemIndex) => itemIndex !== index);
+}
+
 export type CommonBulkRow = {
+  space: string;
   name: string;
   quantity: number;
   customerUnitPrice: number;
@@ -90,8 +105,8 @@ export type CommonBulkRow = {
   note: string;
 };
 
-// 공간, 규격 and 단위 entered once in "공통 항목 한번에 추가" for every row.
-export type CommonBulkShared = { space: string; spec: string; unit: string };
+// 규격 and 단위 entered once in "공통 항목 한번에 추가" for every row. 공간 is per row: each 공통 항목 can be another room.
+export type CommonBulkShared = { spec: string; unit: string };
 
 export type CommonBulkLine = {
   id: string;
@@ -106,19 +121,29 @@ export type CommonBulkLine = {
   commonName?: boolean;
 };
 
+const withoutSpaces = (value: unknown) => String(value ?? '').replace(/\s/g, '');
+
 // One row per chosen option, priced like a single pick of the item (견적단가 and 실행단가 both start at the DB 단가).
-// replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
+// - replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
+// - 공간: an option named after one of spaceOptions (spaces ignored) starts in that 공간. Otherwise row 1 takes
+//   firstRowSpace (the 공간 of the line or draft the picker was opened for) and the other rows start empty.
 export function defaultCommonBulkRows(
   options: readonly string[],
   unitPrice: unknown,
-  replacedLine?: { quantity?: number; note?: string } | null,
+  {
+    replacedLine = null,
+    spaceOptions = [],
+    firstRowSpace = '',
+  }: { replacedLine?: { quantity?: number; note?: string } | null; spaceOptions?: readonly string[]; firstRowSpace?: string } = {},
 ): CommonBulkRow[] {
   const price = Number(unitPrice || 0);
   const safePrice = Number.isFinite(price) ? price : 0;
+  const namedSpace = (name: string) => spaceOptions.find((space) => withoutSpaces(space) && withoutSpaces(space) === withoutSpaces(name)) || '';
   return options.map((name, index) => {
     const kept = index === 0 ? replacedLine : null;
     const quantity = kept && Number.isFinite(kept.quantity) ? Number(kept.quantity) : 1;
-    return { name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
+    const space = namedSpace(name) || (index === 0 ? firstRowSpace : '');
+    return { space, name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
   });
 }
 
@@ -133,7 +158,7 @@ export function validateCommonBulkRows(rows: readonly CommonBulkRow[]): string {
 }
 
 // template is the line a single pick of the item would give (분류, 공종 and the rest); every row becomes a '공통' line
-// with its own 품명, quantity, prices and 비고 plus the shared 공간 / 규격 / 단위.
+// with its own 공간, 품명, quantity, prices and 비고 plus the shared 규격 / 단위.
 export function buildCommonBulkLines<L extends CommonBulkLine>(
   template: L,
   shared: CommonBulkShared,
@@ -143,7 +168,7 @@ export function buildCommonBulkLines<L extends CommonBulkLine>(
   return rows.map((row) => ({
     ...template,
     id: makeId(),
-    space: shared.space,
+    space: String(row.space ?? ''),
     spec: shared.spec,
     unit: shared.unit,
     name: String(row.name ?? '').trim(),

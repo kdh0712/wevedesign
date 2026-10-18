@@ -6,66 +6,52 @@ import {
   COMMON_OPTIONS_MAX_COUNT,
   appendCommonOption,
   buildCommonBulkLines,
+  canAddCommonOptionRow,
   commonOptionsForSave,
   defaultCommonBulkRows,
   findCommonSaveTarget,
-  formatCommonOptions,
   isCommonMaterialName,
   materialSaveKey,
-  parseCommonOptions,
+  moveListItem,
   placeCommonBulkLines,
+  removeListItem,
   replaceLineAt,
   sanitizeCommonOptions,
   validateCommonBulkRows,
 } from '../app/lib/estimate-common-options.ts';
 
-test('parseCommonOptions splits lines, trims, strips list markers, drops empties and duplicates in order', () => {
-  const text = ['1. 안방 욕실', '  2) 거실 욕실  ', '', '- 다용도실', '• 현관', '   ', '3.거실 욕실', '안방 욕실', '· 발코니', '* 드레스룸'].join('\n');
-  assert.deepEqual(parseCommonOptions(text), ['안방 욕실', '거실 욕실', '다용도실', '현관', '발코니', '드레스룸']);
+test('sanitizeCommonOptions trims, strips list markers, drops empties and duplicates in order', () => {
+  const items = ['1. 안방 욕실', '  2) 거실 욕실  ', '', '- 다용도실', '• 현관', '   ', '3.거실 욕실', '안방 욕실', '· 발코니', '* 드레스룸'];
+  assert.deepEqual(sanitizeCommonOptions(items), ['안방 욕실', '거실 욕실', '다용도실', '현관', '발코니', '드레스룸']);
 });
 
-test('parseCommonOptions keeps numbers that are part of the name', () => {
-  assert.deepEqual(parseCommonOptions('1.5m 타일\n12. 2층 욕실\n300x600 타일'), ['1.5m 타일', '2층 욕실', '300x600 타일']);
+test('sanitizeCommonOptions keeps numbers that are part of the name', () => {
+  assert.deepEqual(sanitizeCommonOptions(['1.5m 타일', '12. 2층 욕실', '300x600 타일']), ['1.5m 타일', '2층 욕실', '300x600 타일']);
 });
 
-test('parseCommonOptions collapses inner whitespace', () => {
-  assert.deepEqual(parseCommonOptions('안방   욕실\t벽'), ['안방 욕실 벽']);
+test('sanitizeCommonOptions collapses inner whitespace, line breaks included', () => {
+  assert.deepEqual(sanitizeCommonOptions(['안방   욕실\t벽', '현관\n신발장', '거실\r\n욕실']), ['안방 욕실 벽', '현관 신발장', '거실 욕실']);
 });
 
-test('parseCommonOptions caps the item count and the item length', () => {
-  const many = Array.from({ length: 70 }, (_, index) => `항목 ${index + 1}`).join('\n');
-  const parsed = parseCommonOptions(many);
+test('sanitizeCommonOptions caps the item count and the item length', () => {
+  const many = Array.from({ length: 70 }, (_, index) => `항목 ${index + 1}`);
+  const saved = sanitizeCommonOptions(many);
   assert.equal(COMMON_OPTIONS_MAX_COUNT, 50);
-  assert.equal(parsed.length, 50);
-  assert.equal(parsed[0], '항목 1');
-  assert.equal(parsed[49], '항목 50');
+  assert.equal(saved.length, 50);
+  assert.equal(saved[0], '항목 1');
+  assert.equal(saved[49], '항목 50');
 
   assert.equal(COMMON_OPTION_MAX_LENGTH, 60);
-  const long = '가'.repeat(80);
-  assert.deepEqual(parseCommonOptions(long), ['가'.repeat(60)]);
+  assert.deepEqual(sanitizeCommonOptions(['가'.repeat(80)]), ['가'.repeat(60)]);
 });
 
-test('parseCommonOptions removes duplicates that only appear after the length cap', () => {
+test('sanitizeCommonOptions removes duplicates that only appear after the length cap', () => {
   const base = '나'.repeat(60);
-  assert.deepEqual(parseCommonOptions(`${base}A\n${base}B`), [base]);
+  assert.deepEqual(sanitizeCommonOptions([`${base}A`, `${base}B`]), [base]);
 });
 
-test('parseCommonOptions handles CRLF and lone CR input', () => {
-  assert.deepEqual(parseCommonOptions('1. 안방 욕실\r\n2. 거실 욕실\r\n'), ['안방 욕실', '거실 욕실']);
-  assert.deepEqual(parseCommonOptions('안방\r거실'), ['안방', '거실']);
-});
-
-test('parseCommonOptions returns an empty list for blank text', () => {
-  assert.deepEqual(parseCommonOptions(''), []);
-  assert.deepEqual(parseCommonOptions('\n  \n-\n1.'), []);
-});
-
-test('formatCommonOptions writes one option per line and round-trips', () => {
-  const options = ['안방 욕실', '거실 욕실', '다용도실'];
-  assert.equal(formatCommonOptions(options), '안방 욕실\n거실 욕실\n다용도실');
-  assert.deepEqual(parseCommonOptions(formatCommonOptions(options)), options);
-  assert.equal(formatCommonOptions(undefined), '');
-  assert.equal(formatCommonOptions([]), '');
+test('sanitizeCommonOptions returns an empty list for blank entries', () => {
+  assert.deepEqual(sanitizeCommonOptions(['', '  ', '-', '1.']), []);
 });
 
 test('sanitizeCommonOptions returns undefined when the field is absent or not an array', () => {
@@ -78,13 +64,6 @@ test('sanitizeCommonOptions returns undefined when the field is absent or not an
 test('sanitizeCommonOptions drops non-string entries', () => {
   assert.deepEqual(sanitizeCommonOptions(['안방 욕실', 3, null, { name: '거실' }, ['현관'], '거실 욕실']), ['안방 욕실', '거실 욕실']);
   assert.deepEqual(sanitizeCommonOptions([]), []);
-});
-
-test('sanitizeCommonOptions applies the same rules as parseCommonOptions', () => {
-  const raw = [' 1. 안방 욕실 ', '2) 거실 욕실', '', '- 안방 욕실', '라'.repeat(70), '현관\n신발장'];
-  assert.deepEqual(sanitizeCommonOptions(raw), ['안방 욕실', '거실 욕실', '라'.repeat(60), '현관 신발장']);
-  const many = Array.from({ length: 55 }, (_, index) => `항목 ${index + 1}`);
-  assert.equal(sanitizeCommonOptions(many)?.length, 50);
 });
 
 test('isCommonMaterialName ignores spaces', () => {
@@ -179,28 +158,61 @@ test('findCommonSaveTarget falls back to 공종 when an edited item no longer ha
 
 test('defaultCommonBulkRows starts each option at quantity 1 with the material price', () => {
   assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실'], 35000), [
-    { name: '안방 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-    { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '안방 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
   ]);
-  assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
+  assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ space: '', name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
 });
 
 test('defaultCommonBulkRows gives row 1 the 수량 and 비고 of the line it replaces', () => {
-  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { quantity: 4.5, note: '벽만' }), [
-    { name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },
-    { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-    { name: '현관', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { replacedLine: { quantity: 4.5, note: '벽만' } }), [
+    { space: '', name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },
+    { space: '', name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '현관', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
   ]);
-  assert.deepEqual(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: 0, note: '' })[0], {
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: 0, note: '' } })[0], {
+    space: '',
     name: '안방 욕실',
     quantity: 0,
     customerUnitPrice: 0,
     executionUnitPrice: 0,
     note: '',
   });
-  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].quantity, 1);
-  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].note, '');
-  assert.deepEqual(defaultCommonBulkRows([], 0, { quantity: 3, note: 'x' }), []);
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: Number.NaN, note: undefined } })[0].quantity, 1);
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: Number.NaN, note: undefined } })[0].note, '');
+  assert.deepEqual(defaultCommonBulkRows([], 0, { replacedLine: { quantity: 3, note: 'x' } }), []);
+});
+
+const spaceOptions = ['거실', '주방', '안방 욕실', '욕실', '현관'];
+
+test('defaultCommonBulkRows preselects the 공간 an option is named after, ignoring spaces', () => {
+  const spaces = defaultCommonBulkRows(['안방욕실', '현관', ' 거 실 ', '다용도실'], 0, { spaceOptions }).map((row) => row.space);
+  assert.deepEqual(spaces, ['안방 욕실', '현관', '거실', '']);
+});
+
+test('defaultCommonBulkRows gives row 1 the target 공간 when its name matches none, and leaves the other rows empty', () => {
+  const spaces = defaultCommonBulkRows(['벽 타일', '바닥 타일', '줄눈'], 0, { spaceOptions, firstRowSpace: '욕실' }).map((row) => row.space);
+  assert.deepEqual(spaces, ['욕실', '', '']);
+});
+
+test('defaultCommonBulkRows prefers a matching 공간 over the target 공간, on row 1 and on the others', () => {
+  const spaces = defaultCommonBulkRows(['현관', '벽 타일', '안방 욕실'], 0, { spaceOptions, firstRowSpace: '욕실' }).map((row) => row.space);
+  assert.deepEqual(spaces, ['현관', '', '안방 욕실']);
+});
+
+test('defaultCommonBulkRows without 공간 options only uses the target 공간 for row 1', () => {
+  assert.deepEqual(defaultCommonBulkRows(['거실', '주방'], 0, { firstRowSpace: '공용' }).map((row) => row.space), ['공용', '']);
+  assert.deepEqual(defaultCommonBulkRows(['거실', '주방'], 0, { spaceOptions: [] }).map((row) => row.space), ['', '']);
+});
+
+test('defaultCommonBulkRows keeps the 수량 / 비고 carry-over next to the 공간 defaults', () => {
+  const [first, second] = defaultCommonBulkRows(['벽 타일', '현관'], 1000, {
+    replacedLine: { quantity: 2, note: '기존 비고' },
+    spaceOptions,
+    firstRowSpace: '욕실',
+  });
+  assert.deepEqual(first, { space: '욕실', name: '벽 타일', quantity: 2, customerUnitPrice: 1000, executionUnitPrice: 1000, note: '기존 비고' });
+  assert.deepEqual(second, { space: '현관', name: '현관', quantity: 1, customerUnitPrice: 1000, executionUnitPrice: 1000, note: '' });
 });
 
 const template = {
@@ -219,9 +231,9 @@ const template = {
 };
 
 const rows = [
-  { name: ' 안방 욕실 ', quantity: 2, customerUnitPrice: 40000, executionUnitPrice: 30000, note: '벽만' },
-  { name: '거실 욕실', quantity: 1.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-  { name: '다용도실', quantity: 0, customerUnitPrice: 0, executionUnitPrice: 0, note: '' },
+  { space: '안방 욕실', name: ' 안방 욕실 ', quantity: 2, customerUnitPrice: 40000, executionUnitPrice: 30000, note: '벽만' },
+  { space: '', name: '거실 욕실', quantity: 1.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+  { space: '다용도실', name: '다용도실', quantity: 0, customerUnitPrice: 0, executionUnitPrice: 0, note: '' },
 ];
 
 const counterIds = () => {
@@ -230,11 +242,11 @@ const counterIds = () => {
 };
 
 test('buildCommonBulkLines gives one common line per row with the shared fields and the row values', () => {
-  const lines = buildCommonBulkLines(template, { space: '욕실', spec: '600x600', unit: 'm2' }, rows, counterIds());
+  const lines = buildCommonBulkLines(template, { spec: '600x600', unit: 'm2' }, rows, counterIds());
   assert.equal(lines.length, 3);
   assert.deepEqual(lines[0], {
     id: 'new-1',
-    space: '욕실',
+    space: '안방 욕실',
     category: '욕실 공사',
     process: '설비',
     name: '안방 욕실',
@@ -248,13 +260,18 @@ test('buildCommonBulkLines gives one common line per row with the shared fields 
   });
   assert.deepEqual(lines.map((line) => line.id), ['new-1', 'new-2', 'new-3']);
   assert.deepEqual(lines.map((line) => line.name), ['안방 욕실', '거실 욕실', '다용도실']);
-  assert.ok(lines.every((line) => line.commonName === true && line.space === '욕실' && line.category === '욕실 공사' && line.process === '설비'));
+  assert.ok(lines.every((line) => line.commonName === true && line.spec === '600x600' && line.unit === 'm2' && line.category === '욕실 공사' && line.process === '설비'));
   assert.deepEqual(lines.map((line) => line.quantity), [2, 1.5, 0]);
   assert.equal(lines[1].note, '');
 });
 
+test('buildCommonBulkLines takes 공간 from each row, not from the template or the shared fields', () => {
+  const lines = buildCommonBulkLines(template, { space: '현관', spec: '', unit: '' }, rows, counterIds());
+  assert.deepEqual(lines.map((line) => line.space), ['안방 욕실', '', '다용도실']);
+});
+
 test('buildCommonBulkLines marks lines common even when the template was not', () => {
-  const lines = buildCommonBulkLines({ ...template, commonName: false }, { space: '', spec: '', unit: '' }, rows.slice(0, 1), counterIds());
+  const lines = buildCommonBulkLines({ ...template, commonName: false }, { spec: '', unit: '' }, rows.slice(0, 1), counterIds());
   assert.equal(lines[0].commonName, true);
 });
 
@@ -323,4 +340,46 @@ test('placeCommonBulkLines appends to the end without a target', () => {
   assert.deepEqual(placeCommonBulkLines(existing, added, '').map((line) => line.id), ['a', 'b', 'c', 'n1', 'n2', 'n3']);
   assert.deepEqual(placeCommonBulkLines(existing, added, 'missing').map((line) => line.id), ['a', 'b', 'c', 'n1', 'n2', 'n3']);
   assert.deepEqual(placeCommonBulkLines([], added, '').map((line) => line.id), ['n1', 'n2', 'n3']);
+});
+
+test('moveListItem moves one item up or down and keeps the rest in order', () => {
+  assert.deepEqual(moveListItem(['a', 'b', 'c', 'd'], 2, -1), ['a', 'c', 'b', 'd']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c', 'd'], 1, 1), ['a', 'c', 'b', 'd']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 0, 2), ['b', 'c', 'a']);
+});
+
+test('moveListItem leaves the list as it is for a move past either end or a bad index', () => {
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 0, -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 2, 1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 5, -1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem(['a', 'b', 'c'], 1.5, 1), ['a', 'b', 'c']);
+  assert.deepEqual(moveListItem([], 0, 1), []);
+});
+
+test('moveListItem and removeListItem do not change the input list', () => {
+  const items = ['a', 'b', 'c'];
+  moveListItem(items, 0, 1);
+  removeListItem(items, 1);
+  assert.deepEqual(items, ['a', 'b', 'c']);
+});
+
+test('removeListItem removes one item and ignores a bad index', () => {
+  assert.deepEqual(removeListItem(['a', 'b', 'c'], 1), ['a', 'c']);
+  assert.deepEqual(removeListItem(['a', 'b', 'c'], 0), ['b', 'c']);
+  assert.deepEqual(removeListItem(['a'], 0), []);
+  assert.deepEqual(removeListItem(['a', 'b'], 2), ['a', 'b']);
+  assert.deepEqual(removeListItem(['a', 'b'], -1), ['a', 'b']);
+});
+
+test('canAddCommonOptionRow allows rows up to the 50-item cap', () => {
+  assert.equal(canAddCommonOptionRow(0), true);
+  assert.equal(canAddCommonOptionRow(49), true);
+  assert.equal(canAddCommonOptionRow(50), false);
+  assert.equal(canAddCommonOptionRow(51), false);
+});
+
+test('one input per item saves through the same cleanup as before', () => {
+  const inputs = [' 1. 안방 욕실 ', '', '2) 거실 욕실', '   ', '안방 욕실', '- 현관'];
+  assert.deepEqual(sanitizeCommonOptions(inputs), ['안방 욕실', '거실 욕실', '현관']);
+  assert.deepEqual(sanitizeCommonOptions(['', '  ']), []);
 });

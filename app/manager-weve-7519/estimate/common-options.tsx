@@ -1,7 +1,15 @@
 'use client';
 
-import { useState } from 'react';
-import { formatCommonOptions, parseCommonOptions } from '../../lib/estimate-common-options';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import {
+  COMMON_OPTION_MAX_LENGTH,
+  COMMON_OPTIONS_MAX_COUNT,
+  canAddCommonOptionRow,
+  moveListItem,
+  removeListItem,
+  sanitizeCommonOptions,
+} from '../../lib/estimate-common-options';
 
 // The fields of a DB item these views read; the page's Material fits it.
 export type CommonMaterial = {
@@ -16,40 +24,190 @@ export type CommonMaterial = {
 
 const formatWon = (value?: number) => `${Math.round(Number(value || 0)).toLocaleString('ko-KR')}원`;
 
-// "공통 항목 (한 줄에 하나)" for a '공통' DB item. The text stays as typed while editing and every change sends the parsed
-// list up; leaving the field shows the list as it will be saved. A list that changes from outside (another item loaded
-// into the form) replaces the text.
+type OptionRow = { id: number; value: string };
+type RowControl = 'input' | 'up' | 'down';
+
+let optionRowId = 0;
+// The saved items in order, or one empty input to start typing in.
+const rowsFor = (options?: readonly string[] | null): OptionRow[] =>
+  (options?.length ? options : ['']).map((value) => ({ id: ++optionRowId, value }));
+
+function RowButton({
+  label,
+  title,
+  disabled = false,
+  danger = false,
+  buttonRef,
+  onClick,
+  children,
+}: {
+  label: string;
+  title: string;
+  disabled?: boolean;
+  danger?: boolean;
+  buttonRef?: (element: HTMLButtonElement | null) => void;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      ref={buttonRef}
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={title}
+      className={`inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md border bg-white disabled:cursor-not-allowed disabled:opacity-30 ${
+        danger ? 'border-red-200 text-red-600 hover:bg-red-50' : 'border-[#d5dde2] text-[#4d5d66] hover:bg-[#f7fafb]'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// "공통 항목" for a '공통' DB item: one input per item, numbered in saved order, with "+ 항목 추가" (or Enter) for the next
+// one, ↑/↓ to reorder and a delete button per row. Every change sends the cleaned list up (sanitizeCommonOptions: trimmed,
+// empties and duplicates dropped, list markers stripped, 50 items of 60 characters), so empty rows never reach the save.
+// A list that changes from outside replaces the rows; callers also give it a key per edited item, so two items with the
+// same list never share rows. The list scrolls past 40vh, so a long list keeps the sticky DB save panel on screen.
 export function CommonOptionsField({ options, onChange, className = '' }: { options?: readonly string[] | null; onChange: (options: string[]) => void; className?: string }) {
-  const formatted = formatCommonOptions(options);
-  const [text, setText] = useState(formatted);
-  // The list the text stands for, as last sent up or loaded.
-  const [shownList, setShownList] = useState(formatted);
-  if (formatted !== shownList) {
-    setShownList(formatted);
-    setText(formatted);
+  const listKey = JSON.stringify(options || []);
+  const [rows, setRows] = useState<OptionRow[]>(() => rowsFor(options));
+  // The list the rows stand for, as last sent up or loaded.
+  const [syncedKey, setSyncedKey] = useState(listKey);
+  if (listKey !== syncedKey) {
+    setSyncedKey(listKey);
+    setRows(rowsFor(options));
   }
-  const count = parseCommonOptions(text).length;
+  const labelId = useId();
+  // The rows' inputs and arrow buttons by `${row id}:${control}`.
+  const controlRefs = useRef(new Map<string, HTMLInputElement | HTMLButtonElement>());
+  const pendingFocus = useRef<{ id: number; control: RowControl } | null>(null);
+  const canAdd = canAddCommonOptionRow(rows.length);
+  const count = (sanitizeCommonOptions(rows.map((row) => row.value)) || []).length;
+
+  const refFor = (id: number, control: RowControl) => (element: HTMLInputElement | HTMLButtonElement | null) => {
+    if (element) controlRefs.current.set(`${id}:${control}`, element);
+    else controlRefs.current.delete(`${id}:${control}`);
+  };
+
+  // Focuses the first of the row's controls that is enabled and keeps it in view inside the scrolling list.
+  const focusRow = (id: number, controls: RowControl[]) => {
+    for (const control of controls) {
+      const element = controlRefs.current.get(`${id}:${control}`);
+      if (!element || element.disabled) continue;
+      element.focus({ preventScroll: true });
+      element.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+  };
+
+  useEffect(() => {
+    const pending = pendingFocus.current;
+    if (!pending) return;
+    pendingFocus.current = null;
+    // After ↑/↓ focus stays on the moved row's button; at the top or bottom that button is disabled, so the other arrow or the input.
+    focusRow(pending.id, pending.control === 'input' ? ['input'] : [pending.control, pending.control === 'up' ? 'down' : 'up', 'input']);
+  });
+
+  const commit = (nextRows: OptionRow[]) => {
+    const list = sanitizeCommonOptions(nextRows.map((row) => row.value)) || [];
+    setRows(nextRows);
+    setSyncedKey(JSON.stringify(list));
+    onChange(list);
+  };
+
+  // An empty last row is reused instead of stacking another one.
+  const addRow = () => {
+    const last = rows[rows.length - 1];
+    if (last && !last.value.trim()) {
+      focusRow(last.id, ['input']);
+      return;
+    }
+    if (!canAdd) return;
+    const row = { id: ++optionRowId, value: '' };
+    pendingFocus.current = { id: row.id, control: 'input' };
+    setRows([...rows, row]);
+  };
+
+  const moveRow = (index: number, offset: number, control: RowControl) => {
+    pendingFocus.current = { id: rows[index].id, control };
+    commit(moveListItem(rows, index, offset));
+  };
+
+  const removeRow = (index: number) => {
+    const remaining = removeListItem(rows, index);
+    const nextRows = remaining.length ? remaining : rowsFor([]);
+    pendingFocus.current = { id: nextRows[Math.min(index, nextRows.length - 1)].id, control: 'input' };
+    commit(nextRows);
+  };
 
   return (
-    <label className={`grid gap-1 text-xs font-bold text-[#60717d] ${className}`}>
-      공통 항목 (한 줄에 하나)
-      <textarea
-        value={text}
-        rows={4}
-        onChange={(event) => {
-          const parsed = parseCommonOptions(event.target.value);
-          setText(event.target.value);
-          setShownList(formatCommonOptions(parsed));
-          onChange(parsed);
-        }}
-        onBlur={() => setText(formatCommonOptions(parseCommonOptions(text)))}
-        placeholder={'안방 욕실\n거실 욕실'}
-        className="min-h-[96px] resize-y rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-normal leading-6 text-[#171512] outline-none focus:border-[#38a9bd]"
-      />
-      <span className="font-normal leading-5">
+    // No font weight on the group: the site's global styles make inputs and buttons inherit it.
+    <div role="group" aria-labelledby={labelId} className={`grid min-w-0 max-w-xl gap-1.5 text-xs text-[#60717d] ${className}`}>
+      <span id={labelId} className="font-bold">
+        공통 항목
+      </span>
+      {/* Padding keeps the focus outlines inside the scroll box. */}
+      <ol className="grid max-h-[40vh] min-w-0 gap-1.5 overflow-y-auto py-1 pl-0.5 pr-1.5">
+        {rows.map((row, index) => (
+          <li key={row.id} className="flex min-w-0 items-center gap-1">
+            <span aria-hidden="true" className="w-5 shrink-0 text-right text-[11px] font-bold text-[#8a98a2]">
+              {index + 1}
+            </span>
+            <input
+              ref={refFor(row.id, 'input')}
+              value={row.value}
+              maxLength={COMMON_OPTION_MAX_LENGTH}
+              aria-label={`${index + 1}번째 공통 항목`}
+              placeholder="예: 안방 욕실"
+              onChange={(event) => commit(rows.map((item) => (item.id === row.id ? { ...item, value: event.target.value } : item)))}
+              onKeyDown={(event) => {
+                // Enter adds the next item and never submits a surrounding form; Enter that finishes Hangul composition is left alone.
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing || event.keyCode === 229) return;
+                event.preventDefault();
+                addRow();
+              }}
+              className="min-w-0 flex-1 rounded-md border border-[#d5dde2] bg-white px-2.5 py-1.5 text-sm text-[#171512] outline-none focus:border-[#38a9bd]"
+            />
+            <RowButton
+              label={`${index + 1}번째 공통 항목 위로`}
+              title="위로"
+              disabled={index === 0}
+              buttonRef={refFor(row.id, 'up')}
+              onClick={() => moveRow(index, -1, 'up')}
+            >
+              <ChevronUp size={14} />
+            </RowButton>
+            <RowButton
+              label={`${index + 1}번째 공통 항목 아래로`}
+              title="아래로"
+              disabled={index === rows.length - 1}
+              buttonRef={refFor(row.id, 'down')}
+              onClick={() => moveRow(index, 1, 'down')}
+            >
+              <ChevronDown size={14} />
+            </RowButton>
+            <RowButton label={`${index + 1}번째 공통 항목 삭제`} title="삭제" danger onClick={() => removeRow(index)}>
+              <Trash2 size={13} />
+            </RowButton>
+          </li>
+        ))}
+      </ol>
+      <button
+        type="button"
+        onClick={addRow}
+        disabled={!canAdd}
+        className="justify-self-start rounded-md border border-dashed border-[#38a9bd] bg-white px-3 py-1.5 text-xs font-semibold text-[#267d8c] hover:bg-[#edf8fb] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        + 항목 추가
+      </button>
+      {!canAdd && <span className="font-semibold text-[#8b6420]">공통 항목은 {COMMON_OPTIONS_MAX_COUNT}개까지 저장할 수 있습니다.</span>}
+      <span className="leading-5">
         견적서에서 이 품목을 고르면 여기 적은 항목 중에서 품명을 고르거나 여러 개를 한 번에 추가할 수 있습니다.{count ? ` (${count}개)` : ''}
       </span>
-    </label>
+    </div>
   );
 }
 
