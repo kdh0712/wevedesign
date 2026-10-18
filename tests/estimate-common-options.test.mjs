@@ -10,11 +10,9 @@ import {
   commonOptionsForSave,
   defaultCommonBulkRows,
   findCommonSaveTarget,
-  formatCommonOptions,
   isCommonMaterialName,
   materialSaveKey,
   moveListItem,
-  parseCommonOptions,
   placeCommonBulkLines,
   removeListItem,
   replaceLineAt,
@@ -22,53 +20,38 @@ import {
   validateCommonBulkRows,
 } from '../app/lib/estimate-common-options.ts';
 
-test('parseCommonOptions splits lines, trims, strips list markers, drops empties and duplicates in order', () => {
-  const text = ['1. 안방 욕실', '  2) 거실 욕실  ', '', '- 다용도실', '• 현관', '   ', '3.거실 욕실', '안방 욕실', '· 발코니', '* 드레스룸'].join('\n');
-  assert.deepEqual(parseCommonOptions(text), ['안방 욕실', '거실 욕실', '다용도실', '현관', '발코니', '드레스룸']);
+test('sanitizeCommonOptions trims, strips list markers, drops empties and duplicates in order', () => {
+  const items = ['1. 안방 욕실', '  2) 거실 욕실  ', '', '- 다용도실', '• 현관', '   ', '3.거실 욕실', '안방 욕실', '· 발코니', '* 드레스룸'];
+  assert.deepEqual(sanitizeCommonOptions(items), ['안방 욕실', '거실 욕실', '다용도실', '현관', '발코니', '드레스룸']);
 });
 
-test('parseCommonOptions keeps numbers that are part of the name', () => {
-  assert.deepEqual(parseCommonOptions('1.5m 타일\n12. 2층 욕실\n300x600 타일'), ['1.5m 타일', '2층 욕실', '300x600 타일']);
+test('sanitizeCommonOptions keeps numbers that are part of the name', () => {
+  assert.deepEqual(sanitizeCommonOptions(['1.5m 타일', '12. 2층 욕실', '300x600 타일']), ['1.5m 타일', '2층 욕실', '300x600 타일']);
 });
 
-test('parseCommonOptions collapses inner whitespace', () => {
-  assert.deepEqual(parseCommonOptions('안방   욕실\t벽'), ['안방 욕실 벽']);
+test('sanitizeCommonOptions collapses inner whitespace, line breaks included', () => {
+  assert.deepEqual(sanitizeCommonOptions(['안방   욕실\t벽', '현관\n신발장', '거실\r\n욕실']), ['안방 욕실 벽', '현관 신발장', '거실 욕실']);
 });
 
-test('parseCommonOptions caps the item count and the item length', () => {
-  const many = Array.from({ length: 70 }, (_, index) => `항목 ${index + 1}`).join('\n');
-  const parsed = parseCommonOptions(many);
+test('sanitizeCommonOptions caps the item count and the item length', () => {
+  const many = Array.from({ length: 70 }, (_, index) => `항목 ${index + 1}`);
+  const saved = sanitizeCommonOptions(many);
   assert.equal(COMMON_OPTIONS_MAX_COUNT, 50);
-  assert.equal(parsed.length, 50);
-  assert.equal(parsed[0], '항목 1');
-  assert.equal(parsed[49], '항목 50');
+  assert.equal(saved.length, 50);
+  assert.equal(saved[0], '항목 1');
+  assert.equal(saved[49], '항목 50');
 
   assert.equal(COMMON_OPTION_MAX_LENGTH, 60);
-  const long = '가'.repeat(80);
-  assert.deepEqual(parseCommonOptions(long), ['가'.repeat(60)]);
+  assert.deepEqual(sanitizeCommonOptions(['가'.repeat(80)]), ['가'.repeat(60)]);
 });
 
-test('parseCommonOptions removes duplicates that only appear after the length cap', () => {
+test('sanitizeCommonOptions removes duplicates that only appear after the length cap', () => {
   const base = '나'.repeat(60);
-  assert.deepEqual(parseCommonOptions(`${base}A\n${base}B`), [base]);
+  assert.deepEqual(sanitizeCommonOptions([`${base}A`, `${base}B`]), [base]);
 });
 
-test('parseCommonOptions handles CRLF and lone CR input', () => {
-  assert.deepEqual(parseCommonOptions('1. 안방 욕실\r\n2. 거실 욕실\r\n'), ['안방 욕실', '거실 욕실']);
-  assert.deepEqual(parseCommonOptions('안방\r거실'), ['안방', '거실']);
-});
-
-test('parseCommonOptions returns an empty list for blank text', () => {
-  assert.deepEqual(parseCommonOptions(''), []);
-  assert.deepEqual(parseCommonOptions('\n  \n-\n1.'), []);
-});
-
-test('formatCommonOptions writes one option per line and round-trips', () => {
-  const options = ['안방 욕실', '거실 욕실', '다용도실'];
-  assert.equal(formatCommonOptions(options), '안방 욕실\n거실 욕실\n다용도실');
-  assert.deepEqual(parseCommonOptions(formatCommonOptions(options)), options);
-  assert.equal(formatCommonOptions(undefined), '');
-  assert.equal(formatCommonOptions([]), '');
+test('sanitizeCommonOptions returns an empty list for blank entries', () => {
+  assert.deepEqual(sanitizeCommonOptions(['', '  ', '-', '1.']), []);
 });
 
 test('sanitizeCommonOptions returns undefined when the field is absent or not an array', () => {
@@ -81,13 +64,6 @@ test('sanitizeCommonOptions returns undefined when the field is absent or not an
 test('sanitizeCommonOptions drops non-string entries', () => {
   assert.deepEqual(sanitizeCommonOptions(['안방 욕실', 3, null, { name: '거실' }, ['현관'], '거실 욕실']), ['안방 욕실', '거실 욕실']);
   assert.deepEqual(sanitizeCommonOptions([]), []);
-});
-
-test('sanitizeCommonOptions applies the same rules as parseCommonOptions', () => {
-  const raw = [' 1. 안방 욕실 ', '2) 거실 욕실', '', '- 안방 욕실', '라'.repeat(70), '현관\n신발장'];
-  assert.deepEqual(sanitizeCommonOptions(raw), ['안방 욕실', '거실 욕실', '라'.repeat(60), '현관 신발장']);
-  const many = Array.from({ length: 55 }, (_, index) => `항목 ${index + 1}`);
-  assert.equal(sanitizeCommonOptions(many)?.length, 50);
 });
 
 test('isCommonMaterialName ignores spaces', () => {

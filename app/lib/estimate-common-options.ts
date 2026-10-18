@@ -31,16 +31,9 @@ function normalizeOptions(values: readonly string[]) {
   return options;
 }
 
-// The "공통 항목 (한 줄에 하나)" textarea: one option per line.
-export function parseCommonOptions(text: string): string[] {
-  return normalizeOptions(String(text ?? '').split(/\r\n|\r|\n/));
-}
-
-export function formatCommonOptions(options?: readonly string[] | null): string {
-  return (options || []).join('\n');
-}
-
-// The server's input check. undefined means the request did not send a list, so the stored options stay as they are.
+// The one cleanup for a 공통 항목 list, used by the "공통 항목" editor on every change and by the server on save: trimmed,
+// inner whitespace collapsed, a leading list marker stripped, empties and duplicates dropped, 50 items of 60 characters.
+// undefined means the value is not a list; for the server that means the request did not send one, so the stored options stay.
 export function sanitizeCommonOptions(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) return undefined;
   return normalizeOptions(value.filter((item): item is string => typeof item === 'string'));
