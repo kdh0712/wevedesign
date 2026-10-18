@@ -18,10 +18,12 @@ import {
   readOfficeDataWithVersions,
   readableOfficeCollections,
   shouldApplyOfficeRefresh,
+  shouldBumpForPatch,
   shouldBumpOfficeChanges,
   unchangedOfficeCollections,
 } from '../app/lib/office-changes.ts';
 import { canReadOffice, filterOfficeData } from '../app/lib/manager-permissions.ts';
+import { SERVER_OWNED_SITE_FIELDS } from '../app/api/manager/_site-fields.ts';
 
 const ALL = [
   'officeConsultations',
@@ -175,6 +177,27 @@ test('shouldBumpOfficeChanges: only tracked collections bump, never the marker i
   for (const collection of [OFFICE_CHANGES_COLLECTION, 'managerSettings', 'officeChanges', 'estimateMaterials', 'erpMetadata', 'customerProgress', '', 'constructor', 'toString']) {
     assert.equal(shouldBumpOfficeChanges(collection), false, collection);
   }
+});
+
+test('shouldBumpForPatch: a masked write bumps unless it only touches fields the dashboard ignores', () => {
+  const ignored = { officeSites: SERVER_OWNED_SITE_FIELDS };
+  // Tracked collection, normal field.
+  assert.equal(shouldBumpForPatch('officeSites', ['status'], ignored), true);
+  assert.equal(shouldBumpForPatch('officeCustomers', ['memo'], ignored), true);
+  // officeSites with only server-owned fields: the customer verify lockout, the link on/off.
+  assert.equal(shouldBumpForPatch('officeSites', ['progressAccess'], ignored), false);
+  assert.equal(shouldBumpForPatch('officeSites', ['progressEnabled'], ignored), false);
+  assert.equal(shouldBumpForPatch('officeSites', ['progressCode', 'progressEnabled', 'progressCodeCreatedAt'], ignored), false);
+  // officeSites with a mix.
+  assert.equal(shouldBumpForPatch('officeSites', ['progressEnabled', 'status'], ignored), true);
+  // The ignored list belongs to officeSites only.
+  assert.equal(shouldBumpForPatch('officeCustomers', ['progressAccess'], ignored), true);
+  // Untracked collections never bump.
+  assert.equal(shouldBumpForPatch('siteProgressUpdates', ['notifyLog'], ignored), false);
+  assert.equal(shouldBumpForPatch('managerSettings', ['officeSites'], ignored), false);
+  // Nothing written, nothing to bump; and no ignored list at all still bumps tracked fields.
+  assert.equal(shouldBumpForPatch('officeSites', [], ignored), false);
+  assert.equal(shouldBumpForPatch('officeSites', ['progressAccess'], {}), true);
 });
 
 test('mergeOfficeLists keeps unchanged lists and replaces changed ones', () => {

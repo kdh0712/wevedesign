@@ -7,6 +7,7 @@ import {
   completeOfficeVersions,
   createOfficeVersionToken,
   readOfficeDataWithVersions,
+  shouldBumpForPatch,
   shouldBumpOfficeChanges,
   type OfficeListKey,
   type OfficeTrackedCollection,
@@ -403,6 +404,11 @@ export async function patchFirestoreFields<T extends Record<string, unknown>>(
     }
     throw new Error(firestorePermissionMessage(message));
   }
+  // Only after a successful write (a conflict threw above and wrote nothing). A patch of only a site's server-owned
+  // progress fields does not bump: the dashboard strips them, and the customer verify lockout is public traffic.
+  if (shouldBumpForPatch(collection, Object.keys(fields), { officeSites: SERVER_OWNED_SITE_FIELDS })) {
+    await bumpOfficeChanges(collection, options.idToken);
+  }
   return toRecord<T>(data);
 }
 
@@ -414,9 +420,8 @@ export async function patchFirestoreFields<T extends Record<string, unknown>>(
 const OFFICE_CHANGES_TIMEOUT_MS = 5000;
 
 async function patchOfficeChanges(fields: OfficeVersions, idToken?: string) {
-  const url = new URL(`${docBaseUrl()}/${encodePath(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID)}`);
-  Object.keys(fields).forEach((fieldPath) => url.searchParams.append('updateMask.fieldPaths', fieldPath));
-  const response = await fetch(url, {
+  const query = buildPatchQuery(Object.keys(fields));
+  const response = await fetch(`${docBaseUrl()}/${encodePath(OFFICE_CHANGES_COLLECTION, OFFICE_CHANGES_DOCUMENT_ID)}?${query}`, {
     method: 'PATCH',
     headers: await firestoreHeaders(idToken),
     body: JSON.stringify({ fields: toFirestoreFields(fields) }),

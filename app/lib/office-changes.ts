@@ -44,6 +44,20 @@ export function shouldBumpOfficeChanges(collection: string): collection is Offic
   return isOfficeTrackedCollection(collection);
 }
 
+// The bump decision for a masked write of only these fields. ignoredFields lists, per collection, fields no dashboard
+// list shows (a site's server-owned progress fields, which the dashboard strips). A write of only those changes nothing
+// a dashboard shows, so it does not bump; the customer verify lockout, written on public traffic, is one. The caller
+// passes the list in so this module stays import-free.
+export function shouldBumpForPatch(
+  collection: string,
+  fieldNames: readonly string[],
+  ignoredFields: Partial<Record<string, readonly string[]>>,
+): boolean {
+  if (!shouldBumpOfficeChanges(collection)) return false;
+  const ignored = hasOwn(ignoredFields, collection) ? ignoredFields[collection] || [] : [];
+  return fieldNames.some((field) => !ignored.includes(field));
+}
+
 const isToken = (value: unknown): value is string =>
   typeof value === 'string' && value.length > 0 && value.length <= MAX_OFFICE_VERSION_LENGTH;
 
