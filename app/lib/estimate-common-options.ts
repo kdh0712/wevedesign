@@ -59,6 +59,29 @@ export function appendCommonOption(options: readonly string[] | undefined, name:
   return normalizeOptions([...(options || []), name]);
 }
 
+type MaterialKeyFields = { category?: unknown; process?: unknown; name?: unknown; spec?: unknown; unit?: unknown };
+
+const trimmed = (value: unknown) => String(value ?? '').trim();
+
+// The string saveMaterial in the estimate route hashes into a new item's id (materialId: category, name, spec and unit,
+// trimmed, with '미분류' for an empty category). A save without _id writes to the item whose id came from the same string.
+export function materialSaveKey(fields: MaterialKeyFields): string {
+  return [trimmed(fields.category) || '미분류', trimmed(fields.name), trimmed(fields.spec), trimmed(fields.unit)].join('|');
+}
+
+// The '공통' item a save of { category, spec, unit } named '공통' without an _id will overwrite: the item whose own id fields
+// give the same key. An item edited after it was created can carry another category than the one in its id, so when no item
+// matches exactly, one whose 공종 (process, else category) matches is used.
+export function findCommonSaveTarget<M extends MaterialKeyFields>(
+  materials: readonly M[],
+  draft: { category: string; spec: string; unit: string },
+): M | undefined {
+  const key = materialSaveKey({ ...draft, name: COMMON_MATERIAL_NAME });
+  const exact = materials.find((item) => materialSaveKey(item) === key);
+  if (exact) return exact;
+  return materials.find((item) => materialSaveKey({ ...item, category: trimmed(item.process) || item.category }) === key);
+}
+
 export type CommonBulkRow = {
   name: string;
   quantity: number;
@@ -84,10 +107,19 @@ export type CommonBulkLine = {
 };
 
 // One row per chosen option, priced like a single pick of the item (견적단가 and 실행단가 both start at the DB 단가).
-export function defaultCommonBulkRows(options: readonly string[], unitPrice: unknown): CommonBulkRow[] {
+// replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
+export function defaultCommonBulkRows(
+  options: readonly string[],
+  unitPrice: unknown,
+  replacedLine?: { quantity?: number; note?: string } | null,
+): CommonBulkRow[] {
   const price = Number(unitPrice || 0);
   const safePrice = Number.isFinite(price) ? price : 0;
-  return options.map((name) => ({ name, quantity: 1, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: '' }));
+  return options.map((name, index) => {
+    const kept = index === 0 ? replacedLine : null;
+    const quantity = kept && Number.isFinite(kept.quantity) ? Number(kept.quantity) : 1;
+    return { name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
+  });
 }
 
 // '' when every row can be added, otherwise the first problem as a message for staff.

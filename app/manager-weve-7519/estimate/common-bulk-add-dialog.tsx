@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Trash2, X } from 'lucide-react';
 import { defaultCommonBulkRows, validateCommonBulkRows, type CommonBulkRow, type CommonBulkShared } from '../../lib/estimate-common-options';
 import { CommonMaterialSummary, type CommonMaterial } from './common-options';
@@ -11,12 +11,20 @@ type DraftRow = CommonBulkRow & { key: string };
 const inputClass = 'w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-sm outline-none focus:border-[#38a9bd]';
 // A ring, so it shows over the inputs' own border and background classes.
 const invalidClass = 'ring-2 ring-red-300';
-const rowGrid ='md:grid-cols-[minmax(0,1.5fr)_88px_128px_128px_minmax(0,1.2fr)_40px]';
+const rowGrid = 'md:grid-cols-[minmax(0,1.5fr)_88px_128px_128px_minmax(0,1.2fr)_40px]';
 
-function Caption({ label, children, hideOnWide = false }: { label: string; children: ReactNode; hideOnWide?: boolean }) {
+// htmlFor makes the caption the control's <label>; row captions only show on narrow screens and the controls carry aria-labels.
+function Caption({ label, htmlFor, children, hideOnWide = false }: { label: string; htmlFor?: string; children: ReactNode; hideOnWide?: boolean }) {
+  const className = `text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] ${hideOnWide ? 'md:hidden' : ''}`;
   return (
     <div className="grid min-w-0 gap-1">
-      <span className={`text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] ${hideOnWide ? 'md:hidden' : ''}`}>{label}</span>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className={className}>
+          {label}
+        </label>
+      ) : (
+        <span className={className}>{label}</span>
+      )}
       {children}
     </div>
   );
@@ -24,11 +32,14 @@ function Caption({ label, children, hideOnWide = false }: { label: string; child
 
 // "공통 항목 한번에 추가": several saved 공통 항목 of one DB item become estimate lines at once. 공간, 규격 and 단위 are
 // entered once for every row; each row has its own 품명, 수량, 견적단가, 실행단가 and 비고. Cancel and close change nothing.
+// replacedLine: the line row 1 will replace (it starts with that line's 수량 and 비고); null when every row is added.
 export function CommonBulkAddDialog({
   material,
   category,
   options,
   defaultSpace,
+  replacedLine = null,
+  returnFocusTo = null,
   spaceOptions,
   onCancel,
   onAdd,
@@ -37,21 +48,39 @@ export function CommonBulkAddDialog({
   category: string;
   options: string[];
   defaultSpace: string;
+  replacedLine?: { quantity: number; note: string } | null;
+  returnFocusTo?: HTMLElement | null;
   spaceOptions: string[];
   onCancel: () => void;
   onAdd: (shared: CommonBulkShared, rows: CommonBulkRow[]) => void;
 }) {
   const [shared, setShared] = useState<CommonBulkShared>(() => ({ space: defaultSpace, spec: material.spec || '', unit: material.unit || '' }));
   const [rows, setRows] = useState<DraftRow[]>(() =>
-    defaultCommonBulkRows(options, material.unitPrice).map((row, index) => ({ ...row, key: `row-${index}` })),
+    defaultCommonBulkRows(options, material.unitPrice, replacedLine).map((row, index) => ({ ...row, key: `row-${index}` })),
   );
   const [error, setError] = useState('');
   const [showProblems, setShowProblems] = useState(false);
   const firstFieldRef = useRef<HTMLSelectElement | null>(null);
+  const returnFocusRef = useRef(returnFocusTo);
+  const fieldId = useId();
 
+  // Focus starts in the dialog and goes back to the cell that opened the picker when the dialog closes, if it is still there.
   useEffect(() => {
     firstFieldRef.current?.focus();
+    const opener = returnFocusRef.current;
+    return () => {
+      if (opener?.isConnected) opener.focus();
+    };
   }, []);
+
+  // Escape cancels wherever focus is, even outside the dialog.
+  useEffect(() => {
+    const cancelOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onCancel();
+    };
+    document.addEventListener('keydown', cancelOnEscape);
+    return () => document.removeEventListener('keydown', cancelOnEscape);
+  }, [onCancel]);
 
   const spaces = shared.space && !spaceOptions.includes(shared.space) ? [shared.space, ...spaceOptions] : spaceOptions;
 
@@ -88,9 +117,6 @@ export function CommonBulkAddDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="common-bulk-add-title"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') onCancel();
-        }}
         className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl"
       >
         <header className="flex items-start justify-between gap-4 border-b border-[#edf2f5] p-5">
@@ -106,12 +132,18 @@ export function CommonBulkAddDialog({
 
         <div className="min-h-0 flex-1 overflow-auto p-5">
           <CommonMaterialSummary category={category} material={material} />
+          {replacedLine && (
+            <p className="mt-3 rounded-lg border border-[#cde6ec] bg-[#edf8fb] px-4 py-2.5 text-sm font-semibold text-[#267d8c]">
+              선택한 줄은 1번째 항목으로 바뀌고, 나머지 항목은 그 바로 아래에 추가됩니다.
+            </p>
+          )}
 
           <div className="mt-4 rounded-lg border border-[#e7d8bd] bg-[#fffdf8] p-3">
             <p className="text-xs font-bold text-[#8b6420]">모든 항목에 똑같이 들어가는 값</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <Caption label="공간">
+              <Caption label="공간" htmlFor={`${fieldId}-space`}>
                 <select
+                  id={`${fieldId}-space`}
                   ref={firstFieldRef}
                   value={shared.space}
                   onChange={(event) => setShared((current) => ({ ...current, space: event.target.value }))}
@@ -123,11 +155,11 @@ export function CommonBulkAddDialog({
                   ))}
                 </select>
               </Caption>
-              <Caption label="규격">
-                <input value={shared.spec} onChange={(event) => setShared((current) => ({ ...current, spec: event.target.value }))} className={inputClass} />
+              <Caption label="규격" htmlFor={`${fieldId}-spec`}>
+                <input id={`${fieldId}-spec`} value={shared.spec} onChange={(event) => setShared((current) => ({ ...current, spec: event.target.value }))} className={inputClass} />
               </Caption>
-              <Caption label="단위">
-                <input value={shared.unit} onChange={(event) => setShared((current) => ({ ...current, unit: event.target.value }))} className={inputClass} />
+              <Caption label="단위" htmlFor={`${fieldId}-unit`}>
+                <input id={`${fieldId}-unit`} value={shared.unit} onChange={(event) => setShared((current) => ({ ...current, unit: event.target.value }))} className={inputClass} />
               </Caption>
             </div>
           </div>

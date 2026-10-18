@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   COMMON_OPTION_MAX_LENGTH,
   COMMON_OPTIONS_MAX_COUNT,
@@ -7,8 +8,10 @@ import {
   buildCommonBulkLines,
   commonOptionsForSave,
   defaultCommonBulkRows,
+  findCommonSaveTarget,
   formatCommonOptions,
   isCommonMaterialName,
+  materialSaveKey,
   parseCommonOptions,
   placeCommonBulkLines,
   replaceLineAt,
@@ -116,12 +119,88 @@ test('appendCommonOption adds the typed name once, after the saved options', () 
   assert.deepEqual(appendCommonOption(undefined, '  '), []);
 });
 
+test('appendCommonOption keeps the 50-item cap', () => {
+  const full = Array.from({ length: 50 }, (_, index) => `항목 ${index + 1}`);
+  const appended = appendCommonOption(full, '현관');
+  assert.equal(appended.length, 50);
+  assert.deepEqual(appended, full);
+  assert.deepEqual(appendCommonOption(full.slice(0, 49), '현관'), [...full.slice(0, 49), '현관']);
+});
+
+// The estimate route's id: `estimateMaterial-${hashId([category, name, spec, unit].join('|'))}`, hashId = sha1 hex, 16 chars.
+const serverMaterialId = (key) => `estimateMaterial-${createHash('sha1').update(key).digest('hex').slice(0, 16)}`;
+
+test('materialSaveKey gives the string saveMaterial hashes into the id', () => {
+  assert.equal(materialSaveKey({ category: ' 타일 ', name: ' 공통 ', spec: ' 300x600 ', unit: ' m2 ' }), '타일|공통|300x600|m2');
+  assert.equal(materialSaveKey({ category: '  ', name: '공통', spec: '', unit: '' }), '미분류|공통||');
+  assert.equal(materialSaveKey({ name: '공통' }), '미분류|공통||');
+  assert.equal(
+    serverMaterialId(materialSaveKey({ category: '타일', name: '공통', spec: '300x600', unit: 'm2' })),
+    serverMaterialId('타일|공통|300x600|m2'),
+  );
+});
+
+const dbMaterials = [
+  { _id: 'tile-plain', category: '타일', process: '타일', name: '타일 A', spec: '300x600', unit: 'm2', commonOptions: ['무시'] },
+  { _id: 'tile-common', category: '타일', process: '타일', name: '공통', spec: '300x600', unit: 'm2', commonOptions: ['안방 욕실', '거실 욕실'] },
+  { _id: 'tile-common-other-spec', category: '타일', process: '타일', name: '공통', spec: '600x600', unit: 'm2', commonOptions: ['현관'] },
+  { _id: 'paint-common', category: '도장', process: '도장', name: '공통', spec: '', unit: '식', commonOptions: ['거실'] },
+  { _id: 'unsorted-common', category: '미분류', process: '', name: '공통', spec: '', unit: '', commonOptions: ['기타'] },
+];
+
+test('findCommonSaveTarget finds the 공통 item the draft save will write to', () => {
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '타일', spec: '300x600', unit: 'm2' })?._id, 'tile-common');
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: ' 타일 ', spec: ' 300x600', unit: 'm2 ' })?._id, 'tile-common');
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '타일', spec: '600x600', unit: 'm2' })?._id, 'tile-common-other-spec');
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '도장', spec: '', unit: '식' })?._id, 'paint-common');
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '', spec: '', unit: '' })?._id, 'unsorted-common');
+});
+
+test('findCommonSaveTarget returns undefined when no 공통 item has those id fields', () => {
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '타일', spec: '300x600', unit: 'EA' }), undefined);
+  assert.equal(findCommonSaveTarget(dbMaterials, { category: '목공', spec: '300x600', unit: 'm2' }), undefined);
+  assert.equal(findCommonSaveTarget([], { category: '타일', spec: '300x600', unit: 'm2' }), undefined);
+});
+
+test('findCommonSaveTarget only matches the exact name 공통, as the id does', () => {
+  const spaced = [{ _id: 'spaced', category: '타일', process: '타일', name: '공 통', spec: '300x600', unit: 'm2', commonOptions: ['안방'] }];
+  assert.equal(findCommonSaveTarget(spaced, { category: '타일', spec: '300x600', unit: 'm2' }), undefined);
+});
+
+test('findCommonSaveTarget falls back to 공종 when an edited item no longer has the category of its id', () => {
+  const edited = [{ _id: 'edited', category: '욕실 타일', process: '타일', name: '공통', spec: '300x600', unit: 'm2', commonOptions: ['안방'] }];
+  assert.equal(findCommonSaveTarget(edited, { category: '타일', spec: '300x600', unit: 'm2' })?._id, 'edited');
+  const both = [
+    { _id: 'by-process', category: '욕실 타일', process: '타일', name: '공통', spec: '300x600', unit: 'm2' },
+    { _id: 'by-category', category: '타일', process: '', name: '공통', spec: '300x600', unit: 'm2' },
+  ];
+  assert.equal(findCommonSaveTarget(both, { category: '타일', spec: '300x600', unit: 'm2' })?._id, 'by-category');
+});
+
 test('defaultCommonBulkRows starts each option at quantity 1 with the material price', () => {
   assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실'], 35000), [
     { name: '안방 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
     { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
   ]);
   assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
+});
+
+test('defaultCommonBulkRows gives row 1 the 수량 and 비고 of the line it replaces', () => {
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { quantity: 4.5, note: '벽만' }), [
+    { name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },
+    { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { name: '현관', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+  ]);
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: 0, note: '' })[0], {
+    name: '안방 욕실',
+    quantity: 0,
+    customerUnitPrice: 0,
+    executionUnitPrice: 0,
+    note: '',
+  });
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].quantity, 1);
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].note, '');
+  assert.deepEqual(defaultCommonBulkRows([], 0, { quantity: 3, note: 'x' }), []);
 });
 
 const template = {

@@ -9,7 +9,9 @@ import {
   COMMON_MATERIAL_NAME,
   appendCommonOption,
   buildCommonBulkLines,
+  findCommonSaveTarget,
   isCommonMaterialName,
+  materialSaveKey,
   placeCommonBulkLines,
   type CommonBulkRow,
   type CommonBulkShared,
@@ -261,6 +263,10 @@ type CommonBulkAddState = {
   category: string;
   targetLineId: string;
   space: string;
+  // The line row 1 replaces ('' = every row is added), and its 수량 / 비고 for row 1's defaults.
+  replaceLineId: string;
+  replacedLine: { quantity: number; note: string } | null;
+  opener: HTMLElement | null;
 };
 
 type DetailPrintRow =
@@ -619,7 +625,9 @@ export default function EstimateWorkspacePage() {
   const [lineDbSaveCategory, setLineDbSaveCategory] = useState('');
   const [lineDbSaveCommon, setLineDbSaveCommon] = useState(false);
   const [lineDbSaveOptions, setLineDbSaveOptions] = useState<string[]>([]);
+  const [lineDbSaveKey, setLineDbSaveKey] = useState('');
   const [commonBulkAdd, setCommonBulkAdd] = useState<CommonBulkAddState | null>(null);
+  const pickerOpenerRef = useRef<HTMLElement | null>(null);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -1463,7 +1471,13 @@ export default function EstimateWorkspacePage() {
     return step;
   };
 
+  // The cell that opened the picker; "공통 항목 한번에 추가" gives focus back to it when it closes.
+  const rememberPickerOpener = () => {
+    pickerOpenerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  };
+
   const openMaterialPicker = (line: EstimateLine, step: MaterialPickerState['step'] = 'category') => {
+    rememberPickerOpener();
     setSelectedLineId(line.id);
     setMaterialPicker({
       lineId: line.id,
@@ -1475,6 +1489,7 @@ export default function EstimateWorkspacePage() {
   };
 
   const openLineDraftMaterialPicker = (step: MaterialPickerState['step'] = 'category') => {
+    rememberPickerOpener();
     setMaterialPicker({
       lineId: LINE_DRAFT_PICKER_ID,
       step: pickerStepFor(step, lineDraft.category, lineDraft.process),
@@ -1484,10 +1499,26 @@ export default function EstimateWorkspacePage() {
     });
   };
 
+  // 카테고리 follows 공정; a line from the estimate DB carries the estimate category in 분류, so it is not used here.
+  const lineDraftDbProcess = () => lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
+
+  // A '공통' save has no _id, so it overwrites the '공통' item with the same 공종 / 규격 / 단위. Its list starts from that item's
+  // 공통 항목 (else the picked item's), plus the typed 품명; saveKey tells which item the list was loaded for.
+  const lineDraftCommonPrefill = () => {
+    const draft = { category: lineDraftDbProcess(), spec: lineDraft.spec, unit: lineDraft.unit };
+    const target = findCommonSaveTarget(materials, draft);
+    return {
+      options: appendCommonOption(target?.commonOptions ?? lineDraftSource?.commonOptions, lineDraft.name),
+      saveKey: materialSaveKey({ ...draft, name: COMMON_MATERIAL_NAME }),
+    };
+  };
+
   const openLineDbSave = () => {
+    const prefill = lineDraftCommonPrefill();
     setLineDbSaveCategory(estimateCategories.includes(lineDraft.category) ? lineDraft.category : '');
     setLineDbSaveCommon(Boolean(lineDraft.commonName));
-    setLineDbSaveOptions(appendCommonOption(lineDraftSource?.commonOptions, lineDraft.name));
+    setLineDbSaveOptions(prefill.options);
+    setLineDbSaveKey(prefill.saveKey);
     setIsLineDbSaveOpen(true);
   };
 
@@ -1497,8 +1528,15 @@ export default function EstimateWorkspacePage() {
       setError('DB에 저장할 품명을 입력하거나 품명을 공통으로 저장해주세요.');
       return;
     }
-    // 카테고리 follows 공정; a line from the estimate DB carries the estimate category in 분류, so it is not used here.
-    const process = lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
+    // The draft's 공종 / 규격 / 단위 changed after the list was loaded: the list belongs to another item, so reload it first.
+    const prefill = lineDraftCommonPrefill();
+    if (lineDbSaveCommon && prefill.saveKey !== lineDbSaveKey) {
+      setLineDbSaveOptions(prefill.options);
+      setLineDbSaveKey(prefill.saveKey);
+      setError('저장할 DB 품목이 바뀌어 공통 항목을 다시 불러왔습니다. 확인한 뒤 다시 저장해주세요.');
+      return;
+    }
+    const process = lineDraftDbProcess();
     const saved = await saveMaterial(
       {
         category: process,
@@ -1544,6 +1582,8 @@ export default function EstimateWorkspacePage() {
     if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
       setLineDraft((current) => apply(current));
       setLineDraftSource(material);
+      // A DB-save list loaded for the draft before this pick must not be saved over another item.
+      setIsLineDbSaveOpen(false);
       setMaterialPicker(null);
       setActiveTab('lines');
       return;
@@ -1560,7 +1600,11 @@ export default function EstimateWorkspacePage() {
       choosePickerMaterial(material, options[0]);
       return;
     }
-    const target = materialPicker.lineId === LINE_DRAFT_PICKER_ID ? lineDraft : lines.find((line) => line.id === materialPicker.lineId);
+    const fromDraft = materialPicker.lineId === LINE_DRAFT_PICKER_ID;
+    const target = fromDraft ? lineDraft : lines.find((line) => line.id === materialPicker.lineId);
+    // Row 1 replaces a line when the picker was opened for a line in the list, or for a draft that is editing one.
+    const replaceLineId = fromDraft ? editingLineId : materialPicker.lineId;
+    const replacing = Boolean(target && replaceLineId && lines.some((line) => line.id === replaceLineId));
     setCommonBulkAdd({
       material,
       options,
@@ -1568,7 +1612,11 @@ export default function EstimateWorkspacePage() {
       category: materialToLine(material, dbLibrary).category || '',
       targetLineId: materialPicker.lineId,
       space: target?.space || '',
+      replaceLineId: replacing ? replaceLineId : '',
+      replacedLine: replacing && target ? { quantity: target.quantity, note: target.note } : null,
+      opener: pickerOpenerRef.current,
     });
+    if (fromDraft) setIsLineDbSaveOpen(false);
     setMaterialPicker(null);
   };
 
@@ -1576,16 +1624,14 @@ export default function EstimateWorkspacePage() {
   // (replacing the line being edited, like 수정 반영); from a line in the list, that line becomes row 1 and the rest follow it.
   const addCommonBulkLines = (shared: CommonBulkShared, rows: CommonBulkRow[]) => {
     if (!commonBulkAdd) return;
-    const { material, library, targetLineId } = commonBulkAdd;
+    const { material, library, targetLineId, replaceLineId } = commonBulkAdd;
     const fromDraft = targetLineId === LINE_DRAFT_PICKER_ID;
     const base = fromDraft ? lineDraft : lines.find((line) => line.id === targetLineId) || emptyLine();
     const newLines = buildCommonBulkLines(applyMaterialToLine(base, material, library), shared, rows, () => emptyLine().id);
-    const replaceId = fromDraft ? editingLineId : targetLineId;
-    const replaced = Boolean(replaceId) && lines.some((line) => line.id === replaceId);
-    setLines((current) => placeCommonBulkLines(current, newLines, replaceId));
+    setLines((current) => placeCommonBulkLines(current, newLines, replaceLineId));
     if (fromDraft) {
       resetLineDraft();
-      setSelectedLineId(replaced && newLines.length === 1 ? replaceId : newLines[newLines.length - 1].id);
+      setSelectedLineId(replaceLineId && newLines.length === 1 ? replaceLineId : newLines[newLines.length - 1].id);
     }
     setCommonBulkAdd(null);
     setActiveTab('lines');
@@ -4170,6 +4216,8 @@ export default function EstimateWorkspacePage() {
           category={commonBulkAdd.category}
           options={commonBulkAdd.options}
           defaultSpace={commonBulkAdd.space}
+          replacedLine={commonBulkAdd.replacedLine}
+          returnFocusTo={commonBulkAdd.opener}
           spaceOptions={defaultSpaces}
           onCancel={() => setCommonBulkAdd(null)}
           onAdd={addCommonBulkLines}
@@ -5295,7 +5343,11 @@ function MaterialPickerModal({
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">{library === 'estimate' ? 'ESTIMATE DB' : 'MATERIAL DB'}</p>
             <h2 className="mt-1 text-2xl font-semibold">{stepLabel}</h2>
-            <p className="mt-1 text-sm text-[#60717d]">분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.</p>
+            <p className="mt-1 text-sm text-[#60717d]">
+              {commonChoice
+                ? '이 공통 품목에 저장된 항목 중에서 견적서에 넣을 품명을 고릅니다.'
+                : '분류를 고르면 공종으로, 공종을 고르면 해당 품명 목록으로 자동 이동합니다.'}
+            </p>
           </div>
           <div className="flex items-start gap-3">
             <LibraryToggle
