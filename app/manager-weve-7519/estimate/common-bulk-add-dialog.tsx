@@ -11,13 +11,14 @@ type DraftRow = CommonBulkRow & { key: string };
 const inputClass = 'w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 text-sm outline-none focus:border-[#38a9bd]';
 // A ring, so it shows over the inputs' own border and background classes.
 const invalidClass = 'ring-2 ring-red-300';
-const rowGrid = 'md:grid-cols-[minmax(0,1.5fr)_88px_128px_128px_minmax(0,1.2fr)_40px]';
+// One line per row from lg up (with a header row); below that each row is a card: 2 columns on phones, 3 from sm.
+const rowGrid = 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-[112px_minmax(0,1.5fr)_80px_120px_120px_minmax(0,1.1fr)_40px]';
 
 // htmlFor makes the caption the control's <label>; row captions only show on narrow screens and the controls carry aria-labels.
-function Caption({ label, htmlFor, children, hideOnWide = false }: { label: string; htmlFor?: string; children: ReactNode; hideOnWide?: boolean }) {
-  const className = `text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] ${hideOnWide ? 'md:hidden' : ''}`;
+function Caption({ label, htmlFor, children, hideOnWide = false, className: wrapperClass = '' }: { label: string; htmlFor?: string; children: ReactNode; hideOnWide?: boolean; className?: string }) {
+  const className = `text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] ${hideOnWide ? 'lg:hidden' : ''}`;
   return (
-    <div className="grid min-w-0 gap-1">
+    <div className={`grid min-w-0 content-start gap-1 ${wrapperClass}`}>
       {htmlFor ? (
         <label htmlFor={htmlFor} className={className}>
           {label}
@@ -30,14 +31,15 @@ function Caption({ label, htmlFor, children, hideOnWide = false }: { label: stri
   );
 }
 
-// "공통 항목 한번에 추가": several saved 공통 항목 of one DB item become estimate lines at once. 공간, 규격 and 단위 are
-// entered once for every row; each row has its own 품명, 수량, 견적단가, 실행단가 and 비고. Cancel and close change nothing.
+// "공통 항목 한번에 추가": several saved 공통 항목 of one DB item become estimate lines at once. 규격 and 단위 are entered
+// once for every row; each row has its own 공간, 품명, 수량, 견적단가, 실행단가 and 비고. Cancel and close change nothing.
 // replacedLine: the line row 1 will replace (it starts with that line's 수량 and 비고); null when every row is added.
+// firstRowSpace: the 공간 of the line or draft the picker was opened for, row 1's 공간 unless its name is a 공간 itself.
 export function CommonBulkAddDialog({
   material,
   category,
   options,
-  defaultSpace,
+  firstRowSpace,
   replacedLine = null,
   returnFocusTo = null,
   spaceOptions,
@@ -47,20 +49,25 @@ export function CommonBulkAddDialog({
   material: CommonMaterial;
   category: string;
   options: string[];
-  defaultSpace: string;
+  firstRowSpace: string;
   replacedLine?: { quantity: number; note: string } | null;
   returnFocusTo?: HTMLElement | null;
   spaceOptions: string[];
   onCancel: () => void;
   onAdd: (shared: CommonBulkShared, rows: CommonBulkRow[]) => void;
 }) {
-  const [shared, setShared] = useState<CommonBulkShared>(() => ({ space: defaultSpace, spec: material.spec || '', unit: material.unit || '' }));
+  // The 공간 choices: the page's list, plus the target's own 공간 when it is not one of them.
+  const [spaceChoices] = useState(() => (firstRowSpace && !spaceOptions.includes(firstRowSpace) ? [firstRowSpace, ...spaceOptions] : spaceOptions));
+  const [shared, setShared] = useState<CommonBulkShared>(() => ({ spec: material.spec || '', unit: material.unit || '' }));
   const [rows, setRows] = useState<DraftRow[]>(() =>
-    defaultCommonBulkRows(options, material.unitPrice, replacedLine).map((row, index) => ({ ...row, key: `row-${index}` })),
+    defaultCommonBulkRows(options, material.unitPrice, { replacedLine, spaceOptions: spaceChoices, firstRowSpace }).map((row, index) => ({
+      ...row,
+      key: `row-${index}`,
+    })),
   );
   const [error, setError] = useState('');
   const [showProblems, setShowProblems] = useState(false);
-  const firstFieldRef = useRef<HTMLSelectElement | null>(null);
+  const firstFieldRef = useRef<HTMLInputElement | null>(null);
   const returnFocusRef = useRef(returnFocusTo);
   const fieldId = useId();
 
@@ -82,8 +89,6 @@ export function CommonBulkAddDialog({
     return () => document.removeEventListener('keydown', cancelOnEscape);
   }, [onCancel]);
 
-  const spaces = shared.space && !spaceOptions.includes(shared.space) ? [shared.space, ...spaceOptions] : spaceOptions;
-
   const updateRow = (key: string, updates: Partial<CommonBulkRow>) => {
     setRows((current) => current.map((row) => (row.key === key ? { ...row, ...updates } : row)));
     setError('');
@@ -96,6 +101,7 @@ export function CommonBulkAddDialog({
 
   const submit = () => {
     const plainRows = rows.map((row) => ({
+      space: row.space,
       name: row.name,
       quantity: row.quantity,
       customerUnitPrice: row.customerUnitPrice,
@@ -140,23 +146,9 @@ export function CommonBulkAddDialog({
 
           <div className="mt-4 rounded-lg border border-[#e7d8bd] bg-[#fffdf8] p-3">
             <p className="text-xs font-bold text-[#8b6420]">모든 항목에 똑같이 들어가는 값</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              <Caption label="공간" htmlFor={`${fieldId}-space`}>
-                <select
-                  id={`${fieldId}-space`}
-                  ref={firstFieldRef}
-                  value={shared.space}
-                  onChange={(event) => setShared((current) => ({ ...current, space: event.target.value }))}
-                  className={inputClass}
-                >
-                  <option value="">선택</option>
-                  {spaces.map((space) => (
-                    <option key={space} value={space}>{space}</option>
-                  ))}
-                </select>
-              </Caption>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
               <Caption label="규격" htmlFor={`${fieldId}-spec`}>
-                <input id={`${fieldId}-spec`} value={shared.spec} onChange={(event) => setShared((current) => ({ ...current, spec: event.target.value }))} className={inputClass} />
+                <input id={`${fieldId}-spec`} ref={firstFieldRef} value={shared.spec} onChange={(event) => setShared((current) => ({ ...current, spec: event.target.value }))} className={inputClass} />
               </Caption>
               <Caption label="단위" htmlFor={`${fieldId}-unit`}>
                 <input id={`${fieldId}-unit`} value={shared.unit} onChange={(event) => setShared((current) => ({ ...current, unit: event.target.value }))} className={inputClass} />
@@ -165,7 +157,8 @@ export function CommonBulkAddDialog({
           </div>
 
           <div className="mt-4 grid gap-2">
-            <div className={`hidden gap-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] md:grid ${rowGrid}`}>
+            <div className={`hidden gap-2 px-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d] lg:grid ${rowGrid}`}>
+              <span>공간</span>
               <span>품명</span>
               <span className="text-right">수량</span>
               <span className="text-right">견적단가</span>
@@ -176,9 +169,23 @@ export function CommonBulkAddDialog({
             {rows.map((row, index) => {
               const nameMissing = showProblems && !row.name.trim();
               const quantityInvalid = showProblems && (!Number.isFinite(row.quantity) || row.quantity < 0);
+              const rowSpaces = row.space && !spaceChoices.includes(row.space) ? [row.space, ...spaceChoices] : spaceChoices;
               return (
-                <div key={row.key} className={`grid gap-2 rounded-lg border border-[#d5dde2] p-3 md:items-end md:border-0 md:p-1 ${rowGrid}`}>
-                  <Caption label="품명" hideOnWide>
+                <div key={row.key} className={`grid gap-2 rounded-lg border border-[#d5dde2] p-3 lg:items-end lg:border-0 lg:p-1 ${rowGrid}`}>
+                  <Caption label="공간" hideOnWide>
+                    <select
+                      value={row.space}
+                      aria-label={`${index + 1}번째 공간`}
+                      onChange={(event) => updateRow(row.key, { space: event.target.value })}
+                      className={inputClass}
+                    >
+                      <option value="">선택</option>
+                      {rowSpaces.map((space) => (
+                        <option key={space} value={space}>{space}</option>
+                      ))}
+                    </select>
+                  </Caption>
+                  <Caption label="품명" hideOnWide className="sm:col-span-2 lg:col-span-1">
                     <input
                       value={row.name}
                       aria-label={`${index + 1}번째 품명`}
@@ -211,7 +218,7 @@ export function CommonBulkAddDialog({
                       className="w-full min-w-0 bg-white text-sm"
                     />
                   </Caption>
-                  <Caption label="비고" hideOnWide>
+                  <Caption label="비고" hideOnWide className="sm:col-span-2 lg:col-span-1">
                     <input value={row.note} aria-label={`${index + 1}번째 비고`} onChange={(event) => updateRow(row.key, { note: event.target.value })} className={inputClass} />
                   </Caption>
                   <button
@@ -219,7 +226,7 @@ export function CommonBulkAddDialog({
                     onClick={() => removeRow(row.key)}
                     aria-label={`${row.name || `${index + 1}번째 항목`} 빼기`}
                     title="이 항목 빼기"
-                    className="inline-flex h-9 w-full items-center justify-center rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 md:w-10"
+                    className="col-span-2 inline-flex h-9 w-full items-center justify-center self-end rounded-md border border-red-200 bg-white text-red-600 hover:bg-red-50 sm:col-span-1 lg:w-10"
                   >
                     <Trash2 size={15} />
                   </button>

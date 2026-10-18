@@ -179,28 +179,61 @@ test('findCommonSaveTarget falls back to 공종 when an edited item no longer ha
 
 test('defaultCommonBulkRows starts each option at quantity 1 with the material price', () => {
   assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실'], 35000), [
-    { name: '안방 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-    { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '안방 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
   ]);
-  assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
+  assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ space: '', name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
 });
 
 test('defaultCommonBulkRows gives row 1 the 수량 and 비고 of the line it replaces', () => {
-  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { quantity: 4.5, note: '벽만' }), [
-    { name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },
-    { name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-    { name: '현관', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { replacedLine: { quantity: 4.5, note: '벽만' } }), [
+    { space: '', name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },
+    { space: '', name: '거실 욕실', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+    { space: '', name: '현관', quantity: 1, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
   ]);
-  assert.deepEqual(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: 0, note: '' })[0], {
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: 0, note: '' } })[0], {
+    space: '',
     name: '안방 욕실',
     quantity: 0,
     customerUnitPrice: 0,
     executionUnitPrice: 0,
     note: '',
   });
-  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].quantity, 1);
-  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { quantity: Number.NaN, note: undefined })[0].note, '');
-  assert.deepEqual(defaultCommonBulkRows([], 0, { quantity: 3, note: 'x' }), []);
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: Number.NaN, note: undefined } })[0].quantity, 1);
+  assert.equal(defaultCommonBulkRows(['안방 욕실'], 0, { replacedLine: { quantity: Number.NaN, note: undefined } })[0].note, '');
+  assert.deepEqual(defaultCommonBulkRows([], 0, { replacedLine: { quantity: 3, note: 'x' } }), []);
+});
+
+const spaceOptions = ['거실', '주방', '안방 욕실', '욕실', '현관'];
+
+test('defaultCommonBulkRows preselects the 공간 an option is named after, ignoring spaces', () => {
+  const spaces = defaultCommonBulkRows(['안방욕실', '현관', ' 거 실 ', '다용도실'], 0, { spaceOptions }).map((row) => row.space);
+  assert.deepEqual(spaces, ['안방 욕실', '현관', '거실', '']);
+});
+
+test('defaultCommonBulkRows gives row 1 the target 공간 when its name matches none, and leaves the other rows empty', () => {
+  const spaces = defaultCommonBulkRows(['벽 타일', '바닥 타일', '줄눈'], 0, { spaceOptions, firstRowSpace: '욕실' }).map((row) => row.space);
+  assert.deepEqual(spaces, ['욕실', '', '']);
+});
+
+test('defaultCommonBulkRows prefers a matching 공간 over the target 공간, on row 1 and on the others', () => {
+  const spaces = defaultCommonBulkRows(['현관', '벽 타일', '안방 욕실'], 0, { spaceOptions, firstRowSpace: '욕실' }).map((row) => row.space);
+  assert.deepEqual(spaces, ['현관', '', '안방 욕실']);
+});
+
+test('defaultCommonBulkRows without 공간 options only uses the target 공간 for row 1', () => {
+  assert.deepEqual(defaultCommonBulkRows(['거실', '주방'], 0, { firstRowSpace: '공용' }).map((row) => row.space), ['공용', '']);
+  assert.deepEqual(defaultCommonBulkRows(['거실', '주방'], 0, { spaceOptions: [] }).map((row) => row.space), ['', '']);
+});
+
+test('defaultCommonBulkRows keeps the 수량 / 비고 carry-over next to the 공간 defaults', () => {
+  const [first, second] = defaultCommonBulkRows(['벽 타일', '현관'], 1000, {
+    replacedLine: { quantity: 2, note: '기존 비고' },
+    spaceOptions,
+    firstRowSpace: '욕실',
+  });
+  assert.deepEqual(first, { space: '욕실', name: '벽 타일', quantity: 2, customerUnitPrice: 1000, executionUnitPrice: 1000, note: '기존 비고' });
+  assert.deepEqual(second, { space: '현관', name: '현관', quantity: 1, customerUnitPrice: 1000, executionUnitPrice: 1000, note: '' });
 });
 
 const template = {
@@ -219,9 +252,9 @@ const template = {
 };
 
 const rows = [
-  { name: ' 안방 욕실 ', quantity: 2, customerUnitPrice: 40000, executionUnitPrice: 30000, note: '벽만' },
-  { name: '거실 욕실', quantity: 1.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
-  { name: '다용도실', quantity: 0, customerUnitPrice: 0, executionUnitPrice: 0, note: '' },
+  { space: '안방 욕실', name: ' 안방 욕실 ', quantity: 2, customerUnitPrice: 40000, executionUnitPrice: 30000, note: '벽만' },
+  { space: '', name: '거실 욕실', quantity: 1.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '' },
+  { space: '다용도실', name: '다용도실', quantity: 0, customerUnitPrice: 0, executionUnitPrice: 0, note: '' },
 ];
 
 const counterIds = () => {
@@ -230,11 +263,11 @@ const counterIds = () => {
 };
 
 test('buildCommonBulkLines gives one common line per row with the shared fields and the row values', () => {
-  const lines = buildCommonBulkLines(template, { space: '욕실', spec: '600x600', unit: 'm2' }, rows, counterIds());
+  const lines = buildCommonBulkLines(template, { spec: '600x600', unit: 'm2' }, rows, counterIds());
   assert.equal(lines.length, 3);
   assert.deepEqual(lines[0], {
     id: 'new-1',
-    space: '욕실',
+    space: '안방 욕실',
     category: '욕실 공사',
     process: '설비',
     name: '안방 욕실',
@@ -248,13 +281,18 @@ test('buildCommonBulkLines gives one common line per row with the shared fields 
   });
   assert.deepEqual(lines.map((line) => line.id), ['new-1', 'new-2', 'new-3']);
   assert.deepEqual(lines.map((line) => line.name), ['안방 욕실', '거실 욕실', '다용도실']);
-  assert.ok(lines.every((line) => line.commonName === true && line.space === '욕실' && line.category === '욕실 공사' && line.process === '설비'));
+  assert.ok(lines.every((line) => line.commonName === true && line.spec === '600x600' && line.unit === 'm2' && line.category === '욕실 공사' && line.process === '설비'));
   assert.deepEqual(lines.map((line) => line.quantity), [2, 1.5, 0]);
   assert.equal(lines[1].note, '');
 });
 
+test('buildCommonBulkLines takes 공간 from each row, not from the template or the shared fields', () => {
+  const lines = buildCommonBulkLines(template, { space: '현관', spec: '', unit: '' }, rows, counterIds());
+  assert.deepEqual(lines.map((line) => line.space), ['안방 욕실', '', '다용도실']);
+});
+
 test('buildCommonBulkLines marks lines common even when the template was not', () => {
-  const lines = buildCommonBulkLines({ ...template, commonName: false }, { space: '', spec: '', unit: '' }, rows.slice(0, 1), counterIds());
+  const lines = buildCommonBulkLines({ ...template, commonName: false }, { spec: '', unit: '' }, rows.slice(0, 1), counterIds());
   assert.equal(lines[0].commonName, true);
 });
 
@@ -324,3 +362,4 @@ test('placeCommonBulkLines appends to the end without a target', () => {
   assert.deepEqual(placeCommonBulkLines(existing, added, 'missing').map((line) => line.id), ['a', 'b', 'c', 'n1', 'n2', 'n3']);
   assert.deepEqual(placeCommonBulkLines([], added, '').map((line) => line.id), ['n1', 'n2', 'n3']);
 });
+

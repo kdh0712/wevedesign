@@ -4215,7 +4215,7 @@ export default function EstimateWorkspacePage() {
           material={commonBulkAdd.material}
           category={commonBulkAdd.category}
           options={commonBulkAdd.options}
-          defaultSpace={commonBulkAdd.space}
+          firstRowSpace={commonBulkAdd.space}
           replacedLine={commonBulkAdd.replacedLine}
           returnFocusTo={commonBulkAdd.opener}
           spaceOptions={defaultSpaces}

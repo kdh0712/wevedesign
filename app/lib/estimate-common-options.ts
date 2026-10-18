@@ -83,6 +83,7 @@ export function findCommonSaveTarget<M extends MaterialKeyFields>(
 }
 
 export type CommonBulkRow = {
+  space: string;
   name: string;
   quantity: number;
   customerUnitPrice: number;
@@ -90,8 +91,8 @@ export type CommonBulkRow = {
   note: string;
 };
 
-// 공간, 규격 and 단위 entered once in "공통 항목 한번에 추가" for every row.
-export type CommonBulkShared = { space: string; spec: string; unit: string };
+// 규격 and 단위 entered once in "공통 항목 한번에 추가" for every row. 공간 is per row: each 공통 항목 can be another room.
+export type CommonBulkShared = { spec: string; unit: string };
 
 export type CommonBulkLine = {
   id: string;
@@ -106,19 +107,29 @@ export type CommonBulkLine = {
   commonName?: boolean;
 };
 
+const withoutSpaces = (value: unknown) => String(value ?? '').replace(/\s/g, '');
+
 // One row per chosen option, priced like a single pick of the item (견적단가 and 실행단가 both start at the DB 단가).
-// replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
+// - replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
+// - 공간: an option named after one of spaceOptions (spaces ignored) starts in that 공간. Otherwise row 1 takes
+//   firstRowSpace (the 공간 of the line or draft the picker was opened for) and the other rows start empty.
 export function defaultCommonBulkRows(
   options: readonly string[],
   unitPrice: unknown,
-  replacedLine?: { quantity?: number; note?: string } | null,
+  {
+    replacedLine = null,
+    spaceOptions = [],
+    firstRowSpace = '',
+  }: { replacedLine?: { quantity?: number; note?: string } | null; spaceOptions?: readonly string[]; firstRowSpace?: string } = {},
 ): CommonBulkRow[] {
   const price = Number(unitPrice || 0);
   const safePrice = Number.isFinite(price) ? price : 0;
+  const namedSpace = (name: string) => spaceOptions.find((space) => withoutSpaces(space) && withoutSpaces(space) === withoutSpaces(name)) || '';
   return options.map((name, index) => {
     const kept = index === 0 ? replacedLine : null;
     const quantity = kept && Number.isFinite(kept.quantity) ? Number(kept.quantity) : 1;
-    return { name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
+    const space = namedSpace(name) || (index === 0 ? firstRowSpace : '');
+    return { space, name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
   });
 }
 
@@ -133,7 +144,7 @@ export function validateCommonBulkRows(rows: readonly CommonBulkRow[]): string {
 }
 
 // template is the line a single pick of the item would give (분류, 공종 and the rest); every row becomes a '공통' line
-// with its own 품명, quantity, prices and 비고 plus the shared 공간 / 규격 / 단위.
+// with its own 공간, 품명, quantity, prices and 비고 plus the shared 규격 / 단위.
 export function buildCommonBulkLines<L extends CommonBulkLine>(
   template: L,
   shared: CommonBulkShared,
@@ -143,7 +154,7 @@ export function buildCommonBulkLines<L extends CommonBulkLine>(
   return rows.map((row) => ({
     ...template,
     id: makeId(),
-    space: shared.space,
+    space: String(row.space ?? ''),
     spec: shared.spec,
     unit: shared.unit,
     name: String(row.name ?? '').trim(),
