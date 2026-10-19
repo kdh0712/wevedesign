@@ -1,4 +1,4 @@
-import { isAligoSuccess, normalizeTemplateText, type AligoResponse } from '../send-consultation/aligo-admin';
+import { isAligoSuccess, normalizeTemplateText, type AligoResponse } from '../send-consultation/aligo-admin.ts';
 
 // Same endpoint, form fields and success rule as the consultation alimtalk (app/api/send-consultation/route.ts).
 const ALIGO_API_URL = process.env.ALIGO_API_URL || 'https://kakaoapi.aligo.in/akv10/alimtalk/send/';
@@ -6,16 +6,24 @@ const ALIGO_TIMEOUT_MS = 15_000;
 
 export const DEFAULT_PROGRESS_SUBJECT = '공사 진행 안내';
 
-export type ProgressAlimtalkConfig = { templateCode: string; messageTemplate: string; buttonJson: string; subject: string };
+export type ProgressAlimtalkConfig = { templateCode: string; messageTemplate: string; buttonJson: string; subject: string; senderKey: string };
 
 // The template code, the approved message text and the approved button must all be set; the subject is optional.
 // Kakao rejects any difference from the approved text, so the message goes through the same cleanup as the consultation template.
+// A Kakao template belongs to one channel, so a template registered on another channel than the consultation one needs that
+// channel's sender key in ALIGO_PROGRESS_SENDER_KEY; without it the shared ALIGO_SENDER_KEY is used.
 export function readProgressAlimtalkConfig(env: Record<string, string | undefined> = process.env): ProgressAlimtalkConfig | null {
   const templateCode = env.ALIGO_PROGRESS_TEMPLATE_CODE?.trim() || '';
   const messageTemplate = normalizeTemplateText(env.ALIGO_PROGRESS_MESSAGE_TEMPLATE?.trim() || '');
   const buttonJson = env.ALIGO_PROGRESS_BUTTON_JSON?.trim() || '';
   if (!templateCode || !messageTemplate || !buttonJson) return null;
-  return { templateCode, messageTemplate, buttonJson, subject: env.ALIGO_PROGRESS_SUBJECT?.trim() || DEFAULT_PROGRESS_SUBJECT };
+  return {
+    templateCode,
+    messageTemplate,
+    buttonJson,
+    subject: env.ALIGO_PROGRESS_SUBJECT?.trim() || DEFAULT_PROGRESS_SUBJECT,
+    senderKey: env.ALIGO_PROGRESS_SENDER_KEY?.trim() || env.ALIGO_SENDER_KEY?.trim() || '',
+  };
 }
 
 export type AlimtalkInput = {
@@ -25,20 +33,22 @@ export type AlimtalkInput = {
   subject: string;
   message: string;
   buttonJson?: string;
+  // The channel the template is registered on; falls back to ALIGO_SENDER_KEY.
+  senderKey?: string;
 };
 
 // Sends one alimtalk. "ok" means Aligo accepted it; Kakao can still reject it later, which only shows in Aligo's send results.
 export async function sendAlimtalk(input: AlimtalkInput): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.ALIGO_API_KEY?.trim() || '';
   const userId = process.env.ALIGO_USER_ID?.trim() || '';
-  const senderKey = process.env.ALIGO_SENDER_KEY?.trim() || '';
+  const senderKey = input.senderKey?.trim() || process.env.ALIGO_SENDER_KEY?.trim() || '';
   const senderPhone = process.env.ALIGO_SENDER_PHONE?.trim() || '';
   const receiver = input.receiver.replace(/\D/g, '');
 
   const missing = [
     ['ALIGO_API_KEY', apiKey],
     ['ALIGO_USER_ID', userId],
-    ['ALIGO_SENDER_KEY', senderKey],
+    ['ALIGO_PROGRESS_SENDER_KEY 또는 ALIGO_SENDER_KEY', senderKey],
     ['ALIGO_SENDER_PHONE', senderPhone],
     ['templateCode', input.templateCode],
     ['message', input.message],
