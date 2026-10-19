@@ -264,6 +264,7 @@ async function sendNotification(
     subject: prepared.config.subject,
     message,
     buttonJson: prepared.config.buttonJson.replaceAll('#{코드}', prepared.code),
+    senderKey: prepared.config.senderKey,
   });
   const logged = await logNotification(update, { sentAt: new Date().toISOString(), ok: result.ok, ...(result.error ? { error: result.error } : {}), by });
   return { result, update: logged };

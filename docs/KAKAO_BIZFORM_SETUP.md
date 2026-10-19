@@ -78,7 +78,10 @@ ALIGO_PROGRESS_TEMPLATE_CODE=
 ALIGO_PROGRESS_MESSAGE_TEMPLATE=
 ALIGO_PROGRESS_BUTTON_JSON=
 ALIGO_PROGRESS_SUBJECT=공사 진행 안내
+ALIGO_PROGRESS_SENDER_KEY=
 ```
+
+- `ALIGO_PROGRESS_SENDER_KEY` is the sender key (발신프로필 키) of the Kakao channel the progress template is registered on. A Kakao template belongs to exactly one channel: a template on another channel than the consultation templates (for example `@위브현장소식`) fails with "템플릿을 찾을 수 없음" unless this is set. It is optional; without it the shared `ALIGO_SENDER_KEY` is used. Copy it from Aligo → 카카오톡 → 카카오채널(발신프로필) 관리.
 
 - `ALIGO_PROGRESS_TEMPLATE_CODE`, `ALIGO_PROGRESS_MESSAGE_TEMPLATE` and `ALIGO_PROGRESS_BUTTON_JSON` are all required, and none has a default. If any one is missing, the manager shows "알림톡 템플릿 설정이 필요합니다" and records can still be posted without the alimtalk. `ALIGO_PROGRESS_SUBJECT` is optional and defaults to `공사 진행 안내`.
 - `ALIGO_PROGRESS_MESSAGE_TEMPLATE` must exactly match the approved template text. Only the message lines go into it; the button lines do not (see the template example below). Kakao rejects any difference ("메시지가 템플릿과 일치하지않음"). Typed-out `\n` and Windows line breaks are converted to real line breaks before sending.
