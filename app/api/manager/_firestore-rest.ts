@@ -10,7 +10,7 @@ export function quoteFieldPath(key: string): string {
   return `\`${key.replace(/[`\\]/g, (character) => `\\${character}`)}\``;
 }
 
-export type FirestorePrecondition = { updateTime: string } | { exists: true };
+export type FirestorePrecondition = { updateTime: string } | { exists: boolean };
 
 // The query string of a PATCH that writes only these top-level fields: one updateMask.fieldPaths per field, plus the
 // precondition. A PATCH without a mask replaces the whole document, so an empty field list is refused here.
@@ -20,8 +20,9 @@ export function buildPatchQuery(fieldKeys: readonly string[], precondition?: Fir
   if (precondition && 'updateTime' in precondition) {
     if (!precondition.updateTime) throw new Error('A Firestore updateTime precondition needs the version that was read.');
     params.push(`currentDocument.updateTime=${encodeURIComponent(precondition.updateTime)}`);
-  } else if (precondition?.exists) {
-    params.push('currentDocument.exists=true');
+  } else if (precondition && 'exists' in precondition) {
+    // exists=false creates the document only if it is still missing.
+    params.push(`currentDocument.exists=${precondition.exists ? 'true' : 'false'}`);
   }
   return params.join('&');
 }
@@ -37,10 +38,10 @@ export function maskedWrite(
   return { fieldPaths: Object.keys(fields), fields };
 }
 
-const CONFLICT_STATUSES = new Set(['FAILED_PRECONDITION', 'NOT_FOUND', 'ABORTED']);
+const CONFLICT_STATUSES = new Set(['FAILED_PRECONDITION', 'NOT_FOUND', 'ABORTED', 'ALREADY_EXISTS']);
 
-// A failed precondition (400 FAILED_PRECONDITION), a missing document under exists=true (404 NOT_FOUND) and contention
-// (409 ABORTED). Without an error status only the HTTP code can tell, and a bare 400 may be anything.
+// A failed precondition (400 FAILED_PRECONDITION), a missing document under exists=true (404 NOT_FOUND), a document
+// that appeared under exists=false (409 ALREADY_EXISTS) and contention (409 ABORTED). Without an error status only the HTTP code can tell, and a bare 400 may be anything.
 export function isFirestoreConflictResponse(httpStatus: number, errorStatus: unknown): boolean {
   if (typeof errorStatus === 'string' && errorStatus) return CONFLICT_STATUSES.has(errorStatus);
   return httpStatus === 404 || httpStatus === 409;

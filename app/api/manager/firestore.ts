@@ -18,6 +18,7 @@ import { SERVER_OWNED_SITE_FIELDS, stripServerOwnedSiteFields } from './_site-fi
 import {
   FirestoreConflictError,
   buildPatchQuery,
+  isFirestoreConflictError,
   isFirestoreConflictResponse,
   maskedWrite,
   type FirestorePrecondition,
@@ -723,21 +724,31 @@ export async function touchEstimateMaterialMetaInFirestore(request: Request, cou
 
 const estimateMaterialSettingsId = 'estimateMaterialSettings';
 
+// Read for showing the page. A failure is logged and reported as unavailable, never as empty settings, so the page can
+// warn instead of offering edits on top of a blank estimate DB.
 export async function readEstimateMaterialSettingsFromFirestore(request: Request) {
-  return getFirestoreDocument<Record<string, unknown>>(
-    estimateMaterialMetaCollection,
-    estimateMaterialSettingsId,
-    requestIdToken(request),
-  ).catch(() => null);
+  try {
+    const settings = await getFirestoreDocument<Record<string, unknown>>(estimateMaterialMetaCollection, estimateMaterialSettingsId, requestIdToken(request));
+    return { settings, unavailable: false };
+  } catch (error) {
+    console.warn('Estimate material settings read failed:', error);
+    return { settings: null, unavailable: true };
+  }
 }
 
-export async function saveEstimateMaterialSettingsToFirestore(request: Request, record: Record<string, unknown>) {
-  return saveFirestoreDocument(
-    estimateMaterialMetaCollection,
-    { ...record, _id: estimateMaterialSettingsId },
-    requestIdToken(request),
-    estimateMaterialSettingsId,
-  );
+// Read for a change: a failed read throws (it must never look like "no settings yet"); a missing document is null.
+// The returned updateTime is the version writeEstimateMaterialSettingsIfUnchanged must still find.
+export async function readEstimateMaterialSettingsForUpdate(request: Request) {
+  return getFirestoreDocumentWithVersion<Record<string, unknown>>(estimateMaterialMetaCollection, estimateMaterialSettingsId, requestIdToken(request));
+}
+
+// Writes the settings only if nobody wrote them since that read (updateTime), or creates them only if they are still
+// missing (updateTime null). A lost race throws FirestoreConflictError and writes nothing.
+export async function writeEstimateMaterialSettingsIfUnchanged(request: Request, fields: Record<string, unknown>, updateTime: string | null) {
+  return patchFirestoreFields(estimateMaterialMetaCollection, estimateMaterialSettingsId, { ...fields, _id: estimateMaterialSettingsId }, {
+    idToken: requestIdToken(request),
+    precondition: updateTime ? { updateTime } : { exists: false },
+  });
 }
 
 const sortMaterials = (materials: Array<Record<string, unknown>>) =>
@@ -759,13 +770,18 @@ export async function readSiteEstimatesFromFirestore(request: Request, siteId: s
 }
 
 export async function readEstimateMaterialsFromFirestore(request: Request) {
-  const [materials, materialsMeta, materialSettings] = await Promise.all([
+  const [materials, materialsMeta, settingsRead] = await Promise.all([
     listFirestoreCollection('estimateMaterials', requestIdToken(request), 5000),
     readEstimateMaterialMetaFromFirestore(request),
     readEstimateMaterialSettingsFromFirestore(request),
   ]);
   const sortedMaterials = sortMaterials(materials);
-  return { materials: sortedMaterials, materialsMeta: materialsMeta || materialMetaFromRows(sortedMaterials), materialSettings };
+  return {
+    materials: sortedMaterials,
+    materialsMeta: materialsMeta || materialMetaFromRows(sortedMaterials),
+    materialSettings: settingsRead.settings,
+    ...(settingsRead.unavailable ? { materialSettingsUnavailable: true } : {}),
+  };
 }
 
 // estimatesSiteId: undefined returns the newest 300 versions of all sites (the original payload);
@@ -783,7 +799,7 @@ export async function readEstimateDataFromFirestore(
       ? Promise.resolve(options.estimatesSiteId)
       : sitesRequest.then((sites) => String(sites[0]?._id || ''))
     : Promise.resolve('');
-  const [sites, estimatesSiteId, estimates, vendors, materialsMeta, materialSettings, materials] = await Promise.all([
+  const [sites, estimatesSiteId, estimates, vendors, materialsMeta, settingsRead, materials] = await Promise.all([
     sitesRequest,
     estimatesSiteIdRequest,
     isSiteScoped
@@ -803,13 +819,35 @@ export async function readEstimateDataFromFirestore(
     ...(isSiteScoped ? { estimatesSiteId } : {}),
     ...(includeMaterials ? { materials: sortedMaterials } : {}),
     materialsMeta: materialsMeta || (includeMaterials ? materialMetaFromRows(sortedMaterials) : null),
-    materialSettings,
+    materialSettings: settingsRead.settings,
+    ...(settingsRead.unavailable ? { materialSettingsUnavailable: true } : {}),
     vendors: vendors.filter(notTrashed).sort(byText('name')).slice(0, 300),
   };
 }
 
-export async function saveEstimateToFirestore(record: Record<string, unknown>, request: Request) {
-  return saveFirestoreDocument('siteEstimates', record, requestIdToken(request), String(record._id || ''));
+// Saves an estimate version only if it is still the stored version the check accepts, in one conditional write:
+// an existing document must keep the updateTime just read, a new one must still be missing. conflictOf decides from the
+// stored document (null when missing) whether the save may go ahead; a write that loses the race counts as 'changed'.
+export async function saveEstimateIfUnchangedInFirestore<C extends string>(
+  record: Record<string, unknown>,
+  request: Request,
+  conflictOf: (stored: Record<string, unknown> | null) => C | '',
+): Promise<{ conflict: C | 'changed' | '' }> {
+  const idToken = requestIdToken(request);
+  const id = String(record._id || '');
+  const current = await getFirestoreDocumentWithVersion<Record<string, unknown>>('siteEstimates', id, idToken);
+  const conflict = conflictOf(current?.record ?? null);
+  if (conflict) return { conflict };
+  try {
+    await patchFirestoreFields('siteEstimates', id, record, {
+      idToken,
+      precondition: current ? { updateTime: current.updateTime } : { exists: false },
+    });
+    return { conflict: '' };
+  } catch (error) {
+    if (isFirestoreConflictError(error)) return { conflict: 'changed' };
+    throw error;
+  }
 }
 
 export async function deleteEstimateFromFirestore(request: Request, id: string) {
