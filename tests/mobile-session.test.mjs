@@ -6,6 +6,7 @@ import {
   needsRefresh,
   parseStoredDevice,
   sameSessionUser,
+  sendWithSession,
 } from '../app/manager-weve-7519/m/mobile-session.ts';
 
 const now = Date.UTC(2026, 9, 20, 3);
@@ -120,4 +121,107 @@ test('sameSessionUser notices a changed name, role or permission set', () => {
   assert.equal(sameSessionUser(user, { ...user, role: 'admin' }), false);
   assert.equal(sameSessionUser(user, { ...user, name: '새 이름' }), false);
   assert.equal(sameSessionUser(null, user), false);
+});
+
+test('current({ force: true }) refreshes even while the session is fresh', async () => {
+  const storage = memoryStorage({ [MOBILE_DEVICE_STORAGE_KEY]: JSON.stringify(device) });
+  let calls = 0;
+  const fetcher = async () => {
+    calls += 1;
+    return jsonResponse(200, { session: { ...session(), token: `access-${calls}` } });
+  };
+  const mobile = createMobileSession({ fetcher, storage, now: () => now });
+  assert.equal((await mobile.current()).token, 'access-1');
+  assert.equal((await mobile.current()).token, 'access-1');
+  assert.equal((await mobile.current({ force: true })).token, 'access-2');
+  assert.equal(calls, 2);
+});
+
+test('a new login ends the device stored on this phone before it', async () => {
+  const storage = memoryStorage({ [MOBILE_DEVICE_STORAGE_KEY]: JSON.stringify(device) });
+  const sent = [];
+  const fetcher = async (url, init) => {
+    sent.push(JSON.parse(init.body));
+    return jsonResponse(200, { deviceId: 'md-ffffffffffffffffffffffff', deviceToken: 'n'.repeat(43), expiresAt: new Date(device.expiresAt).toISOString(), session: session() });
+  };
+  const mobile = createMobileSession({ fetcher, storage, now: () => now });
+  await mobile.login('staff1', 'pw');
+  assert.deepEqual(sent[0], {
+    action: 'login',
+    loginId: 'staff1',
+    password: 'pw',
+    previousDeviceId: device.deviceId,
+    previousDeviceToken: device.deviceToken,
+  });
+  assert.equal(JSON.parse(storage.getItem(MOBILE_DEVICE_STORAGE_KEY)).deviceId, 'md-ffffffffffffffffffffffff');
+});
+
+// A stand-in for createMobileSession: hands out the sessions in order and records logouts.
+function fakeMobile(sessions) {
+  const calls = [];
+  return {
+    calls,
+    async current(options) {
+      calls.push(options?.force ? 'force' : 'current');
+      return sessions.length > 0 ? sessions.shift() : null;
+    },
+    async logout() {
+      calls.push('logout');
+    },
+  };
+}
+
+test('sendWithSession sends with the current session token', async () => {
+  const mobile = fakeMobile([session()]);
+  const tokens = [];
+  const response = await sendWithSession(mobile, async (active) => {
+    tokens.push(active.token);
+    return jsonResponse(200, { ok: true });
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(tokens, ['access']);
+  assert.deepEqual(mobile.calls, ['current']);
+});
+
+test('sendWithSession tries a refreshed session once after a 401', async () => {
+  const mobile = fakeMobile([session(), { ...session(), token: 'renewed' }]);
+  const tokens = [];
+  const response = await sendWithSession(mobile, async (active) => {
+    tokens.push(active.token);
+    return active.token === 'renewed' ? jsonResponse(200, {}) : jsonResponse(401, {});
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(tokens, ['access', 'renewed']);
+  assert.deepEqual(mobile.calls, ['current', 'force']);
+});
+
+test('sendWithSession logs the phone out when the refreshed session is refused too', async () => {
+  const mobile = fakeMobile([session(), session()]);
+  let sends = 0;
+  const response = await sendWithSession(mobile, async () => {
+    sends += 1;
+    return jsonResponse(401, {});
+  });
+  assert.equal(response, null);
+  assert.equal(sends, 2);
+  assert.deepEqual(mobile.calls, ['current', 'force', 'logout']);
+});
+
+test('sendWithSession returns null without sending when the phone has no session', async () => {
+  const mobile = fakeMobile([]);
+  let sends = 0;
+  assert.equal(await sendWithSession(mobile, async () => { sends += 1; return jsonResponse(200, {}); }), null);
+  assert.equal(sends, 0);
+  assert.deepEqual(mobile.calls, ['current']);
+});
+
+test('sendWithSession hands each session it uses to onSession', async () => {
+  const mobile = fakeMobile([session(), { ...session(), token: 'renewed' }]);
+  const seen = [];
+  await sendWithSession(
+    mobile,
+    async (active) => (active.token === 'renewed' ? jsonResponse(200, {}) : jsonResponse(401, {})),
+    (active) => seen.push(active.token),
+  );
+  assert.deepEqual(seen, ['access', 'renewed']);
 });

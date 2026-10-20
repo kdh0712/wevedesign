@@ -140,7 +140,7 @@ function SiteDetail({
           <SectionTitle>공정표</SectionTitle>
           <div className="overflow-hidden rounded-2xl border border-[#eadfcd] bg-white">
             {site.schedule.tasks.map((task, index) => (
-              <div key={task.id || index} className={`flex min-h-[52px] items-center gap-3 px-4 py-2 ${index > 0 ? 'border-t border-[#f1ebe0]' : ''}`}>
+              <div key={task.id} className={`flex min-h-[52px] items-center gap-3 px-4 py-2 ${index > 0 ? 'border-t border-[#f1ebe0]' : ''}`}>
                 <StatePill state={task.state} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold text-[#171512]">

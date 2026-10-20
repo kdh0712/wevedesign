@@ -9,13 +9,10 @@ import {
   type ConsultationGroup,
   type MobileConsultation,
 } from '../../lib/mobile-overview';
+import { CONSULTATION_GROUP_LABELS, movedConsultationNotice, syncedMemoDraft } from './mobile-screen';
 import { CallButton, EmptyText, Notice, Pill } from './mobile-ui';
 
-const GROUPS: Array<{ key: ConsultationGroup; label: string }> = [
-  { key: 'new', label: '신규' },
-  { key: 'open', label: '진행' },
-  { key: 'done', label: '끝남' },
-];
+const GROUPS: ConsultationGroup[] = ['new', 'open', 'done'];
 
 export type ConsultationChange = { status?: string; memo?: string };
 
@@ -30,28 +27,50 @@ export function ConsultationsTab({
 }) {
   const [group, setGroup] = useState<ConsultationGroup>('new');
   const [openId, setOpenId] = useState<string | null>(null);
+  // A status change can move the card out of the group on screen; this note stays so the change does not look lost.
+  const [moved, setMoved] = useState<{ text: string; group: ConsultationGroup } | null>(null);
   const counts = { new: 0, open: 0, done: 0 };
   consultations.forEach((item) => (counts[consultationGroup(item.status)] += 1));
   const shown = consultations.filter((item) => consultationGroup(item.status) === group);
+
+  const showGroup = (next: ConsultationGroup) => {
+    setGroup(next);
+    setMoved(null);
+  };
+
+  const save = async (item: MobileConsultation, change: ConsultationChange) => {
+    await onSave(item.id, change);
+    if (change.status === undefined) return;
+    const text = movedConsultationNotice(item.name, change.status, group);
+    setMoved(text ? { text, group: consultationGroup(change.status) } : null);
+  };
 
   return (
     <div className="space-y-3">
       <h1 className="text-[22px] font-bold text-[#171512]">상담</h1>
       <div className="flex rounded-xl bg-[#f1ebe0] p-1 text-sm" role="tablist">
-        {GROUPS.map(({ key, label }) => (
+        {GROUPS.map((key) => (
           <button
             key={key}
             type="button"
             role="tab"
             aria-selected={group === key}
-            onClick={() => setGroup(key)}
+            onClick={() => showGroup(key)}
             className={`h-10 flex-1 rounded-lg ${group === key ? 'bg-white font-bold text-[#171512] shadow-sm' : 'text-[#625d54]'}`}
           >
-            {label} {counts[key]}
+            {CONSULTATION_GROUP_LABELS[key]} {counts[key]}
           </button>
         ))}
       </div>
       {group === 'done' && <p className="px-1 text-xs text-[#8b8276]">계약·완료는 최근 30일 것만 보여요.</p>}
+      {moved && (
+        <Notice tone="ok">
+          <p>{moved.text}</p>
+          <button type="button" onClick={() => showGroup(moved.group)} className="h-8 text-xs font-semibold underline underline-offset-2">
+            {CONSULTATION_GROUP_LABELS[moved.group]} 묶음 보기
+          </button>
+        </Notice>
+      )}
 
       {shown.length === 0 ? (
         <EmptyText>{group === 'new' ? '새 상담이 없어요.' : '해당하는 상담이 없어요.'}</EmptyText>
@@ -63,7 +82,7 @@ export function ConsultationsTab({
             nowMs={nowMs}
             open={openId === item.id}
             onToggle={() => setOpenId((current) => (current === item.id ? null : item.id))}
-            onSave={(change) => onSave(item.id, change)}
+            onSave={(change) => save(item, change)}
           />
         ))
       )}
@@ -85,6 +104,12 @@ function ConsultationCard({
   onSave: (change: ConsultationChange) => Promise<void>;
 }) {
   const [memo, setMemo] = useState(item.memo);
+  // The memo last seen from the server: when a reload brings a different one, the box follows it unless it is being edited.
+  const [serverMemo, setServerMemo] = useState(item.memo);
+  if (serverMemo !== item.memo) {
+    setServerMemo(item.memo);
+    setMemo(syncedMemoDraft(memo, serverMemo, item.memo));
+  }
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState('');
@@ -118,8 +143,8 @@ function ConsultationCard({
       </div>
       {chips.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
-          {chips.map((chip) => (
-            <Pill key={chip}>{chip}</Pill>
+          {chips.map((chip, index) => (
+            <Pill key={`${index}-${chip}`}>{chip}</Pill>
           ))}
         </div>
       )}

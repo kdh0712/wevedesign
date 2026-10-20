@@ -7,7 +7,16 @@ import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
-import { createMobileSession, MobileSessionError, sameSessionUser, type ActiveSession, type KeyValueStorage, type MobileSession } from './mobile-session';
+import { createBackGuard, freshScreen, LEAVE_REPORT_CONFIRM, REPORT_BUSY_NOTICE, reportLeaveDecision } from './mobile-screen';
+import {
+  createMobileSession,
+  MobileSessionError,
+  sameSessionUser,
+  sendWithSession,
+  type ActiveSession,
+  type KeyValueStorage,
+  type MobileSession,
+} from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { ReportTab } from './report-tab';
 import { SitesTab } from './sites-tab';
@@ -20,7 +29,6 @@ const RELOAD_AFTER_MS = 5 * 60 * 1000;
 const PULL_TRIGGER_PX = 70;
 const NETWORK_ERROR = '연결이 불안정합니다.';
 const SIGNED_OUT_NOTICE = '로그인이 끝났어요. 다시 로그인해 주세요.';
-const LEAVE_REPORT_CONFIRM = '작성 중인 보고가 있어요. 나가면 사진과 글이 사라져요. 나갈까요?';
 
 // localStorage can throw (private mode, blocked storage); the app then simply asks for a login each time.
 const safeLocalStorage = (): KeyValueStorage => ({
@@ -60,11 +68,12 @@ export default function StaffAppPage() {
   const [user, setUser] = useState<ActiveSession['user'] | null>(null);
   const [overview, setOverview] = useState<MobileOverview | null>(null);
   const [loading, setLoading] = useState(false);
-  const [loadError, setLoadError] = useState('');
-  const [tab, setTab] = useState<MobileTab>('today');
-  const [siteId, setSiteId] = useState<string | null>(null);
-  const [reportSiteId, setReportSiteId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(() => freshScreen().loadError);
+  const [tab, setTab] = useState<MobileTab>(() => freshScreen().tab);
+  const [siteId, setSiteId] = useState<string | null>(() => freshScreen().siteId);
+  const [reportSiteId, setReportSiteId] = useState<string | null>(() => freshScreen().reportSiteId);
   const [reportDirty, setReportDirty] = useState(false);
+  const [reportBusy, setReportBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
   const [pull, setPull] = useState(0);
@@ -74,10 +83,23 @@ export default function StaffAppPage() {
   useEffect(() => setMobile(createMobileSession({ storage: safeLocalStorage() })), []);
 
   const signedOut = useCallback((notice = SIGNED_OUT_NOTICE) => {
+    const screen = freshScreen();
     setUser(null);
     setOverview(null);
+    setTab(screen.tab);
+    setSiteId(screen.siteId);
+    setReportSiteId(screen.reportSiteId);
+    setLoadError(screen.loadError);
+    setReportDirty(false);
+    setReportBusy(false);
+    setMenuOpen(false);
     setLoginNotice(notice);
     setPhase('login');
+  }, []);
+
+  // A refresh re-reads the account, so new or removed permissions reach the tabs without restarting the app.
+  const applySession = useCallback((session: ActiveSession) => {
+    setUser((current) => (sameSessionUser(current, session.user) ? current : session.user));
   }, []);
 
   // A fresh session for every request; null means the phone has to log in again.
@@ -88,31 +110,33 @@ export default function StaffAppPage() {
       signedOut();
       throw new MobileSessionError(SIGNED_OUT_NOTICE, 401);
     }
-    // A refresh re-reads the account, so new or removed permissions reach the tabs without restarting the app.
-    setUser((current) => (sameSessionUser(current, session.user) ? current : session.user));
+    applySession(session);
     return session;
-  }, [mobile, signedOut]);
+  }, [mobile, signedOut, applySession]);
 
+  // A 401 gets one forced refresh and a second try; refused again, the phone is logged out (its device ended too).
   const authedFetch = useCallback(
     async (url: string, init: RequestInit = {}) => {
-      const session = await ensureSession();
-      let response: Response;
-      try {
-        response = await fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${session.token}` } });
-      } catch {
-        throw new MobileSessionError(NETWORK_ERROR, 0);
-      }
-      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-      if (response.status === 401) {
+      if (!mobile) throw new MobileSessionError(NETWORK_ERROR, 0);
+      const send = async (session: ActiveSession) => {
+        try {
+          return await fetch(url, { ...init, headers: { ...(init.headers as Record<string, string>), Authorization: `Bearer ${session.token}` } });
+        } catch {
+          throw new MobileSessionError(NETWORK_ERROR, 0);
+        }
+      };
+      const response = await sendWithSession(mobile, send, applySession);
+      if (!response) {
         signedOut();
         throw new MobileSessionError(SIGNED_OUT_NOTICE, 401);
       }
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) {
         throw new MobileSessionError(typeof data.error === 'string' ? data.error : `요청을 처리하지 못했습니다. (HTTP ${response.status})`, response.status);
       }
       return data;
     },
-    [ensureSession, signedOut],
+    [mobile, signedOut, applySession],
   );
 
   const loadOverview = useCallback(async () => {
@@ -191,6 +215,22 @@ export default function StaffAppPage() {
     if (tabs.length > 0 && !tabs.includes(tab)) setTab(tabs[0]);
   }, [tabs, tab]);
 
+  // The Android back button closes the site detail instead of the app (see createBackGuard).
+  const detailOpen = phase === 'ready' && tab === 'sites' && Boolean(siteId && overview?.sites.some((site) => site.id === siteId));
+  const backGuardRef = useRef<ReturnType<typeof createBackGuard> | null>(null);
+  useEffect(() => {
+    const guard = createBackGuard(window.history);
+    backGuardRef.current = guard;
+    const onPopState = () => {
+      if (guard.onPopState()) setSiteId(null);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+  useEffect(() => {
+    backGuardRef.current?.sync(detailOpen);
+  }, [detailOpen]);
+
   const progressApi = useMemo(() => createProgressApi(() => mobile?.authHeaders() || {}), [mobile]);
   const loadReports = useCallback(
     async (id: string) => {
@@ -201,8 +241,12 @@ export default function StaffAppPage() {
     [ensureSession, progressApi],
   );
 
-  // Leaving the report tab drops its photos and text, so it asks first.
-  const leaveReportOk = () => tab !== 'report' || !reportDirty || window.confirm(LEAVE_REPORT_CONFIRM);
+  // Leaving the report tab drops its photos and text, so it asks first; while photos go up it does not leave at all.
+  const leaveReportOk = () => {
+    const decision = reportLeaveDecision({ tab, reportDirty, reportBusy });
+    if (decision === 'blocked') window.alert(REPORT_BUSY_NOTICE);
+    return decision === 'go' || (decision === 'ask' && window.confirm(LEAVE_REPORT_CONFIRM));
+  };
 
   const changeTab = (next: MobileTab) => {
     setMenuOpen(false);
@@ -249,7 +293,13 @@ export default function StaffAppPage() {
   };
 
   const logout = async () => {
-    if (!mobile || !window.confirm('이 휴대폰에서 로그아웃할까요?')) return;
+    if (!mobile) return;
+    if (reportBusy) {
+      setMenuOpen(false);
+      window.alert(REPORT_BUSY_NOTICE);
+      return;
+    }
+    if (!window.confirm('이 휴대폰에서 로그아웃할까요?')) return;
     setMenuOpen(false);
     await mobile.logout();
     signedOut('');
@@ -354,6 +404,7 @@ export default function StaffAppPage() {
                 api={progressApi}
                 ensureSession={ensureSession}
                 onDirtyChange={setReportDirty}
+                onBusyChange={setReportBusy}
                 onPosted={onReportPosted}
               />
             )}
