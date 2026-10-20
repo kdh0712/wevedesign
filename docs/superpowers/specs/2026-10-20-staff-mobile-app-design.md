@@ -138,7 +138,8 @@
 - 일일 보고 사진 올리기·저장·알림톡: `POST /api/manager/progress` (`uploadPhoto`, `createUpdate`, `notify`)
 ### `POST /api/manager/mobile/consultation`
 
-상담 상태·메모만 바꾼다. `POST /api/manager/office`는 기록을 통째로 덮어쓰므로(확인함) 쓰지 않는다.
+상담 상태·메모만 바꾼다. `POST /api/manager/office`는 저장된 기록을 읽어 합친 뒤 문서 전체를 다시 쓰므로, PC에서 같은 상담을
+동시에 저장하면 한쪽 변경이 사라질 수 있다. 그래서 쓰지 않는다.
 입력 `{ id, status?, memo? }`. `status`는 '신규', '상담중', '견적', '계약', '완료' 중 하나, `memo`는 2000자 이하.
 `patchFirestoreFields`로 받은 칸과 `updatedAt`만 쓰고, 문서가 있을 때만 쓴다(`exists: true`). 휴지통의 상담은 404.
 결과 `{ consultation }`(overview의 상담 모양).
