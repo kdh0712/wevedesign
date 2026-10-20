@@ -716,6 +716,12 @@ export default function WeveDesignLanding({
   const [shouldLoadConsultationTools, setShouldLoadConsultationTools] = useState(false);
   const [activeConstructionModel, setActiveConstructionModel] = useState<(typeof constructionModels)[number]['id']>('cm');
   const entrySourceRef = useRef('');
+  // Spam checks sent with the form: the hidden honeypot field and when the page (and so the form) was opened.
+  const honeypotRef = useRef<HTMLInputElement>(null);
+  const formOpenedAtRef = useRef(0);
+  useEffect(() => {
+    formOpenedAtRef.current = Date.now();
+  }, []);
   const methodSectionRef = useRef<HTMLElement | null>(null);
   const heroSlides = useMemo(
     () => [
@@ -1371,6 +1377,8 @@ export default function WeveDesignLanding({
       address: formData.address.trim(),
       message: formData.message.trim(),
       source: entrySourceRef.current,
+      website: honeypotRef.current?.value || '',
+      startedAt: formOpenedAtRef.current,
     };
 
     if (
@@ -2255,6 +2263,17 @@ export default function WeveDesignLanding({
                         />
                         <span className="text-right text-xs text-[#8b8276]">({formData.message.length} / 300)</span>
                       </label>
+                      {/* Spam trap: hidden from people and screen readers; only form-filling bots put a value in it. */}
+                      <input
+                        ref={honeypotRef}
+                        type="text"
+                        name="website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        aria-hidden="true"
+                        defaultValue=""
+                        className="absolute -left-[9999px] h-px w-px opacity-0"
+                      />
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[#ece6dc] pt-5 text-sm font-semibold">
                         <label className="flex items-center gap-3">
                           <input

@@ -378,6 +378,32 @@ export async function getFirestoreDocumentWithVersion<T extends Record<string, u
   return { record: toRecord<T>(data), updateTime: data.updateTime || '' };
 }
 
+// Which of these document ids exist, asked in batches of 100 with only the document name returned (no field data).
+// Ids must be plain path segments (no '/').
+export async function findExistingFirestoreDocumentIds(collection: string, ids: readonly string[], idToken?: string) {
+  const base = docBaseUrl();
+  const namePrefix = `${base.replace(/^https:\/\/firestore\.googleapis\.com\/v1\//, '')}/${collection}/`;
+  const existing = new Set<string>();
+  for (let index = 0; index < ids.length; index += 100) {
+    const chunk = ids.slice(index, index + 100);
+    const response = await fetch(`${base}:batchGet`, {
+      method: 'POST',
+      headers: await firestoreHeaders(idToken),
+      body: JSON.stringify({ documents: chunk.map((id) => `${namePrefix}${id}`), mask: { fieldPaths: ['_id'] } }),
+      cache: 'no-store',
+    });
+    const data = (await response.json().catch(() => null)) as Array<{ found?: { name?: string } }> | { error?: { message?: string } } | null;
+    if (!response.ok || !Array.isArray(data)) {
+      const message = data && !Array.isArray(data) ? data.error?.message : '';
+      throw new Error(firestorePermissionMessage(message || `Firestore batch read failed: ${collection}`));
+    }
+    data.forEach((item) => {
+      if (item.found?.name) existing.add(documentIdFromName(item.found.name));
+    });
+  }
+  return existing;
+}
+
 export async function getFirestoreDocument<T extends Record<string, unknown>>(collection: string, id: string, idToken?: string) {
   return (await getFirestoreDocumentWithVersion<T>(collection, id, idToken))?.record ?? null;
 }
@@ -549,8 +575,9 @@ const officeListReaders: Record<OfficeTrackedCollection, (idToken: string) => Pr
     ),
   siteEstimates: (idToken) =>
     listEstimateSummariesFromFirestore(idToken).then((rows) => rows.sort(byNewest(['updatedAt', 'createdAt'])).slice(0, 300)),
+  // The dashboard totals add up this list, so it is not cut to the newest 100 like the others.
   officeSales: (idToken) =>
-    listFirestoreCollection('officeSales', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 100)),
+    listFirestoreCollection('officeSales', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['paymentDate', 'createdAt'])).slice(0, 1000)),
   officeInventoryItems: (idToken) =>
     listFirestoreCollection('officeInventoryItems', idToken).then((rows) => rows.filter(notTrashed).sort(byText('itemName')).slice(0, 200)),
   officeVendors: (idToken) =>
