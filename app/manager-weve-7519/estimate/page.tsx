@@ -16,6 +16,7 @@ import {
   type CommonBulkRow,
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
+import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -222,9 +223,13 @@ type EstimateApiData = {
   materials?: Material[];
   materialsMeta?: MaterialCacheMeta | null;
   materialSettings?: MaterialSettings;
+  // The server could not read the estimate-DB settings; what came with it is not the stored settings.
+  materialSettingsUnavailable?: boolean;
   vendors?: Vendor[];
   record?: SiteEstimate | Material;
   importedCount?: number;
+  // A 409 from saveEstimate: the version changed or was deleted elsewhere after this page loaded it.
+  conflict?: 'changed' | 'deleted';
 };
 
 type MaterialLibrary = 'estimate' | 'full';
@@ -277,6 +282,7 @@ type DetailPrintRow =
   | { type: 'total'; key: string; amount: number };
 
 const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
+const MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE = '견적 DB 설정(견적 카테고리·자재 순서)을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
@@ -657,6 +663,13 @@ export default function EstimateWorkspacePage() {
   const [snapshotRequest, setSnapshotRequest] = useState(0);
   const [leaveGuard, setLeaveGuard] = useState<{ proceed: () => void } | null>(null);
   const allowLeaveRef = useRef(false);
+  const [saveConflict, setSaveConflict] = useState<'changed' | 'deleted' | null>(null);
+  const [materialSettingsUnavailable, setMaterialSettingsUnavailable] = useState(false);
+  // The version id this page just saved: the version load effect leaves the editor alone for it, so a save never
+  // throws away drafts, the selected purchase order or the calendar view, or anything typed while it ran.
+  const keepEditorForSavedIdRef = useRef('');
+  // The material order a reorder started from; the server refuses the save if the stored order changed since.
+  const materialOrderBaseRef = useRef<string[]>([]);
 
   const selectedSite = sites.find((site) => site._id === selectedSiteId);
   const selectedSiteEstimates = useMemo(
@@ -688,6 +701,7 @@ export default function EstimateWorkspacePage() {
     [purchaseOrders],
   );
   const totals = useMemo(() => calculateTotals(lines, workLines, extraItems), [extraItems, lines, workLines]);
+  const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const lineCategoryOptions = useMemo(() => uniqueLineValues(lines, (line) => line.category || line.process), [lines]);
   const filteredLines = useMemo(() => filterEstimateLines(lines, lineFilterType, lineFilterValue), [lines, lineFilterType, lineFilterValue]);
@@ -917,6 +931,14 @@ export default function EstimateWorkspacePage() {
     const estimate = selectedEstimate;
     const site = sites.find((item) => item._id === selectedSiteId);
 
+    // The version this page just saved: the editor already holds its content (and possibly newer typing), and
+    // saveEstimate set the saved state, so nothing is reloaded.
+    if (estimate?._id && keepEditorForSavedIdRef.current === estimate._id) {
+      keepEditorForSavedIdRef.current = '';
+      setEstimateId(estimate._id);
+      return;
+    }
+
     setEstimateId(estimate?._id || '');
     const nextVersionType = normalizeVersionType(estimate?.versionType);
     setVersionType(nextVersionType);
@@ -1086,6 +1108,18 @@ export default function EstimateWorkspacePage() {
     return data;
   };
 
+  // When the server could not read the settings, the empty settings that came with the answer are not used: the page
+  // keeps what it had, warns, and blocks reordering until a reload brings the real settings.
+  const applyMaterialSettingsFromServer = (data: EstimateApiData) => {
+    if (data.materialSettingsUnavailable) {
+      setMaterialSettingsUnavailable(true);
+      setError(MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    setMaterialSettingsUnavailable(false);
+    setMaterialSettings(data.materialSettings || emptyMaterialSettings);
+  };
+
   const applyMaterials = async (request: Promise<EstimateApiData>) => {
     try {
       const data = await request;
@@ -1121,7 +1155,7 @@ export default function EstimateWorkspacePage() {
       setSites(data.sites || []);
       setEstimates(data.estimates || []);
       setMaterials(cachedMaterials?.materials || []);
-      setMaterialSettings(data.materialSettings || emptyMaterialSettings);
+      applyMaterialSettingsFromServer(data);
       setVendors(data.vendors || []);
       setSelectedSiteId(data.estimatesSiteId || preferredSiteId || data.sites?.[0]?._id || '');
       if (preferredEstimateId && preferredEstimateId !== NEW_ESTIMATE_ID) {
@@ -1157,11 +1191,25 @@ export default function EstimateWorkspacePage() {
     }
   };
 
-  const saveEstimate = async () => {
+  // asNewVersion saves the editor's content as a new version of the same type (the way out of a save conflict).
+  const saveEstimate = async (options: { asNewVersion?: boolean } = {}) => {
     if (!selectedSite) {
       setError('현장을 먼저 선택해주세요.');
       return false;
     }
+
+    const asNewVersion = Boolean(options.asNewVersion);
+    const saveId = asNewVersion ? '' : estimateId;
+    const saveLabel = asNewVersion ? defaultVersionLabel(versionType, selectedSiteEstimates) : versionLabel;
+    // The version the editor was loaded from; the server refuses the save if it changed elsewhere since.
+    const baseUpdatedAt = saveId ? estimates.find((estimate) => estimate._id === saveId)?.updatedAt : undefined;
+    // What this save sends. It becomes the saved state, so anything typed while the request runs still counts as unsaved.
+    // A new version is saved under saveLabel, which the editor takes on after the save, so the snapshot uses it too
+    // (parsing and re-serializing keeps the key order of editorSnapshot).
+    const sentSnapshot = {
+      editor: asNewVersion ? JSON.stringify({ ...JSON.parse(editorSnapshot), versionLabel: saveLabel }) : editorSnapshot,
+      legacy: legacySnapshot,
+    };
 
     setIsSaving(true);
     setError('');
@@ -1173,12 +1221,13 @@ export default function EstimateWorkspacePage() {
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'saveEstimate',
-          id: estimateId,
+          id: saveId,
+          baseUpdatedAt,
           siteId: selectedSite._id,
           siteTitle: selectedSite.title,
           customerName: selectedSite.customerName,
           versionType,
-          versionLabel,
+          versionLabel: saveLabel,
           lines,
           workLines,
           schedule,
@@ -1189,19 +1238,29 @@ export default function EstimateWorkspacePage() {
           holidays,
           constructionStartDate,
           memo,
-          createdAt: selectedEstimate?.createdAt,
+          createdAt: asNewVersion ? undefined : selectedEstimate?.createdAt,
         }),
       });
       const data = (await response.json()) as EstimateApiData;
+      // The conflict dialog explains it and offers the ways out; nothing was saved.
+      if (response.status === 409 && data.conflict) {
+        setSaveConflict(data.conflict);
+        return false;
+      }
       if (!response.ok) throw new Error(data.error || '견적 저장에 실패했습니다.');
       const savedRecord = data.record as SiteEstimate | undefined;
-      const savedEstimateId = savedRecord?._id || estimateId;
+      if (!savedRecord?._id) throw new Error('저장한 견적 버전을 확인하지 못했습니다. 새로고침해 주세요.');
 
-      // The saved version is selected once the reloaded list contains it; selecting it earlier would briefly load
-      // another version into the editor.
-      if (savedEstimateId) setEstimateId(savedEstimateId);
-      setStatus(`${versionLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.`);
-      await loadSiteEstimates(selectedSite._id, savedEstimateId);
+      // The editor already shows what was saved, so the list takes the saved version as it is and the editor stays put.
+      keepEditorForSavedIdRef.current = savedRecord._id;
+      setEstimates((current) => [savedRecord, ...current.filter((estimate) => estimate._id !== savedRecord._id)]);
+      setEstimateId(savedRecord._id);
+      setIsManualNewEstimateVersion(false);
+      setSelectedEstimateId(savedRecord._id);
+      if (asNewVersion) setVersionLabel(saveLabel);
+      setSavedSnapshot(sentSnapshot);
+      setSaveConflict(null);
+      setStatus(`${saveLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.`);
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 저장 중 오류가 발생했습니다.');
@@ -1209,6 +1268,15 @@ export default function EstimateWorkspacePage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  // After a conflict: drop this page's edits and load the version as it is stored now.
+  const reloadAfterConflict = async () => {
+    setSaveConflict(null);
+    if (!selectedSite) return;
+    keepEditorForSavedIdRef.current = '';
+    setStatus('저장된 최신 내용을 다시 불러왔습니다.');
+    await loadSiteEstimates(selectedSite._id, saveConflict === 'deleted' ? '' : estimateId);
   };
 
   const deleteEstimate = async () => {
@@ -1250,7 +1318,7 @@ export default function EstimateWorkspacePage() {
     const nextMaterials = Array.isArray(data.materials) ? data.materials : [];
     writeMaterialCache(nextMaterials, data.materialsMeta);
     setMaterials(nextMaterials);
-    setMaterialSettings(data.materialSettings || emptyMaterialSettings);
+    applyMaterialSettingsFromServer(data);
   };
 
   const uploadMaterials = async () => {
@@ -1399,6 +1467,11 @@ export default function EstimateWorkspacePage() {
   };
 
   const startMaterialOrderEditing = () => {
+    if (materialSettingsUnavailable) {
+      setError(MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    materialOrderBaseRef.current = materialSettings.materialOrder;
     setMaterialOrderDraft(orderedMaterials.map((item) => item._id || '').filter(Boolean));
     setSelectedMaterialIds([]);
   };
@@ -1411,7 +1484,7 @@ export default function EstimateWorkspacePage() {
 
   const saveMaterialOrder = async () => {
     if (!materialOrderDraft) return;
-    if (await updateMaterialSettings({ op: 'reorder', order: materialOrderDraft }, '자재 순서를 저장했습니다.')) {
+    if (await updateMaterialSettings({ op: 'reorder', order: materialOrderDraft, baseOrder: materialOrderBaseRef.current }, '자재 순서를 저장했습니다.')) {
       cancelMaterialOrderEditing();
     }
   };
@@ -1651,12 +1724,18 @@ export default function EstimateWorkspacePage() {
     setVersionType(newVersionType);
     setVersionLabel(nextLabel);
     setMemo(copyCurrent ? memo : '');
-    const nextLines =
-      copyCurrent && lines.some((line) => line.name || line.category || line.process)
-        ? cloneEstimateLines(lines)
-        : [{ ...emptyLine(), space: '공용', category: selectedSite.siteType || '', name: `${selectedSite.title || '현장'} ${nextLabel}` }];
+    const copiesLines = copyCurrent && lines.some((line) => line.name || line.category || line.process);
+    const nextLines = copiesLines
+      ? cloneEstimateLines(lines)
+      : [{ ...emptyLine(), space: '공용', category: selectedSite.siteType || '', name: `${selectedSite.title || '현장'} ${nextLabel}` }];
+    // Copied lines get new ids, so the copied 실행 내역 rows are pointed at the copies; otherwise 견적 공종 반영 would add every line again.
+    const copiedLineIds = new Map(copiesLines ? lines.map((line, index) => [line.id, nextLines[index].id]) : []);
     setLines(nextLines);
-    setWorkLines(copyCurrent && workLines.some((line) => line.name || line.category || line.process) ? cloneWorkLines(workLines) : deriveWorkLines(nextLines));
+    setWorkLines(
+      copyCurrent && workLines.some((line) => line.name || line.category || line.process)
+        ? cloneWorkLines(workLines).map((line) => ({ ...line, sourceLineId: copiedLineIds.get(line.sourceLineId || '') || line.sourceLineId }))
+        : deriveWorkLines(nextLines),
+    );
     setLineDraft(emptyLine());
     setEditingLineId('');
     setWorkLineDraft(emptyWorkLine());
@@ -1722,12 +1801,20 @@ export default function EstimateWorkspacePage() {
     setError('');
   };
 
+  // The 실행 내역 rows made from the line hold real 지출/결제 records, so they stay; they only lose the link to it.
   const deleteLine = (id: string) => {
+    const line = lines.find((item) => item.id === id);
+    const label = [line?.name, line?.spec].filter(Boolean).join(' · ') || '이 견적 항목';
+    const linkedCount = linkedWorkLineCount(workLines, id);
+    const message = linkedCount
+      ? `'${label}'을(를) 삭제할까요?\n실행 내역서에 연결된 ${linkedCount}개 항목은 지우지 않고 그대로 둡니다.`
+      : `'${label}'을(를) 삭제할까요?`;
+    if (!window.confirm(message)) return;
     setLines((current) => {
-      const next = current.filter((line) => line.id !== id);
+      const next = current.filter((item) => item.id !== id);
       return next.length ? next : [emptyLine()];
     });
-    setWorkLines((current) => current.filter((line) => line.sourceLineId !== id));
+    setWorkLines((current) => unlinkWorkLinesFromLine(current, id));
     setSelectedLineId((current) => (current === id ? '' : current));
     if (editingLineId === id) resetLineDraft();
   };
@@ -2432,7 +2519,7 @@ export default function EstimateWorkspacePage() {
               </span>
             )}
             {hasUnsavedChanges && <span className="rounded-full bg-[#fff3c7] px-3 py-1 text-xs font-bold text-[#8b6420]">저장 안 된 변경 있음</span>}
-            <button type="button" onClick={saveEstimate} disabled={isSaving || isLoadingSite} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-2.5 font-semibold disabled:opacity-60">
+            <button type="button" onClick={() => void saveEstimate()} disabled={isSaving || isLoadingSite} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-5 py-2.5 font-semibold disabled:opacity-60">
               <Save size={17} />
               저장
             </button>
@@ -2556,7 +2643,7 @@ export default function EstimateWorkspacePage() {
                     <Copy size={16} />
                     현재 버전 복사
                   </button>
-                  <button type="button" onClick={() => startNewVersion(false)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                  <button type="button" onClick={() => guardUnsavedChanges(() => startNewVersion(false))} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
                     빈 버전으로 시작
                   </button>
                 </div>
@@ -4112,6 +4199,7 @@ export default function EstimateWorkspacePage() {
               <p className="mt-2 text-sm leading-6 text-[#60717d]">
                 기존 엑셀의 `표지(견)`, `갑지`, `세부내역서` 흐름에 맞춰 같은 데이터로 서류를 나눠 확인합니다.
               </p>
+              <UnnamedPricedLinesWarning count={unnamedPricedCount} className="mt-4" />
               <div className="mt-5 grid gap-2">
                 {([
                   ['cover', '표지'],
@@ -4257,6 +4345,45 @@ export default function EstimateWorkspacePage() {
               </button>
               <button type="button" onClick={() => setLeaveGuard(null)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 text-sm font-semibold">
                 취소
+              </button>
+            </div>
+            {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
+          </section>
+        </div>
+      )}
+
+      {saveConflict && (
+        <div className="no-print fixed inset-0 z-[70] flex items-center justify-center bg-[#171512]/45 px-4 backdrop-blur-sm">
+          <section role="alertdialog" aria-modal="true" aria-labelledby="save-conflict-title" className="w-full max-w-md rounded-xl border border-[#d5dde2] bg-white p-6 shadow-2xl">
+            <h2 id="save-conflict-title" className="text-xl font-semibold">
+              {saveConflict === 'deleted' ? '이 견적 버전은 다른 곳에서 삭제되었습니다' : '다른 컴퓨터에서 먼저 저장했습니다'}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[#60717d]">
+              {saveConflict === 'deleted'
+                ? '지금 화면의 내용은 아직 그대로 있습니다. 새 버전으로 저장하면 이 내용이 새 견적 버전으로 남습니다.'
+                : '이 화면을 연 뒤 같은 버전이 다른 곳에서 저장되었습니다. 그대로 저장하면 그 내용이 사라지므로 덮어쓰지 않았습니다. 지금 화면의 내용은 그대로 있습니다.'}
+            </p>
+            <div className="mt-5 grid gap-2">
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => void saveEstimate({ asNewVersion: true })}
+                className="rounded-md bg-[#171512] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                지금 내용을 새 버전으로 저장
+              </button>
+              <button
+                type="button"
+                disabled={isSaving}
+                onClick={() => {
+                  if (window.confirm('지금 화면에서 저장하지 않은 내용이 사라집니다. 저장된 최신 내용을 불러올까요?')) void reloadAfterConflict();
+                }}
+                className="rounded-md border border-red-200 bg-white px-4 py-2.5 text-sm font-semibold text-red-600 disabled:opacity-60"
+              >
+                {saveConflict === 'deleted' ? '내 변경을 버리고 목록 다시 불러오기' : '내 변경을 버리고 최신 내용 불러오기'}
+              </button>
+              <button type="button" onClick={() => setSaveConflict(null)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 text-sm font-semibold">
+                닫기
               </button>
             </div>
             {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
@@ -4771,6 +4898,16 @@ function LibraryToggle({
   );
 }
 
+// The 갑지 and 세부내역서 leave out lines without a 품명, but their amounts still count in the totals.
+function UnnamedPricedLinesWarning({ count, className = '' }: { count: number; className?: string }) {
+  if (!count) return null;
+  return (
+    <p role="alert" className={`rounded-md border border-[#e7c37a] bg-[#fff8e8] px-3 py-2 text-sm font-semibold leading-6 text-[#8b6420] ${className}`}>
+      품명이 비어 있는 견적 항목 {count}개는 서류에 나오지 않지만 금액은 합계에 들어갑니다. 견적서 탭에서 품명을 입력해 주세요.
+    </p>
+  );
+}
+
 function DocumentBatchPrintModal({
   site,
   lines,
@@ -4829,6 +4966,7 @@ function DocumentBatchPrintModal({
             <X size={18} />
           </button>
         </div>
+        <UnnamedPricedLinesWarning count={unnamedPricedLineCount(lines)} className="mt-4" />
         <label className="mt-5 block text-xs font-bold text-[#60717d]">공정표 출력 월</label>
         <input type="month" value={scheduleMonth} onChange={(event) => setScheduleMonth(event.target.value)} className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2" />
         <div className="mt-5 grid gap-2">

@@ -39,6 +39,7 @@ test('the patch query names one mask path per field, each URL-encoded', () => {
 
 test('the patch query carries the precondition', () => {
   assert.equal(buildPatchQuery(['notifyLog'], { exists: true }), 'updateMask.fieldPaths=notifyLog&currentDocument.exists=true');
+  assert.equal(buildPatchQuery(['notifyLog'], { exists: false }), 'updateMask.fieldPaths=notifyLog&currentDocument.exists=false', 'create only if still missing');
 
   const updateTime = '2026-10-17T05:30:00.123456Z';
   const query = buildPatchQuery(['progressAccess'], { updateTime });
@@ -83,6 +84,7 @@ test('precondition failures, a missing document and contention count as conflict
   assert.equal(isFirestoreConflictResponse(400, 'FAILED_PRECONDITION'), true);
   assert.equal(isFirestoreConflictResponse(404, 'NOT_FOUND'), true);
   assert.equal(isFirestoreConflictResponse(409, 'ABORTED'), true);
+  assert.equal(isFirestoreConflictResponse(409, 'ALREADY_EXISTS'), true, 'exists=false found the document');
   assert.equal(isFirestoreConflictResponse(404, undefined), true);
   assert.equal(isFirestoreConflictResponse(409, undefined), true);
 

@@ -7,17 +7,30 @@ import {
   canUseFirestoreForRequest,
   deleteEstimateFromFirestore,
   deleteMaterialFromFirestore,
+  isFirestoreConflictError,
   readEstimateDataFromFirestore,
-  readEstimateMaterialSettingsFromFirestore,
+  readEstimateMaterialSettingsForUpdate,
   readEstimateMaterialsFromFirestore,
   readSiteEstimatesFromFirestore,
-  saveEstimateMaterialSettingsToFirestore,
-  saveEstimateToFirestore,
+  saveEstimateIfUnchangedInFirestore,
   saveMaterialToFirestore,
   shouldUseFirestoreErp,
   touchEstimateMaterialMetaInFirestore,
+  writeEstimateMaterialSettingsIfUnchanged,
 } from '../firestore';
 import { commonOptionsForSave, sanitizeCommonOptions } from '../../../lib/estimate-common-options';
+import {
+  applyMaterialSettingsOp,
+  changeMaterialSettingsSafely,
+  decodeMaterialSettings,
+  encodeMaterialSettingsFields,
+  estimateSaveConflict,
+  estimateSaveConflictMessage,
+  linkMaterialToEstimateCategory,
+  removeMaterialFromSettings,
+  type MaterialSettings,
+  type MaterialSettingsChange,
+} from '../../../lib/estimate-save-safety';
 
 export const runtime = 'nodejs';
 
@@ -153,13 +166,7 @@ type MaterialDoc = {
 };
 
 // Estimate DB = full-DB materials linked to user-defined estimate categories, kept in one settings document
-// so edits to a material show up in both views.
-type MaterialSettings = {
-  estimateCategories: string[];
-  estimateItems: Record<string, string>;
-  materialOrder: string[];
-};
-
+// (app/lib/estimate-save-safety.ts) so edits to a material show up in both views.
 const MATERIAL_SETTINGS_ID = 'estimateMaterialSettings';
 const materialSettingsProjection = '{estimateCategoriesJson, estimateItemsJson, materialOrderJson}';
 
@@ -336,12 +343,8 @@ export async function POST(request: Request) {
         }
         await managerClient.delete(id);
       }
-      const settings = await readMaterialSettings(request);
-      if (settings.estimateItems[id] || settings.materialOrder.includes(id)) {
-        const estimateItems = { ...settings.estimateItems };
-        delete estimateItems[id];
-        await writeMaterialSettings({ ...settings, estimateItems, materialOrder: settings.materialOrder.filter((item) => item !== id) }, request);
-      }
+      const result = await changeMaterialSettings(request, (settings) => removeMaterialFromSettings(settings, id));
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
       return NextResponse.json({ ok: true });
     }
 
@@ -406,17 +409,47 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     updatedAt: now,
   };
 
+  // An existing version saves only if it is still what the editor loaded (baseUpdatedAt); otherwise the page asks
+  // whether to save a new version or reload, instead of one computer silently overwriting another's work.
+  const conflictOf = (stored: { updatedAt?: unknown } | null) => estimateSaveConflict(stored, { existingId, baseUpdatedAt: body.baseUpdatedAt });
+  // The editor keeps editing what it sent without reloading, so it gets the saved version back the way the list holds
+  // it (legacy workbooks inline) and sends its updatedAt as the base of the next save.
+  const record = decodeLegacyWorkbooksRecord(doc);
+
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-    await saveEstimateToFirestore(doc, request);
-    return NextResponse.json({ record: doc });
+    const { conflict } = await saveEstimateIfUnchangedInFirestore(doc, request, conflictOf);
+    if (conflict) return estimateConflictResponse(conflict);
+    return NextResponse.json({ record });
   }
 
   if (existingId && !(await isSanityIdWritable(existingId, 'siteEstimate', { allowNew: true }))) {
     return NextResponse.json({ error: '저장할 견적 버전이 올바르지 않습니다.' }, { status: 400 });
   }
 
-  await managerClient.createOrReplace(doc);
-  return NextResponse.json({ record: doc });
+  const stored = await managerClient.fetch<{ _rev?: string; updatedAt?: string } | null>(`*[_id == $id][0]{_rev, updatedAt}`, { id });
+  const conflict = conflictOf(stored);
+  if (conflict) return estimateConflictResponse(conflict);
+  try {
+    if (stored?._rev) {
+      const fields = Object.fromEntries(Object.entries(doc).filter(([key]) => key !== '_id' && key !== '_type'));
+      await managerClient.patch(id).ifRevisionId(stored._rev).set(fields).commit();
+    } else {
+      await managerClient.create(doc);
+    }
+  } catch (error) {
+    if (isSanityConflictError(error)) return estimateConflictResponse('changed');
+    throw error;
+  }
+  return NextResponse.json({ record });
+}
+
+function estimateConflictResponse(conflict: 'changed' | 'deleted') {
+  return NextResponse.json({ error: estimateSaveConflictMessage(conflict), conflict }, { status: 409 });
+}
+
+// Sanity answers 409 when ifRevisionId no longer matches or create finds the document already there.
+function isSanityConflictError(error: unknown) {
+  return Boolean(error && typeof error === 'object' && (error as { statusCode?: number }).statusCode === 409);
 }
 
 const LEGACY_WORKBOOKS_INLINE_LIMIT = 850000;
@@ -447,111 +480,50 @@ function decodeEstimates(estimates: unknown) {
   return Array.isArray(estimates) ? estimates.map((estimate) => decodeLegacyWorkbooksRecord(estimate as Record<string, unknown>)) : [];
 }
 
-function decodeMaterialSettings(raw: unknown): MaterialSettings {
-  const record = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const parse = (value: unknown, fallback: unknown) => {
-    if (typeof value !== 'string' || !value) return fallback;
-    try {
-      return JSON.parse(value);
-    } catch {
-      return fallback;
-    }
-  };
-  return normalizeMaterialSettings({
-    estimateCategories: parse(record.estimateCategoriesJson, []),
-    estimateItems: parse(record.estimateItemsJson, {}),
-    materialOrder: parse(record.materialOrderJson, []),
+type SettingsVersion = { exists: boolean; version: string };
+
+// Read for a change: a failed read throws instead of looking like empty settings, and the version (Firestore
+// updateTime or Sanity _rev) goes with it so the write can refuse to land on a newer copy.
+async function readMaterialSettingsForUpdate(request: Request): Promise<{ settings: MaterialSettings; version: SettingsVersion }> {
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    const stored = await readEstimateMaterialSettingsForUpdate(request);
+    return { settings: decodeMaterialSettings(stored?.record ?? null), version: { exists: Boolean(stored), version: stored?.updateTime || '' } };
+  }
+  const stored = await managerClient.fetch<Record<string, unknown> | null>(`*[_id == $id][0]{_rev, estimateCategoriesJson, estimateItemsJson, materialOrderJson}`, {
+    id: MATERIAL_SETTINGS_ID,
   });
+  return { settings: decodeMaterialSettings(stored), version: { exists: Boolean(stored), version: String(stored?._rev || '') } };
 }
 
-function normalizeMaterialSettings(settings: Partial<Record<keyof MaterialSettings, unknown>>): MaterialSettings {
-  const estimateCategories = Array.isArray(settings.estimateCategories)
-    ? Array.from(new Set(settings.estimateCategories.map((category) => cleanCell(category)).filter(Boolean)))
-    : [];
-  const rawItems = settings.estimateItems && typeof settings.estimateItems === 'object' ? (settings.estimateItems as Record<string, unknown>) : {};
-  const estimateItems = Object.fromEntries(
-    Object.entries(rawItems)
-      .map(([id, category]) => [id.trim(), cleanCell(category)])
-      .filter(([id, category]) => id && estimateCategories.includes(category)),
+// Throws a conflict (FirestoreConflictError or a Sanity 409) when the settings changed after that read; nothing is written then.
+async function writeMaterialSettingsIfUnchanged(settings: MaterialSettings, version: SettingsVersion, request: Request) {
+  const fields = encodeMaterialSettingsFields(settings, new Date().toISOString());
+  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
+    await writeEstimateMaterialSettingsIfUnchanged(request, fields, version.exists ? version.version : null);
+    return;
+  }
+  if (version.exists && version.version) {
+    await managerClient.patch(MATERIAL_SETTINGS_ID).ifRevisionId(version.version).set(fields).commit();
+    return;
+  }
+  await managerClient.create({ _id: MATERIAL_SETTINGS_ID, _type: 'estimateMaterialSettings', ...fields });
+}
+
+function changeMaterialSettings(request: Request, change: (settings: MaterialSettings) => MaterialSettingsChange) {
+  return changeMaterialSettingsSafely(
+    {
+      read: () => readMaterialSettingsForUpdate(request),
+      write: (settings, version) => writeMaterialSettingsIfUnchanged(settings, version, request),
+      isConflict: (error) => isFirestoreConflictError(error) || isSanityConflictError(error),
+    },
+    change,
   );
-  const materialOrder = Array.isArray(settings.materialOrder)
-    ? Array.from(new Set(settings.materialOrder.map((id) => String(id || '').trim()).filter(Boolean)))
-    : [];
-  return { estimateCategories, estimateItems, materialOrder };
-}
-
-async function readMaterialSettings(request: Request) {
-  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-    return decodeMaterialSettings(await readEstimateMaterialSettingsFromFirestore(request));
-  }
-  return decodeMaterialSettings(await managerClient.fetch(`*[_id == $id][0] ${materialSettingsProjection}`, { id: MATERIAL_SETTINGS_ID }));
-}
-
-async function writeMaterialSettings(settings: MaterialSettings, request: Request) {
-  const next = normalizeMaterialSettings(settings);
-  const fields = {
-    estimateCategoriesJson: JSON.stringify(next.estimateCategories),
-    estimateItemsJson: JSON.stringify(next.estimateItems),
-    materialOrderJson: JSON.stringify(next.materialOrder),
-    updatedAt: new Date().toISOString(),
-  };
-
-  if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-    await saveEstimateMaterialSettingsToFirestore(request, fields);
-    return next;
-  }
-
-  await managerClient.createOrReplace({ _id: MATERIAL_SETTINGS_ID, _type: 'estimateMaterialSettings', ...fields });
-  return next;
 }
 
 async function updateMaterialSettings(body: Record<string, unknown>, request: Request) {
-  const op = String(body.op || '');
-  const settings = await readMaterialSettings(request);
-  const name = cleanCell(body.name);
-
-  if (op === 'addCategory') {
-    if (!name) return NextResponse.json({ error: '추가할 견적 카테고리 이름을 입력해주세요.' }, { status: 400 });
-    if (settings.estimateCategories.includes(name)) return NextResponse.json({ error: '이미 있는 견적 카테고리입니다.' }, { status: 400 });
-    settings.estimateCategories = [...settings.estimateCategories, name];
-  } else if (op === 'deleteCategory') {
-    if (!settings.estimateCategories.includes(name)) return NextResponse.json({ error: '삭제할 견적 카테고리를 찾지 못했습니다.' }, { status: 400 });
-    // Materials stay in the full DB; only their estimate-category link is removed.
-    settings.estimateCategories = settings.estimateCategories.filter((category) => category !== name);
-  } else if (op === 'assign') {
-    const ids = Array.isArray(body.ids) ? body.ids.map((id) => String(id || '').trim()).filter(Boolean) : [];
-    const category = cleanCell(body.category);
-    if (!ids.length) return NextResponse.json({ error: '견적 DB에 넣을 품목을 선택해주세요.' }, { status: 400 });
-    if (category && !settings.estimateCategories.includes(category)) {
-      return NextResponse.json({ error: '견적 카테고리를 먼저 추가해주세요.' }, { status: 400 });
-    }
-    const estimateItems = { ...settings.estimateItems };
-    ids.forEach((id) => {
-      if (category) estimateItems[id] = category;
-      else delete estimateItems[id];
-    });
-    settings.estimateItems = estimateItems;
-  } else if (op === 'assignMany') {
-    // Bulk move from the full DB: each item names its own estimate category, created here if it does not exist yet.
-    const raw = body.assignments && typeof body.assignments === 'object' ? (body.assignments as Record<string, unknown>) : {};
-    const entries = Object.entries(raw)
-      .map(([id, category]) => [id.trim(), cleanCell(category)])
-      .filter(([id, category]) => id && category);
-    if (!entries.length) return NextResponse.json({ error: '견적 DB로 옮길 품목을 선택해주세요.' }, { status: 400 });
-    const estimateCategories = [...settings.estimateCategories];
-    entries.forEach(([, category]) => {
-      if (!estimateCategories.includes(category)) estimateCategories.push(category);
-    });
-    settings.estimateCategories = estimateCategories;
-    settings.estimateItems = { ...settings.estimateItems, ...Object.fromEntries(entries) };
-  } else if (op === 'reorder') {
-    settings.materialOrder = Array.isArray(body.order) ? body.order.map((id) => String(id || '')) : [];
-  } else {
-    return NextResponse.json({ error: '지원하지 않는 자재 DB 설정 작업입니다.' }, { status: 400 });
-  }
-
-  const materialSettings = await writeMaterialSettings(settings, request);
-  return NextResponse.json({ materialSettings });
+  const result = await changeMaterialSettings(request, (settings) => applyMaterialSettingsOp(settings, body));
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json({ materialSettings: result.settings });
 }
 
 // The client only reads legacyWorkbooksJson, so the compressed copy is dropped instead of being sent twice.
@@ -629,16 +601,9 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
 
   if (typeof estimateCategory !== 'string') return NextResponse.json({ record });
 
-  const settings = await readMaterialSettings(request);
-  const nextCategory = cleanCell(estimateCategory);
-  if ((settings.estimateItems[id] || '') === nextCategory || (nextCategory && !settings.estimateCategories.includes(nextCategory))) {
-    return NextResponse.json({ record, materialSettings: settings });
-  }
-  const estimateItems = { ...settings.estimateItems };
-  if (nextCategory) estimateItems[id] = nextCategory;
-  else delete estimateItems[id];
-  const materialSettings = await writeMaterialSettings({ ...settings, estimateItems }, request);
-  return NextResponse.json({ record, materialSettings });
+  const result = await changeMaterialSettings(request, (settings) => linkMaterialToEstimateCategory(settings, id, estimateCategory));
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+  return NextResponse.json({ record, materialSettings: result.settings });
 }
 
 async function importMaterials(request: Request) {
@@ -743,7 +708,8 @@ function normalizeLines(lines: EstimateLine[]) {
         commonName: Boolean(line.commonName),
       };
     })
-    .filter((line) => line.name || line.space || line.category);
+    // The page accepts a line with any of these filled in, so none of them may be dropped here.
+    .filter((line) => line.name || line.space || line.category || line.process || line.note);
 }
 
 function normalizeWorkLines(lines: WorkLine[]) {
