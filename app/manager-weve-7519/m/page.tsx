@@ -2,12 +2,14 @@
 
 import { LogOut, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import { visibleMobileTabs, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
+import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
+import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
 import { createMobileSession, MobileSessionError, type ActiveSession, type KeyValueStorage, type MobileSession } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
+import { ReportTab } from './report-tab';
 import { SitesTab } from './sites-tab';
 import { TodayTab } from './today-tab';
 
@@ -18,6 +20,7 @@ const RELOAD_AFTER_MS = 5 * 60 * 1000;
 const PULL_TRIGGER_PX = 70;
 const NETWORK_ERROR = '연결이 불안정합니다.';
 const SIGNED_OUT_NOTICE = '로그인이 끝났어요. 다시 로그인해 주세요.';
+const LEAVE_REPORT_CONFIRM = '작성 중인 보고가 있어요. 나가면 사진과 글이 사라져요. 나갈까요?';
 
 // localStorage can throw (private mode, blocked storage); the app then simply asks for a login each time.
 const safeLocalStorage = (): KeyValueStorage => ({
@@ -59,6 +62,8 @@ export default function StaffAppPage() {
   const [loadError, setLoadError] = useState('');
   const [tab, setTab] = useState<MobileTab>('today');
   const [siteId, setSiteId] = useState<string | null>(null);
+  const [reportSiteId, setReportSiteId] = useState<string | null>(null);
+  const [reportDirty, setReportDirty] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
   const [pull, setPull] = useState(0);
@@ -191,9 +196,14 @@ export default function StaffAppPage() {
     [ensureSession, progressApi],
   );
 
+  // Leaving the report tab drops its photos and text, so it asks first.
+  const leaveReportOk = () => tab !== 'report' || !reportDirty || window.confirm(LEAVE_REPORT_CONFIRM);
+
   const changeTab = (next: MobileTab) => {
     setMenuOpen(false);
+    if (next !== tab && !leaveReportOk()) return;
     if (next === tab && next === 'sites') setSiteId(null);
+    if (next === 'report' && next !== tab) setReportSiteId(null);
     setTab(next);
     window.scrollTo({ top: 0 });
   };
@@ -202,6 +212,27 @@ export default function StaffAppPage() {
     setSiteId(id);
     setTab('sites');
     window.scrollTo({ top: 0 });
+  };
+
+  const openReport = (id: string) => {
+    setReportSiteId(id);
+    setTab('report');
+    window.scrollTo({ top: 0 });
+  };
+
+  const onReportPosted = useCallback(() => void loadOverview(), [loadOverview]);
+
+  const saveConsultation = async (id: string, change: ConsultationChange) => {
+    const data = (await authedFetch('/api/manager/mobile/consultation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...change }),
+    })) as { consultation: MobileConsultation };
+    setOverview((current) =>
+      current?.consultations
+        ? { ...current, consultations: current.consultations.map((item) => (item.id === id ? data.consultation : item)) }
+        : current,
+    );
   };
 
   const login = async (loginId: string, password: string) => {
@@ -300,7 +331,30 @@ export default function StaffAppPage() {
                 onOpenConsultations={tabs.includes('consultations') ? () => changeTab('consultations') : undefined}
               />
             )}
-            {tab === 'sites' && <SitesTab overview={overview} selectedId={siteId} onSelect={setSiteId} loadReports={loadReports} />}
+            {tab === 'sites' && (
+              <SitesTab
+                overview={overview}
+                selectedId={siteId}
+                onSelect={setSiteId}
+                onOpenReport={tabs.includes('report') ? openReport : undefined}
+                loadReports={loadReports}
+              />
+            )}
+            {tab === 'report' && (
+              <ReportTab
+                sites={overview.sites}
+                initialSiteId={reportSiteId}
+                today={overview.today}
+                designer={user?.name || ''}
+                api={progressApi}
+                ensureSession={ensureSession}
+                onDirtyChange={setReportDirty}
+                onPosted={onReportPosted}
+              />
+            )}
+            {tab === 'consultations' && (
+              <ConsultationsTab consultations={overview.consultations || []} nowMs={nowMs} onSave={saveConsultation} />
+            )}
           </>
         )}
       </main>

@@ -12,6 +12,7 @@ import {
   nextDay,
   parseConsultationPatch,
   pickActiveSiteIds,
+  reportBlockReason,
   shortRegion,
   tomorrowTasks,
   visibleMobileTabs,
@@ -165,4 +166,13 @@ test('sites list in work order, then by title', () => {
   const site = (id, status, title) => ({ id, status, title, address: '', customerName: '', schedule: null });
   const sorted = sortSitesForList([site('a', '상담중', '가'), site('b', '시공중', '나'), site('c', '계약', '다'), site('d', '시공중', '가'), site('e', '', '라')]);
   assert.deepEqual(sorted.map((s) => s.id), ['d', 'b', 'c', 'a', 'e']);
+});
+
+test('a report needs a site, 1 to 40 photos and text, like the server', () => {
+  assert.equal(reportBlockReason({ siteId: '', photoCount: 1, text: '작업' }), '현장을 골라 주세요.');
+  assert.equal(reportBlockReason({ siteId: 's', photoCount: 0, text: '작업' }), '사진을 한 장 이상 넣어 주세요.');
+  assert.equal(reportBlockReason({ siteId: 's', photoCount: 41, text: '작업' }), '사진은 한 번에 40장까지 올릴 수 있어요.');
+  assert.equal(reportBlockReason({ siteId: 's', photoCount: 2, text: '   ' }), '고객에게 보이는 내용을 써 주세요.');
+  assert.equal(reportBlockReason({ siteId: 's', photoCount: 2, text: 'x'.repeat(5001) }), '내용은 5000자까지 쓸 수 있어요.');
+  assert.equal(reportBlockReason({ siteId: 's', photoCount: 40, text: '작업' }), null);
 });

@@ -286,3 +286,17 @@ export function sortSitesForList(sites: MobileSite[]): MobileSite[] {
   };
   return [...sites].sort((a, b) => rank(a.status) - rank(b.status) || a.title.localeCompare(b.title, 'ko'));
 }
+
+// The phone report form checks what POST /api/manager/progress (parseCreateUpdate) would refuse, before any photo goes up.
+export const REPORT_MAX_PHOTOS = 40;
+export const REPORT_MAX_TEXT = 5000;
+
+export function reportBlockReason(input: { siteId: string; photoCount: number; text: string }): string | null {
+  if (!input.siteId) return '현장을 골라 주세요.';
+  if (input.photoCount === 0) return '사진을 한 장 이상 넣어 주세요.';
+  if (input.photoCount > REPORT_MAX_PHOTOS) return `사진은 한 번에 ${REPORT_MAX_PHOTOS}장까지 올릴 수 있어요.`;
+  const text = input.text.trim();
+  if (!text) return '고객에게 보이는 내용을 써 주세요.';
+  if (text.length > REPORT_MAX_TEXT) return `내용은 ${REPORT_MAX_TEXT}자까지 쓸 수 있어요.`;
+  return null;
+}
