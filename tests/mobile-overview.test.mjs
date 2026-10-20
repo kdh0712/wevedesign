@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import {
   CONSULTATION_STATUSES,
   buildMobileSites,
+  consultationGroup,
+  koreanDateLabel,
+  sortSitesForList,
+  timeAgo,
   listedConsultations,
   listedSites,
   nextDay,
@@ -131,4 +135,34 @@ test('parseConsultationPatch accepts a known status or a memo and nothing else',
   assert.equal(parseConsultationPatch({ id: 'a/b', status: '견적' }).ok, false);
   assert.equal(parseConsultationPatch({ id: 'c1' }).ok, false);
   assert.equal(parseConsultationPatch(null).ok, false);
+});
+
+test('timeAgo in Korean', () => {
+  const now = Date.UTC(2026, 9, 20, 3, 0, 0);
+  const ago = (ms) => new Date(now - ms).toISOString();
+  assert.equal(timeAgo(ago(20 * 1000), now), '방금');
+  assert.equal(timeAgo(ago(14 * 60000), now), '14분 전');
+  assert.equal(timeAgo(ago(2 * 3600000), now), '2시간 전');
+  assert.equal(timeAgo(ago(3 * 86400000), now), '3일 전');
+  assert.equal(timeAgo(ago(40 * 86400000), now), '9월 10일');
+  assert.equal(timeAgo('', now), '');
+});
+
+test('koreanDateLabel', () => {
+  assert.equal(koreanDateLabel('2026-10-20'), '10월 20일 화요일');
+  assert.equal(koreanDateLabel('bad'), '');
+});
+
+test('consultation groups', () => {
+  assert.equal(consultationGroup('신규'), 'new');
+  assert.equal(consultationGroup('상담중'), 'open');
+  assert.equal(consultationGroup('견적'), 'open');
+  assert.equal(consultationGroup('계약'), 'done');
+  assert.equal(consultationGroup('완료'), 'done');
+});
+
+test('sites list in work order, then by title', () => {
+  const site = (id, status, title) => ({ id, status, title, address: '', customerName: '', schedule: null });
+  const sorted = sortSitesForList([site('a', '상담중', '가'), site('b', '시공중', '나'), site('c', '계약', '다'), site('d', '시공중', '가'), site('e', '', '라')]);
+  assert.deepEqual(sorted.map((s) => s.id), ['d', 'b', 'c', 'a', 'e']);
 });

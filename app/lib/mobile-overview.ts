@@ -244,3 +244,45 @@ export function parseConsultationPatch(body: unknown): ConsultationPatch {
   if (fields.status === undefined && fields.memo === undefined) return { ok: false, error: '바꿀 내용이 없습니다.' };
   return { ok: true, id, fields };
 }
+
+// "14분 전", "2시간 전", "3일 전"; older than a week becomes the date ("9월 10일"), in Korea time.
+export function timeAgo(iso: string, nowMs: number): string {
+  const ms = Date.parse(iso);
+  if (!iso || Number.isNaN(ms)) return '';
+  const diff = Math.max(0, nowMs - ms);
+  if (diff < 60000) return '방금';
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}분 전`;
+  if (diff < DAY_MS) return `${Math.floor(diff / 3600000)}시간 전`;
+  if (diff < 7 * DAY_MS) return `${Math.floor(diff / DAY_MS)}일 전`;
+  const seoul = new Date(ms + 9 * 3600000);
+  return `${seoul.getUTCMonth() + 1}월 ${seoul.getUTCDate()}일`;
+}
+
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+// "2026-10-20" → "10월 20일 화요일"
+export function koreanDateLabel(date: string): string {
+  const ms = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(ms)) return '';
+  const day = new Date(ms);
+  return `${day.getUTCMonth() + 1}월 ${day.getUTCDate()}일 ${WEEKDAYS[day.getUTCDay()]}요일`;
+}
+
+export type ConsultationGroup = 'new' | 'open' | 'done';
+
+export function consultationGroup(status: string): ConsultationGroup {
+  if (status === '상담중' || status === '견적') return 'open';
+  if (FINISHED_CONSULTATION_STATUSES.has(status)) return 'done';
+  return 'new';
+}
+
+// Sites under way first, then the earlier stages; unknown statuses last. Same status: by title.
+const SITE_LIST_ORDER = ['시공중', '계약', '실측 예정', '견적', '상담완료', '상담중'];
+
+export function sortSitesForList(sites: MobileSite[]): MobileSite[] {
+  const rank = (status: string) => {
+    const index = SITE_LIST_ORDER.indexOf(status);
+    return index === -1 ? SITE_LIST_ORDER.length : index;
+  };
+  return [...sites].sort((a, b) => rank(a.status) - rank(b.status) || a.title.localeCompare(b.title, 'ko'));
+}
