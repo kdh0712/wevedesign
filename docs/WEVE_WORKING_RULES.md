@@ -55,6 +55,15 @@ This file records durable product and implementation decisions. Review it before
 - Permanently deleting a site also deletes its `siteProgressUpdates` records and their photos (photos after the answer; a failed photo delete is only logged).
 - The link panel shows staff when the customer last got in (`lastOkAt`) and, while wrong numbers have locked the link, until when; never the code or the number.
 
+## Staff Phone App
+
+- The staff app lives at `/manager-weve-7519/m` (spec `docs/superpowers/specs/2026-10-20-staff-mobile-app-design.md`). Staff open it in the phone browser, log in once and add it to the home screen (iPhone: Safari share button → 홈 화면에 추가; Android: Chrome menu → 홈 화면에 추가 or 앱 설치). It has no service worker and works only online. Everything under `/manager-weve-7519/` is `noindex, nofollow` and `Cache-Control: private, no-store` (`next.config.ts`).
+- Login lasts 30 days from the login and is not extended by use. The phone keeps a device token in `localStorage`; the server keeps only its SHA-256 hash in Firestore `managerDevices`. The device token is never sent to any other API: the phone trades it at `POST /api/manager/mobile/session` for an ordinary signed session token that lasts 1 hour, so every other manager API keeps checking the usual session. Each trade reads the account again: a deactivated or removed account signs the phone out, and permission changes reach the phone within an hour.
+- An admin ends a phone's login in 계정 권한 → 휴대폰 로그인 기기 ("로그인 끊기"). The phone is signed out at its next trade, within an hour. Logging out on the phone ends its own device the same way.
+- Tabs follow permissions: 오늘 and 현장 need `sites`; 보고 needs `sites` and `dashboard` (the same rule as posting from the PC); 상담 needs `consultations`. Vendor names and phones in the schedule need `estimates` or `vendors`. The overview API (`GET /api/manager/mobile/overview`) does not read lists the session may not see, and reads estimates with a field mask, never their lines.
+- The phone 보고 is the customer progress record itself: whatever is posted, with 알림톡 or without, appears on the customer's progress page. There is no internal memo on the phone (the PC daily report's own memo lives only in that PC's browser).
+- The phone changes a consultation's status and memo only through `POST /api/manager/mobile/consultation`, which writes just those fields (and `updatedAt`). 계약 and 완료 consultations show for 30 days after their last change.
+
 ## Homepage
 
 - Keep the current visual design unless a request explicitly changes it.
