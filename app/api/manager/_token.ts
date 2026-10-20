@@ -47,9 +47,11 @@ export function signSessionToken(
   claims: Omit<SessionPayload, 'v' | 'iat' | 'exp'>,
   key: Buffer,
   nowMs = Date.now(),
+  // The phone app asks for 1 hour sessions so a revoked device stops working soon (see _mobile-device-rules.ts).
+  ttlSeconds = SESSION_TTL_SECONDS,
 ): { token: string; payload: SessionPayload } {
   const iat = Math.floor(nowMs / 1000);
-  const payload: SessionPayload = { v: 1, ...claims, iat, exp: iat + SESSION_TTL_SECONDS };
+  const payload: SessionPayload = { v: 1, ...claims, iat, exp: iat + ttlSeconds };
   const body = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
   return { token: `${body}.${sign(body, key).toString('base64url')}`, payload };
 }

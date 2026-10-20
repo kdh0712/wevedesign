@@ -56,3 +56,11 @@ test('key resolution prefers the dedicated secret and derives a fallback', (t) =
   assert.equal(resolveSessionKey({}), null);
   assert.equal(resolveSessionKey({ MANAGER_SESSION_SECRET: '   ' }), null);
 });
+
+test('a session can be signed with a shorter lifetime, and the default stays 8 hours', () => {
+  const short = signSessionToken(claims, key, now, 3600);
+  assert.equal(short.payload.exp - short.payload.iat, 3600);
+  assert.deepEqual(verifySessionToken(short.token, key, now + 3599 * 1000), short.payload);
+  assert.equal(verifySessionToken(short.token, key, now + 3600 * 1000), null);
+  assert.equal(signSessionToken(claims, key, now).payload.exp - now / 1000, 28800);
+});
