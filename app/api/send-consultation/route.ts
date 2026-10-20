@@ -1,7 +1,22 @@
+import { createHmac } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
-import { canUseFirestoreOnServer, savePublicConsultationToFirestore, shouldUseFirestoreErp } from '../manager/firestore';
+import {
+  canUseFirestoreOnServer,
+  queryFirestoreCollectionByField,
+  savePublicConsultationToFirestore,
+  shouldUseFirestoreErp,
+} from '../manager/firestore';
+import {
+  CONSULTATION_IP_WINDOW_MS,
+  clientAddress,
+  consultationFieldError,
+  consultationRateDecision,
+  looksAutomated,
+  phoneDigits as toPhoneDigits,
+  type RecentConsultation,
+} from '../../lib/consultation-guard';
 import { adminButtonJson, isAligoSuccess, normalizeTemplateText, type AligoResponse } from './aligo-admin';
 import { pickAlertPhones } from '../../lib/alert-phones';
 import { envAlertPhones, readSavedAlertPhones } from '../manager/_alert-phones-store';
@@ -22,6 +37,9 @@ type ConsultationPayload = {
   message?: string;
   privacyAgreed?: boolean;
   source?: string;
+  // Spam checks: a hidden field people never fill, and when the form was opened (ms).
+  website?: string;
+  startedAt?: number;
 };
 
 type ConsultationNotificationFields = {
@@ -258,6 +276,35 @@ async function sendConsultationKakaoNotifications(fields: ConsultationNotificati
   return { admin };
 }
 
+// A keyed hash of the client address: enough to count submissions per connection without storing the address itself.
+function connectionHash(address: string) {
+  if (!address) return '';
+  const secret = process.env.CONSULTATION_RATE_SECRET || process.env.MANAGER_SESSION_SECRET || 'weve-consultation';
+  return createHmac('sha256', secret).update(address).digest('hex').slice(0, 24);
+}
+
+// Recent submissions from the same number or connection. A failed read is logged and lets the submission through:
+// a real customer must never be turned away because the check could not run.
+async function readRecentConsultations(phoneDigits: string, ipHash: string): Promise<RecentConsultation[]> {
+  const since = new Date(Date.now() - CONSULTATION_IP_WINDOW_MS).toISOString();
+  try {
+    if (shouldUseFirestoreErp() && canUseFirestoreOnServer()) {
+      const [byPhone, byConnection] = await Promise.all([
+        queryFirestoreCollectionByField<RecentConsultation & Record<string, unknown>>('officeConsultations', 'phoneDigits', phoneDigits),
+        ipHash ? queryFirestoreCollectionByField<RecentConsultation & Record<string, unknown>>('officeConsultations', 'ipHash', ipHash) : Promise.resolve([]),
+      ]);
+      return [...byPhone, ...byConnection].filter((record) => String(record.createdAt || '') >= since);
+    }
+    return await writeClient.fetch<RecentConsultation[]>(
+      '*[_type == "officeConsultation" && createdAt >= $since && (phoneDigits == $phone || (defined(ipHash) && ipHash == $ip))]{phoneDigits, phone, ipHash, createdAt}',
+      { since, phone: phoneDigits, ip: ipHash || '-' },
+    );
+  } catch (error) {
+    console.error('상담 신청 중복·횟수 확인 실패, 그대로 접수합니다.', error);
+    return [];
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const settings = await client.fetch('coalesce(*[_id == "siteSettings"][0], *[_type == "siteSettings"][0]){consultationEmail}', {}, { next: { revalidate: 60 } });
@@ -296,6 +343,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '필수 정보가 누락되었습니다.' }, { status: 400 });
     }
 
+    const fieldError = consultationFieldError({
+      name, phone, propertyType, areaRange, homeStatus, reason, budget, timeline, postcode, address, detailAddress, message,
+    });
+    if (fieldError) return NextResponse.json({ error: fieldError }, { status: 400 });
+
+    // A bot gets the same answer as a person, so it learns nothing, but nothing is saved or sent.
+    if (looksAutomated({ honeypot: payload.website, startedAt: payload.startedAt, now: Date.now() })) {
+      console.warn('상담 신청 자동 입력으로 보여 저장하지 않았습니다.');
+      return NextResponse.json({ ok: true });
+    }
+
+    const digits = toPhoneDigits(phone);
+    const ipHash = connectionHash(clientAddress(request.headers));
+    const rate = consultationRateDecision(await readRecentConsultations(digits, ipHash), { phoneDigits: digits, ipHash, now: Date.now() });
+    if (rate === 'duplicate') {
+      // The same number applied a moment ago (double click or resend): the first one is already saved and sent.
+      return NextResponse.json({ ok: true, duplicate: true });
+    }
+    if (rate === 'too-many') {
+      return NextResponse.json({ error: '짧은 시간에 상담 신청이 많이 접수되었습니다. 잠시 후 다시 시도하시거나 전화로 문의해 주세요.' }, { status: 429 });
+    }
+
     if (!process.env.SANITY_WRITE_TOKEN && !(shouldUseFirestoreErp() && canUseFirestoreOnServer())) {
       return NextResponse.json({ error: '관리자 저장 토큰(SANITY_WRITE_TOKEN)이 설정되어 있지 않습니다.' }, { status: 500 });
     }
@@ -319,6 +388,9 @@ export async function POST(request: Request) {
       privacyAgreed,
       status: '신규',
       source,
+      // For the duplicate and per-connection checks above; ipHash is a keyed hash, never the address.
+      phoneDigits: digits,
+      ...(ipHash ? { ipHash } : {}),
       createdAt: new Date().toISOString(),
     };
 

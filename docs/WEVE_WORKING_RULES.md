@@ -59,6 +59,13 @@ This file records durable product and implementation decisions. Review it before
 - Homepage popups may be multiple and must remain non-blocking. They must not appear on portfolio, section-route, or search-focused pages.
 - Popup controls and UI labels must not leak into search snippets.
 
+## Consultation Form
+
+- Every consultation saves a record and sends a paid alimtalk to every admin phone plus an email, so `/api/send-consultation` guards against abuse (`app/lib/consultation-guard.ts`): field length caps and a phone number check, a hidden honeypot field (`website`) and a minimum fill time (`startedAt`, 3 seconds), the same number within 10 minutes answered as a duplicate without saving or sending, and 5 submissions per connection per hour.
+- The connection is stored only as `ipHash`, an HMAC of the address keyed with `CONSULTATION_RATE_SECRET` (or `MANAGER_SESSION_SECRET`). Never store or log the address itself. Records also keep `phoneDigits` for the duplicate check.
+- If the duplicate check cannot read recent records, the submission goes through. Never turn a real customer away because the check failed.
+- The dashboard's 30-second refresh checks Kakao BizForm+ at most every 5 minutes (`app/lib/dashboard-rules.ts`); the 동기화 button checks right away.
+
 ## Portfolio
 
 - Project cards must remain real anchor links with crawlable `/portfolio/...` URLs while normal clicks may open the modal experience.

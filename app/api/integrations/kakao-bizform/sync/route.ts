@@ -3,7 +3,7 @@ import { hashId, managerClient } from '../../../manager/_utils';
 import { requireManager } from '../../../manager/_session';
 import {
   canUseFirestoreOnServer,
-  getFirestoreDocument,
+  findExistingFirestoreDocumentIds,
   saveServerRecordToFirestore,
   shouldUseFirestoreErp,
 } from '../../../manager/firestore';
@@ -121,11 +121,15 @@ export async function POST(request: Request) {
 
     const entries = responses.filter((entry): entry is KakaoBizFormResponse & { applyId: number } => Boolean(entry.applyId));
     if (shouldUseFirestoreErp() && canUseFirestoreOnServer()) {
+      // One batch read finds the entries already imported, instead of one read per entry on every sync.
+      const existingIds = await findExistingFirestoreDocumentIds(
+        'officeConsultations',
+        entries.map((entry) => kakaoConsultationId(formId, entry.applyId)),
+      );
       let imported = 0;
       for (const entry of entries) {
         const id = kakaoConsultationId(formId, entry.applyId);
-        const exists = await getFirestoreDocument('officeConsultations', id).catch(() => null);
-        if (exists) continue;
+        if (existingIds.has(id)) continue;
         await saveServerRecordToFirestore('officeConsultations', toKakaoConsultationRecord(formId, entry), id);
         imported += 1;
       }

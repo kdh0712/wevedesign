@@ -49,7 +49,7 @@ const query = `{
   "estimates": *[_type == "siteEstimate"] | order(updatedAt desc, _updatedAt desc)[0...300] {
     _id, siteId, siteTitle, customerName, versionType, versionLabel, customerEstimateTotal, executionCostTotal, marginAmount, marginRate, linesJson, updatedAt, createdAt
   },
-  "sales": *[_type == "officeSale" && !defined(deletedAt)] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...100] {
+  "sales": *[_type == "officeSale" && !defined(deletedAt)] | order(paymentDate desc, createdAt desc, _createdAt desc)[0...1000] {
     _id, siteId, estimateId, customerName, projectTitle, amount, cost, status, paymentDate, memo, createdAt
   },
   "inventory": *[_type == "officeInventoryItem" && !defined(deletedAt)] | order(itemName asc)[0...200] {
