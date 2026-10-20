@@ -17,8 +17,10 @@ import {
 
 export type LoginUser = { id: string; name: string; loginId: string; role: ManagerRole; permissions: unknown };
 
+// credential: what the login was checked against (the master password, or the account's stored password hash after any
+// rehash). The phone app stamps it on its device so a later password change ends that device. Never sent to a browser.
 export type LoginResult =
-  | { ok: true; user: LoginUser; src: SessionSource; firebaseIdToken?: string }
+  | { ok: true; user: LoginUser; src: SessionSource; credential: string | null; firebaseIdToken?: string }
   | { ok: false; status: number; error: string };
 
 type ManagerAccount = {
@@ -88,13 +90,14 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
       ok: true,
       user: { id: uid, name: profile.name || email.split('@')[0], loginId: email, role: isAdmin ? 'admin' : 'staff', permissions: profile.permissions },
       src: 'firebase',
+      credential: null,
       firebaseIdToken: firebaseUser.idToken,
     };
   }
 
   if (managerPassword && (loginId === 'admin' || loginId === 'manager') && safeEqual(loginPassword, managerPassword)) {
     loginLimiter.recordSuccess(ip, loginId);
-    return { ok: true, user: MASTER_USER, src: 'master' };
+    return { ok: true, user: MASTER_USER, src: 'master', credential: managerPassword };
   }
 
   const account = await managerClient.fetch<ManagerAccount | null>(
@@ -109,21 +112,29 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
   }
   loginLimiter.recordSuccess(ip, loginId);
 
+  let storedPassword = account.password || '';
   if (verified.needsRehash && process.env.SANITY_WRITE_TOKEN) {
     try {
-      await managerClient.patch(account._id).set({ password: await hashPassword(loginPassword) }).commit();
+      const rehashed = await hashPassword(loginPassword);
+      await managerClient.patch(account._id).set({ password: rehashed }).commit();
+      storedPassword = rehashed;
     } catch (error) {
       console.warn('Manager account password rehash failed:', error);
     }
   }
 
-  return { ok: true, user: accountUser(account, loginId), src: 'account' };
+  return { ok: true, user: accountUser(account, loginId), src: 'account', credential: storedPassword };
 }
 
 // The account as it is now, for a phone session refresh: null when it was removed or deactivated, so the device signs out.
-// Role and permissions are read again, so a change reaches the phone at its next refresh. Unexpected failures throw.
-export async function reloadManagerUser(src: SessionSource, userId: string): Promise<LoginUser | null> {
-  if (src === 'master') return userId === MASTER_USER.id ? MASTER_USER : null;
+// Role and permissions are read again, so a change reaches the phone at its next refresh; credential is compared with the
+// device's stamp, so a changed password signs it out too. Unexpected failures throw.
+export async function reloadManagerUser(src: SessionSource, userId: string): Promise<{ user: LoginUser; credential: string | null } | null> {
+  if (src === 'master') {
+    const managerPassword = process.env.MANAGER_PASSWORD;
+    // No master password configured any more: master phones end.
+    return userId === MASTER_USER.id && managerPassword ? { user: MASTER_USER, credential: managerPassword } : null;
+  }
 
   if (src === 'firebase') {
     if (!isFirebaseManagerConfigured()) return null;
@@ -134,17 +145,20 @@ export async function reloadManagerUser(src: SessionSource, userId: string): Pro
     const email = profile.email || '';
     const isAdmin = profile.role === 'admin' || (await getFirebaseAdminFlag(userId, adminAuth));
     return {
-      id: userId,
-      name: profile.name || email.split('@')[0] || '직원',
-      loginId: email || userId,
-      role: isAdmin ? 'admin' : 'staff',
-      permissions: profile.permissions,
+      user: {
+        id: userId,
+        name: profile.name || email.split('@')[0] || '직원',
+        loginId: email || userId,
+        role: isAdmin ? 'admin' : 'staff',
+        permissions: profile.permissions,
+      },
+      credential: null,
     };
   }
 
   const account = await managerClient.fetch<ManagerAccount | null>(
-    '*[_type == "managerAccount" && _id == $id && isActive != false][0]{_id,name,loginId,role,permissions,isActive}',
+    '*[_type == "managerAccount" && _id == $id && isActive != false][0]{_id,name,loginId,password,role,permissions,isActive}',
     { id: userId },
   );
-  return account ? accountUser(account, account.loginId || '') : null;
+  return account ? { user: accountUser(account, account.loginId || ''), credential: account.password || '' } : null;
 }

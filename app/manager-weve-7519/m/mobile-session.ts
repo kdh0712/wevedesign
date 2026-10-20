@@ -38,6 +38,13 @@ export function needsRefresh(session: { expiresAt: number } | null, nowMs: numbe
   return !session || session.expiresAt - nowMs < REFRESH_MARGIN_MS;
 }
 
+// Each refresh reads the account again; the screen applies a changed name, role or permission set (tabs follow it).
+export function sameSessionUser(a: StoredManagerUser | null, b: StoredManagerUser): boolean {
+  if (!a) return false;
+  const perms = (user: StoredManagerUser) => [...(user.permissions || [])].sort().join(',');
+  return a.id === b.id && a.name === b.name && a.role === b.role && perms(a) === perms(b);
+}
+
 export function createMobileSession(options: { fetcher?: typeof fetch; storage: KeyValueStorage; now?: () => number }) {
   const fetcher = options.fetcher ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
   const { storage } = options;

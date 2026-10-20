@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   LAST_USED_WRITE_INTERVAL_MS,
+  credentialStamp,
+  credentialStillValid,
+  deviceSignature,
   MOBILE_DEVICE_TTL_MS,
   MOBILE_SESSION_TTL_SECONDS,
   deviceLabelFromUserAgent,
@@ -14,8 +17,11 @@ import {
 const now = Date.UTC(2026, 9, 20, 3, 0, 0);
 const iso = (ms) => new Date(ms).toISOString();
 
-function deviceFor(secret, overrides = {}) {
-  return {
+const key = Buffer.from('device-test-key');
+
+// A record as the server writes it: signed with the server key over every field that decides a login.
+function deviceFor(secret, overrides = {}, signKey = key) {
+  const record = {
     _id: secret.deviceId,
     userId: 'u1',
     loginId: 'staff1',
@@ -26,8 +32,10 @@ function deviceFor(secret, overrides = {}) {
     createdAt: iso(now - 86400000),
     expiresAt: iso(now + 1000),
     lastUsedAt: iso(now - 11 * 60000),
+    credentialStamp: '',
     ...overrides,
   };
+  return { ...record, signature: deviceSignature(record, signKey), ...(overrides.signature !== undefined ? { signature: overrides.signature } : {}) };
 }
 
 test('the lifetimes match the spec', () => {
@@ -47,18 +55,18 @@ test('a new secret matches its own hash and nothing else', () => {
 
 test('refresh is allowed for a live device and touches it only after 10 minutes', () => {
   const s = newDeviceSecret();
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s), s.deviceToken, now), { ok: true, touch: true });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { lastUsedAt: iso(now - 60000) }), s.deviceToken, now), { ok: true, touch: false });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s), s.deviceToken, now, key), { ok: true, touch: true });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { lastUsedAt: iso(now - 60000) }), s.deviceToken, now, key), { ok: true, touch: false });
 });
 
 test('refresh is refused for a missing, revoked or expired device and a wrong token', () => {
   const s = newDeviceSecret();
-  assert.deepEqual(deviceRefreshDecision(null, s.deviceToken, now), { ok: false, reason: 'missing' });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { revokedAt: iso(now - 1) }), s.deviceToken, now), { ok: false, reason: 'revoked' });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { expiresAt: iso(now) }), s.deviceToken, now), { ok: false, reason: 'expired' });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { expiresAt: 'garbage' }), s.deviceToken, now), { ok: false, reason: 'expired' });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s), 'wrong', now), { ok: false, reason: 'token' });
-  assert.deepEqual(deviceRefreshDecision(deviceFor(s), '', now), { ok: false, reason: 'token' });
+  assert.deepEqual(deviceRefreshDecision(null, s.deviceToken, now, key), { ok: false, reason: 'missing' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { revokedAt: iso(now - 1) }), s.deviceToken, now, key), { ok: false, reason: 'revoked' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { expiresAt: iso(now) }), s.deviceToken, now, key), { ok: false, reason: 'expired' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s, { expiresAt: 'garbage' }), s.deviceToken, now, key), { ok: false, reason: 'expired' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s), 'wrong', now, key), { ok: false, reason: 'token' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s), '', now, key), { ok: false, reason: 'token' });
 });
 
 test('device labels name the phone and browser', () => {
@@ -86,4 +94,25 @@ test('only ids shaped like the ones we issue are looked up', () => {
   for (const bad of ['', 'md-', 'md-xyz', '../managerDevices/md-0123456789abcdef01234567', 'md-0123456789ABCDEF01234567', 42, null]) {
     assert.equal(isMobileDeviceId(bad), false, String(bad));
   }
+});
+
+test('a device record that the server did not sign is refused', () => {
+  const s = newDeviceSecret();
+  const signed = deviceFor(s);
+  assert.deepEqual(deviceRefreshDecision({ ...signed, userId: 'admin', src: 'master' }, s.deviceToken, now, key), { ok: false, reason: 'token' });
+  assert.deepEqual(deviceRefreshDecision({ ...signed, expiresAt: iso(now + 365 * 86400000) }, s.deviceToken, now, key), { ok: false, reason: 'token' });
+  assert.deepEqual(deviceRefreshDecision(deviceFor(s, {}, Buffer.from('other-key')), s.deviceToken, now, key), { ok: false, reason: 'token' });
+  const { signature: _signature, ...unsigned } = signed;
+  assert.deepEqual(deviceRefreshDecision(unsigned, s.deviceToken, now, key), { ok: false, reason: 'token' });
+});
+
+test('a changed or removed password ends the phone logins made with the old one', () => {
+  const stamp = credentialStamp(key, 'hash-1');
+  assert.notEqual(stamp, '');
+  assert.equal(credentialStamp(key, null), '');
+  assert.equal(credentialStillValid({ credentialStamp: stamp }, 'hash-1', key), true);
+  assert.equal(credentialStillValid({ credentialStamp: stamp }, 'hash-2', key), false);
+  assert.equal(credentialStillValid({ credentialStamp: stamp }, null, key), false, 'master password removed');
+  assert.equal(credentialStillValid({ credentialStamp: '' }, null, key), true, 'Firebase accounts carry no stamp');
+  assert.equal(credentialStillValid({}, 'hash-1', key), false);
 });

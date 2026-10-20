@@ -60,6 +60,13 @@ const DAY_MS = 86400000;
 
 const str = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
 
+// A number a phone can dial: at least 8 digits (1588-0000, 02-123-4567). Placeholders such as "-" or "미정" give '', so
+// no call button is drawn for them.
+const dialable = (value: unknown) => {
+  const text = str(value);
+  return text.replace(/\D/g, '').length >= 8 ? text : '';
+};
+
 export function visibleMobileTabs(perms: { sites: boolean; dashboard: boolean; consultations: boolean }): MobileTab[] {
   const tabs: MobileTab[] = [];
   if (perms.sites) tabs.push('today', 'sites');
@@ -93,7 +100,7 @@ function parseScheduleWithVendors(scheduleJson: unknown): Array<ProgressSchedule
       durationDays: Number(item.durationDays) || 0,
       progress: Number(item.progress) || 0,
       vendorName: str(item.vendorName),
-      vendorPhone: str(item.vendorPhone),
+      vendorPhone: dialable(item.vendorPhone),
     }));
 }
 
@@ -116,7 +123,7 @@ export function buildMobileSites(input: {
     const rawTasks = picked ? parseScheduleWithVendors(picked.scheduleJson) : [];
     const summary = summarizeSchedule(rawTasks, input.today);
     const vendorsById = new Map(rawTasks.map((task) => [task.id, task]));
-    const customerPhone = str(site.customerPhone);
+    const customerPhone = dialable(site.customerPhone);
 
     return {
       id,
@@ -190,7 +197,7 @@ export function shortRegion(address: string): string {
 }
 
 export function toMobileConsultation(record: Record<string, unknown>): MobileConsultation {
-  const phone = str(record.phone);
+  const phone = dialable(record.phone);
   return {
     id: str(record._id),
     name: str(record.name) || '이름 없음',

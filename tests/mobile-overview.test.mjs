@@ -176,3 +176,18 @@ test('a report needs a site, 1 to 40 photos and text, like the server', () => {
   assert.equal(reportBlockReason({ siteId: 's', photoCount: 2, text: 'x'.repeat(5001) }), '내용은 5000자까지 쓸 수 있어요.');
   assert.equal(reportBlockReason({ siteId: 's', photoCount: 40, text: '작업' }), null);
 });
+
+test('placeholder phone numbers never become call buttons', () => {
+  const sites = buildMobileSites({
+    sites: [{ _id: 's1', title: 'A', status: '시공중', customerPhone: '-' }, { _id: 's2', title: 'B', status: '시공중', customerPhone: '031-381-0489' }],
+    estimates: [{ siteId: 's1', scheduleJson: JSON.stringify([task('t', '목공', '2026-10-19', '2026-10-22', { vendorName: '한빛', vendorPhone: '미정' })]) }],
+    today,
+    showVendors: true,
+  });
+  assert.ok(!('customerPhone' in sites[0]));
+  assert.ok(!('vendorPhone' in sites[0].schedule.tasks[0]));
+  assert.equal(sites[0].schedule.tasks[0].vendorName, '한빛');
+  assert.equal(sites[1].customerPhone, '031-381-0489');
+  const [consultation] = listedConsultations([{ _id: 'c', status: '신규', createdAt: '2026-10-20T00:00:00Z', phone: '없음' }], Date.UTC(2026, 9, 20));
+  assert.ok(!('phone' in consultation));
+});

@@ -7,7 +7,7 @@ import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
-import { createMobileSession, MobileSessionError, type ActiveSession, type KeyValueStorage, type MobileSession } from './mobile-session';
+import { createMobileSession, MobileSessionError, sameSessionUser, type ActiveSession, type KeyValueStorage, type MobileSession } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { ReportTab } from './report-tab';
 import { SitesTab } from './sites-tab';
@@ -56,6 +56,7 @@ export default function StaffAppPage() {
   const [mobile, setMobile] = useState<MobileSession | null>(null);
   const [phase, setPhase] = useState<Phase>('starting');
   const [loginNotice, setLoginNotice] = useState('');
+  const [startError, setStartError] = useState('');
   const [user, setUser] = useState<ActiveSession['user'] | null>(null);
   const [overview, setOverview] = useState<MobileOverview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -87,6 +88,8 @@ export default function StaffAppPage() {
       signedOut();
       throw new MobileSessionError(SIGNED_OUT_NOTICE, 401);
     }
+    // A refresh re-reads the account, so new or removed permissions reach the tabs without restarting the app.
+    setUser((current) => (sameSessionUser(current, session.user) ? current : session.user));
     return session;
   }, [mobile, signedOut]);
 
@@ -145,7 +148,9 @@ export default function StaffAppPage() {
       }
       setUser(session.user);
       setPhase('ready');
-    } catch {
+    } catch (error) {
+      // A server answer (e.g. the account could not be checked) is shown as written; no answer at all is a connection problem.
+      setStartError(error instanceof MobileSessionError && error.status > 0 ? error.message : `${NETWORK_ERROR} 인터넷 연결을 확인해 주세요.`);
       setPhase('offline');
     }
   }, [mobile, signedOut]);
@@ -270,7 +275,7 @@ export default function StaffAppPage() {
   if (phase === 'offline') {
     return (
       <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center px-6">
-        <Notice onRetry={() => void start()}>{NETWORK_ERROR} 인터넷 연결을 확인해 주세요.</Notice>
+        <Notice onRetry={() => void start()}>{startError || NETWORK_ERROR}</Notice>
       </main>
     );
   }

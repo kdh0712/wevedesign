@@ -1,5 +1,5 @@
 import type { LoginUser } from './_login';
-import { MOBILE_DEVICE_TTL_MS, newDeviceSecret, type MobileDeviceRecord } from './_mobile-device-rules';
+import { credentialStamp, deviceSignature, MOBILE_DEVICE_TTL_MS, newDeviceSecret, type MobileDeviceRecord } from './_mobile-device-rules';
 import type { SessionSource } from './_token';
 import { getFirestoreDocument, listFirestoreCollection, patchFirestoreFields } from './firestore';
 
@@ -14,11 +14,13 @@ export async function createMobileDevice(
   src: SessionSource,
   deviceLabel: string,
   nowMs: number,
+  credential: string | null,
+  key: Buffer,
 ): Promise<{ deviceId: string; deviceToken: string; expiresAt: string }> {
   const { deviceId, deviceToken, tokenHash } = newDeviceSecret();
   const now = new Date(nowMs).toISOString();
   const expiresAt = new Date(nowMs + MOBILE_DEVICE_TTL_MS).toISOString();
-  const record: MobileDeviceRecord = {
+  const fields = {
     _id: deviceId,
     userId: user.id,
     loginId: user.loginId,
@@ -29,7 +31,9 @@ export async function createMobileDevice(
     createdAt: now,
     expiresAt,
     lastUsedAt: now,
+    credentialStamp: credentialStamp(key, credential),
   };
+  const record: MobileDeviceRecord = { ...fields, signature: deviceSignature(fields, key) };
   // exists:false: a (practically impossible) id collision fails instead of taking over another phone's record.
   await patchFirestoreFields(MOBILE_DEVICES_COLLECTION, deviceId, record, { precondition: { exists: false } });
   return { deviceId, deviceToken, expiresAt };

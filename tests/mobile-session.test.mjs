@@ -5,6 +5,7 @@ import {
   createMobileSession,
   needsRefresh,
   parseStoredDevice,
+  sameSessionUser,
 } from '../app/manager-weve-7519/m/mobile-session.ts';
 
 const now = Date.UTC(2026, 9, 20, 3);
@@ -111,4 +112,12 @@ test('logout clears the device even when the request fails', async () => {
   assert.deepEqual(sent, ['logout']);
   assert.equal(storage.getItem(MOBILE_DEVICE_STORAGE_KEY), null);
   assert.deepEqual(mobile.authHeaders(), {});
+});
+
+test('sameSessionUser notices a changed name, role or permission set', () => {
+  assert.equal(sameSessionUser(user, { ...user, permissions: ['sites'] }), true);
+  assert.equal(sameSessionUser(user, { ...user, permissions: ['sites', 'consultations'] }), false);
+  assert.equal(sameSessionUser(user, { ...user, role: 'admin' }), false);
+  assert.equal(sameSessionUser(user, { ...user, name: '새 이름' }), false);
+  assert.equal(sameSessionUser(null, user), false);
 });

@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // Rules for the staff phone app's device login (spec docs/superpowers/specs/2026-10-20-staff-mobile-app-design.md §3).
 // A phone keeps a 30 day device token. It never calls an API with it: it only trades it for a 1 hour session token,
@@ -15,6 +15,10 @@ export type MobileDeviceRecord = {
   createdAt: string;
   expiresAt: string;
   lastUsedAt: string;
+  // HMAC of the credential the login used (see credentialStamp); '' for Firebase accounts.
+  credentialStamp?: string;
+  // HMAC with the server session key over every field that decides a login (see deviceSignature).
+  signature?: string;
   revokedAt?: string;
   revokedBy?: string;
 };
@@ -47,12 +51,45 @@ function tokenMatches(token: string, tokenHash: string) {
   return token !== '' && provided.length === stored.length && timingSafeEqual(provided, stored);
 }
 
-export function deviceRefreshDecision(device: MobileDeviceRecord | null, token: string, nowMs: number): DeviceRefreshDecision {
+const SIGNATURE_LABEL = 'weve-mobile-device-v1';
+const hmacHex = (key: Buffer, text: string) => createHmac('sha256', key).update(text, 'utf8').digest('hex');
+
+function equalHex(a: string, b: string) {
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  return left.length === right.length && left.length > 0 && timingSafeEqual(left, right);
+}
+
+// A device record is trusted only when the server signed it, so a document written into managerDevices by anything else
+// (a Firestore client, another app on the same project) can never become a login.
+export function deviceSignature(
+  record: Pick<MobileDeviceRecord, '_id' | 'userId' | 'src' | 'tokenHash' | 'expiresAt' | 'credentialStamp'>,
+  key: Buffer,
+): string {
+  const fields = [record._id, record.userId, record.src, record.tokenHash, record.expiresAt, record.credentialStamp || ''];
+  return hmacHex(key, `${SIGNATURE_LABEL}|${fields.map((field) => String(field ?? '')).join('|')}`);
+}
+
+// Ties a device to the credential its login used: the master password, or an ID account's stored password hash.
+// When that changes or goes away, the stamp no longer matches and the phone is signed out. null (Firebase) gives ''.
+export function credentialStamp(key: Buffer, credential: string | null): string {
+  return credential ? hmacHex(key, `${SIGNATURE_LABEL}|credential|${credential}`) : '';
+}
+
+export function credentialStillValid(device: Pick<MobileDeviceRecord, 'credentialStamp'>, currentCredential: string | null, key: Buffer): boolean {
+  const stored = device.credentialStamp;
+  if (typeof stored !== 'string') return false;
+  const current = credentialStamp(key, currentCredential);
+  return stored === '' ? current === '' : equalHex(stored, current);
+}
+
+export function deviceRefreshDecision(device: MobileDeviceRecord | null, token: string, nowMs: number, key: Buffer): DeviceRefreshDecision {
   if (!device) return { ok: false, reason: 'missing' };
   if (device.revokedAt) return { ok: false, reason: 'revoked' };
   const expiresAt = Date.parse(device.expiresAt);
   // An unreadable date counts as expired, never as forever.
   if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) return { ok: false, reason: 'expired' };
+  if (!equalHex(String(device.signature || ''), deviceSignature(device, key))) return { ok: false, reason: 'token' };
   if (!tokenMatches(token, device.tokenHash)) return { ok: false, reason: 'token' };
   const lastUsedAt = Date.parse(device.lastUsedAt);
   return { ok: true, touch: !Number.isFinite(lastUsedAt) || nowMs - lastUsedAt >= LAST_USED_WRITE_INTERVAL_MS };
