@@ -32,6 +32,7 @@ import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
 import { todayInSeoul } from '../lib/site-progress';
+import { salesTotals, shouldAutoSyncKakao } from '../lib/dashboard-rules';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
@@ -713,6 +714,8 @@ export default function ManagerPage() {
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
   const refreshInFlightRef = useRef(false);
   const kakaoConfiguredRef = useRef(true);
+  // When the 30-second refresh last checked Kakao BizForm+ (it checks at most every 5 minutes).
+  const lastKakaoAutoSyncAtRef = useRef(0);
   // The version map from the last office answer; the refresh sends it so only the changed lists are re-read.
   const officeVersionsRef = useRef<OfficeVersions | null>(null);
   const lastFullOfficeReadAtRef = useRef(0);
@@ -836,11 +839,10 @@ export default function ManagerPage() {
     () => saleFormSiteEstimates.find((estimate) => estimate._id === saleForm.estimateId) || saleFormSiteEstimates[0],
     [saleForm.estimateId, saleFormSiteEstimates],
   );
-  const salesTotal = useMemo(() => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0), 0), [officeData.sales]);
-  const profitTotal = useMemo(
-    () => officeData.sales.reduce((sum, sale) => sum + Number(sale.amount || 0) - Number(sale.cost || 0), 0),
-    [officeData.sales],
-  );
+  // '견적' and '취소' sales are left out of the totals (app/lib/dashboard-rules.ts).
+  const salesSummary = useMemo(() => salesTotals(officeData.sales), [officeData.sales]);
+  const salesTotal = salesSummary.revenue;
+  const profitTotal = salesSummary.profit;
   const projectedEstimateTotal = useMemo(
     () => Array.from(latestEstimateBySite.values()).reduce((sum, estimate) => sum + Number(estimate.customerEstimateTotal || 0), 0),
     [latestEstimateBySite],
@@ -1271,7 +1273,11 @@ export default function ManagerPage() {
     const session = officeSessionRef.current;
     try {
       // Once the server says Kakao is not configured, the refresh stops calling it (the sync button still checks).
-      if (kakaoConfiguredRef.current) await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
+      // Otherwise it checks at most every 5 minutes, not on every 30-second refresh.
+      if (kakaoConfiguredRef.current && shouldAutoSyncKakao(lastKakaoAutoSyncAtRef.current, Date.now())) {
+        lastKakaoAutoSyncAtRef.current = Date.now();
+        await syncKakaoBizForm(managerPassword, firebaseAuthToken, user);
+      }
       // scope=refresh leaves out the portfolio; it only changes through this page, which reloads it after saving.
       // versions asks for only the lists that changed since the last answer; at least every 10 minutes it is left out
       // and everything is read, in case a change was not recorded.
@@ -2757,12 +2763,13 @@ export default function ManagerPage() {
                     buttonLabel={editingSaleId ? '매출 수정 저장' : '매출 저장'}
                     disabled={savingOffice}
                     onSubmit={async () => {
-                      await saveOfficeRecord('sale', {
+                      // Cleared only after a successful save, so a failed save keeps what was typed.
+                      const saved = await saveOfficeRecord('sale', {
                         ...saleForm,
                         amount: Number(saleForm.amount || 0),
                         cost: Number(saleForm.cost || 0),
                       }, editingSaleId || undefined);
-                      resetSaleForm();
+                      if (saved) resetSaleForm();
                     }}
                     secondaryLabel={editingSaleId ? '수정 취소' : undefined}
                     onSecondary={resetSaleForm}
@@ -2772,7 +2779,11 @@ export default function ManagerPage() {
             </Panel>
             <Panel title="매출 현황">
               <div className="mb-4 grid gap-3 md:grid-cols-3">
-                <MetricCard title="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />
+                <MetricCard
+                  title="계약 매출"
+                  value={formatMoney(salesTotal)}
+                  sub={`이익 ${formatMoney(profitTotal)}${salesSummary.excluded ? ` · 견적·취소 ${salesSummary.excluded}건 제외` : ''}`}
+                />
                 <MetricCard title="견적 기준 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
                 <MetricCard title="매출 등록률" value={`${officeData.sites.length ? Math.round((officeData.sales.length / officeData.sites.length) * 100) : 0}%`} sub={`${officeData.sales.length}건 / 현장 ${officeData.sites.length}곳`} />
               </div>
@@ -2819,12 +2830,12 @@ export default function ManagerPage() {
                 buttonLabel={editingInventoryId ? '재고 수정 저장' : '재고 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  await saveOfficeRecord('inventory', {
+                  const saved = await saveOfficeRecord('inventory', {
                     ...inventoryForm,
                     quantity: Number(inventoryForm.quantity || 0),
                     minQuantity: Number(inventoryForm.minQuantity || 0),
                   }, editingInventoryId || undefined);
-                  resetInventoryForm();
+                  if (saved) resetInventoryForm();
                 }}
                 secondaryLabel={editingInventoryId ? '수정 취소' : undefined}
                 onSecondary={resetInventoryForm}
@@ -2871,8 +2882,8 @@ export default function ManagerPage() {
                 buttonLabel={editingVendorId ? '협력업체 수정 저장' : '협력업체 저장'}
                 disabled={savingOffice}
                 onSubmit={async () => {
-                  await saveOfficeRecord('vendor', vendorForm, editingVendorId || undefined);
-                  resetVendorForm();
+                  const saved = await saveOfficeRecord('vendor', vendorForm, editingVendorId || undefined);
+                  if (saved) resetVendorForm();
                 }}
                 secondaryLabel={editingVendorId ? '수정 취소' : undefined}
                 onSecondary={resetVendorForm}
@@ -3946,7 +3957,7 @@ function DashboardOverview({
             <p className="mt-1 text-sm text-[#60717d]">상담, 현장, 견적, 매출 흐름을 한 화면에서 확인합니다.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[560px]">
-            {access.sales && <SummaryMetric label="등록 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)}`} />}
+            {access.sales && <SummaryMetric label="계약 매출" value={formatMoney(salesTotal)} sub={`이익 ${formatMoney(profitTotal)} · 견적·취소 제외`} />}
             {access.estimates && (
               <SummaryMetric label="견적 예상" value={formatMoney(projectedEstimateTotal)} sub={`예상 마진 ${formatMoney(projectedMarginTotal)}`} />
             )}
