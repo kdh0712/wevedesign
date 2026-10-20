@@ -23,3 +23,15 @@ test('customer progress pages send no referrer, are never cached and never index
 test('the Google Cloud Storage client stays an unbundled server package, the same code the photo tests run', () => {
   assert.ok(nextConfig.serverExternalPackages?.includes('@google-cloud/storage'));
 });
+
+test('manager pages, the phone app included, are never cached and never indexed', async () => {
+  const rules = await nextConfig.headers();
+  const managerIndex = rules.findIndex((rule) => rule.source === '/manager-weve-7519/:path*');
+  assert.ok(managerIndex >= 0);
+  assert.deepEqual(headerMap(rules[managerIndex]), {
+    'Cache-Control': 'private, no-store',
+    'X-Robots-Tag': 'noindex, nofollow',
+  });
+  const siteWideIndex = rules.findIndex((rule) => rule.source === '/:path*');
+  assert.ok(siteWideIndex < managerIndex);
+});

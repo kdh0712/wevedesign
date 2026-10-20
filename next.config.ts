@@ -27,6 +27,14 @@ const nextConfig: NextConfig = {
           { key: 'Referrer-Policy', value: 'no-referrer' },
         ],
       },
+      {
+        // The manager dashboard and the staff phone app (/manager-weve-7519/m) show office data: never cached, never indexed.
+        source: '/manager-weve-7519/:path*',
+        headers: [
+          { key: 'Cache-Control', value: 'private, no-store' },
+          { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
+        ],
+      },
     ];
   },
 };
