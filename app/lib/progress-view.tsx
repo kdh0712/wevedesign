@@ -97,7 +97,7 @@ function SectionTitle({ id, children }: { id: string; children: ReactNode }) {
   );
 }
 
-const STATE_LABEL: Record<ProgressTaskView['state'], string> = { done: '완료', active: '진행 중', upcoming: '예정' };
+const STATE_LABEL: Record<ProgressTaskView['state'], string> = { done: '완료', active: '진행 중', upcoming: '예정', delayed: '지연' };
 
 function TaskMarker({ state }: { state: ProgressTaskView['state'] }) {
   if (state === 'done') {
@@ -107,10 +107,11 @@ function TaskMarker({ state }: { state: ProgressTaskView['state'] }) {
       </span>
     );
   }
-  if (state === 'active') {
+  if (state === 'active' || state === 'delayed') {
+    const color = state === 'delayed' ? '#c2410c' : '#38a9bd';
     return (
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 border-[#38a9bd] bg-white" aria-hidden="true">
-        <span className="h-2.5 w-2.5 rounded-full bg-[#38a9bd]" />
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 bg-white" style={{ borderColor: color }} aria-hidden="true">
+        <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
       </span>
     );
   }
@@ -173,7 +174,7 @@ function ScheduleSection({ schedule }: { schedule: NonNullable<CustomerProgressV
           {schedule.tasks.map((task) => (
             <li
               key={task.id}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${task.state === 'active' ? 'bg-[#eaf6f8]' : 'bg-[#f7f9fa]'}`}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 ${task.state === 'active' ? 'bg-[#eaf6f8]' : task.state === 'delayed' ? 'bg-[#fff4ec]' : 'bg-[#f7f9fa]'}`}
             >
               <TaskMarker state={task.state} />
               <div className="min-w-0 flex-1">
@@ -181,7 +182,7 @@ function ScheduleSection({ schedule }: { schedule: NonNullable<CustomerProgressV
                 <p className="text-xs font-medium text-[#60717d]">{formatTaskRange(task)}</p>
               </div>
               <span
-                className={`shrink-0 text-xs font-bold ${task.state === 'active' ? 'text-[#1f6f7f]' : task.state === 'done' ? 'text-[#38a9bd]' : 'text-[#8a98a2]'}`}
+                className={`shrink-0 text-xs font-bold ${task.state === 'active' ? 'text-[#1f6f7f]' : task.state === 'done' ? 'text-[#38a9bd]' : task.state === 'delayed' ? 'text-[#c2410c]' : 'text-[#8a98a2]'}`}
               >
                 {STATE_LABEL[task.state]}
               </span>

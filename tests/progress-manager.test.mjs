@@ -11,6 +11,8 @@ import {
   formatReportDay,
   formatSeoulDateTime,
   memoPreview,
+  customerPostPhotos,
+  customerPostText,
   notifyBlockedReason,
   notifyHistory,
   notifyStatus,
@@ -97,6 +99,16 @@ test('notifyBlockedReason names the first thing that stops a send', () => {
   assert.equal(notifyBlockedReason({ ...ready, notifyConfigured: false, linkEnabled: false }), '알림톡 템플릿 설정이 필요합니다');
   assert.equal(notifyBlockedReason({ ...ready, hasCustomerPhone: false, linkEnabled: false }), '고객 휴대폰 번호가 없어 알림톡을 보낼 수 없습니다.');
   assert.equal(notifyBlockedReason({ ...ready, linkEnabled: false }), '고객 진행 현황 링크가 꺼져 있어 알림톡을 보낼 수 없습니다.');
+});
+
+test('the customer sees the report memo unless staff rewrote it, and only the ticked photos', () => {
+  assert.equal(customerPostText(null, '거실 철거 (내부: 자재비 미지급)'), '거실 철거 (내부: 자재비 미지급)');
+  assert.equal(customerPostText('거실 철거', '거실 철거 (내부: 자재비 미지급)'), '거실 철거');
+  assert.equal(customerPostText('', '보고서 메모'), '', 'an emptied text stays empty (posting then asks for text)');
+  const photos = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  assert.deepEqual(customerPostPhotos(photos, ['b']).map((photo) => photo.id), ['a', 'c']);
+  assert.deepEqual(customerPostPhotos(photos, []).map((photo) => photo.id), ['a', 'b', 'c']);
+  assert.deepEqual(customerPostPhotos(photos, ['gone']).map((photo) => photo.id), ['a', 'b', 'c'], 'a removed photo id is ignored');
 });
 
 test('memoPreview keeps the first 40 characters on one line', () => {

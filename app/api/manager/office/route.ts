@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { canReadOffice, canWriteOffice, filterOfficeData } from '../../../lib/manager-permissions';
 import { OFFICE_TRACKED_COLLECTIONS, parseOfficeVersionsParam, readableOfficeCollections } from '../../../lib/office-changes';
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import { stripServerOwnedSiteFields } from '../_site-fields';
 import { shouldCloseLinkOnSave } from '../_progress-link-rules';
-import { saveSiteProgressFields } from '../_progress-store';
+import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSiteProgressFields } from '../_progress-store';
+import { deleteProgressPhotos } from '../_progress-photo-storage';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -437,6 +438,16 @@ export async function DELETE(request: Request) {
     if (permanent) {
       if (!existing.deletedAt) {
         return NextResponse.json({ error: '휴지통에 있는 항목만 영구 삭제할 수 있습니다.' }, { status: 409 });
+      }
+
+      // A site's customer progress records and their photos go with it; otherwise the photos would stay in the private
+      // bucket with nothing pointing at them. Records first, then the site; the photos are removed after the answer
+      // (a photo that cannot be deleted is only logged, as with a single record delete).
+      if (type === 'site' && isProgressStoreReady()) {
+        const updates = await listProgressUpdates(id);
+        for (const update of updates) await deleteProgressUpdate(update._id);
+        const pathnames = updates.flatMap((update) => update.photos.map((photo) => photo.pathname));
+        if (pathnames.length) after(() => deleteProgressPhotos(pathnames));
       }
 
       if (useFirestore) await deleteOfficeRecordFromFirestore(request, type, id);

@@ -247,6 +247,16 @@ export function ProgressLinkPanel({ siteId, authHeaders }: { siteId: string; aut
             </button>
           </div>
           {link.createdAt && <p className="text-xs text-[#87949c]">지금 링크를 만든 때: {formatSeoulDateTime(link.createdAt)}</p>}
+          {link.code && (
+            <p className="text-xs text-[#60717d]">
+              고객이 마지막으로 들어온 때: {link.lastOkAt ? formatSeoulDateTime(link.lastOkAt) : '아직 없음'}
+            </p>
+          )}
+          {link.lockedUntil && (
+            <p role="status" className="rounded-md border border-[#e7c37a] bg-[#fff8e8] px-3 py-2 text-xs font-semibold leading-5 text-[#8b6420]">
+              휴대폰 번호를 여러 번 틀려 링크가 {formatSeoulDateTime(link.lockedUntil)}까지 잠겨 있습니다. 고객이 지금 들어와야 하면 &quot;새 링크로 바꾸기&quot;로 새 링크를 보내 주세요.
+            </p>
+          )}
 
           <div className="border-t border-[#e3e8eb] pt-3">
             <p className="text-sm font-semibold text-[#273541]">알림톡 발송 기록</p>

@@ -53,6 +53,19 @@ test('summarizeSchedule uses a positive progress value and 100 means done', () =
   assert.equal(s.percent, 100);
 });
 
+test('a task past its end date with an entered progress below 100 is delayed, not done', () => {
+  const tasks = [
+    { id: '1', name: '철거', startDate: '2026-10-01', endDate: '2026-10-02', durationDays: 2, progress: 60 },
+    { id: '2', name: '목공', startDate: '2026-10-01', endDate: '2026-10-02', durationDays: 2, progress: 0 },
+    { id: '3', name: '설비', startDate: '2026-10-01', endDate: '2026-10-02', durationDays: 2, progress: 100 },
+  ];
+  const s = summarizeSchedule(tasks, '2026-10-05');
+  assert.deepEqual(s.tasks.map((t) => t.state), ['delayed', 'done', 'done'], 'no progress entered keeps the date rule');
+  assert.equal(s.tasks[0].percent, 60, 'the delayed task shows its real progress');
+  assert.equal(s.percent, 87); // (2*60 + 2*100 + 2*100) / 6
+  assert.deepEqual(s.current.map((t) => t.name), ['철거'], 'a delayed task is still current work');
+});
+
 test('summarizeSchedule ignores broken tasks and never returns NaN', () => {
   const s = summarizeSchedule([
     { id: '1', name: '', startDate: '', endDate: '', durationDays: 0, progress: 0 },

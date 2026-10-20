@@ -1419,7 +1419,8 @@ export default function ManagerPage() {
 
     const name = trashRows.find((row) => row.id === id && row.type === type)?.name || '';
     const target = `${name ? `'${name}'` : '선택한'} ${officeRecordDeleteLabels[type]}`;
-    if (action === 'permanent' && !window.confirm(`${target} 영구 삭제할까요?\n영구 삭제한 항목은 휴지통에서도 사라지며 되돌릴 수 없습니다.`)) return;
+    const siteNote = type === 'site' ? '\n이 현장의 고객 진행 현황 기록과 사진도 함께 삭제됩니다.' : '';
+    if (action === 'permanent' && !window.confirm(`${target} 영구 삭제할까요?\n영구 삭제한 항목은 휴지통에서도 사라지며 되돌릴 수 없습니다.${siteNote}`)) return;
 
     setSavingOffice(true);
     try {

@@ -9,6 +9,8 @@ import {
   NOTIFY_STATUS_LABEL,
   canPostAgain,
   createProgressApi,
+  customerPostPhotos,
+  customerPostText,
   defaultPostToCustomer,
   errorText,
   formatReportDay,
@@ -94,6 +96,18 @@ export function DailyReportProgress({
   // One request at a time from this section. The ref also stops a fast double click before the disabled state renders.
   const busyRef = useRef(false);
   const defaultsApplied = useRef(false);
+  // What the customer will see: the report memo unless staff rewrote it here, and the photos left ticked.
+  const [customerTextOverride, setCustomerTextOverride] = useState<string | null>(null);
+  const [excludedPhotoIds, setExcludedPhotoIds] = useState<string[]>([]);
+  const customerText = customerPostText(customerTextOverride, workDetail);
+  const customerPhotos = customerPostPhotos(photos, excludedPhotoIds);
+  const [photoPreviews, setPhotoPreviews] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const urls = Object.fromEntries(photos.map((photo) => [photo.id, URL.createObjectURL(photo.file)]));
+    setPhotoPreviews(urls);
+    return () => Object.values(urls).forEach((url) => URL.revokeObjectURL(url));
+  }, [photos]);
 
   const load = async () => {
     try {
@@ -123,7 +137,7 @@ export function DailyReportProgress({
     ? notifyBlockedReason({ notifyConfigured: state.notifyConfigured, hasCustomerPhone: state.hasCustomerPhone, linkEnabled: state.link.enabled })
     : null;
   const busy = posting || rowBusyId !== '';
-  const signature = postSignature({ reportDate, designer, workDetail, photoIds: photos.map((photo) => photo.id) });
+  const signature = postSignature({ reportDate, designer, workDetail: customerText, photoIds: customerPhotos.map((photo) => photo.id) });
   const alreadyPosted = !canPostAgain(postedSignature, signature);
 
   // The window asks before closing while a request runs: closing would hide the result but not stop the upload or alimtalk.
@@ -147,19 +161,23 @@ export function DailyReportProgress({
 
   const post = async () => {
     if (busyRef.current || !state || !postToCustomer || !canPostAgain(postedRef.current, signature)) return;
-    if (!workDetail.trim()) {
-      setPostNotice({ tone: 'error', lines: ['상세 작업 내역을 입력해주세요.'] });
+    if (!customerText.trim()) {
+      setPostNotice({ tone: 'error', lines: ['고객에게 보일 작업 내용을 입력해주세요.'] });
       return;
     }
     if (photos.length === 0) {
       setPostNotice({ tone: 'error', lines: ['현장 사진을 첨부해주세요.'] });
       return;
     }
+    if (customerPhotos.length === 0) {
+      setPostNotice({ tone: 'error', lines: ['고객에게 보일 사진을 1장 이상 골라주세요.'] });
+      return;
+    }
 
     busyRef.current = true;
     setPosting(true);
     setPostNotice(null);
-    const selected = [...photos];
+    const selected = [...customerPhotos];
     const notify = sendNotify && !notifyBlocked;
     try {
       const uploaded = await shrinkAndUploadPhotos(selected, {
@@ -175,7 +193,7 @@ export function DailyReportProgress({
 
       setProgressLabel(notify ? '진행 기록 저장하고 알림톡 보내는 중' : '진행 기록 저장 중');
       try {
-        const saved = await api.createUpdate({ siteId, reportDate, designer, workDetail, photos: uploaded.photos, notify });
+        const saved = await api.createUpdate({ siteId, reportDate, designer, workDetail: customerText.trim(), photos: uploaded.photos, notify });
         // Saved: this exact report (and its alimtalk) must not go out a second time.
         postedRef.current = signature;
         setPostedSignature(signature);
@@ -241,7 +259,7 @@ export function DailyReportProgress({
       <h3 id="daily-report-progress-title" className="mt-1 text-lg font-semibold">
         고객 진행 현황
       </h3>
-      <p className="mt-1 text-sm leading-6 text-[#60717d]">위 날짜, 담당, 상세 작업 내역과 사진을 고객용 진행 현황 페이지에 올립니다.</p>
+      <p className="mt-1 text-sm leading-6 text-[#60717d]">위 날짜, 담당과 아래에서 고른 내용·사진을 고객용 진행 현황 페이지에 올립니다.</p>
 
       {!state && !loadError && (
         <p className="mt-3 inline-flex items-center gap-2 text-sm text-[#60717d]">
@@ -264,6 +282,67 @@ export function DailyReportProgress({
               고객 진행 현황에 올리기
             </label>
             {linkHint && <p className={`-mt-1 pl-6 text-xs leading-5 ${linkHint.warn ? 'font-semibold text-[#8b6420]' : 'text-[#60717d]'}`}>{linkHint.text}</p>}
+            {postToCustomer && (
+              <div className="grid gap-2 rounded-md border border-[#cde4ea] bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label htmlFor="customer-progress-text" className="text-sm font-bold text-[#273541]">
+                    고객에게 보이는 내용
+                  </label>
+                  {customerTextOverride !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setCustomerTextOverride(null)}
+                      disabled={posting}
+                      className="rounded-md border border-[#d5dde2] px-2 py-1 text-xs font-semibold text-[#4d5d66] disabled:opacity-50"
+                    >
+                      보고서 내용으로 되돌리기
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs leading-5 text-[#60717d]">
+                  처음에는 위 상세 작업 내역이 그대로 들어갑니다. 내부 메모나 고객이 몰라도 되는 내용은 여기서 지우고 올려 주세요. 보고서 내용은 바뀌지 않습니다.
+                </p>
+                <textarea
+                  id="customer-progress-text"
+                  value={customerText}
+                  onChange={(event) => setCustomerTextOverride(event.target.value)}
+                  disabled={posting}
+                  rows={4}
+                  className="w-full resize-y rounded-md border border-[#d5dde2] px-3 py-2 text-sm leading-6 outline-none focus:border-[#38a9bd]"
+                />
+                {photos.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-[#273541]">
+                      고객에게 보일 사진 {customerPhotos.length}/{photos.length}장 <span className="font-medium text-[#60717d]">· 빼고 싶은 사진은 체크를 풀어 주세요.</span>
+                    </p>
+                    <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-6">
+                      {photos.map((photo) => {
+                        const included = !excludedPhotoIds.includes(photo.id);
+                        return (
+                          <label
+                            key={photo.id}
+                            className={`relative block cursor-pointer overflow-hidden rounded-md border-2 ${included ? 'border-[#38a9bd]' : 'border-[#d5dde2] opacity-40'}`}
+                            title={photo.name}
+                          >
+                            {photoPreviews[photo.id] && <img src={photoPreviews[photo.id]} alt={photo.name} className="aspect-square w-full object-cover" />}
+                            <input
+                              type="checkbox"
+                              checked={included}
+                              disabled={posting}
+                              onChange={() =>
+                                setExcludedPhotoIds((current) => (included ? [...current, photo.id] : current.filter((id) => id !== photo.id)))
+                              }
+                              aria-label={`${photo.name} 고객에게 보이기`}
+                              className="absolute left-1 top-1 h-4 w-4 accent-[#38a9bd]"
+                            />
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <label className={`flex items-start gap-2 text-sm font-bold ${notifyBlocked || !postToCustomer ? 'text-[#9aa6ad]' : 'text-[#273541]'}`}>
               <input
                 type="checkbox"
