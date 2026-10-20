@@ -4,7 +4,9 @@
 import { decideLinkOnUpload, type AutoLinkDecision } from '../api/manager/_progress-link-rules.ts';
 import type { CustomerProgressView, NotifyLogEntry, ProgressUpdate, ProgressUpdateView, StoredProgressPhoto } from '../lib/site-progress.ts';
 
-export type ProgressLink = { enabled: boolean; code: string; url: string; createdAt: string };
+// lockedUntil: set while wrong numbers have locked the link; lastOkAt: when the customer last got in (both may be missing
+// from an older server answer).
+export type ProgressLink = { enabled: boolean; code: string; url: string; createdAt: string; lockedUntil?: string; lastOkAt?: string };
 
 // Every answer that carries records carries their photos as signed URLs. When the server could not make them, each photo
 // has an empty url and photosUnavailable is true (the record and its photo count are still right).
@@ -108,6 +110,18 @@ export function notifyBlockedReason(input: { notifyConfigured: boolean; hasCusto
   if (!input.hasCustomerPhone) return '고객 휴대폰 번호가 없어 알림톡을 보낼 수 없습니다.';
   if (!input.linkEnabled) return '고객 진행 현황 링크가 꺼져 있어 알림톡을 보낼 수 없습니다.';
   return null;
+}
+
+// What the customer sees: staff may rewrite the report's work memo before posting (null = use the report's text as it is),
+// so internal notes in the report never go out unseen.
+export function customerPostText(override: string | null, workDetail: string): string {
+  return override ?? workDetail;
+}
+
+// The report photos staff left ticked for the customer, in report order.
+export function customerPostPhotos<T extends { id: string }>(photos: readonly T[], excludedIds: readonly string[]): T[] {
+  const excluded = new Set(excludedIds);
+  return photos.filter((photo) => !excluded.has(photo.id));
 }
 
 // The memo on one line, cut after `max` characters (code points, so an emoji is never split).

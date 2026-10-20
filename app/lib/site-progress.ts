@@ -15,7 +15,8 @@ export type ProgressTaskView = {
   name: string;
   startDate: string;
   endDate: string;
-  state: 'done' | 'active' | 'upcoming';
+  // 'delayed': past its end date while staff set a progress below 100.
+  state: 'done' | 'active' | 'upcoming' | 'delayed';
   percent: number;
 };
 
@@ -66,7 +67,7 @@ export type CustomerProgressView = {
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const STATE_DEFAULT_PERCENT = { done: 100, active: 50, upcoming: 0 } as const;
+const STATE_DEFAULT_PERCENT = { done: 100, active: 50, upcoming: 0, delayed: 50 } as const;
 
 export function todayInSeoul(nowMs: number = Date.now()): string {
   return new Date(nowMs + KST_OFFSET_MS).toISOString().slice(0, 10);
@@ -122,8 +123,12 @@ export function summarizeSchedule(tasks: ProgressScheduleTask[], today: string):
     if (!name || start === null || end === null || start > end) continue;
 
     const progress = Number(task.progress);
-    const done = progress >= 100 || endDate < today;
-    const state: ProgressTaskView['state'] = done ? 'done' : startDate <= today ? 'active' : 'upcoming';
+    // Past its end date a task counts as done, unless staff entered a progress of 1-99: then it is late, not done.
+    // A task whose progress was never entered (0) keeps the date rule, since most tasks never get one.
+    const pastEnd = endDate < today;
+    const enteredUnfinished = progress > 0 && progress < 100;
+    const state: ProgressTaskView['state'] =
+      progress >= 100 ? 'done' : pastEnd ? (enteredUnfinished ? 'delayed' : 'done') : startDate <= today ? 'active' : 'upcoming';
     const percent = Math.round(progress > 0 ? clampPercent(progress) : STATE_DEFAULT_PERCENT[state]);
 
     const duration = Number(task.durationDays);
@@ -143,7 +148,7 @@ export function summarizeSchedule(tasks: ProgressScheduleTask[], today: string):
     percent: Math.round(weightedTotal / weightSum),
     startDate: views[0].startDate,
     endDate: views.reduce((max, view) => (view.endDate > max ? view.endDate : max), views[0].endDate),
-    current: views.filter((view) => view.state === 'active'),
+    current: views.filter((view) => view.state === 'active' || view.state === 'delayed'),
     next: views.find((view) => view.state === 'upcoming') ?? null,
     tasks: views,
   };

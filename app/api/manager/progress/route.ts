@@ -42,6 +42,11 @@ import {
   type ProgressSiteFields,
 } from '../_progress-store';
 import { requireManager } from '../_session';
+import { hasAnyPermission } from '../../../lib/manager-permissions';
+import { isProgressLocked } from '../../progress/_access';
+
+// Posting a record (and its photos) opens from the 대시보드's 일일 보고서, so it needs dashboard as well as sites.
+const POST_NEEDS_DASHBOARD = '진행 기록을 올리려면 업무 현황(대시보드)과 현장 관리 권한이 모두 필요합니다.';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -80,6 +85,10 @@ function linkOf(site: ProgressSite) {
     code,
     url: code ? `${base}/progress/${code}` : '',
     createdAt: typeof site.progressCodeCreatedAt === 'string' ? site.progressCodeCreatedAt : '',
+    // For staff only (the code is never in these): whether wrong numbers locked the link, until when, and the last
+    // time the customer got in. Only "새 링크로 바꾸기" clears a lock.
+    lockedUntil: isProgressLocked(site.progressAccess) ? String(site.progressAccess?.lockedUntil || '') : '',
+    lastOkAt: typeof site.progressAccess?.lastOkAt === 'string' ? site.progressAccess.lastOkAt : '',
   };
 }
 
@@ -134,14 +143,19 @@ export async function POST(request: Request) {
   if (!isProgressStoreReady()) return fail(STORE_MISSING, 503);
 
   try {
+    const canPost = hasAnyPermission(access.session, ['dashboard']);
     // Photos come one per multipart request (Vercel caps a request near 4.5MB); everything else is JSON.
-    if ((request.headers.get('content-type') || '').includes('multipart/form-data')) return await uploadPhoto(request);
+    if ((request.headers.get('content-type') || '').includes('multipart/form-data')) {
+      if (!canPost) return fail(POST_NEEDS_DASHBOARD, 403);
+      return await uploadPhoto(request);
+    }
 
     const body = await request.json().catch(() => null);
     if (!isRecord(body)) return fail(BAD_REQUEST, 400);
 
     switch (body.action) {
       case 'createUpdate':
+        if (!canPost) return fail(POST_NEEDS_DASHBOARD, 403);
         return await createUpdate(body, access.session.loginId);
       case 'deleteUpdate':
         return await deleteUpdate(body);
