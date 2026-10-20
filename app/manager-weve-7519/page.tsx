@@ -35,6 +35,7 @@ import { todayInSeoul } from '../lib/site-progress';
 import { salesTotals, shouldAutoSyncKakao } from '../lib/dashboard-rules';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
+import { MobileDevicesPanel } from './mobile-devices-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
 import { ProgressLinkPanel } from './progress-link-panel';
 
@@ -3025,6 +3026,9 @@ export default function ManagerPage() {
                 }))}
               />
             </Panel>
+            <div className="xl:col-span-2">
+              <MobileDevicesPanel authHeaders={() => authHeaders()} />
+            </div>
           </div>
         )}
 
