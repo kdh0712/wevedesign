@@ -38,6 +38,9 @@ export function newDeviceSecret(): { deviceId: string; deviceToken: string; toke
   return { deviceId: `md-${randomBytes(12).toString('hex')}`, deviceToken, tokenHash: hashDeviceToken(deviceToken) };
 }
 
+// Checked before any Firestore read, so a request can only name a document id this module could have made.
+export const isMobileDeviceId = (value: unknown): value is string => typeof value === 'string' && /^md-[0-9a-f]{24}$/.test(value);
+
 function tokenMatches(token: string, tokenHash: string) {
   const provided = Buffer.from(hashDeviceToken(token), 'hex');
   const stored = Buffer.from(tokenHash, 'hex');

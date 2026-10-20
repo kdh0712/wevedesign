@@ -7,6 +7,7 @@ import {
   deviceLabelFromUserAgent,
   deviceRefreshDecision,
   hashDeviceToken,
+  isMobileDeviceId,
   newDeviceSecret,
 } from '../app/api/manager/_mobile-device-rules.ts';
 
@@ -78,4 +79,11 @@ test('device labels name the phone and browser', () => {
     'iPhone · Chrome',
   );
   assert.equal(deviceLabelFromUserAgent(''), '알 수 없는 기기');
+});
+
+test('only ids shaped like the ones we issue are looked up', () => {
+  assert.equal(isMobileDeviceId(newDeviceSecret().deviceId), true);
+  for (const bad of ['', 'md-', 'md-xyz', '../managerDevices/md-0123456789abcdef01234567', 'md-0123456789ABCDEF01234567', 42, null]) {
+    assert.equal(isMobileDeviceId(bad), false, String(bad));
+  }
 });
