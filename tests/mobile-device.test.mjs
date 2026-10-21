@@ -8,11 +8,13 @@ import {
   MOBILE_DEVICE_TTL_MS,
   MOBILE_SESSION_TTL_SECONDS,
   deviceLabelFromUserAgent,
+  deviceIsActive,
   deviceRefreshDecision,
   hashDeviceToken,
   isMobileDeviceId,
   newDeviceSecret,
   previousDeviceOf,
+  pushRecipientDecision,
 } from '../app/api/manager/_mobile-device-rules.ts';
 
 const now = Date.UTC(2026, 9, 20, 3, 0, 0);
@@ -126,4 +128,25 @@ test('a login names the device it replaces only with a well formed id and a toke
   assert.equal(previousDeviceOf({ previousDeviceId: id, previousDeviceToken: '' }, 'md-ffffffffffffffffffffffff'), null);
   assert.equal(previousDeviceOf({ previousDeviceId: id }, 'md-ffffffffffffffffffffffff'), null);
   assert.equal(previousDeviceOf(null, 'md-ffffffffffffffffffffffff'), null);
+});
+
+test('deviceIsActive needs a live, signed device (no token needed)', () => {
+  const s = newDeviceSecret();
+  assert.equal(deviceIsActive(deviceFor(s), now, key), true);
+  assert.equal(deviceIsActive(deviceFor(s, { revokedAt: iso(now - 1000) }), now, key), false);
+  assert.equal(deviceIsActive(deviceFor(s, { expiresAt: iso(now - 1) }), now, key), false);
+  assert.equal(deviceIsActive(deviceFor(s, {}, Buffer.from('other-key')), now, key), false);
+  assert.equal(deviceIsActive(null, now, key), false);
+});
+
+test('an alert goes only to a live phone whose login still holds, and only with the permission', () => {
+  const s = newDeviceSecret();
+  const stamped = deviceFor(s, { credentialStamp: credentialStamp(key, 'hash-1') });
+  const account = { credential: 'hash-1', canGetAlerts: true };
+  assert.equal(pushRecipientDecision(stamped, 'u1', account, now, key), 'send');
+  assert.equal(pushRecipientDecision(stamped, 'u1', { ...account, credential: 'hash-2' }, now, key), 'drop', 'password changed');
+  assert.equal(pushRecipientDecision(stamped, 'u1', null, now, key), 'drop', 'account removed');
+  assert.equal(pushRecipientDecision(stamped, 'u2', account, now, key), 'drop', 'another person on the subscription');
+  assert.equal(pushRecipientDecision(deviceFor(s, { revokedAt: iso(now) }), 'u1', account, now, key), 'drop');
+  assert.equal(pushRecipientDecision(stamped, 'u1', { ...account, canGetAlerts: false }, now, key), 'skip', 'permission removed for now');
 });

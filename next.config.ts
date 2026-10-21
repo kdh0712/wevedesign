@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   // Customer progress photos (Firebase Storage). Loaded by Node as installed, like firebase-admin (which wraps it) is by
   // default, instead of being bundled.
   serverExternalPackages: ['@google-cloud/storage'],
+  async rewrites() {
+    return [
+      // Digital Asset Links for the staff Android app (a TWA around /manager-weve-7519/m): without it the app shows an
+      // address bar. Served by a route so the signing fingerprint comes from ANDROID_APP_SHA256.
+      { source: '/.well-known/assetlinks.json', destination: '/api/android-assetlinks' },
+    ];
+  },
   async headers() {
     return [
       {
@@ -34,6 +41,12 @@ const nextConfig: NextConfig = {
           { key: 'Cache-Control', value: 'private, no-store' },
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
+      },
+      {
+        // The push alert worker sits at /manager-weve-7519/m/sw.js, so by default it could control only
+        // /manager-weve-7519/m/ (with the slash) and not the app page /manager-weve-7519/m; browsers refuse that registration.
+        source: '/manager-weve-7519/m/sw.js',
+        headers: [{ key: 'Service-Worker-Allowed', value: '/manager-weve-7519/m' }],
       },
     ];
   },

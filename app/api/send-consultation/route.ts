@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { createClient } from 'next-sanity';
 import {
@@ -20,6 +20,7 @@ import {
 import { adminButtonJson, isAligoSuccess, normalizeTemplateText, type AligoResponse } from './aligo-admin';
 import { pickAlertPhones } from '../../lib/alert-phones';
 import { envAlertPhones, readSavedAlertPhones } from '../manager/_alert-phones-store';
+import { notifyNewConsultations } from '../manager/_push';
 
 type ConsultationPayload = {
   name?: string;
@@ -399,6 +400,9 @@ export async function POST(request: Request) {
     } else {
       await writeClient.create(consultationRecord);
     }
+
+    // 새 상담 알림 to staff phones, after the answer; it never changes this request's result (spec 2026-10-21 staff push).
+    after(() => notifyNewConsultations([consultationRecord]));
 
     const kakaoNotification = await sendConsultationKakaoNotifications({
       name,

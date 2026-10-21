@@ -1,0 +1,26 @@
+# Imports new Kakao BizForm+ consultations every 10 minutes and sends the staff push alerts, so they arrive even when no
+# PC dashboard is open (spec docs/superpowers/specs/2026-10-21-staff-push-android-design.md §4).
+# Needs repository secrets CRON_SECRET (the same value as Vercel's) and SITE_URL (https://www.wevedesign.co.kr).
+# GitHub pauses scheduled workflows of a public repository after 60 days without commits; re-enable it in the Actions tab.
+name: Kakao BizForm sync
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Import new consultations
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          SITE_URL: ${{ secrets.SITE_URL }}
+        run: |
+          curl -fsS --max-time 90 -X POST \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${SITE_URL}/api/cron/kakao-bizform"

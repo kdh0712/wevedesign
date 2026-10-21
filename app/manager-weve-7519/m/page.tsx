@@ -28,6 +28,7 @@ import {
   type MobileSession,
 } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
+import { PushPanel, SERVICE_WORKER_SCOPE, SERVICE_WORKER_URL } from './push-panel';
 import { ReportTab } from './report-tab';
 import { ScheduleTab } from './schedule-tab';
 import { SitesTab, type SiteView } from './sites-tab';
@@ -201,6 +202,13 @@ export default function StaffAppPage() {
     if (phase === 'ready') void loadOverview();
   }, [phase, loadOverview]);
 
+  // The push alert service worker (alerts only, no cache). Registering again is harmless; a failure only shows in the
+  // 새 상담 알림 panel, which registers again when alerts are turned on.
+  useEffect(() => {
+    if (phase !== 'ready' || !('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: SERVICE_WORKER_SCOPE }).catch(() => undefined);
+  }, [phase]);
+
   useEffect(() => {
     if (phase !== 'ready') return;
     const onVisible = () => {
@@ -224,6 +232,20 @@ export default function StaffAppPage() {
       consultations: permissions.includes('consultations'),
     });
   }, [user]);
+
+  // A tapped 새 상담 alert opens /manager-weve-7519/m?tab=consultations: go to 상담 once, then drop the parameter. The
+  // history state is passed on unchanged so the back guard and Next's own entries stay as they are.
+  const deepLinkReadRef = useRef(false);
+  useEffect(() => {
+    if (phase !== 'ready' || tabs.length === 0 || deepLinkReadRef.current) return;
+    deepLinkReadRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') !== 'consultations') return;
+    if (tabs.includes('consultations')) setTab('consultations');
+    params.delete('tab');
+    const query = params.toString();
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, [phase, tabs]);
 
   useEffect(() => {
     if (tabs.length > 0 && !tabs.includes(tab)) setTab(tabs[0]);
@@ -292,6 +314,21 @@ export default function StaffAppPage() {
     setTab(next);
     window.scrollTo({ top: 0 });
   };
+
+  // A 새 상담 alert tapped while the app is open: the service worker asks for 상담 instead of reloading the page, so the
+  // usual tab change (and its check before leaving a report being written) applies.
+  const openConsultationsRef = useRef<() => void>(() => undefined);
+  openConsultationsRef.current = () => {
+    if (tabs.includes('consultations')) changeTab('consultations');
+  };
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if ((event.data as { type?: unknown } | null)?.type === 'weve-open-consultations') openConsultationsRef.current();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
 
   const openSite = (id: string, from: MobileTab | null = null) => {
     siteOriginRef.current = openSiteFrom(id, from).origin;
@@ -475,7 +512,12 @@ export default function StaffAppPage() {
               />
             )}
             {tab === 'consultations' && (
-              <ConsultationsTab consultations={overview.consultations || []} nowMs={nowMs} onSave={saveConsultation} />
+              <ConsultationsTab
+                consultations={overview.consultations || []}
+                nowMs={nowMs}
+                onSave={saveConsultation}
+                pushPanel={<PushPanel request={authedFetch} credentials={() => mobile?.deviceCredentials() ?? null} />}
+              />
             )}
           </>
         )}

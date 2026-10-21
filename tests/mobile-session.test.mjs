@@ -105,6 +105,13 @@ test('without a stored device there is no session and no request', async () => {
   assert.equal(calls, 0);
 });
 
+test('deviceCredentials returns the stored device or null', () => {
+  const stored = createMobileSession({ fetcher: async () => jsonResponse(200, {}), storage: memoryStorage({ [MOBILE_DEVICE_STORAGE_KEY]: JSON.stringify(device) }), now: () => now });
+  assert.deepEqual(stored.deviceCredentials(), { deviceId: device.deviceId, deviceToken: device.deviceToken });
+  const none = createMobileSession({ fetcher: async () => jsonResponse(200, {}), storage: memoryStorage(), now: () => now });
+  assert.equal(none.deviceCredentials(), null);
+});
+
 test('logout clears the device even when the request fails', async () => {
   const storage = memoryStorage({ [MOBILE_DEVICE_STORAGE_KEY]: JSON.stringify(device) });
   const sent = [];

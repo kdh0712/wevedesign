@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   CONSULTATION_MEMO_MAX,
   CONSULTATION_STATUSES,
@@ -20,10 +20,13 @@ export function ConsultationsTab({
   consultations,
   nowMs,
   onSave,
+  pushPanel,
 }: {
   consultations: MobileConsultation[];
   nowMs: number;
   onSave: (id: string, change: ConsultationChange) => Promise<void>;
+  // 새 상담 알림 on/off for this phone, shown under the title.
+  pushPanel?: ReactNode;
 }) {
   const [group, setGroup] = useState<ConsultationGroup>('new');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -48,6 +51,7 @@ export function ConsultationsTab({
   return (
     <div className="space-y-3">
       <h1 className="text-[22px] font-bold text-[#171512]">상담</h1>
+      {pushPanel}
       <div className="flex rounded-xl bg-[#f1ebe0] p-1 text-sm" role="tablist">
         {GROUPS.map((key) => (
           <button

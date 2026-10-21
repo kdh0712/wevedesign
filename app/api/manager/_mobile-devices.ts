@@ -1,5 +1,6 @@
 import type { LoginUser } from './_login';
 import { credentialStamp, deviceSignature, MOBILE_DEVICE_TTL_MS, newDeviceSecret, type MobileDeviceRecord } from './_mobile-device-rules';
+import { deletePushSubscription } from './_push-subscriptions';
 import type { SessionSource } from './_token';
 import { getFirestoreDocument, listFirestoreCollection, patchFirestoreFields } from './firestore';
 
@@ -47,9 +48,12 @@ export async function touchMobileDevice(id: string, nowIso: string) {
   await patchFirestoreFields(MOBILE_DEVICES_COLLECTION, id, { lastUsedAt: nowIso }, { precondition: { exists: true } });
 }
 
-// Throws FirestoreConflictError when the device does not exist.
+// Throws FirestoreConflictError when the device does not exist. Every way a phone login ends (logout, a new login on that
+// phone, an account removed or changed, an admin's 로그인 끊기) comes through here, so its push subscription goes too.
+// A subscription that cannot be deleted is only logged: the sender checks the device again before every alert.
 export async function revokeMobileDevice(id: string, by: string, nowIso: string) {
   await patchFirestoreFields(MOBILE_DEVICES_COLLECTION, id, { revokedAt: nowIso, revokedBy: by }, { precondition: { exists: true } });
+  await deletePushSubscription(id).catch((error) => console.warn('Push subscription cleanup failed:', error));
 }
 
 // Devices that can still refresh, most recently used first.
