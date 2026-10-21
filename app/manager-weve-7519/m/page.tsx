@@ -3,11 +3,21 @@
 import { LogOut, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
+import type { CustomerEstimateView } from '../../lib/mobile-estimate';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
+import { createSiteNotesApi } from '../site-notes-api';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
-import { createBackGuard, freshScreen, LEAVE_REPORT_CONFIRM, REPORT_BUSY_NOTICE, reportLeaveDecision } from './mobile-screen';
+import {
+  createBackGuard,
+  freshScreen,
+  LEAVE_REPORT_CONFIRM,
+  openSiteFrom,
+  REPORT_BUSY_NOTICE,
+  reportLeaveDecision,
+  selectSite,
+} from './mobile-screen';
 import {
   createMobileSession,
   MobileSessionError,
@@ -19,10 +29,11 @@ import {
 } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { ReportTab } from './report-tab';
-import { SitesTab } from './sites-tab';
+import { ScheduleTab } from './schedule-tab';
+import { SitesTab, type SiteView } from './sites-tab';
 import { TodayTab } from './today-tab';
 
-// The staff phone app (spec docs/superpowers/specs/2026-10-20-staff-mobile-app-design.md). One page with four tabs; the data
+// The staff phone app (specs 2026-10-20-staff-mobile-app and 2026-10-21-staff-app-notes-schedule-estimate). One page, five tabs; the data
 // comes from GET /api/manager/mobile/overview and is read again when the app comes back after 5 minutes or on pull-down.
 
 const RELOAD_AFTER_MS = 5 * 60 * 1000;
@@ -78,6 +89,8 @@ export default function StaffAppPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pull, setPull] = useState(0);
   const loadedAtRef = useRef(0);
+  // The tab a site detail was opened from (오늘 or 일정), where the back button returns.
+  const siteOriginRef = useRef<MobileTab | null>(null);
   const pullStartRef = useRef<number | null>(null);
 
   useEffect(() => setMobile(createMobileSession({ storage: safeLocalStorage() })), []);
@@ -92,6 +105,7 @@ export default function StaffAppPage() {
     setLoadError(screen.loadError);
     setReportDirty(false);
     setReportBusy(false);
+    siteOriginRef.current = null;
     setMenuOpen(false);
     setLoginNotice(notice);
     setPhase('login');
@@ -215,21 +229,41 @@ export default function StaffAppPage() {
     if (tabs.length > 0 && !tabs.includes(tab)) setTab(tabs[0]);
   }, [tabs, tab]);
 
-  // The Android back button closes the site detail instead of the app (see createBackGuard).
+  // The estimate is a level on top of the site detail; another site always opens on its detail.
+  const [siteView, setSiteView] = useState<SiteView>('detail');
+  const [siteViewFor, setSiteViewFor] = useState(siteId);
+  if (siteViewFor !== siteId) {
+    setSiteViewFor(siteId);
+    setSiteView('detail');
+  }
+  const siteViewRef = useRef(siteView);
+  siteViewRef.current = siteView;
+
+  // The Android back button closes the top level (estimate, then site detail) instead of the app (see createBackGuard). A
+  // detail opened from 오늘 or 일정 goes back to that tab; the on-screen "현장 목록" button still goes to the site list.
   const detailOpen = phase === 'ready' && tab === 'sites' && Boolean(siteId && overview?.sites.some((site) => site.id === siteId));
+  const backDepth = detailOpen ? (siteView === 'estimate' && overview?.canViewEstimates ? 2 : 1) : 0;
   const backGuardRef = useRef<ReturnType<typeof createBackGuard> | null>(null);
   useEffect(() => {
     const guard = createBackGuard(window.history);
     backGuardRef.current = guard;
     const onPopState = () => {
-      if (guard.onPopState()) setSiteId(null);
+      if (!guard.onPopState()) return;
+      if (siteViewRef.current === 'estimate') {
+        setSiteView('detail');
+        return;
+      }
+      const origin = siteOriginRef.current;
+      siteOriginRef.current = null;
+      setSiteId(null);
+      if (origin === 'today' || origin === 'schedule') setTab(origin);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
   useEffect(() => {
-    backGuardRef.current?.sync(detailOpen);
-  }, [detailOpen]);
+    backGuardRef.current?.sync(backDepth);
+  }, [backDepth]);
 
   const progressApi = useMemo(() => createProgressApi(() => mobile?.authHeaders() || {}), [mobile]);
   const loadReports = useCallback(
@@ -252,12 +286,15 @@ export default function StaffAppPage() {
     setMenuOpen(false);
     if (next !== tab && !leaveReportOk()) return;
     if (next === tab && next === 'sites') setSiteId(null);
+    siteOriginRef.current = null;
+    setSiteView('detail');
     if (next === 'report' && next !== tab) setReportSiteId(null);
     setTab(next);
     window.scrollTo({ top: 0 });
   };
 
-  const openSite = (id: string) => {
+  const openSite = (id: string, from: MobileTab | null = null) => {
+    siteOriginRef.current = openSiteFrom(id, from).origin;
     setSiteId(id);
     setTab('sites');
     window.scrollTo({ top: 0 });
@@ -270,6 +307,24 @@ export default function StaffAppPage() {
   };
 
   const onReportPosted = useCallback(() => void loadOverview(), [loadOverview]);
+
+  // 할 일·현장 기록 go through authedFetch, so they get the same refresh and one retry on 401.
+  const notesApi = useMemo(() => createSiteNotesApi(authedFetch), [authedFetch]);
+  const loadEstimate = useCallback(
+    async (id: string) =>
+      ((await authedFetch(`/api/manager/mobile/estimate?siteId=${encodeURIComponent(id)}`)).estimate as CustomerEstimateView | null) ?? null,
+    [authedFetch],
+  );
+  // A tick or a new 할 일 updates the count on 오늘 at once, without reloading the overview.
+  const onOpenTodoCountChange = useCallback((id: string, count: number) => {
+    setOverview((current) => {
+      if (!current || (current.openTodoCounts?.[id] || 0) === count) return current;
+      const openTodoCounts = { ...current.openTodoCounts };
+      if (count > 0) openTodoCounts[id] = count;
+      else delete openTodoCounts[id];
+      return { ...current, openTodoCounts };
+    });
+  }, []);
 
   const saveConsultation = async (id: string, change: ConsultationChange) => {
     const data = (await authedFetch('/api/manager/mobile/consultation', {
@@ -382,17 +437,28 @@ export default function StaffAppPage() {
                 overview={overview}
                 userName={user?.name || ''}
                 nowMs={nowMs}
-                onOpenSite={openSite}
+                onOpenSite={(id) => openSite(id, 'today')}
                 onOpenConsultations={tabs.includes('consultations') ? () => changeTab('consultations') : undefined}
               />
             )}
+            {tab === 'schedule' && <ScheduleTab overview={overview} onOpenSite={(id) => openSite(id, 'schedule')} />}
             {tab === 'sites' && (
               <SitesTab
                 overview={overview}
                 selectedId={siteId}
-                onSelect={setSiteId}
+                onSelect={(id) => {
+                  // Chosen in the 현장 tab itself (or "현장 목록"): back goes to the site list from now on.
+                  siteOriginRef.current = selectSite(id).origin;
+                  setSiteId(id);
+                }}
                 onOpenReport={tabs.includes('report') ? openReport : undefined}
                 loadReports={loadReports}
+                notesApi={notesApi}
+                viewer={user || { loginId: '', role: 'staff' }}
+                onOpenTodoCountChange={onOpenTodoCountChange}
+                view={siteView}
+                onViewChange={setSiteView}
+                loadEstimate={loadEstimate}
               />
             )}
             {tab === 'report' && (

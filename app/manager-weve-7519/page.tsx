@@ -38,6 +38,8 @@ import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
 import { ProgressLinkPanel } from './progress-link-panel';
+import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
+import { SiteNotesSection } from './site-notes-section';
 
 type UploadResult = {
   projectTitle: string;
@@ -2669,6 +2671,20 @@ export default function ManagerPage() {
                 />
               </div>
               {editingSiteId && hasAnyPermission(currentUser, ['sites']) && <ProgressLinkPanel key={editingSiteId} siteId={editingSiteId} authHeaders={() => authHeaders()} />}
+              {hasAnyPermission(currentUser, ['sites']) && currentUser && (
+                <section className="mt-5" aria-label="직원 할 일과 현장 기록">
+                  {editingSiteId ? (
+                    <SiteNotesSection
+                      key={`notes-${editingSiteId}`}
+                      siteId={editingSiteId}
+                      api={createSiteNotesApi(fetchWithHeaders(() => authHeaders()))}
+                      viewer={currentUser}
+                    />
+                  ) : (
+                    <p className="text-sm text-[#60717d]">저장한 뒤에 할 일과 현장 기록을 쓸 수 있어요.</p>
+                  )}
+                </section>
+              )}
             </Panel>
             <Panel title="현장 목록">
               <RecordList

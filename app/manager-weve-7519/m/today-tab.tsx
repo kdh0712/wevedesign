@@ -2,7 +2,7 @@
 
 import { AlertTriangle, CalendarDays, ChevronRight, MessageCircle } from 'lucide-react';
 import { koreanDateLabel, timeAgo, type MobileOverview, type MobileSite } from '../../lib/mobile-overview';
-import { Card, EmptyText, InstallGuide, ProgressBar, SectionTitle } from './mobile-ui';
+import { Card, EmptyText, InstallGuide, Pill, ProgressBar, SectionTitle } from './mobile-ui';
 
 const todayWork = (site: MobileSite) =>
   (site.schedule?.tasks || []).filter((task) => task.state === 'active' || task.state === 'delayed').map((task) => task.name);
@@ -83,11 +83,15 @@ export function TodayTab({
       ) : (
         activeSites.map((site) => {
           const work = todayWork(site);
+          const openTodos = overview.openTodoCounts?.[site.id] || 0;
           return (
             <Card key={site.id} onClick={() => onOpenSite(site.id)}>
               <span className="flex items-center justify-between gap-3">
                 <span className="truncate font-bold text-[#171512]">{site.title}</span>
-                {site.schedule && <span className="shrink-0 text-sm text-[#625d54]">{site.schedule.percent}%</span>}
+                <span className="flex shrink-0 items-center gap-2 text-sm text-[#625d54]">
+                  {openTodos > 0 && <Pill>할 일 {openTodos}</Pill>}
+                  {site.schedule && <span>{site.schedule.percent}%</span>}
+                </span>
               </span>
               <span className="mb-2 mt-0.5 block truncate text-sm text-[#625d54]">
                 {work.length > 0 ? `오늘: ${work.join(' · ')}` : site.schedule ? '오늘 예정된 공정 없음' : '공정표 없음'}

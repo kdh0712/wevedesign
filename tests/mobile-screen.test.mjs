@@ -5,6 +5,8 @@ import {
   createBackGuard,
   freshScreen,
   movedConsultationNotice,
+  openSiteFrom,
+  selectSite,
   reportLeaveDecision,
   syncedMemoDraft,
 } from '../app/manager-weve-7519/m/mobile-screen.ts';
@@ -82,9 +84,9 @@ function fakeHistory() {
 test('the site detail gets a history entry, so the back button closes it instead of the app', () => {
   const history = fakeHistory();
   const guard = createBackGuard(history);
-  guard.sync(true);
+  guard.sync(1);
   assert.equal(history.index, 1);
-  guard.sync(true);
+  guard.sync(1);
   assert.equal(history.index, 1, 'one entry however often the screen redraws');
   let closed = 0;
   history.pressBack(() => {
@@ -92,15 +94,15 @@ test('the site detail gets a history entry, so the back button closes it instead
   });
   assert.equal(closed, 1);
   assert.equal(history.index, 0);
-  guard.sync(false);
+  guard.sync(0);
   assert.equal(history.index, 0, 'the entry is already gone');
 });
 
 test('closing the detail on screen takes its history entry back without closing anything twice', () => {
   const history = fakeHistory();
   const guard = createBackGuard(history);
-  guard.sync(true);
-  guard.sync(false);
+  guard.sync(1);
+  guard.sync(0);
   let closed = 0;
   history.flush(() => {
     if (guard.onPopState()) closed += 1;
@@ -108,8 +110,54 @@ test('closing the detail on screen takes its history entry back without closing 
   assert.equal(history.index, 0);
   assert.equal(closed, 0);
   // A back press now leaves the app as usual: no entry is left behind.
-  guard.sync(true);
+  guard.sync(1);
   assert.equal(history.index, 1);
+});
+
+test('estimate on top of the site detail: back closes the estimate first, then the detail', () => {
+  const history = fakeHistory();
+  const guard = createBackGuard(history);
+  guard.sync(1);
+  guard.sync(2);
+  assert.equal(history.index, 2);
+  let closed = 0;
+  const onPop = () => {
+    if (guard.onPopState()) closed += 1;
+  };
+  history.pressBack(onPop);
+  assert.equal(closed, 1, 'the estimate closes');
+  guard.sync(1);
+  assert.equal(history.index, 1, 'the screen catching up adds nothing');
+  history.pressBack(onPop);
+  assert.equal(closed, 2, 'then the detail closes');
+  guard.sync(0);
+  assert.equal(history.index, 0);
+});
+
+test('closing both on screen takes both entries back', () => {
+  const history = fakeHistory();
+  const guard = createBackGuard(history);
+  guard.sync(2);
+  assert.equal(history.index, 2);
+  guard.sync(0);
+  let closed = 0;
+  history.flush(() => {
+    if (guard.onPopState()) closed += 1;
+  });
+  assert.equal(history.index, 0);
+  assert.equal(closed, 0);
+});
+
+test('back from a site detail returns to 오늘 or 일정 only when the detail was opened there', () => {
+  assert.equal(openSiteFrom('s1', 'schedule').origin, 'schedule');
+  assert.equal(openSiteFrom('s1', 'today').origin, 'today');
+  assert.equal(openSiteFrom('s1', 'report').origin, null);
+  assert.equal(openSiteFrom('s1', null).origin, null);
+  // Opened from 일정, then "현장 목록", then another site from the list: back goes to the list, not to 일정.
+  let nav = openSiteFrom('s1', 'schedule');
+  nav = selectSite(null);
+  nav = selectSite('s2');
+  assert.deepEqual(nav, { siteId: 's2', origin: null });
 });
 
 test('a popstate that is not ours is left alone', () => {

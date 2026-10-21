@@ -8,10 +8,12 @@ import {
   tomorrowTasks,
   type MobileOverview,
 } from '../../../../lib/mobile-overview';
+import { countOpenTodos } from '../../../../lib/site-notes';
 import { todayInSeoul } from '../../../../lib/site-progress';
 import { MOBILE_STORE_MISSING } from '../../_mobile-devices';
 import { isProgressStoreReady } from '../../_progress-store';
 import { requireManager } from '../../_session';
+import { listOpenTodoRecords } from '../../_site-notes';
 import { listFirestoreCollection, officeFirestoreCollections } from '../../firestore';
 
 export const runtime = 'nodejs';
@@ -34,10 +36,17 @@ export async function GET(request: Request) {
   try {
     const nowMs = Date.now();
     const today = todayInSeoul(nowMs);
-    const [siteRecords, estimates, consultations] = await Promise.all([
+    const [siteRecords, estimates, consultations, openTodos] = await Promise.all([
       canSites ? listFirestoreCollection<Record<string, unknown>>(officeFirestoreCollections.site) : Promise.resolve([]),
       canSites ? listFirestoreCollection<Record<string, unknown>>('siteEstimates', undefined, 1000, ESTIMATE_FIELDS) : Promise.resolve([]),
       canConsult ? listFirestoreCollection<Record<string, unknown>>(officeFirestoreCollections.consultation) : Promise.resolve(null),
+      // Only the open 할 일 (one equality query). The counts are a hint on 오늘, so a failed read shows none.
+      canSites
+        ? listOpenTodoRecords().catch((error) => {
+            console.warn('Open site todos could not be read:', error);
+            return [];
+          })
+        : Promise.resolve([]),
     ]);
 
     const sites = buildMobileSites({ sites: siteRecords, estimates, today, showVendors });
@@ -48,6 +57,8 @@ export async function GET(request: Request) {
       activeSiteIds,
       tomorrow: tomorrowTasks(sites, activeSiteIds, nextDay(today)),
       ...(consultations ? { consultations: listedConsultations(consultations, nowMs) } : {}),
+      openTodoCounts: countOpenTodos(openTodos),
+      canViewEstimates: hasAnyPermission(session, ['estimates']),
     };
     return NextResponse.json(overview, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

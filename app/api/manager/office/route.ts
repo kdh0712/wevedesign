@@ -7,6 +7,7 @@ import { stripServerOwnedSiteFields } from '../_site-fields';
 import { shouldCloseLinkOnSave } from '../_progress-link-rules';
 import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSiteProgressFields } from '../_progress-store';
 import { deleteProgressPhotos } from '../_progress-photo-storage';
+import { deleteSiteNotesOfSite } from '../_site-notes';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -442,10 +443,11 @@ export async function DELETE(request: Request) {
 
       // A site's customer progress records and their photos go with it; otherwise the photos would stay in the private
       // bucket with nothing pointing at them. Records first, then the site; the photos are removed after the answer
-      // (a photo that cannot be deleted is only logged, as with a single record delete).
+      // (a photo that cannot be deleted is only logged, as with a single record delete). Its staff notes and todos go too.
       if (type === 'site' && isProgressStoreReady()) {
         const updates = await listProgressUpdates(id);
         for (const update of updates) await deleteProgressUpdate(update._id);
+        await deleteSiteNotesOfSite(id);
         const pathnames = updates.flatMap((update) => update.photos.map((photo) => photo.pathname));
         if (pathnames.length) after(() => deleteProgressPhotos(pathnames));
       }

@@ -31,35 +31,48 @@ export function syncedMemoDraft(draft: string, previousSaved: string, nextSaved:
   return draft.trim() === previousSaved.trim() ? nextSaved : draft;
 }
 
+// Which site detail is open and where the back button returns: a detail opened from 오늘 or 일정 returns there; any other
+// way of reaching a detail (the 현장 list, the "현장 목록" button, another tab) returns to the site list.
+export type SiteNav = { siteId: string | null; origin: MobileTab | null };
+
+export const openSiteFrom = (siteId: string, from: MobileTab | null): SiteNav => ({
+  siteId,
+  origin: from === 'today' || from === 'schedule' ? from : null,
+});
+
+export const selectSite = (siteId: string | null): SiteNav => ({ siteId, origin: null });
+
 type HistoryLike = Pick<History, 'pushState' | 'back'>;
 
 const GUARD_KEY = 'weveMobileDetail';
 
-// The Android back button (and the iPhone swipe) goes back in the browser history. The site detail is not a page of its
-// own, so it gets one history entry while it is open: back closes the detail instead of the app. When the detail is closed
-// on screen, that entry is taken back so it does not swallow the next back press.
+// The Android back button (and the iPhone swipe) goes back in the browser history. The site detail and the estimate on top
+// of it are not pages of their own, so each open level gets one history entry: back closes the top level instead of the
+// app. depth is how many levels are open (0 none, 1 site detail, 2 its estimate). Levels closed on screen take their entries
+// back so they do not swallow later back presses.
 export function createBackGuard(history: HistoryLike) {
-  let pushed = false;
+  let pushed = 0;
   let ownBacks = 0;
   return {
-    sync(open: boolean) {
-      if (open && !pushed) {
-        history.pushState({ [GUARD_KEY]: true }, '');
-        pushed = true;
-      } else if (!open && pushed) {
-        pushed = false;
+    sync(depth: number) {
+      while (pushed < depth) {
+        history.pushState({ [GUARD_KEY]: pushed + 1 }, '');
+        pushed += 1;
+      }
+      while (pushed > depth) {
+        pushed -= 1;
         ownBacks += 1;
         history.back();
       }
     },
-    // Called on popstate: true when the detail should close.
+    // Called on popstate: true when the top level should close.
     onPopState(): boolean {
       if (ownBacks > 0) {
         ownBacks -= 1;
         return false;
       }
-      if (!pushed) return false;
-      pushed = false;
+      if (pushed === 0) return false;
+      pushed -= 1;
       return true;
     },
   };

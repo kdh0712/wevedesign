@@ -1,6 +1,6 @@
 'use client';
 
-import { Building2, Camera, Home, MessageCircle, Phone, Share, X } from 'lucide-react';
+import { Building2, CalendarDays, Camera, Home, MessageCircle, Phone, Share, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { MobileTab, MobileTask } from '../../lib/mobile-overview';
 
@@ -105,6 +105,7 @@ export function Notice({ tone = 'error', children, onRetry }: { tone?: 'error' |
 const TAB_INFO: Record<MobileTab, { label: string; icon: typeof Home }> = {
   today: { label: '오늘', icon: Home },
   sites: { label: '현장', icon: Building2 },
+  schedule: { label: '일정', icon: CalendarDays },
   report: { label: '보고', icon: Camera },
   consultations: { label: '상담', icon: MessageCircle },
 };

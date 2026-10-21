@@ -2,7 +2,7 @@
 // Pure functions only, shared by GET /api/manager/mobile/overview, the consultation API and the phone screens.
 import { pickScheduleEstimate, summarizeSchedule, type ProgressScheduleTask } from './site-progress.ts';
 
-export type MobileTab = 'today' | 'sites' | 'report' | 'consultations';
+export type MobileTab = 'today' | 'sites' | 'schedule' | 'report' | 'consultations';
 
 export type MobileTask = {
   id: string;
@@ -22,6 +22,8 @@ export type MobileSite = {
   status: string;
   customerName: string;
   customerPhone?: string;
+  // The PC site form's 메모 (internal), shown read-only on the phone.
+  memo?: string;
   schedule: { percent: number; startDate: string; endDate: string; tasks: MobileTask[] } | null;
 };
 
@@ -48,6 +50,10 @@ export type MobileOverview = {
   activeSiteIds: string[];
   tomorrow: MobileTomorrowTask[];
   consultations?: MobileConsultation[];
+  // Open 할 일 per site id (sites with none are left out).
+  openTodoCounts: Record<string, number>;
+  // The phone shows the 견적 button only with the estimates permission; the estimate API checks it again.
+  canViewEstimates: boolean;
 };
 
 export const CONSULTATION_STATUSES = ['신규', '상담중', '견적', '계약', '완료'] as const;
@@ -69,7 +75,7 @@ const dialable = (value: unknown) => {
 
 export function visibleMobileTabs(perms: { sites: boolean; dashboard: boolean; consultations: boolean }): MobileTab[] {
   const tabs: MobileTab[] = [];
-  if (perms.sites) tabs.push('today', 'sites');
+  if (perms.sites) tabs.push('today', 'sites', 'schedule');
   // Posting a progress record needs 'dashboard' as well, the same rule as the PC screen (POST_NEEDS_DASHBOARD).
   if (perms.sites && perms.dashboard) tabs.push('report');
   if (perms.consultations) tabs.push('consultations');
@@ -132,6 +138,7 @@ export function buildMobileSites(input: {
     const summary = summarizeSchedule(rawTasks, input.today);
     const vendorsById = new Map(rawTasks.map((task) => [task.id, task]));
     const customerPhone = dialable(site.customerPhone);
+    const memo = str(site.memo);
 
     return {
       id,
@@ -140,6 +147,7 @@ export function buildMobileSites(input: {
       status: str(site.status),
       customerName: str(site.customerName),
       ...(customerPhone ? { customerPhone } : {}),
+      ...(memo ? { memo } : {}),
       schedule: summary
         ? {
             percent: summary.percent,
@@ -246,13 +254,15 @@ export type ConsultationPatch = { ok: true; id: string; fields: { status?: strin
 
 // A Firestore document id as this site makes them (kakao-bizform-<hash>, auto ids, ids carried over from Sanity): letters,
 // digits, '_', '-' and '.', starting with a letter or digit, so '.', '..' and '__reserved__' names never reach Firestore.
-const CONSULTATION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+// Used for consultations and sites alike.
+const OFFICE_RECORD_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export const isOfficeRecordId = (value: unknown): value is string => typeof value === 'string' && OFFICE_RECORD_ID.test(value);
 
 export function parseConsultationPatch(body: unknown): ConsultationPatch {
   if (typeof body !== 'object' || body === null) return { ok: false, error: '잘못된 요청입니다.' };
   const input = body as Record<string, unknown>;
   const id = str(input.id);
-  if (!CONSULTATION_ID.test(id)) return { ok: false, error: '상담을 선택해 주세요.' };
+  if (!isOfficeRecordId(id)) return { ok: false, error: '상담을 선택해 주세요.' };
 
   const fields: { status?: string; memo?: string } = {};
   if (input.status !== undefined) {

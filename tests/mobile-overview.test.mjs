@@ -28,8 +28,8 @@ test('consultation statuses keep the PC order', () => {
 
 test('tabs follow permissions', () => {
   assert.deepEqual(visibleMobileTabs({ sites: false, dashboard: false, consultations: true }), ['consultations']);
-  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: false, consultations: false }), ['today', 'sites']);
-  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: true, consultations: true }), ['today', 'sites', 'report', 'consultations']);
+  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: false, consultations: false }), ['today', 'sites', 'schedule']);
+  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: true, consultations: true }), ['today', 'sites', 'schedule', 'report', 'consultations']);
   assert.deepEqual(visibleMobileTabs({ sites: false, dashboard: true, consultations: false }), []);
 });
 
@@ -53,6 +53,22 @@ test('buildMobileSites reads the schedule of the picked estimate and keeps vendo
   const [withoutVendors] = buildMobileSites({ sites, estimates, today, showVendors: false });
   assert.ok(!('vendorName' in withoutVendors.schedule.tasks[0]));
   assert.ok(!('vendorPhone' in withoutVendors.schedule.tasks[0]));
+});
+
+test('buildMobileSites keeps the PC memo only when it has text', () => {
+  const [withMemo, blank, missing] = buildMobileSites({
+    sites: [
+      { _id: 's1', title: 'A', status: '시공중', memo: '  열쇠 경비실  ' },
+      { _id: 's2', title: 'B', status: '시공중', memo: '   ' },
+      { _id: 's3', title: 'C', status: '시공중' },
+    ],
+    estimates: [],
+    today,
+    showVendors: false,
+  });
+  assert.equal(withMemo.memo, '열쇠 경비실');
+  assert.ok(!('memo' in blank));
+  assert.ok(!('memo' in missing));
 });
 
 test('tasks with the same or a missing id still get distinct ids and keep their own vendor', () => {
