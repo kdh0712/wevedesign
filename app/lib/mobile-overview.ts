@@ -246,13 +246,15 @@ export type ConsultationPatch = { ok: true; id: string; fields: { status?: strin
 
 // A Firestore document id as this site makes them (kakao-bizform-<hash>, auto ids, ids carried over from Sanity): letters,
 // digits, '_', '-' and '.', starting with a letter or digit, so '.', '..' and '__reserved__' names never reach Firestore.
-const CONSULTATION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+// Used for consultations and sites alike.
+const OFFICE_RECORD_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+export const isOfficeRecordId = (value: unknown): value is string => typeof value === 'string' && OFFICE_RECORD_ID.test(value);
 
 export function parseConsultationPatch(body: unknown): ConsultationPatch {
   if (typeof body !== 'object' || body === null) return { ok: false, error: '잘못된 요청입니다.' };
   const input = body as Record<string, unknown>;
   const id = str(input.id);
-  if (!CONSULTATION_ID.test(id)) return { ok: false, error: '상담을 선택해 주세요.' };
+  if (!isOfficeRecordId(id)) return { ok: false, error: '상담을 선택해 주세요.' };
 
   const fields: { status?: string; memo?: string } = {};
   if (input.status !== undefined) {
