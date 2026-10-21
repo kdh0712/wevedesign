@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 import { reloadManagerUser, verifyManagerLogin } from '../../_login';
+import { sessionFailureAnswer } from '../../_login-rules';
 import {
   credentialStillValid,
   deviceLabelFromUserAgent,
   deviceRefreshDecision,
   isMobileDeviceId,
   MOBILE_SESSION_TTL_SECONDS,
+  previousDeviceOf,
 } from '../../_mobile-device-rules';
 import { createMobileDevice, getMobileDevice, MOBILE_STORE_MISSING, revokeMobileDevice, touchMobileDevice } from '../../_mobile-devices';
 import { isProgressStoreReady } from '../../_progress-store';
@@ -16,9 +18,6 @@ export const runtime = 'nodejs';
 
 // The phone app's login (spec §3): a 30 day device token that is only ever traded here for a 1 hour session token.
 const SIGNED_OUT = '다시 로그인해 주세요.';
-// The server could not check the account (Firebase or Sanity unreachable, missing service account rights). Said plainly so
-// staff do not blame their connection; the details stay in the server log.
-const ACCOUNT_CHECK_FAILED = '서버에서 계정을 확인하지 못했습니다. 잠시 후 다시 시도하고, 계속되면 관리자에게 알려 주세요.';
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 const signedOut = () => json({ error: SIGNED_OUT, signedOut: true }, 401);
@@ -39,10 +38,11 @@ export async function POST(request: Request) {
     if (action === 'logout') return await logout(body, key);
     return json({ error: '알 수 없는 요청입니다.' }, 400);
   } catch (error) {
+    // The server could not check the account (Firebase or Sanity unreachable, missing service account rights). The phone
+    // gets fixed words, so staff do not blame their connection; the details stay in the server log.
     console.error(`Mobile session ${String(action)} failed:`, error);
-    // Not a refusal: the phone keeps its device and tries again later.
-    if (action === 'refresh') return json({ error: ACCOUNT_CHECK_FAILED }, 503);
-    return json({ error: error instanceof Error ? error.message : '로그인 처리 중 오류가 발생했습니다.' }, 500);
+    const failure = sessionFailureAnswer(action);
+    return json({ error: failure.error }, failure.status);
   }
 }
 
@@ -55,6 +55,13 @@ async function login(request: Request, body: Record<string, unknown> | null, key
   const device = await createMobileDevice(result.user, result.src, label, nowMs, result.credential, key);
   const session = issueManagerSession(result.user, result.src, MOBILE_SESSION_TTL_SECONDS);
   if (!session) return json({ error: SESSION_KEY_MISSING_MESSAGE }, 500);
+  // The device this phone had before would otherwise stay listed (and valid) until it expires.
+  const previous = previousDeviceOf(body, device.deviceId);
+  if (previous) {
+    await endShownDevice(previous.deviceId, previous.deviceToken, result.user.loginId, key).catch((error) =>
+      console.warn('Ending the previous mobile device failed:', error),
+    );
+  }
   return json({ ...device, session });
 }
 
@@ -84,11 +91,14 @@ async function refresh(body: Record<string, unknown> | null, key: Buffer) {
 // Ends only the device whose token was shown; anything else is answered the same way, so nothing is revealed.
 async function logout(body: Record<string, unknown> | null, key: Buffer) {
   const deviceId = body?.deviceId;
-  if (isMobileDeviceId(deviceId)) {
-    const device = await getMobileDevice(deviceId);
-    if (device && deviceRefreshDecision(device, text(body?.deviceToken), Date.now(), key).ok) {
-      await revokeMobileDevice(device._id, device.loginId, new Date().toISOString());
-    }
-  }
+  if (isMobileDeviceId(deviceId)) await endShownDevice(deviceId, text(body?.deviceToken), null, key);
   return json({ ok: true });
+}
+
+// Revokes the device only when the token shown is its own and it is still live; by defaults to the device's own login.
+async function endShownDevice(deviceId: string, deviceToken: string, by: string | null, key: Buffer) {
+  const device = await getMobileDevice(deviceId);
+  if (device && deviceRefreshDecision(device, deviceToken, Date.now(), key).ok) {
+    await revokeMobileDevice(device._id, by ?? device.loginId, new Date().toISOString());
+  }
 }

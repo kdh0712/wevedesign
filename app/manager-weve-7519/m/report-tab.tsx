@@ -31,6 +31,7 @@ export function ReportTab({
   api,
   ensureSession,
   onDirtyChange,
+  onBusyChange,
   onPosted,
 }: {
   sites: MobileSite[];
@@ -40,6 +41,7 @@ export function ReportTab({
   api: ProgressApi;
   ensureSession: () => Promise<unknown>;
   onDirtyChange: (dirty: boolean) => void;
+  onBusyChange: (busy: boolean) => void;
   onPosted: (siteId: string) => void;
 }) {
   const [siteId, setSiteId] = useState(initialSiteId && sites.some((site) => site.id === initialSiteId) ? initialSiteId : '');
@@ -48,12 +50,17 @@ export function ReportTab({
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [notice, setNotice] = useState<PostNotice | null>(null);
+  // Set when a post failed before anything was saved: 다시 시도 sends it again the same way (with or without 알림톡).
+  const [retryNotify, setRetryNotify] = useState<boolean | null>(null);
   const busyRef = useRef(false);
   const photosRef = useRef(photos);
   photosRef.current = photos;
 
   const dirty = photos.length > 0 || text.trim() !== '';
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
+  // The app keeps the tabs (and the logout) still while photos go up; a closed tab is never busy.
+  useEffect(() => onBusyChange(busy), [busy, onBusyChange]);
+  useEffect(() => () => onBusyChange(false), [onBusyChange]);
 
   useEffect(() => {
     if (!dirty) return;
@@ -73,6 +80,7 @@ export function ReportTab({
     event.target.value = '';
     if (files.length === 0) return;
     setNotice(null);
+    setRetryNotify(null);
     setPhotos((current) => [
       ...current,
       ...files.map((file) => ({ key: `p${(photoKey += 1)}`, file, name: file.name || 'photo.jpg', previewUrl: URL.createObjectURL(file) })),
@@ -96,20 +104,28 @@ export function ReportTab({
     busyRef.current = true;
     setBusy(true);
     setNotice(null);
+    setRetryNotify(null);
+    let saving = false;
     try {
-      await ensureSession();
       const uploaded = await shrinkAndUploadPhotos(photos, {
         shrink: (photo) => resizeImageFile(photo.file),
-        upload: (shrunk, photo) => uploadShrunkPhoto(api, siteId, shrunk, jpegFileName(photo.name)),
+        // Checked before every photo: 40 photos on a slow connection can outlast the session.
+        upload: async (shrunk, photo) => {
+          await ensureSession();
+          return uploadShrunkPhoto(api, siteId, shrunk, jpegFileName(photo.name));
+        },
         onProgress: (stage, done, total) => setProgress(photoProgressLabel(stage, done, total)),
       });
       if (!uploaded.ok) {
-        // Nothing was saved; the photos and the text stay so 다시 시도 is one tap.
+        // Nothing was saved; the photos and the text stay so 다시 시도 is one tap. A photo that could not be opened has to
+        // be swapped first, so that failure gets no button.
         setNotice({ tone: 'error', lines: photoFailureMessages(uploaded) });
+        if (uploaded.stage === 'upload') setRetryNotify(notify);
         return;
       }
       setProgress(notify ? '저장하고 알림톡 보내는 중' : '저장하는 중');
       await ensureSession();
+      saving = true;
       const saved = await api.createUpdate({ siteId, reportDate: today, designer, workDetail: text.trim(), photos: uploaded.photos, notify });
       setNotice(postResultMessages(saved, notify, uploaded.photos.length));
       photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
@@ -117,7 +133,13 @@ export function ReportTab({
       setText('');
       onPosted(siteId);
     } catch (error) {
-      setNotice({ tone: 'error', lines: [errorText(error, '진행 기록을 저장하지 못했습니다.'), '현장 상세의 최근 보고에 없으면 다시 올려 주세요.'] });
+      if (saving) {
+        // The record may have been saved before the answer was lost, so no 다시 시도 here.
+        setNotice({ tone: 'error', lines: [errorText(error, '진행 기록을 저장하지 못했습니다.'), '현장 상세의 최근 보고에 없으면 다시 올려 주세요.'] });
+      } else {
+        setNotice({ tone: 'error', lines: [errorText(error, '사진을 올리지 못했습니다.'), '아무것도 저장되지 않았어요. 사진과 글은 그대로 있어요.'] });
+        setRetryNotify(notify);
+      }
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -187,9 +209,9 @@ export function ReportTab({
       </label>
 
       {notice && (
-        <Notice tone={notice.tone}>
-          {notice.lines.map((line) => (
-            <p key={line}>{line}</p>
+        <Notice tone={notice.tone} onRetry={retryNotify !== null && !busy ? () => void post(retryNotify) : undefined}>
+          {notice.lines.map((line, index) => (
+            <p key={`${index}-${line}`}>{line}</p>
           ))}
         </Notice>
       )}

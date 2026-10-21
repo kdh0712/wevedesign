@@ -86,8 +86,15 @@ export function createMobileSession(options: { fetcher?: typeof fetch; storage: 
   return {
     hasDevice: () => readDevice() !== null,
 
+    // The device stored before (if any) is named, so the server ends it instead of leaving it valid for its 30 days.
     async login(loginId: string, password: string): Promise<ActiveSession> {
-      const { status, data } = await post({ action: 'login', loginId, password });
+      const previous = readDevice();
+      const { status, data } = await post({
+        action: 'login',
+        loginId,
+        password,
+        ...(previous ? { previousDeviceId: previous.deviceId, previousDeviceToken: previous.deviceToken } : {}),
+      });
       if (status !== 200 || !data.session) throw errorOf(status, data, '로그인하지 못했습니다.');
       const device: StoredDevice = {
         deviceId: String(data.deviceId),
@@ -99,15 +106,15 @@ export function createMobileSession(options: { fetcher?: typeof fetch; storage: 
       return session;
     },
 
-    // A usable session, refreshed when needed; null when the phone must log in. Network or server failures throw and keep
-    // the device, so a bad connection never signs anyone out. Calls made while a refresh runs share it.
-    async current(): Promise<ActiveSession | null> {
+    // A usable session, refreshed when needed (always with force); null when the phone must log in. Network or server
+    // failures throw and keep the device, so a bad connection never signs anyone out. Calls made while a refresh runs share it.
+    async current(options: { force?: boolean } = {}): Promise<ActiveSession | null> {
       const device = readDevice();
       if (!device) {
         session = null;
         return null;
       }
-      if (session && !needsRefresh(session, now())) return session;
+      if (!options.force && session && !needsRefresh(session, now())) return session;
       if (!pending) pending = refresh(device).finally(() => (pending = null));
       return pending;
     },
@@ -124,3 +131,26 @@ export function createMobileSession(options: { fetcher?: typeof fetch; storage: 
 }
 
 export type MobileSession = ReturnType<typeof createMobileSession>;
+
+// One API request with the phone's session. A 401 may only mean the session went stale on the server (a new session key,
+// a clock gap), so it is tried once more with a forced refresh; a second 401 means this phone is no longer accepted and it
+// is logged out, which ends its device on the server too. null: the phone must log in again. Network failures throw.
+export async function sendWithSession(
+  mobile: Pick<MobileSession, 'current' | 'logout'>,
+  send: (session: ActiveSession) => Promise<Response>,
+  onSession?: (session: ActiveSession) => void,
+): Promise<Response | null> {
+  const first = await mobile.current();
+  if (!first) return null;
+  onSession?.(first);
+  const response = await send(first);
+  if (response.status !== 401) return response;
+
+  const renewed = await mobile.current({ force: true });
+  if (!renewed) return null;
+  onSession?.(renewed);
+  const retried = await send(renewed);
+  if (retried.status !== 401) return retried;
+  await mobile.logout();
+  return null;
+}

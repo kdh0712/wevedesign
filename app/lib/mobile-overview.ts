@@ -40,7 +40,7 @@ export type MobileConsultation = {
   memo: string;
 };
 
-export type MobileTomorrowTask = { siteId: string; siteTitle: string; taskName: string; vendorName?: string };
+export type MobileTomorrowTask = { siteId: string; siteTitle: string; taskId: string; taskName: string; vendorName?: string };
 
 export type MobileOverview = {
   today: string;
@@ -80,7 +80,8 @@ export function listedSites<T extends { status?: unknown; deletedAt?: unknown }>
   return sites.filter((site) => !site.deletedAt && !HIDDEN_SITE_STATUSES.has(str(site.status)));
 }
 
-// Like the customer page's reader, but the staff app may also see the task's vendor.
+// Like the customer page's reader, but the staff app may also see the task's vendor. Ids are made unique (a copied task
+// can repeat one, a missing one falls back to the position), because the screens key their rows and vendors by it.
 function parseScheduleWithVendors(scheduleJson: unknown): Array<ProgressScheduleTask & { vendorName: string; vendorPhone: string }> {
   if (typeof scheduleJson !== 'string' || !scheduleJson.trim()) return [];
   let parsed: unknown;
@@ -90,10 +91,17 @@ function parseScheduleWithVendors(scheduleJson: unknown): Array<ProgressSchedule
     return [];
   }
   if (!Array.isArray(parsed)) return [];
+  const seen = new Set<string>();
+  const uniqueId = (raw: string, index: number) => {
+    let id = raw;
+    for (let n = index; seen.has(id); n += 1) id = `${raw}~${n}`;
+    seen.add(id);
+    return id;
+  };
   return parsed
     .filter((item): item is Record<string, unknown> => typeof item === 'object' && item !== null)
     .map((item, index) => ({
-      id: String(item.id ?? index),
+      id: uniqueId(String(item.id ?? index), index),
       name: typeof item.name === 'string' ? item.name : '',
       startDate: typeof item.startDate === 'string' ? item.startDate : '',
       endDate: typeof item.endDate === 'string' ? item.endDate : '',
@@ -181,7 +189,13 @@ export function tomorrowTasks(sites: MobileSite[], activeIds: string[], tomorrow
     .flatMap((site) =>
       (site.schedule?.tasks || [])
         .filter((task) => task.startDate === tomorrow)
-        .map((task) => ({ siteId: site.id, siteTitle: site.title, taskName: task.name, ...(task.vendorName ? { vendorName: task.vendorName } : {}) })),
+        .map((task) => ({
+          siteId: site.id,
+          siteTitle: site.title,
+          taskId: task.id,
+          taskName: task.name,
+          ...(task.vendorName ? { vendorName: task.vendorName } : {}),
+        })),
     );
 }
 
@@ -230,11 +244,15 @@ export function listedConsultations(records: Array<Record<string, unknown>>, now
 
 export type ConsultationPatch = { ok: true; id: string; fields: { status?: string; memo?: string } } | { ok: false; error: string };
 
+// A Firestore document id as this site makes them (kakao-bizform-<hash>, auto ids, ids carried over from Sanity): letters,
+// digits, '_', '-' and '.', starting with a letter or digit, so '.', '..' and '__reserved__' names never reach Firestore.
+const CONSULTATION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 export function parseConsultationPatch(body: unknown): ConsultationPatch {
   if (typeof body !== 'object' || body === null) return { ok: false, error: '잘못된 요청입니다.' };
   const input = body as Record<string, unknown>;
   const id = str(input.id);
-  if (!id || id.includes('/')) return { ok: false, error: '상담을 선택해 주세요.' };
+  if (!CONSULTATION_ID.test(id)) return { ok: false, error: '상담을 선택해 주세요.' };
 
   const fields: { status?: string; memo?: string } = {};
   if (input.status !== undefined) {

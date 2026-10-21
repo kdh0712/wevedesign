@@ -1,6 +1,7 @@
 import type { ManagerRole } from '../../lib/manager-permissions';
 import { managerClient } from './_utils';
 import { clientIp, loginLimiter } from './_login-limit';
+import { isFirebaseCredentialRefusal, reloadSourceOutage } from './_login-rules';
 import { hashPassword, safeEqual, verifyPasswordOrDummy } from './_password';
 import type { SessionSource } from './_token';
 import {
@@ -43,7 +44,9 @@ const accountUser = (account: ManagerAccount, loginId: string): LoginUser => ({
   permissions: account.permissions,
 });
 
-// Unexpected failures (Firebase or Sanity unreachable) throw; the caller answers 500 with the message.
+const WRONG_CREDENTIALS = '계정 또는 비밀번호가 올바르지 않습니다.';
+
+// Unexpected failures (Firebase or Sanity unreachable) throw; the caller answers 500.
 export async function verifyManagerLogin(request: Request, rawLoginId: unknown, rawPassword: unknown): Promise<LoginResult> {
   const loginId = String(rawLoginId || 'admin').trim();
   const loginPassword = String(rawPassword || '').trim();
@@ -57,10 +60,14 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
   }
 
   if (isFirebaseManagerConfigured() && loginId.includes('@')) {
-    const firebaseUser = await firebaseSignIn(loginId, loginPassword).catch((error: unknown) => {
+    let firebaseUser: Awaited<ReturnType<typeof firebaseSignIn>>;
+    try {
+      firebaseUser = await firebaseSignIn(loginId, loginPassword);
+    } catch (error) {
       loginLimiter.recordFailure(ip, loginId);
+      if (isFirebaseCredentialRefusal(error)) return { ok: false, status: 401, error: WRONG_CREDENTIALS };
       throw error;
-    });
+    }
     loginLimiter.recordSuccess(ip, loginId);
     const lookupUser = await firebaseLookup(firebaseUser.idToken);
     const uid = lookupUser?.localId || firebaseUser.localId;
@@ -108,7 +115,7 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
 
   if (!account || !verified.ok) {
     loginLimiter.recordFailure(ip, loginId);
-    return { ok: false, status: 401, error: '계정 또는 비밀번호가 올바르지 않습니다.' };
+    return { ok: false, status: 401, error: WRONG_CREDENTIALS };
   }
   loginLimiter.recordSuccess(ip, loginId);
 
@@ -128,8 +135,12 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
 
 // The account as it is now, for a phone session refresh: null when it was removed or deactivated, so the device signs out.
 // Role and permissions are read again, so a change reaches the phone at its next refresh; credential is compared with the
-// device's stamp, so a changed password signs it out too. Unexpected failures throw.
+// device's stamp, so a changed password signs it out too. Unexpected failures throw, and so does a Firebase account on a
+// deploy without the Firebase settings: that is a configuration slip, and the phone must keep its device through it.
 export async function reloadManagerUser(src: SessionSource, userId: string): Promise<{ user: LoginUser; credential: string | null } | null> {
+  const outage = reloadSourceOutage(src, { firebaseConfigured: isFirebaseManagerConfigured() });
+  if (outage) throw new Error(outage);
+
   if (src === 'master') {
     const managerPassword = process.env.MANAGER_PASSWORD;
     // No master password configured any more: master phones end.
@@ -137,7 +148,6 @@ export async function reloadManagerUser(src: SessionSource, userId: string): Pro
   }
 
   if (src === 'firebase') {
-    if (!isFirebaseManagerConfigured()) return null;
     const adminAuth = await firebaseAdminDbAuth();
     if (!adminAuth) throw new Error('Firebase 계정을 확인할 서비스 계정이 없습니다.');
     const profile = await getFirebaseProfile(userId, adminAuth);

@@ -45,6 +45,16 @@ export function newDeviceSecret(): { deviceId: string; deviceToken: string; toke
 // Checked before any Firestore read, so a request can only name a document id this module could have made.
 export const isMobileDeviceId = (value: unknown): value is string => typeof value === 'string' && /^md-[0-9a-f]{24}$/.test(value);
 
+// A phone that logs in again sends the device it had before (its storage is about to be overwritten). The route ends that
+// device only when its token matches, like a logout; here only the shape is checked, and never the device just made.
+export function previousDeviceOf(body: Record<string, unknown> | null, newDeviceId: string): { deviceId: string; deviceToken: string } | null {
+  const deviceId = body?.previousDeviceId;
+  const deviceToken = body?.previousDeviceToken;
+  if (!isMobileDeviceId(deviceId) || deviceId === newDeviceId) return null;
+  if (typeof deviceToken !== 'string' || !deviceToken) return null;
+  return { deviceId, deviceToken };
+}
+
 function tokenMatches(token: string, tokenHash: string) {
   const provided = Buffer.from(hashDeviceToken(token), 'hex');
   const stored = Buffer.from(tokenHash, 'hex');

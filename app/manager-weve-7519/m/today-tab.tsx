@@ -67,7 +67,7 @@ export function TodayTab({
           </p>
           <ul className="mt-1 space-y-1 text-sm">
             {delayed.map(({ site, task }) => (
-              <li key={`${site.id}-${task.id}`}>
+              <li key={`${site.id}/${task.id}`}>
                 <button type="button" onClick={() => onOpenSite(site.id)} className="text-left underline-offset-2 active:underline">
                   {site.title} · {task.name} ({task.percent}%)
                 </button>
@@ -101,7 +101,7 @@ export function TodayTab({
       {overview.tomorrow.length > 0 && (
         <div className="space-y-1 px-1 text-sm text-[#625d54]">
           {overview.tomorrow.map((item) => (
-            <p key={`${item.siteId}-${item.taskName}`} className="flex items-start gap-2">
+            <p key={`${item.siteId}/${item.taskId}`} className="flex items-start gap-2">
               <CalendarDays className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
                 내일 시작: {item.taskName} ({item.siteTitle}){item.vendorName ? ` · ${item.vendorName}` : ''}

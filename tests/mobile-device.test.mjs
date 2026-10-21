@@ -12,6 +12,7 @@ import {
   hashDeviceToken,
   isMobileDeviceId,
   newDeviceSecret,
+  previousDeviceOf,
 } from '../app/api/manager/_mobile-device-rules.ts';
 
 const now = Date.UTC(2026, 9, 20, 3, 0, 0);
@@ -115,4 +116,14 @@ test('a changed or removed password ends the phone logins made with the old one'
   assert.equal(credentialStillValid({ credentialStamp: stamp }, null, key), false, 'master password removed');
   assert.equal(credentialStillValid({ credentialStamp: '' }, null, key), true, 'Firebase accounts carry no stamp');
   assert.equal(credentialStillValid({}, 'hash-1', key), false);
+});
+
+test('a login names the device it replaces only with a well formed id and a token', () => {
+  const id = 'md-0123456789abcdef01234567';
+  assert.deepEqual(previousDeviceOf({ previousDeviceId: id, previousDeviceToken: 'tok' }, 'md-ffffffffffffffffffffffff'), { deviceId: id, deviceToken: 'tok' });
+  assert.equal(previousDeviceOf({ previousDeviceId: id, previousDeviceToken: 'tok' }, id), null, 'never the new device itself');
+  assert.equal(previousDeviceOf({ previousDeviceId: '../x', previousDeviceToken: 'tok' }, 'md-ffffffffffffffffffffffff'), null);
+  assert.equal(previousDeviceOf({ previousDeviceId: id, previousDeviceToken: '' }, 'md-ffffffffffffffffffffffff'), null);
+  assert.equal(previousDeviceOf({ previousDeviceId: id }, 'md-ffffffffffffffffffffffff'), null);
+  assert.equal(previousDeviceOf(null, 'md-ffffffffffffffffffffffff'), null);
 });

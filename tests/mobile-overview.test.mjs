@@ -55,6 +55,37 @@ test('buildMobileSites reads the schedule of the picked estimate and keeps vendo
   assert.ok(!('vendorPhone' in withoutVendors.schedule.tasks[0]));
 });
 
+test('tasks with the same or a missing id still get distinct ids and keep their own vendor', () => {
+  const sites = [{ _id: 's1', title: 'A', status: '시공중' }];
+  const estimates = [
+    {
+      siteId: 's1',
+      versionType: 'final',
+      scheduleJson: schedule([
+        task('t1', '목공', '2026-10-18', '2026-10-25', { vendorName: '갑' }),
+        task('t1', '전기', '2026-10-18', '2026-10-25', { vendorName: '을' }),
+        { name: '도배', startDate: '2026-10-26', endDate: '2026-10-27' },
+        task('2', '타일', '2026-10-26', '2026-10-27'),
+      ]),
+    },
+  ];
+  const [site] = buildMobileSites({ sites, estimates, today, showVendors: true });
+  const ids = site.schedule.tasks.map((t) => t.id);
+  assert.equal(new Set(ids).size, ids.length, ids.join(','));
+  assert.deepEqual(site.schedule.tasks.map((t) => [t.name, t.vendorName]), [['목공', '갑'], ['전기', '을'], ['도배', undefined], ['타일', undefined]]);
+});
+
+test('tomorrow items carry the task id, so two tasks with one name stay apart', () => {
+  const sites = buildMobileSites({
+    sites: [{ _id: 'a', title: 'A', status: '시공중' }],
+    estimates: [{ siteId: 'a', scheduleJson: schedule([task('1', '타일', '2026-10-21', '2026-10-22'), task('2', '타일', '2026-10-21', '2026-10-23')]) }],
+    today,
+    showVendors: false,
+  });
+  const items = tomorrowTasks(sites, ['a'], '2026-10-21');
+  assert.deepEqual(items.map((item) => item.taskId), ['1', '2']);
+});
+
 test('a site with no estimate or a broken schedule is listed with an empty schedule and no blank phone', () => {
   const sites = [{ _id: 's1', title: 'A', status: '시공중', customerPhone: '' }, { _id: 's2', title: 'B', status: '시공중' }];
   const estimates = [{ siteId: 's2', versionType: 'final', scheduleJson: '{not json' }];
@@ -95,7 +126,7 @@ test('tomorrow lists tasks starting tomorrow on today sites only', () => {
   });
   assert.equal(nextDay(today), '2026-10-21');
   assert.equal(nextDay('2026-12-31'), '2027-01-01');
-  assert.deepEqual(tomorrowTasks(sites, pickActiveSiteIds(sites), '2026-10-21'), [{ siteId: 'a', siteTitle: 'A', taskName: '타일', vendorName: '한빛타일' }]);
+  assert.deepEqual(tomorrowTasks(sites, pickActiveSiteIds(sites), '2026-10-21'), [{ siteId: 'a', siteTitle: 'A', taskId: '1', taskName: '타일', vendorName: '한빛타일' }]);
 });
 
 test('shortRegion keeps the city and the neighbourhood', () => {
@@ -134,6 +165,12 @@ test('parseConsultationPatch accepts a known status or a memo and nothing else',
   assert.equal(parseConsultationPatch({ id: 'c1', memo: 'x'.repeat(2001) }).ok, false);
   assert.equal(parseConsultationPatch({ status: '견적' }).ok, false);
   assert.equal(parseConsultationPatch({ id: 'a/b', status: '견적' }).ok, false);
+  for (const good of ['kakao-bizform-0123456789abcdef', 'Ab12_cd-34', 'a.b', 'x'.repeat(128)]) {
+    assert.equal(parseConsultationPatch({ id: good, status: '견적' }).ok, true, good);
+  }
+  for (const bad of ['.', '..', '.hidden', '__name__', 'a b', 'a?b', 'a#b', '상담1', 'a%2Fb', 'x'.repeat(129), 42]) {
+    assert.equal(parseConsultationPatch({ id: bad, status: '견적' }).ok, false, String(bad));
+  }
   assert.equal(parseConsultationPatch({ id: 'c1' }).ok, false);
   assert.equal(parseConsultationPatch(null).ok, false);
 });

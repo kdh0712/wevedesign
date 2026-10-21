@@ -1,8 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SCRUBBED_PROGRESS_PATH, isProgressPath, scrubProgressUrl } from '../app/lib/analytics-scrub.ts';
+import { SCRUBBED_PROGRESS_PATH, isProgressPath, naverAnalyticsAllowed, scrubProgressUrl } from '../app/lib/analytics-scrub.ts';
 
 const code = 'Zm9vYmFyYmF6cXV4MTIzNA';
+
+test('Naver analytics runs on the public site only: not on progress links or the manager screens', () => {
+  assert.equal(naverAnalyticsAllowed('/'), true);
+  assert.equal(naverAnalyticsAllowed('/portfolio/some-project'), true);
+  assert.equal(naverAnalyticsAllowed(`/progress/${code}`), false);
+  assert.equal(naverAnalyticsAllowed('/manager-weve-7519'), false);
+  assert.equal(naverAnalyticsAllowed('/manager-weve-7519/m'), false);
+  assert.equal(naverAnalyticsAllowed('//manager-weve-7519/m'), false);
+  assert.equal(naverAnalyticsAllowed('/%6Danager-weve-7519/m'), false);
+  assert.equal(naverAnalyticsAllowed('/manager-weve-75190'), true);
+  assert.equal(naverAnalyticsAllowed(null), true);
+});
 
 test('progress paths are recognised, other paths are not', () => {
   assert.equal(isProgressPath(`/progress/${code}`), true);
