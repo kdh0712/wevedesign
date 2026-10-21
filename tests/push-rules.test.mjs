@@ -29,7 +29,7 @@ const consult = (extra) => ({
 test('constants', () => {
   assert.equal(PUSH_SUBSCRIPTIONS_COLLECTION, 'pushSubscriptions');
   assert.equal(ANDROID_PACKAGE_NAME, 'kr.co.wevedesign.staff');
-  assert.deepEqual(TEST_PUSH_MESSAGE, { title: '위브 업무', body: '알림이 잘 와요.', url: '/manager-weve-7519/m?tab=consultations', tag: 'test' });
+  assert.deepEqual(TEST_PUSH_MESSAGE, { title: 'WEVE Staff', body: '알림이 잘 와요.', url: '/manager-weve-7519/m?tab=consultations', tag: 'test' });
 });
 
 test('one consultation: region, space and size, never the name, phone or message', () => {

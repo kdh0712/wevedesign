@@ -1,7 +1,7 @@
 // Staff phone app service worker (spec docs/superpowers/specs/2026-10-21-staff-push-android-design.md §3).
 // Push alerts only: no fetch handler and no cache, so every deploy shows at once, as before.
 const APP_PATH = '/manager-weve-7519/m';
-const FALLBACK = { title: '위브 업무', body: '새 소식이 있어요.', url: `${APP_PATH}?tab=consultations`, tag: 'weve' };
+const FALLBACK = { title: 'WEVE Staff', body: '새 소식이 있어요.', url: `${APP_PATH}?tab=consultations`, tag: 'weve' };
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));

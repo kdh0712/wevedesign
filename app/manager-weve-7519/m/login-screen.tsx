@@ -30,7 +30,7 @@ export function LoginScreen({ onLogin, notice }: { onLogin: (loginId: string, pa
     <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center px-6 py-10" style={{ paddingTop: 'max(2.5rem, env(safe-area-inset-top))' }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src="/staff-app/icon-192.png" alt="" className="mx-auto h-16 w-16 rounded-2xl border border-[#eadfcd]" />
-      <h1 className="mt-4 text-center text-2xl font-bold text-[#171512]">위브 업무</h1>
+      <h1 className="mt-4 text-center text-2xl font-bold text-[#171512]">WEVE Staff</h1>
       <p className="mt-1 text-center text-sm text-[#625d54]">위브디자인 직원용</p>
 
       <form onSubmit={submit} className="mt-8 space-y-3" noValidate>
