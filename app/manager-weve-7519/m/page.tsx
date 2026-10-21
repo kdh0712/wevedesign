@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } fr
 import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
+import { createSiteNotesApi } from '../site-notes-api';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
 import { createBackGuard, freshScreen, LEAVE_REPORT_CONFIRM, REPORT_BUSY_NOTICE, reportLeaveDecision } from './mobile-screen';
@@ -271,6 +272,19 @@ export default function StaffAppPage() {
 
   const onReportPosted = useCallback(() => void loadOverview(), [loadOverview]);
 
+  // 할 일·현장 기록 go through authedFetch, so they get the same refresh and one retry on 401.
+  const notesApi = useMemo(() => createSiteNotesApi(authedFetch), [authedFetch]);
+  // A tick or a new 할 일 updates the count on 오늘 at once, without reloading the overview.
+  const onOpenTodoCountChange = useCallback((id: string, count: number) => {
+    setOverview((current) => {
+      if (!current || (current.openTodoCounts?.[id] || 0) === count) return current;
+      const openTodoCounts = { ...current.openTodoCounts };
+      if (count > 0) openTodoCounts[id] = count;
+      else delete openTodoCounts[id];
+      return { ...current, openTodoCounts };
+    });
+  }, []);
+
   const saveConsultation = async (id: string, change: ConsultationChange) => {
     const data = (await authedFetch('/api/manager/mobile/consultation', {
       method: 'POST',
@@ -393,6 +407,9 @@ export default function StaffAppPage() {
                 onSelect={setSiteId}
                 onOpenReport={tabs.includes('report') ? openReport : undefined}
                 loadReports={loadReports}
+                notesApi={notesApi}
+                viewer={user || { loginId: '', role: 'staff' }}
+                onOpenTodoCountChange={onOpenTodoCountChange}
               />
             )}
             {tab === 'report' && (

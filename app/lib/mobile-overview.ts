@@ -22,6 +22,8 @@ export type MobileSite = {
   status: string;
   customerName: string;
   customerPhone?: string;
+  // The PC site form's 메모 (internal), shown read-only on the phone.
+  memo?: string;
   schedule: { percent: number; startDate: string; endDate: string; tasks: MobileTask[] } | null;
 };
 
@@ -48,6 +50,10 @@ export type MobileOverview = {
   activeSiteIds: string[];
   tomorrow: MobileTomorrowTask[];
   consultations?: MobileConsultation[];
+  // Open 할 일 per site id (sites with none are left out).
+  openTodoCounts: Record<string, number>;
+  // The phone shows the 견적 button only with the estimates permission; the estimate API checks it again.
+  canViewEstimates: boolean;
 };
 
 export const CONSULTATION_STATUSES = ['신규', '상담중', '견적', '계약', '완료'] as const;
@@ -132,6 +138,7 @@ export function buildMobileSites(input: {
     const summary = summarizeSchedule(rawTasks, input.today);
     const vendorsById = new Map(rawTasks.map((task) => [task.id, task]));
     const customerPhone = dialable(site.customerPhone);
+    const memo = str(site.memo);
 
     return {
       id,
@@ -140,6 +147,7 @@ export function buildMobileSites(input: {
       status: str(site.status),
       customerName: str(site.customerName),
       ...(customerPhone ? { customerPhone } : {}),
+      ...(memo ? { memo } : {}),
       schedule: summary
         ? {
             percent: summary.percent,
