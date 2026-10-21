@@ -2250,7 +2250,7 @@ export default function ManagerPage() {
   });
 
   return (
-    <main className="min-h-screen bg-[#eef3f5] text-[#171512] [zoom:0.9]">
+    <main className="min-h-[calc(100dvh/0.9)] bg-[#eef3f5] text-[#171512] [zoom:0.9]">
       {!isUnlocked && isRestoringSession && <ManagerLoadingScreen message="관리자 화면을 여는 중입니다" />}
       {!isUnlocked && !isRestoringSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#17212b]/72 px-4 backdrop-blur-sm">
@@ -2304,7 +2304,7 @@ export default function ManagerPage() {
           </form>
         </div>
       )}
-      <div className={`min-h-screen ${!isUnlocked ? 'hidden' : 'flex'}`}>
+      <div className={`min-h-[calc(100dvh/0.9)] ${!isUnlocked ? 'hidden' : 'flex'}`}>
         <aside className="hidden w-64 shrink-0 flex-col bg-[#273541] text-[#dfe8ed] lg:flex">
           <div className="border-b border-white/10 px-6 py-6">
             <div className="flex items-center gap-3">
