@@ -25,7 +25,7 @@ export const PUSH_PANEL_TEXT: Record<PushPanelState, string> = {
   unconfigured: '알림 기능이 아직 설정되지 않았어요.',
   unsupported: '이 휴대폰에서는 알림을 받을 수 없어요.',
   'install-first': '홈 화면에 추가한 앱에서만 알림을 켤 수 있어요. 공유 버튼 → 홈 화면에 추가 → 추가한 아이콘으로 열어 주세요.',
-  denied: "휴대폰 설정에서 '위브 업무' 알림을 허용해 주세요.",
+  denied: "휴대폰 설정에서 'WEVE Staff' 알림을 허용해 주세요.",
   off: '새 상담이 들어오면 이 휴대폰으로 알려 드려요.',
   on: '새 상담이 오면 알려 드려요.',
 };

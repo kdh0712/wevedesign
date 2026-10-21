@@ -54,7 +54,7 @@ Firebase 콘솔 → Firestore Database → 규칙에서 `pushSubscriptions` 컬�
    않기 때문이다. 앱이 감싸는 크롬 안에서는 로그인 후 등록되어 알림이 동작한다. 빨간 오류(0이어야 함)만 확인한다.
 2. **Package For Stores → Android → Generate Package**에서:
    - Package ID: `kr.co.wevedesign.staff`
-   - App name: `위브 업무`, Launcher name: `위브 업무`
+   - App name: `WEVE Staff`, Launcher name: `WEVE Staff`
    - Notification delegation(알림 위임): 켬
    - Signing key: **Create new**
 3. 내려받은 zip 안의 **서명 키 파일(`.keystore`)과 `signing-key-info.txt`(비밀번호)를 안전한 곳에 보관**한다.
@@ -65,7 +65,7 @@ Firebase 콘솔 → Firestore Database → 규칙에서 `pushSubscriptions` 컬�
 
 ## 6. 직원 안내
 
-**안드로이드**: 받은 APK를 열고 "출처를 알 수 없는 앱 설치"를 한 번 허용 → 설치 → '위브 업무' 열기 → 로그인 →
+**안드로이드**: 받은 APK를 열고 "출처를 알 수 없는 앱 설치"를 한 번 허용 → 설치 → 'WEVE Staff' 열기 → 로그인 →
 상담 탭 맨 위 [알림 켜기] → [시험 알림]으로 확인.
 
 **아이폰** (iOS 16.4 이상): 사파리로 `https://www.wevedesign.co.kr/manager-weve-7519/m` → 공유 버튼 → 홈 화면에 추가 →

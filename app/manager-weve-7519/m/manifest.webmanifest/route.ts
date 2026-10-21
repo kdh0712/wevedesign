@@ -2,8 +2,8 @@
 // id, orientation and categories answer PWABuilder's checks for the Android app (spec 2026-10-21 staff push §5).
 const manifest = {
   id: '/manager-weve-7519/m',
-  name: '위브 업무',
-  short_name: '위브 업무',
+  name: 'WEVE Staff',
+  short_name: 'WEVE Staff',
   description: '위브디자인 직원용 업무 앱',
   lang: 'ko',
   start_url: '/manager-weve-7519/m',

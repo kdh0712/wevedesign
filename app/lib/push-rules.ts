@@ -14,7 +14,7 @@ export const pushSubscriptionId = (deviceId: string) => `ps-${deviceId}`;
 
 export type PushMessage = { title: string; body: string; url: string; tag: string };
 
-export const TEST_PUSH_MESSAGE: PushMessage = { title: '위브 업무', body: '알림이 잘 와요.', url: CONSULTATIONS_URL, tag: 'test' };
+export const TEST_PUSH_MESSAGE: PushMessage = { title: 'WEVE Staff', body: '알림이 잘 와요.', url: CONSULTATIONS_URL, tag: 'test' };
 
 // Lock screens show this, so it never carries the customer's name, phone or message: only where, what and how big.
 // Only consultations received in the last 24 hours count, so a backlog imported at once never alerts about old ones.

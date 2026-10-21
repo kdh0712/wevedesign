@@ -17,6 +17,8 @@ test('panel states in order', () => {
 test('denied permission shows the settings hint', () => {
   assert.equal(pushPanelState({ ...base, permission: 'denied', subscribed: true }), 'denied');
   assert.match(PUSH_PANEL_TEXT.denied, /설정/);
+  // The phone's settings list the app under its home screen name.
+  assert.match(PUSH_PANEL_TEXT.denied, /'WEVE Staff'/);
   for (const state of ['unconfigured', 'unsupported', 'install-first', 'denied', 'off', 'on']) assert.ok(PUSH_PANEL_TEXT[state], state);
 });
 

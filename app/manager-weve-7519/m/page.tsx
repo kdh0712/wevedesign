@@ -430,7 +430,7 @@ export default function StaffAppPage() {
         className="sticky top-0 z-10 flex items-center justify-between border-b border-[#f1ebe0] bg-[#fffdf8]/95 px-4 backdrop-blur"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
-        <span className="flex h-12 items-center text-sm font-bold tracking-wide text-[#8f6f43]">위브 업무</span>
+        <span className="flex h-12 items-center text-sm font-bold tracking-wide text-[#8f6f43]">WEVE Staff</span>
         <div className="relative">
           <button type="button" onClick={() => setMenuOpen((open) => !open)} className="flex h-10 items-center gap-1 rounded-full px-3 text-sm text-[#514c43]" aria-expanded={menuOpen}>
             {user?.name}
