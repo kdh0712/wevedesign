@@ -86,6 +86,12 @@ export function createMobileSession(options: { fetcher?: typeof fetch; storage: 
   return {
     hasDevice: () => readDevice() !== null,
 
+    // The phone login, for requests that must name it (turning push alerts on or off); null when logged out.
+    deviceCredentials(): { deviceId: string; deviceToken: string } | null {
+      const device = readDevice();
+      return device ? { deviceId: device.deviceId, deviceToken: device.deviceToken } : null;
+    },
+
     // The device stored before (if any) is named, so the server ends it instead of leaving it valid for its 30 days.
     async login(loginId: string, password: string): Promise<ActiveSession> {
       const previous = readDevice();
