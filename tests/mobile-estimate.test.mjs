@@ -46,9 +46,24 @@ test('never carries costs, margins or internal notes', () => {
   }
 });
 
+test('discount lines keep their minus, and amounts round like the PC estimate', () => {
+  const view = toCustomerEstimateView({
+    linesJson: JSON.stringify([
+      { category: '목공', name: '천장', quantity: 1, customerUnitPrice: 1000000 },
+      { category: '할인', name: '네고', quantity: 1, customerUnitPrice: -500000 },
+      { category: '도장', name: '벽', quantity: 2.5, customerUnitPrice: 166665 },
+    ]),
+  });
+  assert.deepEqual(view.groups[1].lines[0], { name: '네고', spec: '', unit: '식', quantity: 1, unitPrice: -500000, amount: -500000, note: '' });
+  assert.equal(view.groups[1].subtotal, -500000);
+  assert.equal(view.groups[2].lines[0].amount, 416663);
+  assert.equal(view.groups[2].subtotal, 416663);
+  assert.equal(view.total, 916663);
+});
+
 test('coerces bad numbers to 0', () => {
   const [line] = toCustomerEstimateView(estimate).groups[2].lines;
-  assert.deepEqual([line.quantity, line.unitPrice, line.amount], [0, 0, 0]);
+  assert.deepEqual([line.quantity, line.unitPrice, line.amount], [0, -5, 0]);
   const json = JSON.stringify(toCustomerEstimateView({ linesJson: JSON.stringify([{ name: 'a', quantity: '3', customerUnitPrice: '1500' }]) }));
   assert.ok(!json.includes('NaN') && !json.includes('null'), json);
   assert.equal(toCustomerEstimateView({ linesJson: JSON.stringify([{ name: 'a', quantity: '3', customerUnitPrice: '1500' }]) }).total, 4500);

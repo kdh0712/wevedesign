@@ -137,7 +137,7 @@ export function SiteNotesSection({
         className="mt-0.5 h-5 w-5 shrink-0 accent-[#171512]"
       />
       <span className="min-w-0 flex-1">
-        <span className={`block whitespace-pre-wrap break-words text-sm ${note.done ? 'text-[#8b8276] line-through' : 'text-[#171512]'}`}>{note.text}</span>
+        <span className={`block whitespace-pre-wrap [overflow-wrap:anywhere] text-sm ${note.done ? 'text-[#8b8276] line-through' : 'text-[#171512]'}`}>{note.text}</span>
         <span className="block text-xs text-[#8b8276]">
           {meta(note)}
           {note.done && note.doneByName ? ` · 끝냄 ${note.doneByName} ${shortSeoulDate(note.doneAt || '')}` : ''}
@@ -198,7 +198,7 @@ export function SiteNotesSection({
           {shownRecords.map((note) => (
             <li key={note.id} className="flex items-start gap-3 py-2">
               <span className="min-w-0 flex-1">
-                <span className="block whitespace-pre-wrap break-words text-sm text-[#171512]">{note.text}</span>
+                <span className="block whitespace-pre-wrap [overflow-wrap:anywhere] text-sm text-[#171512]">{note.text}</span>
                 <span className="block text-xs text-[#8b8276]">{meta(note)}</span>
               </span>
               {deleteButton(note)}

@@ -9,7 +9,15 @@ import { createProgressApi } from '../progress-manager';
 import { createSiteNotesApi } from '../site-notes-api';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
-import { createBackGuard, freshScreen, LEAVE_REPORT_CONFIRM, REPORT_BUSY_NOTICE, reportLeaveDecision } from './mobile-screen';
+import {
+  createBackGuard,
+  freshScreen,
+  LEAVE_REPORT_CONFIRM,
+  openSiteFrom,
+  REPORT_BUSY_NOTICE,
+  reportLeaveDecision,
+  selectSite,
+} from './mobile-screen';
 import {
   createMobileSession,
   MobileSessionError,
@@ -286,7 +294,7 @@ export default function StaffAppPage() {
   };
 
   const openSite = (id: string, from: MobileTab | null = null) => {
-    siteOriginRef.current = from;
+    siteOriginRef.current = openSiteFrom(id, from).origin;
     setSiteId(id);
     setTab('sites');
     window.scrollTo({ top: 0 });
@@ -438,7 +446,11 @@ export default function StaffAppPage() {
               <SitesTab
                 overview={overview}
                 selectedId={siteId}
-                onSelect={setSiteId}
+                onSelect={(id) => {
+                  // Chosen in the 현장 tab itself (or "현장 목록"): back goes to the site list from now on.
+                  siteOriginRef.current = selectSite(id).origin;
+                  setSiteId(id);
+                }}
                 onOpenReport={tabs.includes('report') ? openReport : undefined}
                 loadReports={loadReports}
                 notesApi={notesApi}

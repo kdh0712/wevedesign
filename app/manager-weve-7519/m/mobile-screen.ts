@@ -31,6 +31,17 @@ export function syncedMemoDraft(draft: string, previousSaved: string, nextSaved:
   return draft.trim() === previousSaved.trim() ? nextSaved : draft;
 }
 
+// Which site detail is open and where the back button returns: a detail opened from 오늘 or 일정 returns there; any other
+// way of reaching a detail (the 현장 list, the "현장 목록" button, another tab) returns to the site list.
+export type SiteNav = { siteId: string | null; origin: MobileTab | null };
+
+export const openSiteFrom = (siteId: string, from: MobileTab | null): SiteNav => ({
+  siteId,
+  origin: from === 'today' || from === 'schedule' ? from : null,
+});
+
+export const selectSite = (siteId: string | null): SiteNav => ({ siteId, origin: null });
+
 type HistoryLike = Pick<History, 'pushState' | 'back'>;
 
 const GUARD_KEY = 'weveMobileDetail';

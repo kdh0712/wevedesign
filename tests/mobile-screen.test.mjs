@@ -5,6 +5,8 @@ import {
   createBackGuard,
   freshScreen,
   movedConsultationNotice,
+  openSiteFrom,
+  selectSite,
   reportLeaveDecision,
   syncedMemoDraft,
 } from '../app/manager-weve-7519/m/mobile-screen.ts';
@@ -144,6 +146,18 @@ test('closing both on screen takes both entries back', () => {
   });
   assert.equal(history.index, 0);
   assert.equal(closed, 0);
+});
+
+test('back from a site detail returns to 오늘 or 일정 only when the detail was opened there', () => {
+  assert.equal(openSiteFrom('s1', 'schedule').origin, 'schedule');
+  assert.equal(openSiteFrom('s1', 'today').origin, 'today');
+  assert.equal(openSiteFrom('s1', 'report').origin, null);
+  assert.equal(openSiteFrom('s1', null).origin, null);
+  // Opened from 일정, then "현장 목록", then another site from the list: back goes to the list, not to 일정.
+  let nav = openSiteFrom('s1', 'schedule');
+  nav = selectSite(null);
+  nav = selectSite('s2');
+  assert.deepEqual(nav, { siteId: 's2', origin: null });
 });
 
 test('a popstate that is not ours is left alone', () => {
