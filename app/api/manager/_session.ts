@@ -42,6 +42,7 @@ export function requireManager(
 export function issueManagerSession(
   user: { id: string; name: string; loginId: string; role: ManagerRole; permissions: unknown },
   src: SessionSource,
+  ttlSeconds?: number,
 ): { token: string; expiresAt: number; user: SessionUser } | null {
   const key = resolveSessionKey();
   if (!key) return null;
@@ -50,6 +51,8 @@ export function issueManagerSession(
   const { token, payload } = signSessionToken(
     { sub: user.id, name: user.name, loginId: user.loginId, role: user.role, perms: permissions, src },
     key,
+    Date.now(),
+    ttlSeconds,
   );
 
   return {

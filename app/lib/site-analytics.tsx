@@ -3,11 +3,11 @@
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { Analytics, type BeforeSend } from '@vercel/analytics/next';
-import { isProgressPath, scrubProgressUrl } from './analytics-scrub';
+import { naverAnalyticsAllowed, scrubProgressUrl } from './analytics-scrub';
 
 // Every analytics script of the site, rendered by the root layout.
 // The customer progress link (/progress/<code>) carries a secret code in its URL, so:
-//  - Naver wcslog (third party, logs the page URL) is not loaded at all on /progress paths.
+//  - Naver wcslog (third party, logs the page URL) is not loaded at all on /progress paths, nor on the manager screens.
 //  - Vercel Analytics still runs there, but its events are rewritten to /progress/[code] before they are sent.
 
 const scrubVercelEvent: BeforeSend = (event) => ({ ...event, url: scrubProgressUrl(event.url) });
@@ -17,7 +17,7 @@ export function SiteAnalytics({ naverAnalyticsId }: { naverAnalyticsId: string }
 
   return (
     <>
-      {naverAnalyticsId && !isProgressPath(pathname) && (
+      {naverAnalyticsId && naverAnalyticsAllowed(pathname) && (
         <Script
           id="naver-analytics"
           strategy="lazyOnload"

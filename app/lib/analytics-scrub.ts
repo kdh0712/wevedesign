@@ -4,15 +4,28 @@
 export const SCRUBBED_PROGRESS_PATH = '/progress/[code]';
 
 // Next matches routes case-sensitively, but decode and collapse slashes anyway so an odd spelling of the path cannot slip past.
-export function isProgressPath(pathname: string | null | undefined): boolean {
-  if (!pathname) return false;
+function normalizedPath(pathname: string): string {
   let path = pathname;
   try {
     path = decodeURIComponent(pathname);
   } catch {
     // Not valid percent-encoding; test the text as written.
   }
-  return /^\/progress(?:\/|$)/.test(path.replace(/\/{2,}/g, '/'));
+  return path.replace(/\/{2,}/g, '/');
+}
+
+export function isProgressPath(pathname: string | null | undefined): boolean {
+  if (!pathname) return false;
+  return /^\/progress(?:\/|$)/.test(normalizedPath(pathname));
+}
+
+// The manager screens (PC and the staff phone app) are staff tools, not site visits.
+const isManagerPath = (pathname: string) => /^\/manager-weve-7519(?:\/|$)/.test(normalizedPath(pathname));
+
+// Naver wcslog is a third party that logs the page URL: never on progress links, and not on the manager screens.
+export function naverAnalyticsAllowed(pathname: string | null | undefined): boolean {
+  if (!pathname) return true;
+  return !isProgressPath(pathname) && !isManagerPath(pathname);
 }
 
 // Any /progress/<anything> URL becomes /progress/[code]; the query string and hash are dropped too. Other URLs are untouched.
