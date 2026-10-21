@@ -50,7 +50,8 @@ Firebase 콘솔 → Firestore Database → 규칙에서 `pushSubscriptions` 컬�
 이 기능이 배포된 **뒤에** 한다.
 
 1. https://www.pwabuilder.com 에 `https://www.wevedesign.co.kr/manager-weve-7519/m`을 넣고 검사한다.
-   서비스 워커 경고가 사라졌는지 본다.
+   서비스 워커 경고는 **남아 있어도 된다**: 알림용 서비스 워커는 로그인한 뒤에만 등록되는데 PWABuilder는 로그인하지
+   않기 때문이다. 앱이 감싸는 크롬 안에서는 로그인 후 등록되어 알림이 동작한다. 빨간 오류(0이어야 함)만 확인한다.
 2. **Package For Stores → Android → Generate Package**에서:
    - Package ID: `kr.co.wevedesign.staff`
    - App name: `위브 업무`, Launcher name: `위브 업무`

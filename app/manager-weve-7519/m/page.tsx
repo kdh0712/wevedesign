@@ -315,6 +315,21 @@ export default function StaffAppPage() {
     window.scrollTo({ top: 0 });
   };
 
+  // A 새 상담 alert tapped while the app is open: the service worker asks for 상담 instead of reloading the page, so the
+  // usual tab change (and its check before leaving a report being written) applies.
+  const openConsultationsRef = useRef<() => void>(() => undefined);
+  openConsultationsRef.current = () => {
+    if (tabs.includes('consultations')) changeTab('consultations');
+  };
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if ((event.data as { type?: unknown } | null)?.type === 'weve-open-consultations') openConsultationsRef.current();
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
   const openSite = (id: string, from: MobileTab | null = null) => {
     siteOriginRef.current = openSiteFrom(id, from).origin;
     setSiteId(id);

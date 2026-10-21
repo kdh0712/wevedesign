@@ -107,6 +107,21 @@ function deviceProblem(device: MobileDeviceRecord | null, nowMs: number, key: Bu
 // For server-side work on a phone's behalf (push alerts), where no device token is presented.
 export const deviceIsActive = (device: MobileDeviceRecord | null, nowMs: number, key: Buffer) => deviceProblem(device, nowMs, key) === null;
 
+// Before each push alert, the same checks a session refresh makes: a revoked, expired or foreign device, a removed account
+// or a changed password ends the subscription ('drop'); a missing permission only skips this alert ('skip'), so alerts
+// resume when the permission comes back.
+export function pushRecipientDecision(
+  device: MobileDeviceRecord | null,
+  subscriptionUserId: string,
+  account: { credential: string | null; canGetAlerts: boolean } | null,
+  nowMs: number,
+  key: Buffer,
+): 'send' | 'skip' | 'drop' {
+  if (!device || !deviceIsActive(device, nowMs, key) || device.userId !== subscriptionUserId) return 'drop';
+  if (!account || !credentialStillValid(device, account.credential, key)) return 'drop';
+  return account.canGetAlerts ? 'send' : 'skip';
+}
+
 export function deviceRefreshDecision(device: MobileDeviceRecord | null, token: string, nowMs: number, key: Buffer): DeviceRefreshDecision {
   const problem = deviceProblem(device, nowMs, key);
   if (problem || !device) return { ok: false, reason: problem ?? 'missing' };

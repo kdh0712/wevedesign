@@ -18,10 +18,11 @@ export const TEST_PUSH_MESSAGE: PushMessage = { title: '위브 업무', body: '�
 
 // Lock screens show this, so it never carries the customer's name, phone or message: only where, what and how big.
 // Only consultations received in the last 24 hours count, so a backlog imported at once never alerts about old ones.
+// There is no upper bound: a Kakao time written in Korea time without an offset reads 9 hours ahead on the server.
 export function consultationPushMessage(consultations: Array<Record<string, unknown>>, nowMs: number): PushMessage | null {
   const recent = consultations.filter((record) => {
     const received = Date.parse(typeof record.createdAt === 'string' ? record.createdAt : '');
-    return Number.isFinite(received) && received <= nowMs + 60000 && nowMs - received <= RECENT_MS;
+    return Number.isFinite(received) && nowMs - received <= RECENT_MS;
   });
   if (recent.length === 0) return null;
   if (recent.length > 1) return { title: `새 상담 ${recent.length}건`, body: '앱에서 확인해 주세요', url: CONSULTATIONS_URL, tag: 'new-consultation' };

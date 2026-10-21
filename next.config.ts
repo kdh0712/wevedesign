@@ -42,6 +42,12 @@ const nextConfig: NextConfig = {
           { key: 'X-Robots-Tag', value: 'noindex, nofollow' },
         ],
       },
+      {
+        // The push alert worker sits at /manager-weve-7519/m/sw.js, so by default it could control only
+        // /manager-weve-7519/m/ (with the slash) and not the app page /manager-weve-7519/m; browsers refuse that registration.
+        source: '/manager-weve-7519/m/sw.js',
+        headers: [{ key: 'Service-Worker-Allowed', value: '/manager-weve-7519/m' }],
+      },
     ];
   },
 };

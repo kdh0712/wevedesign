@@ -41,3 +41,12 @@ test('assetlinks is served from /.well-known for the Android app', async () => {
   const list = Array.isArray(rewrites) ? rewrites : [...(rewrites.beforeFiles || []), ...(rewrites.afterFiles || []), ...(rewrites.fallback || [])];
   assert.ok(list.some((rule) => rule.source === '/.well-known/assetlinks.json' && rule.destination === '/api/android-assetlinks'));
 });
+
+// A worker at /manager-weve-7519/m/sw.js may by default control only /manager-weve-7519/m/ (with the slash), which leaves
+// out the app page /manager-weve-7519/m itself; browsers refuse the registration without this header.
+test('the staff app service worker may control /manager-weve-7519/m', async () => {
+  const rules = await nextConfig.headers();
+  const rule = rules.find((item) => item.source === '/manager-weve-7519/m/sw.js');
+  assert.ok(rule, 'a header rule for the service worker');
+  assert.equal(headerMap(rule)['Service-Worker-Allowed'], '/manager-weve-7519/m');
+});

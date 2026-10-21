@@ -15,9 +15,22 @@ type Credentials = { deviceId: string; deviceToken: string };
 
 const errorText = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
 
+// Each browser step fails with its own Korean line; the browser's own (English) error text is never shown.
+const step = async <T,>(task: () => Promise<T>, failure: string): Promise<T> => {
+  try {
+    return await task();
+  } catch {
+    throw new Error(failure);
+  }
+};
+
 async function readyRegistration(): Promise<ServiceWorkerRegistration> {
   await navigator.serviceWorker.register(SERVICE_WORKER_URL, { scope: SERVICE_WORKER_SCOPE });
-  return navigator.serviceWorker.ready;
+  // ready never settles if the worker cannot control this page, so it is given 10 seconds.
+  return Promise.race([
+    navigator.serviceWorker.ready,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
+  ]);
 }
 
 export function PushPanel({ request, credentials }: { request: Request; credentials: () => Credentials | null }) {
@@ -94,13 +107,19 @@ export function PushPanel({ request, credentials }: { request: Request; credenti
 
   const turnOn = () =>
     run(async () => {
-      const permission = await Notification.requestPermission();
+      const permission = await step(() => Notification.requestPermission(), '알림 허용을 물어보지 못했어요. 다시 눌러 주세요.');
       setEnv((current) => (current ? { ...current, permission } : current));
+      // 'denied' shows the settings hint as the panel text; a closed prompt leaves it 'default'.
+      if (permission === 'default') throw new Error('알림 허용 창이 닫혔어요. [알림 켜기]를 다시 눌러 [허용]을 골라 주세요.');
       if (permission !== 'granted') return;
-      const registration = await readyRegistration();
-      const subscription =
-        (await registration.pushManager.getSubscription()) ??
-        (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) as BufferSource }));
+      const registration = await step(readyRegistration, '알림을 받을 준비를 하지 못했어요. 앱을 닫았다가 다시 열어 주세요.');
+      const subscription = await step(
+        async () =>
+          (await registration.pushManager.getSubscription()) ??
+          (await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) as BufferSource })),
+        '이 휴대폰에서 알림을 등록하지 못했어요. 잠시 후 다시 시도해 주세요.',
+      );
+      // Server answers (and connection problems) already come as Korean messages.
       await post({ action: 'subscribe', subscription: subscription.toJSON() });
       setEnv((current) => (current ? { ...current, subscribed: true } : current));
       setMessage({ tone: 'ok', text: '알림을 켰어요. [시험 알림]으로 확인해 보세요.' });

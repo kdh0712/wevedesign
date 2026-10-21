@@ -56,6 +56,21 @@ test('only consultations from the last 24 hours count', () => {
   assert.equal(consultationPushMessage([], now), null);
 });
 
+test('a Kakao time written in Korea time without an offset still counts', () => {
+  // A time without an offset is read in the machine's zone. The server (Vercel) runs in UTC, where 14:03 KST written as
+  // "2026-10-21T14:03:00" lands 9 hours ahead of the real moment; this test runs in UTC to match it.
+  const zone = process.env.TZ;
+  process.env.TZ = 'UTC';
+  try {
+    const kst = new Date(now + 9 * 3600000 - 5 * 60000).toISOString().slice(0, 19);
+    assert.ok(Date.parse(kst) > now + 8 * 3600000, 'read as UTC, as on the server');
+    assert.equal(consultationPushMessage([consult({ createdAt: kst })], now)?.title, '새 상담');
+  } finally {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  }
+});
+
 test('pushSubscriptionId is one per device', () => {
   assert.equal(pushSubscriptionId('md-0123456789abcdef01234567'), 'ps-md-0123456789abcdef01234567');
 });
