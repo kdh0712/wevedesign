@@ -35,3 +35,9 @@ test('manager pages, the phone app included, are never cached and never indexed'
   const siteWideIndex = rules.findIndex((rule) => rule.source === '/:path*');
   assert.ok(siteWideIndex < managerIndex);
 });
+
+test('assetlinks is served from /.well-known for the Android app', async () => {
+  const rewrites = await nextConfig.rewrites();
+  const list = Array.isArray(rewrites) ? rewrites : [...(rewrites.beforeFiles || []), ...(rewrites.afterFiles || []), ...(rewrites.fallback || [])];
+  assert.ok(list.some((rule) => rule.source === '/.well-known/assetlinks.json' && rule.destination === '/api/android-assetlinks'));
+});

@@ -1,5 +1,7 @@
 // The phone app's install information. Served here, not from public/, so scope and start_url stay next to the app.
+// id, orientation and categories answer PWABuilder's checks for the Android app (spec 2026-10-21 staff push §5).
 const manifest = {
+  id: '/manager-weve-7519/m',
   name: '위브 업무',
   short_name: '위브 업무',
   description: '위브디자인 직원용 업무 앱',
@@ -7,6 +9,8 @@ const manifest = {
   start_url: '/manager-weve-7519/m',
   scope: '/manager-weve-7519/m',
   display: 'standalone',
+  orientation: 'portrait',
+  categories: ['business', 'productivity'],
   background_color: '#fffdf8',
   theme_color: '#fffdf8',
   icons: [

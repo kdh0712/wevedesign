@@ -5,6 +5,13 @@ const nextConfig: NextConfig = {
   // Customer progress photos (Firebase Storage). Loaded by Node as installed, like firebase-admin (which wraps it) is by
   // default, instead of being bundled.
   serverExternalPackages: ['@google-cloud/storage'],
+  async rewrites() {
+    return [
+      // Digital Asset Links for the staff Android app (a TWA around /manager-weve-7519/m): without it the app shows an
+      // address bar. Served by a route so the signing fingerprint comes from ANDROID_APP_SHA256.
+      { source: '/.well-known/assetlinks.json', destination: '/api/android-assetlinks' },
+    ];
+  },
   async headers() {
     return [
       {
