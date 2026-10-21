@@ -2,7 +2,7 @@
 // Pure functions only, shared by GET /api/manager/mobile/overview, the consultation API and the phone screens.
 import { pickScheduleEstimate, summarizeSchedule, type ProgressScheduleTask } from './site-progress.ts';
 
-export type MobileTab = 'today' | 'sites' | 'report' | 'consultations';
+export type MobileTab = 'today' | 'sites' | 'schedule' | 'report' | 'consultations';
 
 export type MobileTask = {
   id: string;
@@ -75,7 +75,7 @@ const dialable = (value: unknown) => {
 
 export function visibleMobileTabs(perms: { sites: boolean; dashboard: boolean; consultations: boolean }): MobileTab[] {
   const tabs: MobileTab[] = [];
-  if (perms.sites) tabs.push('today', 'sites');
+  if (perms.sites) tabs.push('today', 'sites', 'schedule');
   // Posting a progress record needs 'dashboard' as well, the same rule as the PC screen (POST_NEEDS_DASHBOARD).
   if (perms.sites && perms.dashboard) tabs.push('report');
   if (perms.consultations) tabs.push('consultations');

@@ -28,8 +28,8 @@ test('consultation statuses keep the PC order', () => {
 
 test('tabs follow permissions', () => {
   assert.deepEqual(visibleMobileTabs({ sites: false, dashboard: false, consultations: true }), ['consultations']);
-  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: false, consultations: false }), ['today', 'sites']);
-  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: true, consultations: true }), ['today', 'sites', 'report', 'consultations']);
+  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: false, consultations: false }), ['today', 'sites', 'schedule']);
+  assert.deepEqual(visibleMobileTabs({ sites: true, dashboard: true, consultations: true }), ['today', 'sites', 'schedule', 'report', 'consultations']);
   assert.deepEqual(visibleMobileTabs({ sites: false, dashboard: true, consultations: false }), []);
 });
 

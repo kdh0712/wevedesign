@@ -20,10 +20,11 @@ import {
 } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { ReportTab } from './report-tab';
+import { ScheduleTab } from './schedule-tab';
 import { SitesTab } from './sites-tab';
 import { TodayTab } from './today-tab';
 
-// The staff phone app (spec docs/superpowers/specs/2026-10-20-staff-mobile-app-design.md). One page with four tabs; the data
+// The staff phone app (specs 2026-10-20-staff-mobile-app and 2026-10-21-staff-app-notes-schedule-estimate). One page, five tabs; the data
 // comes from GET /api/manager/mobile/overview and is read again when the app comes back after 5 minutes or on pull-down.
 
 const RELOAD_AFTER_MS = 5 * 60 * 1000;
@@ -79,6 +80,8 @@ export default function StaffAppPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [pull, setPull] = useState(0);
   const loadedAtRef = useRef(0);
+  // The tab a site detail was opened from (오늘 or 일정), where the back button returns.
+  const siteOriginRef = useRef<MobileTab | null>(null);
   const pullStartRef = useRef<number | null>(null);
 
   useEffect(() => setMobile(createMobileSession({ storage: safeLocalStorage() })), []);
@@ -93,6 +96,7 @@ export default function StaffAppPage() {
     setLoadError(screen.loadError);
     setReportDirty(false);
     setReportBusy(false);
+    siteOriginRef.current = null;
     setMenuOpen(false);
     setLoginNotice(notice);
     setPhase('login');
@@ -216,14 +220,19 @@ export default function StaffAppPage() {
     if (tabs.length > 0 && !tabs.includes(tab)) setTab(tabs[0]);
   }, [tabs, tab]);
 
-  // The Android back button closes the site detail instead of the app (see createBackGuard).
+  // The Android back button closes the site detail instead of the app (see createBackGuard). A detail opened from 오늘 or
+  // 일정 goes back to that tab; the on-screen "현장 목록" button still goes to the site list.
   const detailOpen = phase === 'ready' && tab === 'sites' && Boolean(siteId && overview?.sites.some((site) => site.id === siteId));
   const backGuardRef = useRef<ReturnType<typeof createBackGuard> | null>(null);
   useEffect(() => {
     const guard = createBackGuard(window.history);
     backGuardRef.current = guard;
     const onPopState = () => {
-      if (guard.onPopState()) setSiteId(null);
+      if (!guard.onPopState()) return;
+      const origin = siteOriginRef.current;
+      siteOriginRef.current = null;
+      setSiteId(null);
+      if (origin === 'today' || origin === 'schedule') setTab(origin);
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
@@ -253,12 +262,14 @@ export default function StaffAppPage() {
     setMenuOpen(false);
     if (next !== tab && !leaveReportOk()) return;
     if (next === tab && next === 'sites') setSiteId(null);
+    siteOriginRef.current = null;
     if (next === 'report' && next !== tab) setReportSiteId(null);
     setTab(next);
     window.scrollTo({ top: 0 });
   };
 
-  const openSite = (id: string) => {
+  const openSite = (id: string, from: MobileTab | null = null) => {
+    siteOriginRef.current = from;
     setSiteId(id);
     setTab('sites');
     window.scrollTo({ top: 0 });
@@ -396,10 +407,11 @@ export default function StaffAppPage() {
                 overview={overview}
                 userName={user?.name || ''}
                 nowMs={nowMs}
-                onOpenSite={openSite}
+                onOpenSite={(id) => openSite(id, 'today')}
                 onOpenConsultations={tabs.includes('consultations') ? () => changeTab('consultations') : undefined}
               />
             )}
+            {tab === 'schedule' && <ScheduleTab overview={overview} onOpenSite={(id) => openSite(id, 'schedule')} />}
             {tab === 'sites' && (
               <SitesTab
                 overview={overview}
