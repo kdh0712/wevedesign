@@ -93,13 +93,23 @@ export function credentialStillValid(device: Pick<MobileDeviceRecord, 'credentia
   return stored === '' ? current === '' : equalHex(stored, current);
 }
 
-export function deviceRefreshDecision(device: MobileDeviceRecord | null, token: string, nowMs: number, key: Buffer): DeviceRefreshDecision {
-  if (!device) return { ok: false, reason: 'missing' };
-  if (device.revokedAt) return { ok: false, reason: 'revoked' };
+// Whether a stored device can still log in, without its token: present, not revoked, not expired, signed by this server.
+function deviceProblem(device: MobileDeviceRecord | null, nowMs: number, key: Buffer): 'missing' | 'revoked' | 'expired' | 'token' | null {
+  if (!device) return 'missing';
+  if (device.revokedAt) return 'revoked';
   const expiresAt = Date.parse(device.expiresAt);
   // An unreadable date counts as expired, never as forever.
-  if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) return { ok: false, reason: 'expired' };
-  if (!equalHex(String(device.signature || ''), deviceSignature(device, key))) return { ok: false, reason: 'token' };
+  if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) return 'expired';
+  if (!equalHex(String(device.signature || ''), deviceSignature(device, key))) return 'token';
+  return null;
+}
+
+// For server-side work on a phone's behalf (push alerts), where no device token is presented.
+export const deviceIsActive = (device: MobileDeviceRecord | null, nowMs: number, key: Buffer) => deviceProblem(device, nowMs, key) === null;
+
+export function deviceRefreshDecision(device: MobileDeviceRecord | null, token: string, nowMs: number, key: Buffer): DeviceRefreshDecision {
+  const problem = deviceProblem(device, nowMs, key);
+  if (problem || !device) return { ok: false, reason: problem ?? 'missing' };
   if (!tokenMatches(token, device.tokenHash)) return { ok: false, reason: 'token' };
   const lastUsedAt = Date.parse(device.lastUsedAt);
   return { ok: true, touch: !Number.isFinite(lastUsedAt) || nowMs - lastUsedAt >= LAST_USED_WRITE_INTERVAL_MS };

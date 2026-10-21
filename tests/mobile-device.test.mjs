@@ -8,6 +8,7 @@ import {
   MOBILE_DEVICE_TTL_MS,
   MOBILE_SESSION_TTL_SECONDS,
   deviceLabelFromUserAgent,
+  deviceIsActive,
   deviceRefreshDecision,
   hashDeviceToken,
   isMobileDeviceId,
@@ -126,4 +127,13 @@ test('a login names the device it replaces only with a well formed id and a toke
   assert.equal(previousDeviceOf({ previousDeviceId: id, previousDeviceToken: '' }, 'md-ffffffffffffffffffffffff'), null);
   assert.equal(previousDeviceOf({ previousDeviceId: id }, 'md-ffffffffffffffffffffffff'), null);
   assert.equal(previousDeviceOf(null, 'md-ffffffffffffffffffffffff'), null);
+});
+
+test('deviceIsActive needs a live, signed device (no token needed)', () => {
+  const s = newDeviceSecret();
+  assert.equal(deviceIsActive(deviceFor(s), now, key), true);
+  assert.equal(deviceIsActive(deviceFor(s, { revokedAt: iso(now - 1000) }), now, key), false);
+  assert.equal(deviceIsActive(deviceFor(s, { expiresAt: iso(now - 1) }), now, key), false);
+  assert.equal(deviceIsActive(deviceFor(s, {}, Buffer.from('other-key')), now, key), false);
+  assert.equal(deviceIsActive(null, now, key), false);
 });
