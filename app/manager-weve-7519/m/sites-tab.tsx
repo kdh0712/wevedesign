@@ -1,12 +1,14 @@
 'use client';
 
-import { ArrowLeft, Camera, ChevronRight, MapPin, Phone, Search } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronRight, FileText, MapPin, Phone, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import type { CustomerEstimateView } from '../../lib/mobile-estimate';
 import { sortSitesForList, type MobileOverview, type MobileSite } from '../../lib/mobile-overview';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { errorText, formatReportDay, memoPreview } from '../progress-manager';
 import type { SiteNotesApi } from '../site-notes-api';
 import { SiteNotesSection } from '../site-notes-section';
+import { EstimateView } from './estimate-view';
 import { ActionTile, CallButton, Card, EmptyText, Notice, ProgressBar, SectionTitle, StatePill } from './mobile-ui';
 
 const mapHref = (address: string) => `https://map.kakao.com/link/search/${encodeURIComponent(address)}`;
@@ -18,12 +20,17 @@ type NotesProps = {
   onOpenTodoCountChange: (siteId: string, count: number) => void;
 };
 
+export type SiteView = 'detail' | 'estimate';
+
 export function SitesTab({
   overview,
   selectedId,
   onSelect,
   onOpenReport,
   loadReports,
+  view,
+  onViewChange,
+  loadEstimate,
   ...notes
 }: {
   overview: MobileOverview;
@@ -31,10 +38,26 @@ export function SitesTab({
   onSelect: (siteId: string | null) => void;
   onOpenReport?: (siteId: string) => void;
   loadReports: (siteId: string) => Promise<ProgressUpdateView[]>;
+  // The estimate is a level on top of the site detail; the page keeps it so the back button can close it first.
+  view: SiteView;
+  onViewChange: (view: SiteView) => void;
+  loadEstimate: (siteId: string) => Promise<CustomerEstimateView | null>;
 } & NotesProps) {
   const selected = selectedId ? overview.sites.find((site) => site.id === selectedId) : undefined;
+  if (selected && view === 'estimate' && overview.canViewEstimates) {
+    return <EstimateView siteId={selected.id} siteTitle={selected.title} load={loadEstimate} onBack={() => onViewChange('detail')} />;
+  }
   if (selected) {
-    return <SiteDetail site={selected} onBack={() => onSelect(null)} onOpenReport={onOpenReport} loadReports={loadReports} {...notes} />;
+    return (
+      <SiteDetail
+        site={selected}
+        onBack={() => onSelect(null)}
+        onOpenReport={onOpenReport}
+        onOpenEstimate={overview.canViewEstimates ? () => onViewChange('estimate') : undefined}
+        loadReports={loadReports}
+        {...notes}
+      />
+    );
   }
   return <SiteList sites={overview.sites} onSelect={onSelect} />;
 }
@@ -93,6 +116,7 @@ function SiteDetail({
   site,
   onBack,
   onOpenReport,
+  onOpenEstimate,
   loadReports,
   notesApi,
   viewer,
@@ -101,6 +125,7 @@ function SiteDetail({
   site: MobileSite;
   onBack: () => void;
   onOpenReport?: (siteId: string) => void;
+  onOpenEstimate?: () => void;
   loadReports: (siteId: string) => Promise<ProgressUpdateView[]>;
 } & NotesProps) {
   const [reports, setReports] = useState<ProgressUpdateView[] | null>(null);
@@ -137,6 +162,7 @@ function SiteDetail({
         )}
         {site.address && <ActionTile icon={<MapPin className="h-5 w-5" aria-hidden="true" />} label="길 안내" href={mapHref(site.address)} />}
         {onOpenReport && <ActionTile icon={<Camera className="h-5 w-5" aria-hidden="true" />} label="보고 쓰기" onClick={() => onOpenReport(site.id)} />}
+        {onOpenEstimate && <ActionTile icon={<FileText className="h-5 w-5" aria-hidden="true" />} label="견적" onClick={onOpenEstimate} />}
       </div>
 
       {site.memo && (

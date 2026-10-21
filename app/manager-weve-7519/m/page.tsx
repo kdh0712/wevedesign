@@ -3,6 +3,7 @@
 import { LogOut, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
+import type { CustomerEstimateView } from '../../lib/mobile-estimate';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
 import { createSiteNotesApi } from '../site-notes-api';
@@ -21,7 +22,7 @@ import {
 import { Notice, TabBar } from './mobile-ui';
 import { ReportTab } from './report-tab';
 import { ScheduleTab } from './schedule-tab';
-import { SitesTab } from './sites-tab';
+import { SitesTab, type SiteView } from './sites-tab';
 import { TodayTab } from './today-tab';
 
 // The staff phone app (specs 2026-10-20-staff-mobile-app and 2026-10-21-staff-app-notes-schedule-estimate). One page, five tabs; the data
@@ -220,15 +221,30 @@ export default function StaffAppPage() {
     if (tabs.length > 0 && !tabs.includes(tab)) setTab(tabs[0]);
   }, [tabs, tab]);
 
-  // The Android back button closes the site detail instead of the app (see createBackGuard). A detail opened from 오늘 or
-  // 일정 goes back to that tab; the on-screen "현장 목록" button still goes to the site list.
+  // The estimate is a level on top of the site detail; another site always opens on its detail.
+  const [siteView, setSiteView] = useState<SiteView>('detail');
+  const [siteViewFor, setSiteViewFor] = useState(siteId);
+  if (siteViewFor !== siteId) {
+    setSiteViewFor(siteId);
+    setSiteView('detail');
+  }
+  const siteViewRef = useRef(siteView);
+  siteViewRef.current = siteView;
+
+  // The Android back button closes the top level (estimate, then site detail) instead of the app (see createBackGuard). A
+  // detail opened from 오늘 or 일정 goes back to that tab; the on-screen "현장 목록" button still goes to the site list.
   const detailOpen = phase === 'ready' && tab === 'sites' && Boolean(siteId && overview?.sites.some((site) => site.id === siteId));
+  const backDepth = detailOpen ? (siteView === 'estimate' && overview?.canViewEstimates ? 2 : 1) : 0;
   const backGuardRef = useRef<ReturnType<typeof createBackGuard> | null>(null);
   useEffect(() => {
     const guard = createBackGuard(window.history);
     backGuardRef.current = guard;
     const onPopState = () => {
       if (!guard.onPopState()) return;
+      if (siteViewRef.current === 'estimate') {
+        setSiteView('detail');
+        return;
+      }
       const origin = siteOriginRef.current;
       siteOriginRef.current = null;
       setSiteId(null);
@@ -238,8 +254,8 @@ export default function StaffAppPage() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
   useEffect(() => {
-    backGuardRef.current?.sync(detailOpen);
-  }, [detailOpen]);
+    backGuardRef.current?.sync(backDepth);
+  }, [backDepth]);
 
   const progressApi = useMemo(() => createProgressApi(() => mobile?.authHeaders() || {}), [mobile]);
   const loadReports = useCallback(
@@ -263,6 +279,7 @@ export default function StaffAppPage() {
     if (next !== tab && !leaveReportOk()) return;
     if (next === tab && next === 'sites') setSiteId(null);
     siteOriginRef.current = null;
+    setSiteView('detail');
     if (next === 'report' && next !== tab) setReportSiteId(null);
     setTab(next);
     window.scrollTo({ top: 0 });
@@ -285,6 +302,11 @@ export default function StaffAppPage() {
 
   // 할 일·현장 기록 go through authedFetch, so they get the same refresh and one retry on 401.
   const notesApi = useMemo(() => createSiteNotesApi(authedFetch), [authedFetch]);
+  const loadEstimate = useCallback(
+    async (id: string) =>
+      ((await authedFetch(`/api/manager/mobile/estimate?siteId=${encodeURIComponent(id)}`)).estimate as CustomerEstimateView | null) ?? null,
+    [authedFetch],
+  );
   // A tick or a new 할 일 updates the count on 오늘 at once, without reloading the overview.
   const onOpenTodoCountChange = useCallback((id: string, count: number) => {
     setOverview((current) => {
@@ -422,6 +444,9 @@ export default function StaffAppPage() {
                 notesApi={notesApi}
                 viewer={user || { loginId: '', role: 'staff' }}
                 onOpenTodoCountChange={onOpenTodoCountChange}
+                view={siteView}
+                onViewChange={setSiteView}
+                loadEstimate={loadEstimate}
               />
             )}
             {tab === 'report' && (
