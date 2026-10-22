@@ -4,11 +4,20 @@ import * as XLSX from 'xlsx';
 import { checkSanityDocumentType, hashId, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 import {
+  deleteEstimateTemplate,
+  EstimateTemplateInputError,
+  listEstimateTemplates,
+  readEstimateTemplate,
+  saveEstimateTemplate,
+} from '../_estimate-templates';
+import {
   canUseFirestoreForRequest,
+  canUseFirestoreOnServer,
   deleteEstimateFromFirestore,
   deleteMaterialFromFirestore,
   isFirestoreConflictError,
   readEstimateDataFromFirestore,
+  readEstimateMaterialMetaFromFirestore,
   readEstimateMaterialSettingsForUpdate,
   readEstimateMaterialsFromFirestore,
   readSiteEstimatesFromFirestore,
@@ -214,6 +223,9 @@ type EstimateReadOptions = {
 // - estimates=site&siteId=: only that site's versions ('' = newest site), plus estimatesSiteId
 // - part=estimates&siteId=: { estimates, estimatesSiteId } for one site
 // - part=materials: { materials, materialsMeta, materialSettings }
+// - part=materialsMeta: { materialsMeta } only (one Firestore read), to check that the page's materials are current
+// - part=templates: { templates } (summaries, no lines)
+// - part=template&id=: { template } with its lines and updateTime; 404 { conflict: 'deleted' } when it is gone
 export async function GET(request: Request) {
   const access = requireManager(request, { anyOf: ['estimates'] });
   if (access.error) return access.error;
@@ -222,6 +234,18 @@ export async function GET(request: Request) {
     const startedAt = Date.now();
     const url = new URL(request.url);
     const part = url.searchParams.get('part') || '';
+
+    if (part === 'materialsMeta') {
+      const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+      return NextResponse.json({ materialsMeta: useFirestore ? await readEstimateMaterialMetaFromFirestore(request) : null });
+    }
+    if (part === 'templates' || part === 'template') {
+      const unavailable = templatesUnavailable();
+      if (unavailable) return unavailable;
+      if (part === 'templates') return NextResponse.json({ templates: await listEstimateTemplates() });
+      const template = await readEstimateTemplate((url.searchParams.get('id') || '').trim());
+      return template ? NextResponse.json({ template }) : templateDeletedResponse(404);
+    }
     const siteId = (url.searchParams.get('siteId') || '').trim();
     const isSiteScoped = part === 'estimates' || url.searchParams.get('estimates') === 'site';
 
@@ -321,6 +345,18 @@ export async function POST(request: Request) {
       }
       await managerClient.delete(id);
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'saveTemplate' || action === 'deleteTemplate') {
+      const unavailable = templatesUnavailable();
+      if (unavailable) return unavailable;
+      if (action === 'deleteTemplate') {
+        const id = String(body?.id || '').trim();
+        if (!id) return NextResponse.json({ error: '삭제할 템플릿을 선택해 주세요.' }, { status: 400 });
+        await deleteEstimateTemplate(id);
+        return NextResponse.json({ ok: true });
+      }
+      return await saveTemplate(body?.template || {}, access.session.name);
     }
 
     if (action === 'saveMaterial') {
@@ -441,6 +477,36 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     throw error;
   }
   return NextResponse.json({ record });
+}
+
+// 견적 템플릿 live in Firestore only and are read with the server service account.
+function templatesUnavailable() {
+  return shouldUseFirestoreErp() && canUseFirestoreOnServer()
+    ? null
+    : NextResponse.json({ error: '템플릿은 Firestore에서만 쓸 수 있어요.' }, { status: 400 });
+}
+
+function templateDeletedResponse(status: 404 | 409) {
+  return NextResponse.json({ error: '삭제된 템플릿이에요.', conflict: 'deleted' }, { status });
+}
+
+async function saveTemplate(input: Record<string, unknown>, by: string) {
+  const id = String(input.id || '').trim();
+  try {
+    const template = await saveEstimateTemplate({
+      id,
+      name: String(input.name || ''),
+      lines: input.lines,
+      baseUpdateTime: String(input.baseUpdateTime || ''),
+      by,
+    });
+    return NextResponse.json({ template });
+  } catch (error) {
+    if (error instanceof EstimateTemplateInputError) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!isFirestoreConflictError(error)) throw error;
+    if (id && !(await readEstimateTemplate(id))) return templateDeletedResponse(409);
+    return NextResponse.json({ error: '다른 곳에서 먼저 고쳤어요.', conflict: 'changed' }, { status: 409 });
+  }
 }
 
 function estimateConflictResponse(conflict: 'changed' | 'deleted') {
