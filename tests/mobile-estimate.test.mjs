@@ -20,6 +20,11 @@ const estimate = {
   ]),
 };
 
+test('the phone estimate never carries the material link of a line', () => {
+  const view = toCustomerEstimateView({ linesJson: JSON.stringify([{ name: '타일', quantity: 1, customerUnitPrice: 1000, materialId: 'secret-material-id' }]) });
+  assert.ok(!JSON.stringify(view).includes('secret-material-id'));
+});
+
 test('groups by category, then process, then 기타 공사, and skips nameless lines', () => {
   const view = toCustomerEstimateView(estimate);
   assert.deepEqual(
