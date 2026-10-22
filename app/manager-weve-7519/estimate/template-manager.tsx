@@ -7,6 +7,8 @@ import {
   isBlankEstimateLine,
   normalizeTemplateLines,
   placeTemplateLines,
+  repickTemplateLine,
+  templateCopyName,
   templateCustomerTotal,
   templateLinesError,
   templateNameError,
@@ -60,13 +62,6 @@ const emptyTemplateLine = (id: string): TemplateLine => ({
   executionUnitPrice: 0,
   note: '',
 });
-
-function copyName(name: string, names: string[]) {
-  const taken = (candidate: string) => names.some((other) => templateNameError(candidate, [other]) !== '');
-  let candidate = `${name} 복사`;
-  for (let n = 2; taken(candidate); n += 1) candidate = `${name} 복사 ${n}`;
-  return candidate;
-}
 
 export function TemplateManager({ api, post, materials, sites, spaceOptions, categoryOptions, pickFromDb, newLineId, onClose }: TemplateManagerProps) {
   const [templates, setTemplates] = useState<EstimateTemplateSummary[]>([]);
@@ -182,7 +177,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       void run(async () => {
         try {
           const template = await readTemplate(summary.id);
-          const name = copyName(template.name, templates.map((item) => item.name));
+          const name = templateCopyName(template.name, templates.map((item) => item.name));
           openDraft({ id: '', name, lines: template.lines.map((line) => ({ ...line, id: newLineId() })), baseUpdateTime: '' }, false);
           setStatus('복사본을 열었어요. 저장해야 템플릿으로 생겨요.');
         } catch (caught) {
@@ -236,12 +231,12 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       });
       if (response.status === 409 && data.conflict === 'changed') {
         setConflict('changed');
-        setSaveAsName(copyName(target.name, templates.map((item) => item.name)));
+        setSaveAsName(templateCopyName(target.name, templates.map((item) => item.name)));
         throw new Error('다른 곳에서 먼저 고쳤어요. 상대 내용을 다시 불러오거나, 내 작업을 다른 이름으로 저장해 주세요.');
       }
       if ((response.status === 409 || response.status === 404) && data.conflict === 'deleted') {
         setConflict('deleted');
-        setSaveAsName(copyName(target.name, templates.map((item) => item.name)));
+        setSaveAsName(templateCopyName(target.name, templates.map((item) => item.name)));
         throw new Error('삭제된 템플릿이에요. 내 작업을 다른 이름으로 저장할 수 있어요.');
       }
       if (!response.ok || !data.template) throw new Error(data.error || '템플릿을 저장하지 못했어요.');
@@ -460,6 +455,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                         <td className="py-1.5 pr-2"><input value={line.category} onChange={(event) => updateLine(line.id, { category: event.target.value })} list="template-categories" aria-label="카테고리" className={inputClass} /></td>
                         <td className="py-1.5 pr-2">
                           <input value={line.name} onChange={(event) => updateLine(line.id, { name: event.target.value })} aria-label="품명" className={inputClass} />
+                          <button type="button" onClick={() => pickFromDb((picked) => updateLines((lines) => repickTemplateLine(lines, line.id, picked)))} className="mt-1 mr-1 rounded border border-[#d5dde2] px-1.5 py-0.5 text-[11px] font-semibold">DB에서 다시 고르기</button>
                           {notInDb && <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">DB에서 못 찾음</span>}
                         </td>
                         <td className="py-1.5 pr-2"><input value={line.spec} onChange={(event) => updateLine(line.id, { spec: event.target.value })} aria-label="규격" className={inputClass} /></td>

@@ -76,13 +76,18 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
     }
   };
 
-  const toggle = (kind: keyof TemplateSelection, label: string) =>
+  // A tick changed while 바꾸기 / 덧붙이기 is asked drops that question: the lines it holds came from the old ticks.
+  const toggle = (kind: keyof TemplateSelection, label: string) => {
+    setPending(null);
     setSelection((current) => ({
       ...current,
       [kind]: current[kind].includes(label) ? current[kind].filter((item) => item !== label) : [...current[kind], label],
     }));
-  const setAll = (kind: keyof TemplateSelection, on: boolean) =>
+  };
+  const setAll = (kind: keyof TemplateSelection, on: boolean) => {
+    setPending(null);
     setSelection((current) => ({ ...current, [kind]: on ? options[kind].map((item) => item.label) : [] }));
+  };
 
   const place = (refreshed: TemplateRefreshResult, mode: 'replace' | 'append') => {
     onApply(refreshed.lines, mode);

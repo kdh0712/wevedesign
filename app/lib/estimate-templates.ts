@@ -162,6 +162,30 @@ export function templateNameError(name: string, otherNames: string[]): string {
   return '';
 }
 
+// "<name> 복사", then "<name> 복사 2", 3, …: free of every name in names, and cut so the result fits TEMPLATE_NAME_MAX.
+export function templateCopyName(name: string, names: string[]): string {
+  const taken = new Set(names.map(nameKey));
+  for (let n = 1; ; n += 1) {
+    const suffix = n === 1 ? ' 복사' : ` 복사 ${n}`;
+    const candidate = `${key(name).slice(0, TEMPLATE_NAME_MAX - suffix.length).trim()}${suffix}`;
+    if (!taken.has(nameKey(candidate))) return candidate;
+  }
+}
+
+// A line picked again from the 자재 DB: the first picked line takes the old line's place, id, 공간, 수량 and 비고; further
+// lines of a 공통 pick follow it in the same 공간.
+export function repickTemplateLine<T extends TemplateLine>(lines: T[], lineId: string, picked: T[]): T[] {
+  const index = lines.findIndex((line) => line.id === lineId);
+  if (index < 0 || !picked.length) return lines;
+  const old = lines[index];
+  const [first, ...rest] = picked;
+  const placed = [
+    { ...first, id: old.id, space: old.space, quantity: old.quantity, note: old.note },
+    ...rest.map((line) => ({ ...line, space: old.space })),
+  ];
+  return [...lines.slice(0, index), ...placed, ...lines.slice(index + 1)];
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }

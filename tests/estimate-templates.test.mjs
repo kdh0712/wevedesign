@@ -10,6 +10,8 @@ import {
   normalizeTemplateLines,
   placeTemplateLines,
   refreshTemplateLines,
+  repickTemplateLine,
+  templateCopyName,
   templateCustomerTotal,
   templateLinesError,
   templateNameError,
@@ -131,4 +133,26 @@ test('the material list is current only when both versions exist, match, and the
   assert.equal(isMaterialListCurrent(null, 'v1|t|10', 10), false);
   assert.equal(isMaterialListCurrent('v1|t|10', null, 10), false, 'no server version is not proof of freshness');
   assert.equal(isMaterialListCurrent('v1|t|10', 'v1|t|10', 0), false);
+});
+
+test('templateCopyName never hangs on a long name and stays within 60 characters', () => {
+  const long = '가'.repeat(58);
+  const name = templateCopyName(long, [long]);
+  assert.ok(name.length <= 60);
+  assert.equal(templateNameError(name, [long]), '');
+  assert.equal(templateCopyName('30평형', ['30평형', '30평형 복사']), '30평형 복사 2');
+  assert.equal(templateCopyName('30평형', ['30평형']), '30평형 복사');
+});
+
+test('repickTemplateLine puts the DB pick in place of a line and keeps its 공간·수량·비고', () => {
+  const lines = [line({ id: 'a', name: '앞' }), line({ id: 'b', space: '욕실', quantity: 4, note: '벽', name: '실리콘' }), line({ id: 'c', name: '뒤' })];
+  const picked = [
+    line({ id: 'p1', name: '줄눈 시공', category: '욕실', unit: '식', customerUnitPrice: 9000, executionUnitPrice: 9000, materialId: 'm3', commonName: true }),
+    line({ id: 'p2', name: '실리콘 시공', category: '욕실', unit: '식', customerUnitPrice: 9000, executionUnitPrice: 9000, materialId: 'm3', commonName: true }),
+  ];
+  const next = repickTemplateLine(lines, 'b', picked);
+  assert.deepEqual(next.map((l) => l.id), ['a', 'b', 'p2', 'c']);
+  assert.deepEqual(pick(next[1], ['space', 'quantity', 'note', 'name', 'materialId', 'customerUnitPrice']), { space: '욕실', quantity: 4, note: '벽', name: '줄눈 시공', materialId: 'm3', customerUnitPrice: 9000 });
+  assert.equal(next[2].space, '욕실', 'extra rows of a 공통 pick take the 공간 of the line');
+  assert.deepEqual(repickTemplateLine(lines, 'gone', picked), lines, 'a line that is no longer there changes nothing');
 });
