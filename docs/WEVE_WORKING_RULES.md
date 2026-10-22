@@ -88,6 +88,15 @@ This file records durable product and implementation decisions. Review it before
 - If the duplicate check cannot read recent records, the submission goes through. Never turn a real customer away because the check failed.
 - The dashboard's 30-second refresh checks Kakao BizForm+ at most every 5 minutes (`app/lib/dashboard-rules.ts`); the 동기화 button checks right away.
 
+## Estimate Templates
+
+- 견적 템플릿 live in the Firestore collection `estimateTemplates`, read and written by the server service account only (`app/api/manager/_estimate-templates.ts`). They are Firestore-only: without Firestore ERP the template API answers 400. Templates never appear among sites, estimates, sales, the dashboard, the staff phone app or the customer progress page.
+- Every template action needs the `estimates` permission. Names are 1–60 characters after trimming and unique ignoring spaces and case; a template holds at most 2,000 lines (`app/lib/estimate-templates.ts`).
+- A template is saved only if it is still the version that was opened (`updateTime` precondition; `exists: false` for a new one). A conflict answers 409 `changed` or `deleted`; never overwrite another person's save.
+- A line picked from the 자재 DB keeps `materialId`, in templates and in site estimates (the estimate save keeps it). Loading a template sets both 고객 단가 and 실행 단가 to the current DB 단가 of that item; a line without one is matched only when exactly one DB item has the same 품명·규격·단위 (never for a 공통 line); anything else keeps the template 단가 and is reported as not found.
+- Before a load the page reads only the material version (`part=materialsMeta`, one read) and rereads every material only when that version differs from the cached one. A failed check stops the load; never load with prices that may be stale.
+- Loaded lines get new ids. Replacing lines unlinks the 실행 내역 rows that pointed at the removed lines, as deleting a line does.
+
 ## Portfolio
 
 - Project cards must remain real anchor links with crawlable `/portfolio/...` URLs while normal clicks may open the modal experience.
