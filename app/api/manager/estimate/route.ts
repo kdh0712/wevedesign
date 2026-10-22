@@ -56,6 +56,7 @@ type EstimateLine = {
   executionUnitPrice?: number | string;
   note?: string;
   commonName?: boolean;
+  materialId?: string;
 };
 
 type WorkLine = {
@@ -772,6 +773,8 @@ function normalizeLines(lines: EstimateLine[]) {
         executionAmount: Math.round(quantity * executionUnitPrice),
         note: String(line.note || '').trim(),
         commonName: Boolean(line.commonName),
+        // The 자재 DB item the line was picked from (a template load follows its 단가); left out when there is none.
+        ...(String(line.materialId || '').trim() ? { materialId: String(line.materialId).trim() } : {}),
       };
     })
     // The page accepts a line with any of these filled in, so none of them may be dropped here.

@@ -6,6 +6,7 @@ import {
   filterTemplateLines,
   findTemplateMaterial,
   isBlankEstimateLine,
+  isMaterialListCurrent,
   normalizeTemplateLines,
   placeTemplateLines,
   refreshTemplateLines,
@@ -122,4 +123,12 @@ test('normalizeTemplateLines takes JSON or arrays and never yields NaN', () => {
   assert.deepEqual(normalizeTemplateLines('{broken'), []);
   assert.deepEqual(normalizeTemplateLines(undefined), []);
   assert.equal(templateCustomerTotal([line({ quantity: 1.5, customerUnitPrice: 1001 })]), 1502);
+});
+
+test('the material list is current only when both versions exist, match, and the cache is not empty', () => {
+  assert.equal(isMaterialListCurrent('v1|t|10', 'v1|t|10', 10), true);
+  assert.equal(isMaterialListCurrent('v1|t|10', 'v2|t|10', 10), false);
+  assert.equal(isMaterialListCurrent(null, 'v1|t|10', 10), false);
+  assert.equal(isMaterialListCurrent('v1|t|10', null, 10), false, 'no server version is not proof of freshness');
+  assert.equal(isMaterialListCurrent('v1|t|10', 'v1|t|10', 0), false);
 });

@@ -17,6 +17,7 @@ import {
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
+import { isMaterialListCurrent } from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -59,6 +60,8 @@ type EstimateLine = {
   executionUnitPrice: number;
   note: string;
   commonName?: boolean;
+  // The 자재 DB item the line was picked from; a template load takes that item's current 단가.
+  materialId?: string;
 };
 
 type WorkLine = {
@@ -1131,6 +1134,21 @@ export default function EstimateWorkspacePage() {
     }
   };
 
+  // For a template load: reads only the server's material version (one Firestore read) and uses the cached materials when
+  // they are of that version; otherwise reads every material again. Throws when either read fails.
+  const ensureLatestMaterials = async (): Promise<Material[]> => {
+    const { materialsMeta } = await fetchEstimateApi({ part: 'materialsMeta' }, authHeaders(), '최신 단가를 확인하지 못했어요. 다시 시도해 주세요.');
+    const cached = readMaterialCache();
+    if (isMaterialListCurrent(cached?.meta ? materialMetaKey(cached.meta) : null, materialsMeta ? materialMetaKey(materialsMeta) : null, cached?.materials.length || 0)) {
+      return cached?.materials || [];
+    }
+    const data = await fetchEstimateApi({ part: 'materials' }, authHeaders(), '최신 단가를 확인하지 못했어요. 다시 시도해 주세요.');
+    const nextMaterials = Array.isArray(data.materials) ? data.materials : [];
+    writeMaterialCache(nextMaterials, data.materialsMeta);
+    setMaterials(nextMaterials);
+    return nextMaterials;
+  };
+
   // Opens the workspace with only the selected site's versions. Materials come from the browser cache and are
   // refreshed in the background when the server's material version differs, so they never hold up the first screen.
   const loadData = async (
@@ -1513,6 +1531,7 @@ export default function EstimateWorkspacePage() {
       unit: material.unit || '',
       customerUnitPrice: Number(material.unitPrice || 0),
       executionUnitPrice: Number(material.unitPrice || 0),
+      materialId: material._id || undefined,
     };
   };
 

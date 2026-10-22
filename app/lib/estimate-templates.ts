@@ -135,6 +135,12 @@ export function refreshTemplateLines(lines: TemplateLine[], materials: TemplateM
   return { lines: refreshed, changed, notFound };
 }
 
+// A template load uses the page's materials only when the server's material version is known and equals the cached one;
+// a missing version on either side is not proof that nothing changed.
+export function isMaterialListCurrent(cachedVersionKey: string | null, serverVersionKey: string | null, cachedCount: number): boolean {
+  return Boolean(cachedVersionKey && serverVersionKey && cachedVersionKey === serverVersionKey && cachedCount > 0);
+}
+
 export function isBlankEstimateLine(line: TemplateLine): boolean {
   return !key(line.name) && !key(line.spec) && !key(line.note) && !number(line.customerUnitPrice) && !number(line.executionUnitPrice);
 }
