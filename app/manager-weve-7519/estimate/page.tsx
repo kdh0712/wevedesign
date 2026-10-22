@@ -19,6 +19,7 @@ import {
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import { isMaterialListCurrent } from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
+import { TemplateManager, type TemplateApiData } from './template-manager';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -289,6 +290,8 @@ const MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE = '견적 DB 설정(견적 카테고
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 const LINE_DRAFT_PICKER_ID = '__line_draft__';
+// The material picker was opened by the template editor; picked lines go to it, not into the estimate.
+const TEMPLATE_PICKER_ID = '__template__';
 const DETAIL_PRINT_ROWS_PER_PAGE = 20;
 const NEW_ESTIMATE_CATEGORY_OPTION = '__new_estimate_category__';
 const SAME_AS_CATEGORY_TARGET = '__same_as_category__';
@@ -637,6 +640,8 @@ export default function EstimateWorkspacePage() {
   const [lineDbSaveKey, setLineDbSaveKey] = useState('');
   const [commonBulkAdd, setCommonBulkAdd] = useState<CommonBulkAddState | null>(null);
   const pickerOpenerRef = useRef<HTMLElement | null>(null);
+  const templatePickRef = useRef<((lines: EstimateLine[]) => void) | null>(null);
+  const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -1099,6 +1104,13 @@ export default function EstimateWorkspacePage() {
       setIsLoggingIn(false);
     }
   };
+
+  const postEstimateApi = (body: Record<string, unknown>) =>
+    managerFetch('/api/manager/estimate', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
 
   const fetchEstimateApi = async (query: Record<string, string>, headers = authHeaders(), fallbackError = '견적 데이터를 불러오지 못했습니다.') => {
     const response = await fetch(`/api/manager/estimate?${new URLSearchParams(query)}`, { headers });
@@ -1591,6 +1603,13 @@ export default function EstimateWorkspacePage() {
     });
   };
 
+  // The template editor's 'DB에서 추가': the picked lines are handed to onPicked.
+  const openTemplateMaterialPicker = (onPicked: (lines: EstimateLine[]) => void) => {
+    rememberPickerOpener();
+    templatePickRef.current = onPicked;
+    setMaterialPicker({ lineId: TEMPLATE_PICKER_ID, step: 'category', category: '', process: '', search: '' });
+  };
+
   // 카테고리 follows 공정; a line from the estimate DB carries the estimate category in 분류, so it is not used here.
   const lineDraftDbProcess = () => lineDraft.process || lineDraftSource?.process || (estimateCategories.includes(lineDraft.category) ? '' : lineDraft.category);
 
@@ -1671,6 +1690,11 @@ export default function EstimateWorkspacePage() {
       const next = applyMaterialToLine(line, material);
       return commonOption ? { ...next, name: commonOption } : next;
     };
+    if (materialPicker.lineId === TEMPLATE_PICKER_ID) {
+      templatePickRef.current?.([apply(emptyLine())]);
+      setMaterialPicker(null);
+      return;
+    }
     if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
       setLineDraft((current) => apply(current));
       setLineDraftSource(material);
@@ -1720,6 +1744,11 @@ export default function EstimateWorkspacePage() {
     const fromDraft = targetLineId === LINE_DRAFT_PICKER_ID;
     const base = fromDraft ? lineDraft : lines.find((line) => line.id === targetLineId) || emptyLine();
     const newLines = buildCommonBulkLines(applyMaterialToLine(base, material, library), shared, rows, () => emptyLine().id);
+    if (targetLineId === TEMPLATE_PICKER_ID) {
+      templatePickRef.current?.(newLines);
+      setCommonBulkAdd(null);
+      return;
+    }
     setLines((current) => placeCommonBulkLines(current, newLines, replaceLineId));
     if (fromDraft) {
       resetLineDraft();
@@ -2794,6 +2823,13 @@ export default function EstimateWorkspacePage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsTemplateManagerOpen(true)}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
+                  >
+                    템플릿 관리
+                  </button>
                   <select
                     value={lineGroupBy}
                     onChange={(event) => setLineGroupBy(event.target.value as typeof lineGroupBy)}
@@ -4295,6 +4331,20 @@ export default function EstimateWorkspacePage() {
           </section>
         )}
       </section>
+
+      {isTemplateManagerOpen && (
+        <TemplateManager
+          api={(query) => fetchEstimateApi(query) as Promise<TemplateApiData>}
+          post={postEstimateApi}
+          materials={materials}
+          sites={sites}
+          spaceOptions={defaultSpaces}
+          categoryOptions={estimateCategories}
+          pickFromDb={openTemplateMaterialPicker}
+          newLineId={() => emptyLine().id}
+          onClose={() => setIsTemplateManagerOpen(false)}
+        />
+      )}
 
       {materialPicker && (
         <MaterialPickerModal
