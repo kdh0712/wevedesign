@@ -17,8 +17,9 @@ import {
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
-import { isMaterialListCurrent } from '../../lib/estimate-templates';
+import { isBlankEstimateLine, isMaterialListCurrent, placeTemplateLines } from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
+import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -642,6 +643,7 @@ export default function EstimateWorkspacePage() {
   const pickerOpenerRef = useRef<HTMLElement | null>(null);
   const templatePickRef = useRef<((lines: EstimateLine[]) => void) | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
+  const [isTemplateLoadOpen, setIsTemplateLoadOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -1850,6 +1852,18 @@ export default function EstimateWorkspacePage() {
   };
 
   // The 실행 내역 rows made from the line hold real 지출/결제 records, so they stay; they only lose the link to it.
+  // 템플릿 불러오기: the lines come in with new ids; 실행 내역 rows that pointed at lines this removes are unlinked, as when
+  // a line is deleted.
+  const applyTemplateLines = (incoming: EstimateLine[], mode: 'replace' | 'append') => {
+    const removedIds = (mode === 'replace' ? lines : lines.filter(isBlankEstimateLine)).map((line) => line.id);
+    setLines((current) => {
+      const next = placeTemplateLines(current, incoming, mode);
+      return next.length ? next : [emptyLine()];
+    });
+    setWorkLines((current) => removedIds.reduce((rows, id) => unlinkWorkLinesFromLine(rows, id), current));
+    setActiveTab('lines');
+  };
+
   const deleteLine = (id: string) => {
     const line = lines.find((item) => item.id === id);
     const label = [line?.name, line?.spec].filter(Boolean).join(' · ') || '이 견적 항목';
@@ -2829,6 +2843,14 @@ export default function EstimateWorkspacePage() {
                     className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
                   >
                     템플릿 관리
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsTemplateLoadOpen(true)}
+                    disabled={isLoadingSite || !selectedSite}
+                    className="rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    템플릿 불러오기
                   </button>
                   <select
                     value={lineGroupBy}
@@ -4343,6 +4365,18 @@ export default function EstimateWorkspacePage() {
           pickFromDb={openTemplateMaterialPicker}
           newLineId={() => emptyLine().id}
           onClose={() => setIsTemplateManagerOpen(false)}
+        />
+      )}
+
+      {isTemplateLoadOpen && (
+        <TemplateLoadDialog
+          api={(query) => fetchEstimateApi(query) as Promise<TemplateApiData>}
+          materials={materials}
+          ensureLatestMaterials={ensureLatestMaterials}
+          currentLines={lines}
+          newLineId={() => emptyLine().id}
+          onApply={applyTemplateLines}
+          onClose={() => setIsTemplateLoadOpen(false)}
         />
       )}
 
