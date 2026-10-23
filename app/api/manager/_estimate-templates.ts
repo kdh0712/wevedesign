@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import {
+  normalizeBaseArea,
   normalizeTemplateLines,
+  templateBaseAreaError,
   templateCustomerTotal,
   templateLinesError,
   templateNameError,
@@ -18,7 +20,16 @@ import {
 
 export const ESTIMATE_TEMPLATES_COLLECTION = 'estimateTemplates';
 
-export type EstimateTemplateSummary = { id: string; name: string; lineCount: number; customerTotal: number; updatedAt: string; updatedBy: string };
+export type EstimateTemplateSummary = {
+  id: string;
+  name: string;
+  lineCount: number;
+  customerTotal: number;
+  // 기준 평형 (spec 2026-10-23 §4), null when not set.
+  baseArea: number | null;
+  updatedAt: string;
+  updatedBy: string;
+};
 export type EstimateTemplate = EstimateTemplateSummary & { lines: TemplateLine[]; updateTime: string };
 
 // A request the rules turn down (name, size, missing version); the message is shown to the user as it is.
@@ -38,6 +49,7 @@ function toSummary(record: Record<string, unknown>): EstimateTemplateSummary {
     name: text(record.name),
     lineCount: count(record.lineCount),
     customerTotal: count(record.customerTotal),
+    baseArea: normalizeBaseArea(record.baseArea),
     updatedAt: text(record.updatedAt),
     updatedBy: text(record.updatedBy),
   };
@@ -48,6 +60,7 @@ export async function listEstimateTemplates(): Promise<EstimateTemplateSummary[]
     'name',
     'lineCount',
     'customerTotal',
+    'baseArea',
     'updatedAt',
     'updatedBy',
   ]);
@@ -67,6 +80,7 @@ export async function saveEstimateTemplate(input: {
   name: string;
   lines: unknown;
   baseUpdateTime?: string;
+  baseArea?: unknown;
   by: string;
 }): Promise<EstimateTemplate> {
   const id = text(input.id).trim();
@@ -75,6 +89,8 @@ export async function saveEstimateTemplate(input: {
   const sizeError = templateLinesError(rawLines);
   if (sizeError) throw new EstimateTemplateInputError(sizeError);
   if (id && !text(input.baseUpdateTime)) throw new EstimateTemplateInputError('템플릿을 다시 열어 주세요.');
+  const areaError = templateBaseAreaError(input.baseArea);
+  if (areaError) throw new EstimateTemplateInputError(areaError);
 
   const others = (await listEstimateTemplates()).filter((template) => template.id !== id).map((template) => template.name);
   const nameError = templateNameError(name, others);
@@ -88,6 +104,7 @@ export async function saveEstimateTemplate(input: {
     linesJson: JSON.stringify(lines),
     lineCount: lines.length,
     customerTotal: templateCustomerTotal(lines),
+    baseArea: normalizeBaseArea(input.baseArea),
     updatedAt: now,
     updatedBy: by,
     ...(id ? {} : { createdAt: now, createdBy: by }),
