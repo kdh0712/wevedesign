@@ -104,7 +104,7 @@ export function readSiteAcquisition(value: unknown): SiteAcquisition | null {
 }
 
 // A site is asked until it has an answer, a skip, or a staff entry.
-export function needsAcquisitionSurvey(site: { acquisition?: unknown }): boolean {
+export function needsAcquisitionSurvey(site: Record<string, unknown>): boolean {
   return readSiteAcquisition(site.acquisition) === null;
 }
 

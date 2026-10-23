@@ -19,6 +19,9 @@ import {
 } from '../../api/manager/_progress-store';
 import { progressCookieName, progressPhoneDigits, resolveProgressKey, verifyProgressCookie } from '../../api/progress/_access';
 import { ProgressGate } from './progress-gate';
+import { AcquisitionSurvey } from './acquisition-survey';
+import { needsAcquisitionSurvey, surveyOptions } from '../../lib/acquisition';
+import { readAcquisitionOptions } from '../../api/manager/_acquisition-store';
 
 // Per-customer data behind a cookie: never prerendered or cached.
 export const dynamic = 'force-dynamic';
@@ -58,6 +61,18 @@ export default async function ProgressPage({ params }: { params: Promise<{ code:
   const key = resolveProgressKey();
   const cookie = (await cookies()).get(progressCookieName(code))?.value;
   if (!key || !verifyProgressCookie(cookie, code, progressPhoneDigits(phone), key)) return <ProgressGate code={code} />;
+
+  // A verified customer whose site has no 유입 경로 answer (nor a skip or a staff entry) is asked once before the progress
+  // view. If the options cannot be read, the progress view shows without the question.
+  if (needsAcquisitionSurvey(site)) {
+    const options = await readAcquisitionOptions()
+      .then((read) => read.options)
+      .catch((error) => {
+        console.error('Acquisition options read failed:', error);
+        return null;
+      });
+    if (options) return <AcquisitionSurvey code={code} options={surveyOptions(options)} />;
+  }
 
   try {
     const [updates, estimates] = await Promise.all([listProgressUpdates(site._id), listSiteEstimates(site._id)]);
