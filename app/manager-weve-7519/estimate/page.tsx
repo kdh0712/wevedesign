@@ -34,6 +34,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
+import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -672,11 +673,10 @@ export default function EstimateWorkspacePage() {
   const [documentView, setDocumentView] = useState<string>('detail');
   const [documentDetailPageIndex, setDocumentDetailPageIndex] = useState(0);
   const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
-  // 견적서 tab (spec 2026-10-23 §3): 공간 보기 filter, the two side panels, '공사 추가' name, and a 'DB에 저장' request from a line menu.
+  // 견적서 tab (spec 2026-10-23 §3): 공간 보기 filter, the two side panels, and a 'DB에 저장' request from a line menu.
   const [lineSpaceFilter, setLineSpaceFilter] = useState('');
   const [isDbPanelOpen, setIsDbPanelOpen] = useState(true);
   const [isEstimatePreviewOpen, setIsEstimatePreviewOpen] = useState(true);
-  const [estimateNewGroup, setEstimateNewGroup] = useState<string | null>(null);
   const [pendingDbSaveOpen, setPendingDbSaveOpen] = useState(false);
   // The line the 'DB에 저장' panel was opened for; the panel follows its later edits and closes if it is deleted.
   const [dbSaveLineId, setDbSaveLineId] = useState('');
@@ -1854,13 +1854,6 @@ export default function EstimateWorkspacePage() {
     setPendingDbSaveOpen(true);
   };
 
-  const addEstimateGroup = () => {
-    const name = (estimateNewGroup || '').trim();
-    if (!name) return;
-    setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, name, [{ ...emptyLine(), space: lineSpaceFilter }])));
-    setEstimateNewGroup(null);
-  };
-
   const updateTask = (id: string, updates: Partial<ScheduleTask>) => {
     setSchedule((current) => current.map((task) => (task.id === id ? { ...task, ...updates } : task)));
   };
@@ -2741,9 +2734,6 @@ export default function EstimateWorkspacePage() {
           >
             {isDbPanelOpen ? (
               <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:sticky xl:top-4">
-                <div className="mb-2 flex justify-end">
-                  <button type="button" onClick={() => setIsDbPanelOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">DB 패널 접기</button>
-                </div>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">{dbLibrary === 'estimate' ? 'ESTIMATE DB' : 'GLOBAL DB'}</p>
@@ -2822,92 +2812,54 @@ export default function EstimateWorkspacePage() {
             ) : null}
 
             <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-xl font-semibold">견적서</h2>
-                  <p className="mt-1 text-sm text-[#60717d]">
-                    공사별로 묶어 보여 줘요. 줄을 누르면 선택되고, 왼쪽 DB 패널의 &apos;선택 행 적용&apos;이 그 줄에 들어가요. Tab·Enter로 칸을 옮기고,
-                    공사의 마지막 줄에서 Enter를 누르면 새 줄이 생겨요.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {estimateNewGroup === null ? (
-                    <button type="button" onClick={() => setEstimateNewGroup('')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
-                      공사 추가
-                    </button>
-                  ) : (
-                    <form
-                      className="flex gap-1"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        addEstimateGroup();
-                      }}
-                    >
-                      <input
-                        value={estimateNewGroup}
-                        onChange={(event) => setEstimateNewGroup(event.target.value)}
-                        list="grouped-editor-categories"
-                        placeholder="공사 이름 (예: 욕실 공사)"
-                        aria-label="새 공사 이름"
-                        autoFocus
-                        className="w-48 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]"
-                      />
-                      <button type="submit" disabled={!estimateNewGroup.trim()} className="rounded-md bg-[#171512] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">추가</button>
-                      <button type="button" onClick={() => setEstimateNewGroup(null)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-semibold">취소</button>
-                    </form>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(appendTemplateLines(current, withTemplateSpace(picked, lineSpaceFilter)))))}
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
-                  >
-                    DB에서 추가
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsTemplateManagerOpen(true)}
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
-                  >
-                    템플릿 관리
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsTemplateLoadOpen(true)}
-                    disabled={isLoadingSite || !selectedSite}
-                    className="rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  >
-                    템플릿 불러오기
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsTemplateSaveOpen(true)}
-                    disabled={isLoadingSite || !selectedSite}
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8] disabled:opacity-50"
-                  >
-                    이 견적을 템플릿으로 저장
-                  </button>
-                  {!isDbPanelOpen && (
-                    <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
-                      DB 패널 열기
-                    </button>
-                  )}
-                  {!isEstimatePreviewOpen && (
-                    <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
-                      세부내역서 보기
-                    </button>
-                  )}
-                  <select
-                    value={lineSpaceFilter}
-                    onChange={(event) => setLineSpaceFilter(event.target.value)}
-                    aria-label="공간 보기"
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
-                  >
-                    <option value="">공간 전체 보기</option>
-                    {lineSpaceOptions.map((space) => (
-                      <option key={space} value={space}>{space}만 보기</option>
-                    ))}
-                  </select>
-                </div>
+              <div className="mb-4 flex flex-wrap items-center gap-2">
+                <h2 className="mr-2 text-xl font-semibold">견적서</h2>
+                <button
+                  type="button"
+                  onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(appendTemplateLines(current, withTemplateSpace(picked, lineSpaceFilter)))))}
+                  className="rounded-md bg-[#171512] px-3 py-2 text-sm font-semibold text-white"
+                >
+                  ＋ DB에서 추가
+                </button>
+                <ToolbarMenu
+                  label="템플릿"
+                  className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
+                  items={[
+                    { label: '템플릿 불러오기', onClick: () => setIsTemplateLoadOpen(true), disabled: isLoadingSite || !selectedSite },
+                    { label: '이 견적을 템플릿으로 저장', onClick: () => setIsTemplateSaveOpen(true), disabled: isLoadingSite || !selectedSite },
+                    { label: '템플릿 관리', onClick: () => setIsTemplateManagerOpen(true), dividerBefore: true },
+                  ]}
+                />
+                <span className="flex-1" />
+                <select
+                  value={lineSpaceFilter}
+                  onChange={(event) => setLineSpaceFilter(event.target.value)}
+                  aria-label="공간 보기"
+                  className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
+                >
+                  <option value="">공간 전체</option>
+                  {lineSpaceOptions.map((space) => (
+                    <option key={space} value={space}>{space}만 보기</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  aria-pressed={isDbPanelOpen}
+                  title="왼쪽 자재 DB 패널 보이기·숨기기"
+                  onClick={() => setIsDbPanelOpen((current) => !current)}
+                  className={`rounded-md border px-3 py-2 text-sm font-semibold ${isDbPanelOpen ? 'border-[#9fd0da] bg-[#e8f3f6] text-[#1d6d7b]' : 'border-[#d5dde2] bg-white hover:bg-[#f2f6f8]'}`}
+                >
+                  DB 패널
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={isEstimatePreviewOpen}
+                  title="오른쪽 세부내역서 보이기·숨기기"
+                  onClick={() => setIsEstimatePreviewOpen((current) => !current)}
+                  className={`rounded-md border px-3 py-2 text-sm font-semibold ${isEstimatePreviewOpen ? 'border-[#9fd0da] bg-[#e8f3f6] text-[#1d6d7b]' : 'border-[#d5dde2] bg-white hover:bg-[#f2f6f8]'}`}
+                >
+                  세부내역서
+                </button>
               </div>
 
               {isLineDbSaveOpen && (

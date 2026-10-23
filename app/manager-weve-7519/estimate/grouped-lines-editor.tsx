@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { NumberTextInput } from './number-text-input';
 import {
   copyTemplateGroup,
@@ -95,18 +95,22 @@ const WIDTHS: Record<GroupedColumn, number> = {
 };
 const FLEX_MIN: Partial<Record<GroupedColumn, number>> = { name: 180, spec: 140 };
 const HANDLE_WIDTH = 28;
-// ↑, ↓ and ⋯ side by side.
-const MENU_WIDTH = 108;
+// The ⋯ button.
+const MENU_WIDTH = 44;
 const columnMinWidth = (column: GroupedColumn) => WIDTHS[column] || FLEX_MIN[column] || 0;
 const INPUT = 'w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]';
 const SMALL = 'rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold disabled:opacity-40';
+const PRIMARY_SMALL = 'rounded bg-[#171512] px-2.5 py-1 text-xs font-semibold text-white';
+const MENU_BOX = 'fixed z-[65] max-h-[60vh] w-48 overflow-y-auto rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg';
+const groupOwner = (label: string) => `group:${label}`;
 const won = (value: number) => Math.round(value).toLocaleString('ko-KR');
 
 type Drag = { kind: 'line'; id: string; group: string } | { kind: 'group'; label: string };
 // Drag payload type: text fields do not accept it, so a drop on an input never types the id into it.
 const DRAG_TYPE = 'application/x-weve-grouped-line';
-// The line menu is placed with fixed coordinates so the table box (overflow) cannot clip it.
-type Menu = { lineId: string; moving: boolean; top?: number; bottom?: number; right: number };
+// Line and 공사 menus are placed with fixed coordinates so the table and section boxes (overflow) cannot clip them.
+// owner: a line id, or `group:<label>` for a 공사.
+type Menu = { owner: string; moving: boolean; top?: number; bottom?: number; right: number };
 type DropHint = { kind: 'line'; group: string; beforeId: string | null } | { kind: 'group'; beforeLabel: string | null };
 type Confirm = { message: string; yes: string; onYes: () => void };
 
@@ -116,6 +120,8 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   const [folded, setFolded] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<{ label: string; value: string } | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
+  // The name typed into '새 공사 추가' at the bottom (null while that field is closed).
+  const [newGroup, setNewGroup] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
@@ -143,14 +149,14 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   useEffect(() => {
     if (!menu) return;
     const close = (event: MouseEvent) => {
-      if (!(event.target as HTMLElement).closest(`[data-line-menu="${menu.lineId}"]`)) setMenu(null);
+      if (!(event.target as HTMLElement).closest(`[data-menu-owner="${CSS.escape(menu.owner)}"]`)) setMenu(null);
     };
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') setMenu(null);
     };
     // A fixed menu would float away from its row on scroll, so scrolling closes it.
     const scroll = (event: Event) => {
-      if (!(event.target instanceof Element && event.target.closest('[data-line-menu]'))) setMenu(null);
+      if (!(event.target instanceof Element && event.target.closest('[data-menu-owner]'))) setMenu(null);
     };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', escape);
@@ -161,6 +167,17 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
       window.removeEventListener('scroll', scroll, true);
     };
   }, [menu]);
+
+  // Opens the menu under its button, or above it near the bottom of the window; a second click closes it.
+  const toggleMenu = (owner: string, event: ReactMouseEvent<HTMLElement>) => {
+    if (menu?.owner === owner) {
+      setMenu(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const right = window.innerWidth - rect.right;
+    setMenu(rect.bottom + 260 > window.innerHeight ? { owner, moving: false, bottom: window.innerHeight - rect.top + 4, right } : { owner, moving: false, top: rect.bottom + 4, right });
+  };
 
   const firstInputColumn = columns.find((column) => !(renderCell && column in renderCell) && column !== 'margin') || 'space';
   const focusCell = (lineId: string, col: GroupedColumn) => setPendingFocus({ lineId, col });
@@ -431,19 +448,33 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                   <button type="button" onClick={() => setRenaming(null)} className={SMALL}>취소</button>
                 </form>
               ) : (
-                <>
-                  <b className="text-[15px]" style={{ color: color.accent }}>{group.label}</b>
-                  <button type="button" onClick={() => setRenaming({ label: group.label, value: group.label })} className={SMALL}>이름 바꾸기</button>
-                </>
+                <b
+                  className="cursor-text text-[15px]"
+                  style={{ color: color.accent }}
+                  title="두 번 누르면 이름 바꾸기"
+                  onDoubleClick={() => setRenaming({ label: group.label, value: group.label })}
+                >
+                  {group.label}
+                </b>
               )}
               <span className="text-xs text-[#60717d]">항목 {group.lines.length}개 · 고객 소계 {won(group.customerTotal)}원{pinned ? ' · 맨 위 고정' : ''}</span>
               <span className="flex-1" />
-              <button type="button" onClick={() => props.onAddFromDb(group.label)} className={SMALL}>이 공사에 DB에서 추가</button>
-              <button type="button" onClick={() => addLineTo(group.label)} className={SMALL}>줄 추가</button>
-              <button type="button" onClick={() => copyGroup(group.label)} className={SMALL}>공사 복사</button>
-              <button type="button" onClick={() => removeGroup(group.label)} className={`${SMALL} text-red-700`}>공사 삭제</button>
-              <button type="button" disabled={!canMoveGroup || groupIndex <= firstMovable} onClick={() => commit(moveTemplateGroup(lines, group.label, -1))} className={SMALL}>공사 ↑</button>
-              <button type="button" disabled={!canMoveGroup || groupIndex === groups.length - 1} onClick={() => commit(moveTemplateGroup(lines, group.label, 1))} className={SMALL}>공사 ↓</button>
+              <button type="button" onClick={() => props.onAddFromDb(group.label)} className={PRIMARY_SMALL}>＋ DB에서 추가</button>
+              <div className="relative" data-menu-owner={groupOwner(group.label)}>
+                <button type="button" aria-label={`${group.label} 메뉴`} onClick={(event) => toggleMenu(groupOwner(group.label), event)} className={SMALL}>⋯</button>
+                {menu?.owner === groupOwner(group.label) && (
+                  <div className={MENU_BOX} style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}>
+                    <MenuItem onClick={() => { setMenu(null); addLineTo(group.label); }}>빈 줄 추가</MenuItem>
+                    <MenuItem onClick={() => { setMenu(null); setRenaming({ label: group.label, value: group.label }); }}>이름 바꾸기</MenuItem>
+                    <MenuItem onClick={() => { setMenu(null); copyGroup(group.label); }}>공사 복사</MenuItem>
+                    <hr className="my-1 border-[#edf2f5]" />
+                    <MenuItem disabled={!canMoveGroup || groupIndex <= firstMovable} onClick={() => { setMenu(null); commit(moveTemplateGroup(lines, group.label, -1)); }}>위로 옮기기</MenuItem>
+                    <MenuItem disabled={!canMoveGroup || groupIndex === groups.length - 1} onClick={() => { setMenu(null); commit(moveTemplateGroup(lines, group.label, 1)); }}>아래로 옮기기</MenuItem>
+                    <hr className="my-1 border-[#edf2f5]" />
+                    <MenuItem danger onClick={() => { setMenu(null); removeGroup(group.label); }}>공사 삭제</MenuItem>
+                  </div>
+                )}
+              </div>
             </div>
             {!isFolded && (
               <div className="overflow-x-auto">
@@ -454,7 +485,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                       {columns.map((column) => (
                         <th key={column} style={WIDTHS[column] ? { width: WIDTHS[column] } : undefined} className={`py-1.5 pr-2 ${column === 'margin' ? 'text-right' : ''}`}>{labels[column]}</th>
                       ))}
-                      <th style={{ width: MENU_WIDTH }} className="py-1.5 pr-2">순서·메뉴</th>
+                      <th style={{ width: MENU_WIDTH }} aria-label="메뉴" />
                     </tr>
                   </thead>
                   <tbody>
@@ -494,35 +525,22 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                             <td key={column} className="py-1.5 pr-2">{cell(line, column, group.label, isLast)}</td>
                           ))}
                           <td className="py-1.5 pr-2">
-                            <div className="relative flex gap-1" data-line-menu={line.id}>
-                              <button type="button" aria-label="위로" disabled={!canMoveLine || index === 0 || Boolean(isPinned?.(group.lines[index - 1]))} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, -1))} className={SMALL}>↑</button>
-                              <button type="button" aria-label="아래로" disabled={!canMoveLine || isLast} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, 1))} className={SMALL}>↓</button>
-                              <button
-                                type="button"
-                                aria-label="줄 메뉴"
-                                onClick={(event) => {
-                                  if (menu?.lineId === line.id) {
-                                    setMenu(null);
-                                    return;
-                                  }
-                                  const rect = event.currentTarget.getBoundingClientRect();
-                                  const right = window.innerWidth - rect.right;
-                                  // Near the bottom of the window the menu opens upward.
-                                  setMenu(rect.bottom + 260 > window.innerHeight ? { lineId: line.id, moving: false, bottom: window.innerHeight - rect.top + 4, right } : { lineId: line.id, moving: false, top: rect.bottom + 4, right });
-                                }}
-                                className={SMALL}
-                              >
+                            <div className="relative" data-menu-owner={line.id}>
+                              <button type="button" aria-label="줄 메뉴" onClick={(event) => toggleMenu(line.id, event)} className={SMALL}>
                                 ⋯
                               </button>
-                              {menu?.lineId === line.id && (
-                                <div className="fixed z-[65] max-h-[60vh] w-48 overflow-y-auto rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg" style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}>
+                              {menu?.owner === line.id && (
+                                <div className={MENU_BOX} style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}>
                                   {!menu.moving ? (
                                     <>
                                       <MenuItem onClick={() => { commit(duplicateTemplateLine(lines, line.id, newId)); setMenu(null); }}>복제</MenuItem>
                                       <MenuItem disabled={linePinned || allGroups.length < 2} onClick={() => setMenu({ ...menu, moving: true })}>다른 공사로 옮기기 ▸</MenuItem>
+                                      <MenuItem disabled={!canMoveLine || index === 0 || Boolean(isPinned?.(group.lines[index - 1]))} onClick={() => { commit(moveTemplateLineInGroup(lines, line.id, -1)); setMenu(null); }}>위로 옮기기</MenuItem>
+                                      <MenuItem disabled={!canMoveLine || isLast} onClick={() => { commit(moveTemplateLineInGroup(lines, line.id, 1)); setMenu(null); }}>아래로 옮기기</MenuItem>
                                       {props.lineMenuExtras?.(line).map((extra) => (
                                         <MenuItem key={extra.label} onClick={() => { setMenu(null); extra.run(); }}>{extra.label}</MenuItem>
                                       ))}
+                                      <hr className="my-1 border-[#edf2f5]" />
                                       <MenuItem danger onClick={() => { setMenu(null); removeLine(line); }}>삭제</MenuItem>
                                     </>
                                   ) : (
@@ -548,6 +566,39 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
           </section>
         );
       })}
+      {newGroup === null ? (
+        <button type="button" onClick={() => setNewGroup('')} className="w-full rounded-lg border border-dashed border-[#cfd9df] bg-[#fafcfd] py-2.5 text-sm font-semibold text-[#60717d] hover:bg-[#f2f6f8]">
+          ＋ 새 공사 추가
+        </button>
+      ) : (
+        <form
+          className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-[#cfd9df] bg-[#fafcfd] p-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = newGroup.trim();
+            if (!name) return;
+            const fresh = newLine(name);
+            commit(insertIntoTemplateGroup(lines, name, [fresh]));
+            focusCell(fresh.id, firstInputColumn);
+            setNewGroup(null);
+          }}
+        >
+          <input
+            value={newGroup}
+            onChange={(event) => setNewGroup(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setNewGroup(null);
+            }}
+            list="grouped-editor-categories"
+            placeholder="공사 이름 (예: 욕실 공사)"
+            aria-label="새 공사 이름"
+            autoFocus
+            className={`${INPUT} w-60`}
+          />
+          <button type="submit" disabled={!newGroup.trim()} className={`${PRIMARY_SMALL} disabled:opacity-40`}>추가</button>
+          <button type="button" onClick={() => setNewGroup(null)} className={SMALL}>취소</button>
+        </form>
+      )}
       {confirm && (
         <div className="no-print fixed inset-0 z-[70] flex items-center justify-center bg-[#171512]/40 px-4">
           <section role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-xl border border-[#d5dde2] bg-white p-6 shadow-2xl">
