@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { groupColor, groupTemplateLines, type TemplateGroup, type TemplateLine } from '../../lib/estimate-templates';
+import { groupColor, groupTemplateLines, namedTemplateLines, type TemplateGroup, type TemplateLine } from '../../lib/estimate-templates';
 
 // The live 세부내역서 beside the template editor and the site estimate: grouped by 공사 like the estimate documents, lines
 // without a 품명 left out as there. 공사 colors match the editor's (screen only; printing stays grey). 실행 금액 보기
@@ -28,7 +28,7 @@ export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: 
 
   // Colors follow the 공사 order of every line, as in the editor, even when a 공사 has lines without a 품명 yet.
   const colorIndex = new Map(groupTemplateLines(lines).map((group, index) => [group.label, index]));
-  const groups = groupTemplateLines(lines.filter((line) => line.name.trim()));
+  const groups = groupTemplateLines(namedTemplateLines(lines));
   const executionButton = (
     <button type="button" onClick={() => setShowExecution((current) => !current)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
       {showExecution ? '고객용으로 보기' : '실행 금액 보기'}

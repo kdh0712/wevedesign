@@ -7,6 +7,8 @@ import {
   scaleTemplateQuantities,
   templateBaseAreaError,
   templateUnitOptions,
+  namedTemplateLines,
+  templateLineLabel,
   GROUP_COLORS,
   copyTemplateGroup,
   duplicateTemplateLine,
@@ -310,3 +312,11 @@ test('기준 평형 is optional and must be 1–500', () => {
   assert.equal(normalizeBaseArea(''), null);
   assert.equal(normalizeBaseArea(null), null);
 });
+
+test('the 세부내역서 keeps only lines with a 품명 and survives saved lines missing fields', () => {
+  const saved = [{ id: 'x' }, line({ id: 'y', name: '  ' }), line({ id: 'z', name: '타일' }), { id: 'w', name: null }];
+  assert.deepEqual(namedTemplateLines(saved).map((l) => l.id), ['z']);
+  assert.equal(templateLineLabel({ id: 'q' }), '이 항목');
+  assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
+});
+
