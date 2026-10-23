@@ -11,10 +11,11 @@ import { findChrome, launchChrome } from './cdp.mjs';
 import { renderManual, validateManual } from './layout.mjs';
 import { SCRUB_TEXT, buildMockData, mockInitScript } from './mock-data.mjs';
 import { readPdfLinks } from './pdf-links.mjs';
+import estimateManual from './estimate-manual.mjs';
 import officeManual from './office-manual.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const MANUALS = { office: officeManual };
+const MANUALS = { office: officeManual, estimate: estimateManual };
 const MAX_PDF_BYTES = 4_000_000;
 const JPEG_QUALITY = 80;
 const VIEWPORT = { width: 1440, height: 900 };
@@ -223,7 +224,7 @@ async function captureSection(chrome, base, manual, section, data, unmocked) {
     });
     await page.send('Page.enable');
     await page.send('Runtime.enable');
-    await page.send('Emulation.setDeviceMetricsOverride', { width: VIEWPORT.width, height: shot.height || VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
+    await page.send('Emulation.setDeviceMetricsOverride', { width: shot.width || VIEWPORT.width, height: shot.height || VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
     await page.send('Page.addScriptToEvaluateOnNewDocument', { source: `(${installManualHelpers.toString()})();` });
     await page.send('Page.addScriptToEvaluateOnNewDocument', { source: mockInitScript(data, { session: shot.session !== false }) });
     await page.send('Page.navigate', { url: `${base}${shot.path}` });

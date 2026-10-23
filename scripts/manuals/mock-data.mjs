@@ -21,6 +21,10 @@ export const SCRUB_TEXT = [
   ['평촌 어바인퍼스트 101동', '한빛아파트 105동'],
   ['0507-1381-0489', '010-0000-0490'],
   ['031-381-0489', '010-0000-0491'],
+  ['031.381.0489', '010.0000.0491'],
+  ['031.422.2915', '010.0000.0492'],
+  ['weve0489@gmail.com', 'office@example.com'],
+  ['경기도 의왕시 오리나무1길 12, 1층', '가나시 다라로 123, 1층'],
 ];
 
 /** All dates are relative to `today`, so the screens look current whenever the manuals are made. */
@@ -90,7 +94,16 @@ export function buildMockData(today) {
   // The daily report offers the latest estimate's lines (공정 chips, 견적 내역 불러오기).
   for (const summary of estimates) {
     const full = (estimate.estimatesBySite[summary.siteId] || []).find((item) => item._id === summary._id);
-    if (full) summary.linesJson = full.linesJson;
+    if (!full) continue;
+    // The totals the office screens show are the ones the estimate page computes from the lines.
+    summary.linesJson = full.linesJson;
+    const lines = JSON.parse(full.linesJson);
+    summary.customerEstimateTotal = lines.reduce((sum, item) => sum + item.quantity * item.customerUnitPrice, 0);
+    summary.executionCostTotal = lines.reduce((sum, item) => sum + item.quantity * item.executionUnitPrice, 0);
+    summary.marginAmount = summary.customerEstimateTotal - summary.executionCostTotal;
+    summary.marginRate = Math.round((summary.marginAmount / summary.customerEstimateTotal) * 1000) / 10;
+    const sale = sales.find((item) => item.estimateId === summary._id);
+    if (sale) Object.assign(sale, { amount: summary.customerEstimateTotal, cost: summary.executionCostTotal });
   }
 
   const office = {

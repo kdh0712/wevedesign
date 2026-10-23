@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { signSessionToken } from '../app/api/manager/_token.ts';
 import { handleManualRequest } from '../app/api/manager/_manual.ts';
 import { MANAGER_MANUALS, manualContentDisposition, manualDownloadErrorMessage } from '../app/lib/manager-manuals.ts';
@@ -81,9 +81,7 @@ test('download errors are told in plain words', () => {
 // The PDFs made by `npm run manuals` and committed in manuals/ (spec 2026-10-23 §6).
 for (const book of ['office', 'estimate']) {
   const file = new URL(`../manuals/${MANAGER_MANUALS[book].file}`, import.meta.url);
-  // estimate.pdf is required once the estimate manual exists (plan Task 6).
-  const missingAllowed = book === 'estimate' && !existsSync(file);
-  test(`the committed ${book} manual fits the 4MB limit and every link stays inside it`, { skip: missingAllowed }, () => {
+  test(`the committed ${book} manual fits the 4MB limit and every link stays inside it`, () => {
     const bytes = readFileSync(file);
     assert.ok(bytes.length <= 4_000_000, `${bytes.length} bytes`);
     const { pageCount, links } = readPdfLinks(bytes);
