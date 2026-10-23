@@ -499,6 +499,7 @@ async function saveTemplate(input: Record<string, unknown>, by: string) {
       name: String(input.name || ''),
       lines: input.lines,
       baseUpdateTime: String(input.baseUpdateTime || ''),
+      baseArea: input.baseArea,
       by,
     });
     return NextResponse.json({ template });
