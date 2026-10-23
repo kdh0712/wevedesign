@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   // Customer progress photos (Firebase Storage). Loaded by Node as installed, like firebase-admin (which wraps it) is by
   // default, instead of being bundled.
   serverExternalPackages: ['@google-cloud/storage'],
+  // The staff manuals are read from disk by /api/manager/manual (spec 2026-10-23); file tracing cannot see that read.
+  outputFileTracingIncludes: { '/api/manager/manual': ['./manuals/*.pdf'] },
   async rewrites() {
     return [
       // Digital Asset Links for the staff Android app (a TWA around /manager-weve-7519/m): without it the app shows an
