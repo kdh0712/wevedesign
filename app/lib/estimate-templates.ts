@@ -186,6 +186,84 @@ export function repickTemplateLine<T extends TemplateLine>(lines: T[], lineId: s
   return [...lines.slice(0, index), ...placed, ...lines.slice(index + 1)];
 }
 
+// The 공사 a line belongs to in the template editor and its 세부내역서 preview: the same rule as the estimate documents
+// (카테고리, else 공정, else 기타 공사).
+export function templateGroupLabel(line: TemplateLine): string {
+  return key(line.category) || key(line.process) || '기타 공사';
+}
+
+export type TemplateGroup<T extends TemplateLine = TemplateLine> = { label: string; lines: T[]; customerTotal: number; executionTotal: number };
+
+export function groupTemplateLines<T extends TemplateLine>(lines: T[]): Array<TemplateGroup<T>> {
+  const groups = new Map<string, T[]>();
+  for (const line of lines) {
+    const label = templateGroupLabel(line);
+    groups.set(label, [...(groups.get(label) || []), line]);
+  }
+  return [...groups].map(([label, groupLines]) => ({
+    label,
+    lines: groupLines,
+    customerTotal: templateCustomerTotal(groupLines),
+    executionTotal: Math.round(groupLines.reduce((sum, line) => sum + number(line.quantity) * number(line.executionUnitPrice), 0)) || 0,
+  }));
+}
+
+const flattenGroups = <T extends TemplateLine>(groups: Array<{ lines: T[] }>) => groups.flatMap((group) => group.lines);
+
+export function orderTemplateLinesByGroup<T extends TemplateLine>(lines: T[]): T[] {
+  return flattenGroups(groupTemplateLines(lines));
+}
+
+// Every change below also gathers each 공사's lines together, in the order the 공사 first appear.
+export function moveTemplateGroup<T extends TemplateLine>(lines: T[], label: string, offset: number): T[] {
+  const groups = groupTemplateLines(lines);
+  const index = groups.findIndex((group) => group.label === label);
+  const target = index + offset;
+  if (index >= 0 && target >= 0 && target < groups.length) [groups[index], groups[target]] = [groups[target], groups[index]];
+  return flattenGroups(groups);
+}
+
+export function moveTemplateLineInGroup<T extends TemplateLine>(lines: T[], lineId: string, offset: number): T[] {
+  const groups = groupTemplateLines(lines);
+  for (const group of groups) {
+    const index = group.lines.findIndex((line) => line.id === lineId);
+    const target = index + offset;
+    if (index >= 0 && target >= 0 && target < group.lines.length) {
+      const next = [...group.lines];
+      [next[index], next[target]] = [next[target], next[index]];
+      group.lines = next;
+    }
+  }
+  return flattenGroups(groups);
+}
+
+// Lines added to a 공사 take its 카테고리 and follow its last line; a 공사 that is not there yet starts at the end.
+export function insertIntoTemplateGroup<T extends TemplateLine>(lines: T[], label: string, added: T[]): T[] {
+  const name = key(label);
+  const tagged = added.map((line) => ({ ...line, category: name }));
+  const groups = groupTemplateLines(lines);
+  const group = groups.find((item) => item.label === name);
+  if (group) group.lines = [...group.lines, ...tagged];
+  return group ? flattenGroups(groups) : [...flattenGroups(groups), ...tagged];
+}
+
+// The line leaves its 공사 without moving the other 공사 around, and goes to the end of its new one.
+export function setTemplateLineCategory<T extends TemplateLine>(lines: T[], lineId: string, category: string): T[] {
+  const line = lines.find((item) => item.id === lineId);
+  if (!line) return lines;
+  const next = { ...line, category: key(category) };
+  const groups = groupTemplateLines(lines);
+  if (templateGroupLabel(next) === templateGroupLabel(line)) {
+    return flattenGroups(groups).map((item) => (item.id === lineId ? next : item));
+  }
+  const remaining = groups
+    .map((group) => ({ ...group, lines: group.lines.filter((item) => item.id !== lineId) }))
+    .filter((group) => group.lines.length);
+  const target = remaining.find((group) => group.label === templateGroupLabel(next));
+  if (target) target.lines = [...target.lines, next];
+  return target ? flattenGroups(remaining) : [...flattenGroups(remaining), next];
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }
