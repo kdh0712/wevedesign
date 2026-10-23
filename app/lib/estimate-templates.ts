@@ -365,6 +365,17 @@ export function groupColor(index: number) {
   return GROUP_COLORS[((index % GROUP_COLORS.length) + GROUP_COLORS.length) % GROUP_COLORS.length];
 }
 
+// Lines the 세부내역서 shows: those with a 품명, as the estimate documents. Saved lines may miss fields, so nothing here
+// assumes a string.
+export function namedTemplateLines<T extends TemplateLine>(lines: T[]): T[] {
+  return lines.filter((line) => key(line?.name));
+}
+
+// "품명 · 규격" for delete questions, or '이 항목'.
+export function templateLineLabel(line: Partial<TemplateLine>): string {
+  return [key(line.name), key(line.spec)].filter(Boolean).join(' · ') || '이 항목';
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }

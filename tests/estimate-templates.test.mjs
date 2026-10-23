@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  namedTemplateLines,
+  templateLineLabel,
   GROUP_COLORS,
   copyTemplateGroup,
   duplicateTemplateLine,
@@ -280,4 +282,11 @@ test('the 기본견적 공사 stays first and neighbouring 공사 never share a 
   assert.deepEqual(groupTemplateLines(pinned).map((g) => g.label), ['도배', '철거 공사', '욕실 공사', '기타 공사']);
   assert.equal(GROUP_COLORS.length, 8);
   for (let i = 0; i < 20; i += 1) assert.notDeepEqual(groupColor(i), groupColor(i + 1));
+});
+
+test('the 세부내역서 keeps only lines with a 품명 and survives saved lines missing fields', () => {
+  const saved = [{ id: 'x' }, line({ id: 'y', name: '  ' }), line({ id: 'z', name: '타일' }), { id: 'w', name: null }];
+  assert.deepEqual(namedTemplateLines(saved).map((l) => l.id), ['z']);
+  assert.equal(templateLineLabel({ id: 'q' }), '이 항목');
+  assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
 });

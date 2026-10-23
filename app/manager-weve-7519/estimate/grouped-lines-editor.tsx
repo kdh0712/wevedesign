@@ -20,6 +20,7 @@ import {
   setTemplateLineCategory,
   templateCopyGroupName,
   templateGroupExists,
+  templateLineLabel,
   type TemplateLine,
   type TemplateMaterial,
 } from '../../lib/estimate-templates';
@@ -95,6 +96,10 @@ const SMALL = 'rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-s
 const won = (value: number) => Math.round(value).toLocaleString('ko-KR');
 
 type Drag = { kind: 'line'; id: string; group: string } | { kind: 'group'; label: string };
+// Drag payload type: text fields do not accept it, so a drop on an input never types the id into it.
+const DRAG_TYPE = 'application/x-weve-grouped-line';
+// The line menu is placed with fixed coordinates so the table box (overflow) cannot clip it.
+type Menu = { lineId: string; moving: boolean; top?: number; bottom?: number; right: number };
 type DropHint = { kind: 'line'; group: string; beforeId: string | null } | { kind: 'group'; beforeLabel: string | null };
 type Confirm = { message: string; yes: string; onYes: () => void };
 
@@ -103,7 +108,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   const rootRef = useRef<HTMLDivElement>(null);
   const [folded, setFolded] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<{ label: string; value: string } | null>(null);
-  const [menu, setMenu] = useState<{ lineId: string; moving: boolean } | null>(null);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dropHint, setDropHint] = useState<DropHint | null>(null);
@@ -136,11 +141,17 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') setMenu(null);
     };
+    // A fixed menu would float away from its row on scroll, so scrolling closes it.
+    const scroll = (event: Event) => {
+      if (!(event.target instanceof Element && event.target.closest('[data-line-menu]'))) setMenu(null);
+    };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', escape);
+    window.addEventListener('scroll', scroll, true);
     return () => {
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', escape);
+      window.removeEventListener('scroll', scroll, true);
     };
   }, [menu]);
 
@@ -179,8 +190,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   };
 
   const removeLine = (line: T) => {
-    const label = [line.name, line.spec].filter((value) => value.trim()).join(' · ') || '이 항목';
-    ask(withNote(`'${label}'을(를) 삭제할까요?`, [line]), '삭제', () => afterRemove(lines.filter((item) => item.id !== line.id), [line.id]));
+    ask(withNote(`'${templateLineLabel(line)}'을(를) 삭제할까요?`, [line]), '삭제', () => afterRemove(lines.filter((item) => item.id !== line.id), [line.id]));
   };
   const removeGroup = (label: string) => {
     const groupLines = allGroups.find((group) => group.label === label)?.lines || [];
@@ -213,8 +223,12 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
     return event.clientY > rect.top + rect.height / 2;
   };
   const onRowDragOver = (event: DragEvent<HTMLTableRowElement>, line: T, groupLines: T[]) => {
-    if (drag?.kind !== 'line' || !groupLines.some((item) => item.id === drag.id)) return;
-    if (isPinned?.(line)) return;
+    if (drag?.kind !== 'line') return;
+    if (!groupLines.some((item) => item.id === drag.id) || isPinned?.(line)) {
+      // Not a place this line can go: forget the last valid spot so a drop here does nothing.
+      if (dropHint) setDropHint(null);
+      return;
+    }
     event.preventDefault();
     const index = groupLines.findIndex((item) => item.id === line.id);
     const beforeId = lowerHalf(event) ? groupLines[index + 1]?.id ?? null : line.id;
@@ -222,13 +236,18 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
     if (dropHint?.kind !== 'line' || dropHint.beforeId !== beforeId || dropHint.group !== group) setDropHint({ kind: 'line', group, beforeId });
   };
   const onGroupDragOver = (event: DragEvent<HTMLElement>, label: string, index: number) => {
-    if (drag?.kind !== 'group' || drag.label === label || pinnedGroup(label)) return;
+    if (drag?.kind !== 'group') return;
+    if (drag.label === label || pinnedGroup(label)) {
+      if (dropHint) setDropHint(null);
+      return;
+    }
     event.preventDefault();
     const beforeLabel = lowerHalf(event) ? groups[index + 1]?.label ?? null : label;
     if (dropHint?.kind !== 'group' || dropHint.beforeLabel !== beforeLabel) setDropHint({ kind: 'group', beforeLabel });
   };
   const onDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
+    event.stopPropagation();
     if (drag?.kind === 'line' && dropHint?.kind === 'line') commit(moveTemplateLineBefore(lines, drag.id, dropHint.beforeId));
     if (drag?.kind === 'group' && dropHint?.kind === 'group') commit(moveTemplateGroupBefore(lines, drag.label, dropHint.beforeLabel));
     setDrag(null);
@@ -305,7 +324,19 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   };
 
   return (
-    <div ref={rootRef} onDragEnd={endDrag}>
+    <div
+      ref={rootRef}
+      onDragEnd={endDrag}
+      // While one of our drags is on, nothing inside (inputs included) takes the drop by default.
+      onDragOver={(event) => {
+        if (drag) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!drag) return;
+        event.preventDefault();
+        endDrag();
+      }}
+    >
       <datalist id="grouped-editor-categories">
         {categoryOptions.map((category) => (
           <option key={category} value={category} />
@@ -334,7 +365,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                   draggable
                   onDragStart={(event) => {
                     event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', group.label);
+                    event.dataTransfer.setData(DRAG_TYPE, group.label);
                     setDrag({ kind: 'group', label: group.label });
                   }}
                   title="끌어서 공사 순서 바꾸기"
@@ -419,7 +450,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                                 onDragStart={(event) => {
                                   event.stopPropagation();
                                   event.dataTransfer.effectAllowed = 'move';
-                                  event.dataTransfer.setData('text/plain', line.id);
+                                  event.dataTransfer.setData(DRAG_TYPE, line.id);
                                   setDrag({ kind: 'line', id: line.id, group: group.label });
                                 }}
                                 title="끌어서 순서 바꾸기 (같은 공사 안에서만)"
@@ -436,13 +467,29 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                             <div className="relative flex gap-1" data-line-menu>
                               <button type="button" aria-label="위로" disabled={!canMoveLine || index === 0 || Boolean(isPinned?.(group.lines[index - 1]))} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, -1))} className={SMALL}>↑</button>
                               <button type="button" aria-label="아래로" disabled={!canMoveLine || isLast} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, 1))} className={SMALL}>↓</button>
-                              <button type="button" aria-label="줄 메뉴" onClick={() => setMenu(menu?.lineId === line.id ? null : { lineId: line.id, moving: false })} className={SMALL}>⋯</button>
+                              <button
+                                type="button"
+                                aria-label="줄 메뉴"
+                                onClick={(event) => {
+                                  if (menu?.lineId === line.id) {
+                                    setMenu(null);
+                                    return;
+                                  }
+                                  const rect = event.currentTarget.getBoundingClientRect();
+                                  const right = window.innerWidth - rect.right;
+                                  // Near the bottom of the window the menu opens upward.
+                                  setMenu(rect.bottom + 260 > window.innerHeight ? { lineId: line.id, moving: false, bottom: window.innerHeight - rect.top + 4, right } : { lineId: line.id, moving: false, top: rect.bottom + 4, right });
+                                }}
+                                className={SMALL}
+                              >
+                                ⋯
+                              </button>
                               {menu?.lineId === line.id && (
-                                <div className="absolute right-0 top-8 z-20 w-48 rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg">
+                                <div className="fixed z-[65] max-h-[60vh] w-48 overflow-y-auto rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg" style={{ top: menu.top, bottom: menu.bottom, right: menu.right }}>
                                   {!menu.moving ? (
                                     <>
                                       <MenuItem onClick={() => { commit(duplicateTemplateLine(lines, line.id, newId)); setMenu(null); }}>복제</MenuItem>
-                                      <MenuItem disabled={linePinned || allGroups.length < 2} onClick={() => setMenu({ lineId: line.id, moving: true })}>다른 공사로 옮기기 ▸</MenuItem>
+                                      <MenuItem disabled={linePinned || allGroups.length < 2} onClick={() => setMenu({ ...menu, moving: true })}>다른 공사로 옮기기 ▸</MenuItem>
                                       {props.lineMenuExtras?.(line).map((extra) => (
                                         <MenuItem key={extra.label} onClick={() => { setMenu(null); extra.run(); }}>{extra.label}</MenuItem>
                                       ))}
@@ -454,7 +501,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                                       {allGroups.filter((item) => item.label !== group.label && !pinnedGroup(item.label)).map((item) => (
                                         <MenuItem key={item.label} onClick={() => { commit(setTemplateLineCategory(lines, line.id, item.label)); setMenu(null); }}>{item.label}</MenuItem>
                                       ))}
-                                      <MenuItem onClick={() => setMenu({ lineId: line.id, moving: false })}>← 뒤로</MenuItem>
+                                      <MenuItem onClick={() => setMenu({ ...menu, moving: false })}>← 뒤로</MenuItem>
                                     </>
                                   )}
                                 </div>
