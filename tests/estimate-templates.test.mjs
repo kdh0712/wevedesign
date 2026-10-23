@@ -4,6 +4,7 @@ import {
   NO_CATEGORY,
   namedTemplateLines,
   templateLineLabel,
+  templateAreaRatio,
   isAreaUnit,
   normalizeBaseArea,
   scaleTemplateQuantities,
@@ -318,4 +319,12 @@ test('기준 평형 is optional and must be 1–500', () => {
   assert.equal(normalizeBaseArea(' 30 '), 30);
   assert.equal(normalizeBaseArea(''), null);
   assert.equal(normalizeBaseArea(null), null);
+});
+
+test('the 평형 ratio needs both areas as positive numbers', () => {
+  assert.equal(templateAreaRatio('30', '33'), 1.1);
+  assert.ok(Number.isNaN(templateAreaRatio('30', '')));
+  assert.ok(Number.isNaN(templateAreaRatio('', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
 });

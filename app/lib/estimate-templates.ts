@@ -420,6 +420,14 @@ export function normalizeBaseArea(value: unknown): number | null {
   return Number(typeof value === 'string' ? value.trim() : value);
 }
 
+// 현장 평형 ÷ 기준 평형, or NaN unless both are positive numbers (then nothing may be scaled).
+export function templateAreaRatio(baseArea: string, siteArea: string): number {
+  if (!key(baseArea) || !key(siteArea)) return Number.NaN;
+  const base = Number(key(baseArea));
+  const site = Number(key(siteArea));
+  return Number.isFinite(base) && Number.isFinite(site) && base > 0 && site > 0 ? site / base : Number.NaN;
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }
