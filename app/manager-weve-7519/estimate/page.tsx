@@ -18,6 +18,7 @@ import {
 } from '../../lib/estimate-common-options';
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import {
+  insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
   orderTemplateLinesByGroup,
@@ -28,6 +29,8 @@ import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
+import { TemplateDocumentPreview } from './template-document-preview';
+import { GroupedLinesEditor } from './grouped-lines-editor';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -666,9 +669,12 @@ export default function EstimateWorkspacePage() {
   const [documentView, setDocumentView] = useState<string>('detail');
   const [documentDetailPageIndex, setDocumentDetailPageIndex] = useState(0);
   const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
-  const [lineGroupBy, setLineGroupBy] = useState<'space' | 'category'>('category');
-  const [lineFilterType, setLineFilterType] = useState<'all' | 'space' | 'category'>('all');
-  const [lineFilterValue, setLineFilterValue] = useState('');
+  // 견적서 tab (spec 2026-10-23 §3): 공간 보기 filter, the two side panels, '공사 추가' name, and a 'DB에 저장' request from a line menu.
+  const [lineSpaceFilter, setLineSpaceFilter] = useState('');
+  const [isDbPanelOpen, setIsDbPanelOpen] = useState(true);
+  const [isEstimatePreviewOpen, setIsEstimatePreviewOpen] = useState(true);
+  const [estimateNewGroup, setEstimateNewGroup] = useState<string | null>(null);
+  const [pendingDbSaveOpen, setPendingDbSaveOpen] = useState(false);
   const [workGroupBy, setWorkGroupBy] = useState<'space' | 'category'>('category');
   const [editingMaterial, setEditingMaterial] = useState<Material>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -721,9 +727,6 @@ export default function EstimateWorkspacePage() {
   const totals = useMemo(() => calculateTotals(lines, workLines, extraItems), [extraItems, lines, workLines]);
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
-  const lineCategoryOptions = useMemo(() => uniqueLineValues(lines, (line) => line.category || line.process), [lines]);
-  const filteredLines = useMemo(() => filterEstimateLines(lines, lineFilterType, lineFilterValue), [lines, lineFilterType, lineFilterValue]);
-  const sortedLines = useMemo(() => sortEstimateLines(filteredLines, lineGroupBy), [filteredLines, lineGroupBy]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal), [lines, totals.customerEstimateTotal]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
@@ -796,7 +799,6 @@ export default function EstimateWorkspacePage() {
       })
       .slice(0, 120);
   }, [dbLibrary, estimateItems, estimateMaterials, lineDbCategory, lineDbSearch, orderedMaterials]);
-  const lineFilterOptions = lineFilterType === 'space' ? lineSpaceOptions : lineFilterType === 'category' ? lineCategoryOptions : [];
   const lineProcessOptions = useMemo(
     () => uniqueLineValues(lines, (line) => line.process || line.category || line.name),
     [lines],
@@ -879,15 +881,17 @@ export default function EstimateWorkspacePage() {
   }, []);
 
   useEffect(() => {
-    if (lineFilterType === 'all') {
-      if (lineFilterValue) setLineFilterValue('');
-      return;
-    }
-    const options = lineFilterType === 'space' ? lineSpaceOptions : lineCategoryOptions;
-    if (lineFilterValue && !options.includes(lineFilterValue)) {
-      setLineFilterValue('');
-    }
-  }, [lineCategoryOptions, lineFilterType, lineFilterValue, lineSpaceOptions]);
+    if (lineSpaceFilter && !lineSpaceOptions.includes(lineSpaceFilter)) setLineSpaceFilter('');
+  }, [lineSpaceFilter, lineSpaceOptions]);
+
+  // A line menu's 'DB에 저장' puts the line into the draft first; the save panel reads the draft, so it opens on the next render.
+  useEffect(() => {
+    if (!pendingDbSaveOpen) return;
+    setPendingDbSaveOpen(false);
+    openLineDbSave();
+    // openLineDbSave reads the draft set together with this request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDbSaveOpen]);
 
   useEffect(() => {
     if (!selectedSiteId) return;
@@ -1834,34 +1838,6 @@ export default function EstimateWorkspacePage() {
     setIsLineDbSaveOpen(false);
   };
 
-  const editLineDraft = (line: EstimateLine) => {
-    setLineDraft({ ...line });
-    setEditingLineId(line.id);
-    setSelectedLineId(line.id);
-    setLineDraftSource(null);
-  };
-
-  const submitLineDraft = () => {
-    if (!lineDraft.space && !lineDraft.category && !lineDraft.process && !lineDraft.name && !lineDraft.note) {
-      setError('견적 항목 내용을 먼저 입력해주세요.');
-      return;
-    }
-    if (lineDraft.commonName && !lineDraft.name.trim()) {
-      setError('공통 품목은 품명을 직접 입력해주세요. (예: 안방 욕실)');
-      return;
-    }
-    const nextLine = { ...lineDraft, id: editingLineId || `line-${Date.now()}-${Math.random().toString(16).slice(2)}` };
-    setLines((current) =>
-      editingLineId
-        ? current.map((line) => (line.id === editingLineId ? nextLine : line))
-        : [...current, nextLine],
-    );
-    setSelectedLineId(nextLine.id);
-    resetLineDraft();
-    setError('');
-  };
-
-  // The 실행 내역 rows made from the line hold real 지출/결제 records, so they stay; they only lose the link to it.
   // 템플릿 불러오기: the lines come in with new ids; 실행 내역 rows that pointed at lines this removes are unlinked, as when
   // a line is deleted.
   const applyTemplateLines = (incoming: EstimateLine[], mode: 'replace' | 'append') => {
@@ -1874,21 +1850,18 @@ export default function EstimateWorkspacePage() {
     setActiveTab('lines');
   };
 
-  const deleteLine = (id: string) => {
-    const line = lines.find((item) => item.id === id);
-    const label = [line?.name, line?.spec].filter(Boolean).join(' · ') || '이 견적 항목';
-    const linkedCount = linkedWorkLineCount(workLines, id);
-    const message = linkedCount
-      ? `'${label}'을(를) 삭제할까요?\n실행 내역서에 연결된 ${linkedCount}개 항목은 지우지 않고 그대로 둡니다.`
-      : `'${label}'을(를) 삭제할까요?`;
-    if (!window.confirm(message)) return;
-    setLines((current) => {
-      const next = current.filter((item) => item.id !== id);
-      return next.length ? next : [emptyLine()];
-    });
-    setWorkLines((current) => unlinkWorkLinesFromLine(current, id));
-    setSelectedLineId((current) => (current === id ? '' : current));
-    if (editingLineId === id) resetLineDraft();
+  const openLineDbSaveFor = (line: EstimateLine) => {
+    setLineDraft({ ...line });
+    setLineDraftSource(null);
+    setEditingLineId('');
+    setPendingDbSaveOpen(true);
+  };
+
+  const addEstimateGroup = () => {
+    const name = (estimateNewGroup || '').trim();
+    if (!name) return;
+    setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, name, [{ ...emptyLine(), space: lineSpaceFilter }])));
+    setEstimateNewGroup(null);
   };
 
   const updateTask = (id: string, updates: Partial<ScheduleTask>) => {
@@ -2760,8 +2733,22 @@ export default function EstimateWorkspacePage() {
         </datalist>
 
         {activeTab === 'lines' && (
-          <section className="grid gap-4 xl:grid-cols-[340px_minmax(0,1fr)] xl:items-stretch">
-            <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:flex xl:min-h-[calc(100vh-260px)] xl:flex-col">
+          <section
+            className={`grid gap-4 2xl:items-start ${
+              isDbPanelOpen
+                ? isEstimatePreviewOpen
+                  ? '2xl:grid-cols-[320px_minmax(0,1fr)_420px]'
+                  : '2xl:grid-cols-[320px_minmax(0,1fr)_44px]'
+                : isEstimatePreviewOpen
+                  ? '2xl:grid-cols-[44px_minmax(0,1fr)_420px]'
+                  : '2xl:grid-cols-[44px_minmax(0,1fr)_44px]'
+            }`}
+          >
+            {isDbPanelOpen ? (
+              <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm 2xl:sticky 2xl:top-4">
+                <div className="mb-2 flex justify-end">
+                  <button type="button" onClick={() => setIsDbPanelOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">DB 패널 접기</button>
+                </div>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#38a9bd]">{dbLibrary === 'estimate' ? 'ESTIMATE DB' : 'GLOBAL DB'}</p>
@@ -2796,7 +2783,7 @@ export default function EstimateWorkspacePage() {
                 ))}
               </div>
 
-              <div className="mt-4 max-h-[520px] min-h-[360px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-white p-2 pr-1">
+              <div className="mt-4 max-h-[60vh] min-h-[360px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-white p-2 pr-1">
                 {lineDbMaterials.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-6 text-center text-sm text-[#60717d]">
                     {dbLibrary === 'estimate' && estimateMaterials.length === 0 ? (
@@ -2836,17 +2823,55 @@ export default function EstimateWorkspacePage() {
                   </div>
                 )}
               </div>
-            </aside>
+              </aside>
+            ) : (
+              <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold 2xl:[writing-mode:vertical-rl]">
+                DB 패널 펼치기
+              </button>
+            )}
 
-            <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:min-h-[calc(100vh-260px)]">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">견적서</h2>
                   <p className="mt-1 text-sm text-[#60717d]">
-                    분류·공종·품명을 누르면 단계별 선택창이 열리고, DB의 단가 정보가 자동 입력됩니다. 품명이 &apos;공통&apos;인 DB 품목은 품명을 직접 입력합니다.
+                    공사별로 묶어 보여 줘요. 줄을 누르면 선택되고, 왼쪽 DB 패널의 &apos;선택 행 적용&apos;이 그 줄에 들어가요. Tab·Enter로 칸을 옮기고,
+                    공사의 마지막 줄에서 Enter를 누르면 새 줄이 생겨요.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {estimateNewGroup === null ? (
+                    <button type="button" onClick={() => setEstimateNewGroup('')} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
+                      공사 추가
+                    </button>
+                  ) : (
+                    <form
+                      className="flex gap-1"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        addEstimateGroup();
+                      }}
+                    >
+                      <input
+                        value={estimateNewGroup}
+                        onChange={(event) => setEstimateNewGroup(event.target.value)}
+                        list="grouped-editor-categories"
+                        placeholder="공사 이름 (예: 욕실 공사)"
+                        aria-label="새 공사 이름"
+                        autoFocus
+                        className="w-48 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]"
+                      />
+                      <button type="submit" disabled={!estimateNewGroup.trim()} className="rounded-md bg-[#171512] px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-50">추가</button>
+                      <button type="button" onClick={() => setEstimateNewGroup(null)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-sm font-semibold">취소</button>
+                    </form>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(placeTemplateLines(current, picked, 'append'))))}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
+                  >
+                    DB에서 추가
+                  </button>
                   <button
                     type="button"
                     onClick={() => setIsTemplateManagerOpen(true)}
@@ -2871,119 +2896,22 @@ export default function EstimateWorkspacePage() {
                     이 견적을 템플릿으로 저장
                   </button>
                   <select
-                    value={lineGroupBy}
-                    onChange={(event) => setLineGroupBy(event.target.value as typeof lineGroupBy)}
-                    aria-label="견적 내역 정렬 기준"
+                    value={lineSpaceFilter}
+                    onChange={(event) => setLineSpaceFilter(event.target.value)}
+                    aria-label="공간 보기"
                     className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
                   >
-                    <option value="category">분류별 정렬</option>
-                    <option value="space">공간별 정렬</option>
+                    <option value="">공간 전체 보기</option>
+                    {lineSpaceOptions.map((space) => (
+                      <option key={space} value={space}>{space}만 보기</option>
+                    ))}
                   </select>
-                  <select
-                    value={lineFilterType}
-                    onChange={(event) => {
-                      const nextType = event.target.value as typeof lineFilterType;
-                      setLineFilterType(nextType);
-                      setLineFilterValue('');
-                    }}
-                    aria-label="견적 내역 보기 조건"
-                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
-                  >
-                    <option value="all">전체 보기</option>
-                    <option value="space">공간만 보기</option>
-                    <option value="category">분류만 보기</option>
-                  </select>
-                  {lineFilterType !== 'all' && (
-                    <select
-                      value={lineFilterValue}
-                      onChange={(event) => setLineFilterValue(event.target.value)}
-                      aria-label="견적 내역 필터 값"
-                      className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="">전체 {lineFilterType === 'space' ? '공간' : '분류'}</option>
-                      {lineFilterOptions.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {(lineFilterType !== 'all' || lineFilterValue) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLineFilterType('all');
-                        setLineFilterValue('');
-                      }}
-                      className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold text-[#4d5d66] hover:bg-[#f7fafb]"
-                    >
-                      조건 초기화
-                    </button>
-                  )}
-                  <button type="button" onClick={submitLineDraft} className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-                    <Plus size={16} />
-                    {editingLineId ? '수정 반영' : '항목 추가'}
-                  </button>
                 </div>
               </div>
 
-              <div className="sticky top-0 z-20 mb-4 rounded-lg border border-[#cfd9df] bg-white p-3 shadow-sm">
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h3 className="font-semibold">{editingLineId ? '견적 항목 수정' : '견적 항목 입력'}</h3>
-                    <p className="mt-1 text-xs text-[#60717d]">공간, 분류, 공종, 품명과 단가를 입력한 뒤 항목 추가를 누르면 아래 내역에 반영됩니다.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {editingLineId && (
-                      <button type="button" onClick={resetLineDraft} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold">
-                        입력 초기화
-                      </button>
-                    )}
-                    <button type="button" onClick={() => (isLineDbSaveOpen ? setIsLineDbSaveOpen(false) : openLineDbSave())} className="rounded-md border border-[#171512] bg-white px-3 py-2 text-xs font-semibold text-[#171512]">
-                      DB 저장
-                    </button>
-                    <button type="button" onClick={submitLineDraft} className="inline-flex items-center gap-2 rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
-                      <Plus size={16} />
-                      {editingLineId ? '수정 반영' : '항목 추가'}
-                    </button>
-                  </div>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-[0.8fr_1fr_1fr_1.2fr_1fr_0.65fr_0.65fr_0.9fr_0.9fr_1.2fr]">
-                  <FieldShell label="공간">
-                    <CellSelect value={lineDraft.space} options={defaultSpaces} onChange={(value) => setLineDraft((current) => ({ ...current, space: value }))} />
-                  </FieldShell>
-                  <FieldShell label="분류">
-                    <PickerCell value={lineDraft.category} placeholder="분류 선택" onClick={() => openLineDraftMaterialPicker('category')} />
-                  </FieldShell>
-                  <FieldShell label="공종">
-                    <PickerCell value={lineDraft.process} placeholder="공종 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category ? 'process' : 'category')} />
-                  </FieldShell>
-                  <FieldShell label={lineDraft.commonName ? '품명 (공통)' : '품명'}>
-                    {lineDraft.commonName ? (
-                      <CommonNameCell value={lineDraft.name} onChange={(value) => setLineDraft((current) => ({ ...current, name: value }))} onPick={() => openLineDraftMaterialPicker('material')} />
-                    ) : (
-                      <PickerCell value={lineDraft.name} placeholder="품명 선택" onClick={() => openLineDraftMaterialPicker(lineDraft.category && lineDraft.process ? 'material' : lineDraft.category ? 'process' : 'category')} />
-                    )}
-                  </FieldShell>
-                  <FieldShell label="규격">
-                    <CellInput value={lineDraft.spec} onChange={(value) => setLineDraft((current) => ({ ...current, spec: value }))} />
-                  </FieldShell>
-                  <FieldShell label="단위">
-                    <CellInput value={lineDraft.unit} onChange={(value) => setLineDraft((current) => ({ ...current, unit: value }))} />
-                  </FieldShell>
-                  <FieldShell label="수량">
-                    <CellNumber value={lineDraft.quantity} onChange={(value) => setLineDraft((current) => ({ ...current, quantity: value }))} />
-                  </FieldShell>
-                  <FieldShell label="견적단가">
-                    <CellNumber value={lineDraft.customerUnitPrice} onChange={(value) => setLineDraft((current) => ({ ...current, customerUnitPrice: value }))} />
-                  </FieldShell>
-                  <FieldShell label="실행단가">
-                    <CellNumber value={lineDraft.executionUnitPrice} onChange={(value) => setLineDraft((current) => ({ ...current, executionUnitPrice: value }))} />
-                  </FieldShell>
-                  <FieldShell label="비고">
-                    <CellInput value={lineDraft.note} onChange={(value) => setLineDraft((current) => ({ ...current, note: value }))} />
-                  </FieldShell>
-                </div>
+              {isLineDbSaveOpen && (
+                <p className="mb-1 text-sm font-semibold">DB에 저장 · {lineDraft.name || '이름 없는 항목'} {lineDraft.spec ? `(${lineDraft.spec})` : ''}</p>
+              )}
                 {isLineDbSaveOpen && (
                   <div className="mt-3 grid gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] p-3 md:grid-cols-[minmax(0,220px)_auto_auto_auto] md:items-center">
                     <select
@@ -3011,7 +2939,7 @@ export default function EstimateWorkspacePage() {
                       품명을 &apos;공통&apos;으로 저장
                     </label>
                     <button type="button" onClick={saveLineDraftToDb} disabled={isSaving} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-                      입력 내용 DB 저장
+                      DB에 저장
                     </button>
                     <button type="button" onClick={() => setIsLineDbSaveOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold">
                       닫기
@@ -3022,111 +2950,54 @@ export default function EstimateWorkspacePage() {
                     </p>
                   </div>
                 )}
-              </div>
-
-              <div className="max-h-[calc(100vh-260px)] min-h-[620px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-[#f7fafb] p-3 xl:min-h-0 xl:flex-1 xl:max-h-none">
-                <div className="grid gap-3">
-                  {sortedLines.length === 0 && (
-                    <div className="rounded-lg border border-dashed border-[#cfd9df] bg-white p-10 text-center text-sm font-semibold text-[#60717d]">
-                      선택한 조건에 해당하는 견적 항목이 없습니다.
-                    </div>
-                  )}
-                  {sortedLines.map((line, index) => {
-                    const estimateAmount = line.quantity * line.customerUnitPrice;
-                    const costAmount = line.quantity * line.executionUnitPrice;
-                    const margin = estimateAmount - costAmount;
-                    const currentGroup = lineGroupKey(line, lineGroupBy);
-                    const previousGroup = index > 0 ? lineGroupKey(sortedLines[index - 1], lineGroupBy) : '';
-                    const isPinnedBaseLine = isBaseEstimateLine(line);
-
-                    return (
-                      <Fragment key={line.id}>
-                        {currentGroup !== previousGroup && (
-                          <div className="rounded-md border border-[#e7d8bd] bg-[#fff8e8] px-3 py-2 text-xs font-bold uppercase tracking-[0.12em] text-[#8b6420]">
-                            {lineGroupBy === 'space' ? '공간' : '분류'} · {currentGroup}
-                          </div>
-                        )}
-                        <article onDoubleClick={() => editLineDraft(line)} className={`rounded-lg border bg-white p-3 shadow-sm ${selectedLineId === line.id ? 'border-[#f1c76a] ring-2 ring-[#f1c76a]/25' : isPinnedBaseLine ? 'border-[#f1c76a]' : 'border-[#d5dde2]'}`}>
-                          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setSelectedLineId(line.id)}
-                                className={`rounded-full px-3 py-1 text-xs font-bold ${selectedLineId === line.id ? 'bg-[#171512] text-white' : 'bg-[#edf2f5] text-[#60717d]'}`}
-                              >
-                                선택
-                              </button>
-                              {isPinnedBaseLine && (
-                                <span className="rounded-full bg-[#fff3c7] px-3 py-1 text-xs font-bold text-[#8b6420]">
-                                  상단 고정 기본 항목
-                                </span>
-                              )}
-                              <span className="text-xs font-semibold text-[#60717d]">
-                                {[line.space || '공간 미정', line.category || '분류 미정', line.process || '공종 미정'].join(' · ')}
-                              </span>
-                            </div>
-                            <button type="button" onClick={() => deleteLine(line.id)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50" aria-label="견적 항목 삭제">
-                              <Trash2 size={14} />
-                              항목 삭제
-                            </button>
-                            <button type="button" onClick={() => editLineDraft(line)} className="inline-flex items-center gap-1 rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold text-[#171512] hover:bg-[#f7fafb]">
-                              수정 불러오기
-                            </button>
-                          </div>
-
-                          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_280px] 2xl:grid-cols-[minmax(0,1fr)_360px]">
-                            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-6">
-                              <FieldShell label="공간">
-                                <CellSelect value={line.space} options={defaultSpaces} onChange={(value) => updateLine(line.id, { space: value })} />
-                              </FieldShell>
-                              <FieldShell label="분류">
-                                <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />
-                              </FieldShell>
-                              <FieldShell label="공종">
-                                <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />
-                              </FieldShell>
-                              <FieldShell label={line.commonName ? '품명 (공통)' : '품명'}>
-                                {line.commonName ? (
-                                  <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
-                                ) : (
-                                  <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
-                                )}
-                              </FieldShell>
-                              <FieldShell label="규격">
-                                <CellInput value={line.spec} onChange={(value) => updateLine(line.id, { spec: value })} />
-                              </FieldShell>
-                              <FieldShell label="단위">
-                                <CellInput value={line.unit} onChange={(value) => updateLine(line.id, { unit: value })} />
-                              </FieldShell>
-                              <FieldShell label="수량">
-                                <CellNumber value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} />
-                              </FieldShell>
-                              <FieldShell label="견적단가">
-                                <CellNumber value={line.customerUnitPrice} onChange={(value) => updateLine(line.id, { customerUnitPrice: value })} />
-                              </FieldShell>
-                              <FieldShell label="실행단가">
-                                <CellNumber value={line.executionUnitPrice} onChange={(value) => updateLine(line.id, { executionUnitPrice: value })} />
-                              </FieldShell>
-                              <div className="sm:col-span-2 lg:col-span-4 2xl:col-span-3">
-                                <FieldShell label="비고">
-                                  <CellInput value={line.note} onChange={(value) => updateLine(line.id, { note: value })} />
-                                </FieldShell>
-                              </div>
-                            </div>
-
-                            <div className="grid content-start gap-2 rounded-lg border border-[#edf2f5] bg-[#fbfdfe] p-3 sm:grid-cols-3 lg:grid-cols-1 2xl:grid-cols-3">
-                              <LineAmount label="견적금액" value={estimateAmount} />
-                              <LineAmount label="원가" value={costAmount} />
-                              <LineAmount label="예상마진" value={margin} positive={margin >= 0} />
-                            </div>
-                          </div>
-                        </article>
-                      </Fragment>
-                    );
-                  })}
-                </div>
+              <div className={isLineDbSaveOpen ? 'mt-4' : ''}>
+                <GroupedLinesEditor
+                  lines={lines}
+                  onChange={setLines}
+                  newLine={(group) => ({ ...emptyLine(), category: group, space: lineSpaceFilter })}
+                  newId={() => emptyLine().id}
+                  columns={['space', 'category', 'process', 'name', 'spec', 'unit', 'quantity', 'customerUnitPrice', 'executionUnitPrice', 'margin', 'note']}
+                  columnLabels={{ customerUnitPrice: '견적단가', executionUnitPrice: '실행단가' }}
+                  spaceOptions={defaultSpaces}
+                  categoryOptions={estimateCategories}
+                  renderCell={{
+                    category: (line) => <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />,
+                    process: (line) => <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />,
+                    name: (line) =>
+                      line.commonName ? (
+                        <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
+                      ) : (
+                        <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                      ),
+                  }}
+                  onAddFromDb={(group) => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, group, picked))))}
+                  selectedLineId={selectedLineId}
+                  onSelectLine={setSelectedLineId}
+                  spaceFilter={lineSpaceFilter}
+                  isPinned={isBaseEstimateLine}
+                  removeNote={(removed) => {
+                    const linked = removed.reduce((sum, line) => sum + linkedWorkLineCount(workLines, line.id), 0);
+                    return linked ? `실행 내역서에 연결된 ${linked}개 항목은 지우지 않고 그대로 둡니다.` : '';
+                  }}
+                  onRemoved={(ids) => {
+                    setWorkLines((current) => ids.reduce((rows, id) => unlinkWorkLinesFromLine(rows, id), current));
+                    setSelectedLineId((current) => (ids.includes(current) ? '' : current));
+                  }}
+                  lineMenuExtras={(line) => [{ label: 'DB에 저장', run: () => openLineDbSaveFor(line) }]}
+                  emptyLineWhenAllRemoved
+                />
               </div>
             </section>
+
+            {isEstimatePreviewOpen ? (
+              <aside className="min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 2xl:sticky 2xl:top-4">
+                <TemplateDocumentPreview title={selectedSite?.title || '현장'} subtitle={versionLabel} lines={lines} onCollapse={() => setIsEstimatePreviewOpen(false)} />
+              </aside>
+            ) : (
+              <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold 2xl:[writing-mode:vertical-rl]">
+                미리보기 펼치기
+              </button>
+            )}
           </section>
         )}
 
@@ -6194,17 +6065,6 @@ function FieldShell({ label, children }: { label: string; children: ReactNode })
   );
 }
 
-function LineAmount({ label, value, positive }: { label: string; value: number; positive?: boolean }) {
-  return (
-    <div className="rounded-md border border-[#edf2f5] bg-white px-3 py-2">
-      <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-[#60717d]">{label}</span>
-      <b className={`mt-1 block text-base ${positive === false ? 'text-red-600' : positive === true ? 'text-[#217346]' : 'text-[#171512]'}`}>
-        {formatMoney(value)}
-      </b>
-    </div>
-  );
-}
-
 function CellInput({ value, listId, onChange }: { value: string; listId?: string; onChange: (value: string) => void }) {
   return <input value={value} list={listId} onChange={(event) => onChange(event.target.value)} className="w-full min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]" />;
 }
@@ -6238,17 +6098,6 @@ function NumberTextInput({ value, onChange, className = '' }: { value: number; o
       }}
       className={`${className} rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]`}
     />
-  );
-}
-
-function CellSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
-  return (
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="w-full min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 outline-none focus:border-[#38a9bd]">
-      <option value="">선택</option>
-      {options.map((option) => (
-        <option key={option} value={option}>{option}</option>
-      ))}
-    </select>
   );
 }
 
@@ -7353,34 +7202,12 @@ function cloneWorkLines(lines: WorkLine[]) {
   }));
 }
 
-function lineGroupKey(line: EstimateLine, groupBy: 'space' | 'category') {
-  return (groupBy === 'space' ? line.space : line.category || line.process) || '미분류';
-}
-
 function workLineGroupKey(line: WorkLine, groupBy: 'space' | 'category') {
   return (groupBy === 'space' ? line.space : line.category || line.process) || '미분류';
 }
 
 function uniqueLineValues(lines: EstimateLine[], getValue: (line: EstimateLine) => string) {
   return Array.from(new Set(lines.map((line) => getValue(line).trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ko-KR'));
-}
-
-function filterEstimateLines(lines: EstimateLine[], filterType: 'all' | 'space' | 'category', filterValue: string) {
-  if (filterType === 'all' || !filterValue) return lines;
-  return lines.filter((line) => {
-    const value = filterType === 'space' ? line.space : line.category || line.process;
-    return value === filterValue;
-  });
-}
-
-function sortEstimateLines(lines: EstimateLine[], groupBy: 'space' | 'category') {
-  return [...lines].sort((a, b) => {
-    const baseDiff = Number(!isBaseEstimateLine(a)) - Number(!isBaseEstimateLine(b));
-    if (baseDiff !== 0) return baseDiff;
-    const groupDiff = lineGroupKey(a, groupBy).localeCompare(lineGroupKey(b, groupBy), 'ko-KR');
-    if (groupDiff !== 0) return groupDiff;
-    return (a.process || a.name).localeCompare(b.process || b.name, 'ko-KR');
-  });
 }
 
 // Each 공사's lines together, in the order the 공사 first appear, with the 기본견적 공사 first.
