@@ -52,6 +52,8 @@ export function buildMockData(today) {
     { _id: 'cu3', name: '이샘플', phone: '010-0000-2203', siteType: '상가', address: '가나시 사아동 31 1층', status: '견적', memo: '오픈 목표일 다음 달 말', createdAt: at(-12) },
     { _id: 'cu4', name: '박보기', phone: '010-0000-2204', siteType: '아파트', address: '가나시 자차동 9 해오름빌라 2층', status: '실측 예정', createdAt: at(-4) },
     { _id: 'cu5', name: '최견본', phone: '010-0000-2205', siteType: '아파트', address: '가나시 카타동 3 마루아파트 201동', status: '완료', createdAt: at(-120) },
+    { _id: 'cu6', name: '오보기', phone: '010-0000-2206', siteType: '아파트', address: '가나시 파하동 21 하늘채 103동', status: '계약', createdAt: at(-16) },
+    { _id: 'cu7', name: '장예시', phone: '010-0000-2207', siteType: '아파트', address: '가나시 다라동 77 라온빌 2층', status: '완료', createdAt: at(-75) },
   ];
 
   const sites = [
@@ -60,7 +62,19 @@ export function buildMockData(today) {
     { _id: 'site-3', title: '새봄상가 1층 카페', customerName: '이샘플', customerPhone: '010-0000-2203', customerId: 'cu3', siteType: '상가', address: '가나시 사아동 31 1층', status: '견적', memo: '', createdAt: at(-11) },
     { _id: 'site-4', title: '해오름빌라 24평', customerName: '박보기', customerPhone: '010-0000-2204', customerId: 'cu4', siteType: '아파트', address: '가나시 자차동 9 해오름빌라 2층', status: '실측 예정', memo: '', createdAt: at(-3) },
     { _id: 'site-5', title: '마루아파트 45평', customerName: '최견본', customerPhone: '010-0000-2205', customerId: 'cu5', siteType: '아파트', address: '가나시 카타동 3 마루아파트 201동', status: '완료', memo: '', createdAt: at(-118) },
+    { _id: 'site-6', title: '하늘채 34평 부분 공사', customerName: '오보기', customerPhone: '010-0000-2206', customerId: 'cu6', siteType: '아파트', address: '가나시 파하동 21 하늘채 103동', status: '계약', memo: '', createdAt: at(-15) },
+    { _id: 'site-7', title: '라온빌 28평', customerName: '장예시', customerPhone: '010-0000-2207', customerId: 'cu7', siteType: '아파트', address: '가나시 다라동 77 라온빌 2층', status: '완료', memo: '', createdAt: at(-74) },
   ];
+
+  // 유입 경로 answers (officeSites/<id>.acquisition): from the customer survey, a staff entry, a skip, or none yet.
+  const acquisitionAnswers = {
+    'site-1': { status: 'answered', optionId: 'naver-place', label: '네이버 플레이스', by: 'customer', at: at(-8, 20) },
+    'site-2': { status: 'answered', optionId: 'friend', label: '지인 소개', by: 'staff', staffId: 'design01@example.com', at: at(-20, 11) },
+    'site-3': { status: 'skipped', by: 'customer', at: at(-9, 19) },
+    'site-5': { status: 'answered', optionId: 'blog', label: '블로그', by: 'customer', at: at(-100, 21) },
+    'site-6': { status: 'answered', optionId: 'naver-place', label: '네이버 플레이스', by: 'customer', at: at(-6, 9) },
+  };
+  for (const site of sites) if (acquisitionAnswers[site._id]) site.acquisition = acquisitionAnswers[site._id];
 
   const estimates = [
     { _id: 'est-1b', siteId: 'site-1', siteTitle: sites[0].title, customerName: '홍길동', versionType: 'final', versionLabel: '계약 견적', customerEstimateTotal: 48_600_000, executionCostTotal: 36_900_000, marginAmount: 11_700_000, marginRate: 24.1, updatedAt: at(-30) },
@@ -73,6 +87,8 @@ export function buildMockData(today) {
     { _id: 'sale-1', siteId: 'site-1', estimateId: 'est-1b', customerName: '홍길동', projectTitle: sites[0].title, amount: 48_600_000, cost: 36_900_000, status: '부분 입금', paymentDate: ymd(-28), memo: '계약금·중도금 입금', createdAt: at(-30) },
     { _id: 'sale-2', siteId: 'site-2', estimateId: 'est-2a', customerName: '김예시', projectTitle: sites[1].title, amount: 61_800_000, cost: 47_200_000, status: '계약', paymentDate: ymd(5), memo: '', createdAt: at(-19) },
     { _id: 'sale-3', siteId: 'site-5', customerName: '최견본', projectTitle: sites[4].title, amount: 31_200_000, cost: 23_900_000, status: '입금 완료', paymentDate: ymd(-90), memo: '', createdAt: at(-115) },
+    { _id: 'sale-4', siteId: 'site-6', customerName: '오보기', projectTitle: sites[5].title, amount: 18_500_000, cost: 14_100_000, status: '계약', paymentDate: ymd(10), memo: '', createdAt: at(-12) },
+    { _id: 'sale-5', siteId: 'site-7', customerName: '장예시', projectTitle: sites[6].title, amount: 27_900_000, cost: 21_300_000, status: '입금 완료', paymentDate: ymd(-50), memo: '', createdAt: at(-72) },
   ];
 
   const inventory = [
@@ -214,6 +230,19 @@ export function buildMockData(today) {
       { id: 'sn-000000000000000000000005', siteId: 'site-1', kind: 'note', text: '거실 천장 배관 때문에 등박스 위치를 창 쪽으로 20cm 옮김. 고객 확인함.', createdAt: at(-3, 15), createdBy: 'design01', createdByName: '한디자인', done: false },
     ],
     alertPhones: { phones: ['010-0000-5501', '010-0000-5502'], source: 'manager', envMasked: [], storeReady: true },
+    // The product's starting list (app/lib/acquisition.ts DEFAULT_ACQUISITION_OPTIONS) with one option hidden; 기타 is added by the screen.
+    acquisitionOptions: [
+      { id: 'naver-place', label: '네이버 플레이스' },
+      { id: 'homepage', label: '홈페이지·검색' },
+      { id: 'blog', label: '블로그' },
+      { id: 'instagram', label: '인스타그램' },
+      { id: 'youtube', label: '유튜브' },
+      { id: 'daangn', label: '당근마켓', hidden: true },
+      { id: 'kakaotalk', label: '카카오톡' },
+      { id: 'friend', label: '지인 소개' },
+      { id: 'returning', label: '예전 고객' },
+      { id: 'walk-in', label: '지나가다 봤어요' },
+    ],
     devices: [
       { _id: 'md-000000000000000000000001', userName: '정현장', loginId: 'field01@example.com', deviceLabel: 'iPhone · Safari', createdAt: at(-12, 8), expiresAt: at(18, 8), lastUsedAt: at(0, 8, 40) },
       { _id: 'md-000000000000000000000002', userName: '한디자인', loginId: 'design01@example.com', deviceLabel: 'Android · 삼성 인터넷', createdAt: at(-5, 9), expiresAt: at(25, 9), lastUsedAt: at(-1, 19, 2) },
@@ -264,6 +293,18 @@ export function routeMock(data, method, url, body) {
     return ok(params.get('preview') ? data.progress.preview : data.progress.state);
   }
   if (pathname === '/api/manager/site-notes') return ok(method === 'GET' ? { notes: data.siteNotes } : { ok: true });
+  if (pathname === '/api/manager/acquisition') {
+    if (method === 'GET') return ok({ options: data.acquisitionOptions, updateTime: data.today });
+    let sent = {};
+    try {
+      sent = JSON.parse(body || '{}');
+    } catch {
+      sent = {};
+    }
+    if (sent.action === 'saveOptions') return ok({ options: sent.options || data.acquisitionOptions, updateTime: data.today });
+    if (sent.action === 'clearSite') return ok({ acquisition: null });
+    return ok({ acquisition: { status: 'answered', optionId: sent.optionId, label: sent.other || sent.optionId, other: sent.other, by: 'staff', at: data.today } });
+  }
   if (pathname === '/api/manager/alert-phones') return ok(data.alertPhones);
   if (pathname === '/api/manager/mobile/devices') return ok(method === 'GET' ? { devices: data.devices } : { ok: true });
   if (pathname === '/api/manager/accounts') return ok(method === 'GET' ? { accounts: data.accounts } : { ok: true });
