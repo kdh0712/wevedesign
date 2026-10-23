@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  templateAreaRatio,
   isAreaUnit,
   normalizeBaseArea,
   scaleTemplateQuantities,
@@ -320,3 +321,10 @@ test('the 세부내역서 keeps only lines with a 품명 and survives saved line
   assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
 });
 
+test('the 평형 ratio needs both areas as positive numbers', () => {
+  assert.equal(templateAreaRatio('30', '33'), 1.1);
+  assert.ok(Number.isNaN(templateAreaRatio('30', '')));
+  assert.ok(Number.isNaN(templateAreaRatio('', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
+});
