@@ -8,7 +8,8 @@ import { ProgressBrand, ProgressShell } from '../../lib/progress-view';
 
 // "How did you first find us", asked once after the phone check while the site has no answer. Answering or skipping saves
 // on the server, then the page reloads and the server shows the progress view. A 401 means the phone check has to be done
-// again (the link changed or the cookie ran out): the reload brings the phone check back.
+// again (the link changed or the cookie ran out): the reload brings the phone check back. When saving fails, the customer
+// can still go on to the progress view (?later=1 skips the question for that visit).
 export function AcquisitionSurvey({ code, options }: { code: string; options: Array<{ id: string; label: string }> }) {
   const [picked, setPicked] = useState('');
   const [other, setOther] = useState('');
@@ -82,9 +83,14 @@ export function AcquisitionSurvey({ code, options }: { code: string; options: Ar
         )}
 
         {error && (
-          <p role="alert" className="mt-3 text-sm font-semibold text-[#c0392b]">
-            {error}
-          </p>
+          <div className="mt-3">
+            <p role="alert" className="text-sm font-semibold text-[#c0392b]">
+              {error}
+            </p>
+            <a href={`/progress/${encodeURIComponent(code)}?later=1`} className="mt-1 inline-block text-sm font-semibold text-[#1f6f7f] underline">
+              공사 현황 먼저 보기
+            </a>
+          </div>
         )}
 
         <button

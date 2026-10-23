@@ -13,6 +13,7 @@ import {
   normalizeAcquisitionOptions,
   parseAcquisitionChoice,
   readSiteAcquisition,
+  showAcquisitionSurvey,
   surveyOptions,
 } from '../app/lib/acquisition.ts';
 
@@ -140,4 +141,11 @@ test('acquisitionAnswerText follows renames, falls back to the stored label and 
   assert.equal(acquisitionAnswerText(answered({ optionId: 'gone', label: '전단지' }), options), '전단지');
   assert.equal(acquisitionAnswerText(answered({ optionId: 'other', label: '기타', other: '친구 추천' }), options), '기타 · 친구 추천');
   assert.equal(acquisitionAnswerText({ status: 'skipped', by: 'customer', at: 'x' }, options), '건너뜀');
+});
+
+test('showAcquisitionSurvey lets a customer see the progress first when saving the answer keeps failing', () => {
+  assert.equal(showAcquisitionSurvey({}, undefined), true);
+  assert.equal(showAcquisitionSurvey({}, '1'), false, '?later=1 skips the question for this visit');
+  assert.equal(showAcquisitionSurvey({}, ['1']), true, 'only a plain later=1 counts');
+  assert.equal(showAcquisitionSurvey({ acquisition: { status: 'skipped', by: 'customer', at: 'x' } }, undefined), false);
 });

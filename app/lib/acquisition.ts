@@ -108,6 +108,12 @@ export function needsAcquisitionSurvey(site: Record<string, unknown>): boolean {
   return readSiteAcquisition(site.acquisition) === null;
 }
 
+// The page asks unless the customer chose "공사 현황 먼저 보기" after saving failed (?later=1): the survey must never keep a
+// verified customer from the progress view. Nothing is stored for that; the next visit asks again.
+export function showAcquisitionSurvey(site: Record<string, unknown>, later: unknown): boolean {
+  return later !== '1' && needsAcquisitionSurvey(site);
+}
+
 // The 기타 text as one line: whitespace runs become one space, control characters go.
 export function cleanOtherText(value: unknown): string {
   if (typeof value !== 'string') return '';

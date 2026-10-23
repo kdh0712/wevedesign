@@ -20,7 +20,7 @@ import {
 import { progressCookieName, progressPhoneDigits, resolveProgressKey, verifyProgressCookie } from '../../api/progress/_access';
 import { ProgressGate } from './progress-gate';
 import { AcquisitionSurvey } from './acquisition-survey';
-import { needsAcquisitionSurvey, surveyOptions } from '../../lib/acquisition';
+import { showAcquisitionSurvey, surveyOptions } from '../../lib/acquisition';
 import { readAcquisitionOptions } from '../../api/manager/_acquisition-store';
 
 // Per-customer data behind a cookie: never prerendered or cached.
@@ -35,7 +35,13 @@ export function generateMetadata(): Metadata {
   };
 }
 
-export default async function ProgressPage({ params }: { params: Promise<{ code: string }> }) {
+export default async function ProgressPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ code: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { code } = await params;
 
   // A code that cannot exist, a missing store and a switched-off link all show the same notice,
@@ -63,8 +69,9 @@ export default async function ProgressPage({ params }: { params: Promise<{ code:
   if (!key || !verifyProgressCookie(cookie, code, progressPhoneDigits(phone), key)) return <ProgressGate code={code} />;
 
   // A verified customer whose site has no 유입 경로 answer (nor a skip or a staff entry) is asked once before the progress
-  // view. If the options cannot be read, the progress view shows without the question.
-  if (needsAcquisitionSurvey(site)) {
+  // view. If the options cannot be read, or saving failed and the customer chose to see the progress first (?later=1), the
+  // progress view shows without the question.
+  if (showAcquisitionSurvey(site, (await searchParams).later)) {
     const options = await readAcquisitionOptions()
       .then((read) => read.options)
       .catch((error) => {
