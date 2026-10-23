@@ -1,7 +1,8 @@
+import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { parseAcquisitionChoice, type SiteAcquisition } from '../../../lib/acquisition';
-import { readAcquisitionOptions, writeSiteAcquisition } from '../_acquisition-store';
-import { getSiteForProgress, isProgressStoreReady } from '../_progress-store';
+import { normalizeAcquisitionOptions, parseAcquisitionChoice, type SiteAcquisition } from '../../../lib/acquisition';
+import { readAcquisitionOptions, saveAcquisitionOptions, writeSiteAcquisition } from '../_acquisition-store';
+import { getSiteForProgress, isFirestoreConflictError, isProgressStoreReady } from '../_progress-store';
 import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
@@ -43,12 +44,26 @@ export async function POST(request: Request) {
         return await setSite(body, access.session.loginId);
       case 'clearSite':
         return await clearSite(body);
+      case 'saveOptions':
+        return await saveOptions(body, access.session.loginId);
       default:
         return fail('알 수 없는 요청입니다.', 400);
     }
   } catch (error) {
     console.error('Acquisition request failed:', error);
     return fail('유입 경로를 저장하지 못했습니다.', 500);
+  }
+}
+
+// The option list; new options get an id here. Saved only on the version staff opened.
+async function saveOptions(body: Record<string, unknown>, loginId: string) {
+  const checked = normalizeAcquisitionOptions(body.options, () => `opt-${randomBytes(4).toString('hex')}`);
+  if (!checked.ok) return fail(checked.error, 400);
+  try {
+    return json(await saveAcquisitionOptions(checked.options, loginId, text(body.baseUpdateTime)));
+  } catch (error) {
+    if (isFirestoreConflictError(error)) return fail('다른 사람이 먼저 보기를 고쳤어요. 다시 불러온 뒤 고쳐 주세요.', 409);
+    throw error;
   }
 }
 

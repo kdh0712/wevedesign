@@ -17,6 +17,7 @@ import {
   LogOut,
   Mail,
   MapPinned,
+  Megaphone,
   MessageCircle,
   Newspaper,
   PackagePlus,
@@ -28,7 +29,7 @@ import {
   WalletCards,
   Instagram,
 } from 'lucide-react';
-import { effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
+import { MANAGER_PERMISSIONS, effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
 import { todayInSeoul } from '../lib/site-progress';
@@ -39,6 +40,7 @@ import { MobileDevicesPanel } from './mobile-devices-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
 import { ProgressLinkPanel } from './progress-link-panel';
 import { AcquisitionPanel } from './acquisition-panel';
+import { AcquisitionTab } from './acquisition-tab';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
 
@@ -69,6 +71,7 @@ type TabKey =
   | 'sites'
   | 'estimates'
   | 'sales'
+  | 'acquisition'
   | 'inventory'
   | 'vendors'
   | 'portfolio'
@@ -537,6 +540,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'sites', label: '현장 관리', icon: <Home size={16} /> },
   { key: 'estimates', label: '견적 작업', icon: <ClipboardList size={16} /> },
   { key: 'sales', label: '매출 관리', icon: <WalletCards size={16} /> },
+  { key: 'acquisition', label: '유입 경로', icon: <Megaphone size={16} /> },
   { key: 'inventory', label: '재고 관리', icon: <Boxes size={16} /> },
   { key: 'vendors', label: '협력업체', icon: <Building2 size={16} /> },
   { key: 'portfolio', label: '홈페이지', icon: <FolderUp size={16} /> },
@@ -546,9 +550,12 @@ const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
   { key: 'trash', label: '휴지통', icon: <Trash2 size={16} /> },
 ];
 
+// A tab that is not itself an account permission opens with this permission (tabs are otherwise named after their permission).
+const TAB_PERMISSION: Partial<Record<TabKey, ManagerPermission>> = { acquisition: 'sites' };
+
 const managerSections: Array<{ key: string; label: string; icon: React.ReactNode; tabs: TabKey[] }> = [
   { key: 'dashboard', label: '업무 현황', icon: <BarChart3 size={17} />, tabs: ['dashboard'] },
-  { key: 'customer-work', label: '고객·현장', icon: <Users size={17} />, tabs: ['consultations', 'customers', 'sites', 'sales'] },
+  { key: 'customer-work', label: '고객·현장', icon: <Users size={17} />, tabs: ['consultations', 'customers', 'sites', 'sales', 'acquisition'] },
   { key: 'estimate-work', label: '견적 관리', icon: <ClipboardList size={17} />, tabs: ['estimates'] },
   { key: 'resources', label: '자재·협력업체', icon: <Boxes size={17} />, tabs: ['inventory', 'vendors'] },
   { key: 'website', label: '홈페이지·채널', icon: <FolderUp size={17} />, tabs: ['portfolio', 'integrations'] },
@@ -732,7 +739,7 @@ export default function ManagerPage() {
     if (!currentUser) return tabs.filter((tab) => tab.key !== 'accounts' && tab.key !== 'trash');
     if (currentUser.role === 'admin') return tabs;
     const granted: string[] = effectivePermissions('staff', currentUser.permissions);
-    return tabs.filter((tab) => granted.includes(tab.key));
+    return tabs.filter((tab) => granted.includes(TAB_PERMISSION[tab.key] ?? tab.key));
   }, [currentUser]);
 
   const dashboardAccess = useMemo(
@@ -2846,6 +2853,15 @@ export default function ManagerPage() {
           </div>
         )}
 
+        {activeTab === 'acquisition' && (
+          <AcquisitionTab
+            sites={officeData.sites}
+            sales={officeData.sales}
+            canSeeSales={hasAnyPermission(currentUser, ['sales'])}
+            authHeaders={() => authHeaders()}
+          />
+        )}
+
         {activeTab === 'inventory' && (
           <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
             <Panel title={editingInventoryId ? '재고 수정' : '재고 등록'}>
@@ -2988,7 +3004,7 @@ export default function ManagerPage() {
                     </label>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {tabs.filter((tab) => tab.key !== 'trash').map((tab) => {
+                    {tabs.filter((tab) => (MANAGER_PERMISSIONS as readonly string[]).includes(tab.key)).map((tab) => {
                       const checked = accountForm.role === 'admin' || accountForm.permissions.includes(tab.key);
                       return (
                         <label key={tab.key} className="flex items-center gap-3 rounded-md border border-[#d5dde2] bg-white px-4 py-3 text-sm font-semibold">
@@ -3005,6 +3021,7 @@ export default function ManagerPage() {
                           />
                           {tab.icon}
                           {tab.label}
+                          {tab.key === 'sites' && <span className="text-xs font-normal text-[#60717d]">유입 경로 포함</span>}
                         </label>
                       );
                     })}

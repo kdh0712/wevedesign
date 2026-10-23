@@ -1,6 +1,9 @@
 // Rules for the "how did you first find us" survey (유입 경로) on the customer progress link: the option list staff edit,
-// the answer a verified customer or a staff member gives, and how an answer is shown. Pure, with no imports, so the
-// customer API, the manager API and the screens share one set of rules and tests load it directly.
+// the answer a verified customer or a staff member gives, how an answer is shown, and the per-channel stats. Pure, with only
+// relative .ts imports, so the customer API, the manager API and the screens share one set of rules and tests load it directly.
+
+import { countsAsRevenue } from './dashboard-rules.ts';
+import { todayInSeoul } from './site-progress.ts';
 
 export const OTHER_OPTION_ID = 'other';
 export const OTHER_OPTION_LABEL = '기타';
@@ -144,4 +147,112 @@ export function acquisitionAnswerText(acquisition: SiteAcquisition, options: rea
   if (acquisition.status === 'skipped') return '건너뜀';
   if (acquisition.optionId === OTHER_OPTION_ID) return acquisition.other ? `${OTHER_OPTION_LABEL} · ${acquisition.other}` : OTHER_OPTION_LABEL;
   return options.find((option) => option.id === acquisition.optionId)?.label ?? acquisition.label ?? '';
+}
+
+export type AcquisitionPeriod = 'month' | '3months' | 'year' | 'all';
+
+// Seoul dates (YYYY-MM-DD) from the first day of the period to today; '3months' is this month and the two before it.
+export function periodRange(period: AcquisitionPeriod, today: string): { from: string; to: string } | null {
+  if (period === 'all') return null;
+  const [year, month] = today.split('-').map(Number);
+  if (period === 'year') return { from: `${year}-01-01`, to: today };
+  const first = new Date(Date.UTC(year, month - 1 - (period === '3months' ? 2 : 0), 1));
+  return { from: first.toISOString().slice(0, 10), to: today };
+}
+
+export type AcquisitionStatsRow = {
+  // An option id, 'other', 'skipped' or 'none'.
+  key: string;
+  label: string;
+  kind: 'option' | 'other' | 'skipped' | 'none';
+  sites: Array<{ _id: string; title: string; customerName: string; answer: string; by: 'customer' | 'staff' | ''; at: string }>;
+  siteCount: number;
+  salesTotal: number;
+  average: number;
+};
+
+// Sites at these stages are counted even without an answer ('미응답'); earlier ones only once they have one, so sites still
+// in consultation do not swell '미응답'.
+const COUNTED_STATUSES = ['계약', '시공중', '완료'];
+const TAIL_ORDER: Record<AcquisitionStatsRow['kind'], number> = { option: 0, other: 1, skipped: 2, none: 3 };
+const str = (value: unknown) => (typeof value === 'string' ? value : '');
+
+// Counted sites of the period (by the Seoul date they were registered), grouped by answer. Revenue is the sales recorded
+// for those sites, whatever their payment date, without '견적' and '취소' (the dashboard's rule). Options sort by site
+// count, then by list order (options that left the list after the listed ones); 기타, 건너뜀 and 미응답 always come last.
+export function acquisitionStats(input: {
+  sites: ReadonlyArray<Record<string, unknown>>;
+  sales: ReadonlyArray<Record<string, unknown>>;
+  options: readonly AcquisitionOption[];
+  range: { from: string; to: string } | null;
+}): AcquisitionStatsRow[] {
+  const { sites, sales, options, range } = input;
+  const revenueBySite = new Map<string, number>();
+  for (const sale of sales) {
+    if (sale.deletedAt || !countsAsRevenue(sale.status)) continue;
+    const siteId = str(sale.siteId);
+    if (siteId) revenueBySite.set(siteId, (revenueBySite.get(siteId) ?? 0) + (Number(sale.amount) || 0));
+  }
+
+  const rows = new Map<string, AcquisitionStatsRow>();
+  const rowFor = (key: string, label: string, kind: AcquisitionStatsRow['kind']) => {
+    if (!rows.has(key)) rows.set(key, { key, label, kind, sites: [], siteCount: 0, salesTotal: 0, average: 0 });
+    return rows.get(key)!;
+  };
+
+  for (const site of sites) {
+    if (site.deletedAt) continue;
+    const acquisition = readSiteAcquisition(site.acquisition);
+    if (!acquisition && !COUNTED_STATUSES.includes(str(site.status).trim())) continue;
+    if (range) {
+      const createdMs = Date.parse(str(site.createdAt));
+      const day = Number.isNaN(createdMs) ? '' : todayInSeoul(createdMs);
+      if (!day || day < range.from || day > range.to) continue;
+    }
+
+    const row = !acquisition
+      ? rowFor('none', '미응답', 'none')
+      : acquisition.status === 'skipped'
+        ? rowFor('skipped', '건너뜀', 'skipped')
+        : acquisition.optionId === OTHER_OPTION_ID
+          ? rowFor(OTHER_OPTION_ID, OTHER_OPTION_LABEL, 'other')
+          : rowFor(acquisition.optionId!, acquisitionAnswerText(acquisition, options), 'option');
+    row.sites.push({
+      _id: str(site._id),
+      title: str(site.title),
+      customerName: str(site.customerName),
+      answer: acquisition ? acquisitionAnswerText(acquisition, options) : '',
+      by: acquisition?.by ?? '',
+      at: acquisition?.at ?? '',
+    });
+    row.siteCount += 1;
+    row.salesTotal += revenueBySite.get(str(site._id)) ?? 0;
+  }
+
+  const listIndex = (key: string) => {
+    const index = options.findIndex((option) => option.id === key);
+    return index < 0 ? options.length : index;
+  };
+  return [...rows.values()]
+    .map((row) => ({ ...row, average: Math.round(row.salesTotal / row.siteCount) }))
+    .sort((a, b) =>
+      a.kind !== 'option' || b.kind !== 'option'
+        ? TAIL_ORDER[a.kind] - TAIL_ORDER[b.kind]
+        : b.siteCount - a.siteCount || listIndex(a.key) - listIndex(b.key),
+    );
+}
+
+// The manager screen receives the newest 200 sites that are not in the 휴지통 (app/api/manager/firestore.ts), and the stats
+// count only those. True when that may leave out sites of the period: the list is full and does not reach back to its start.
+export const MANAGER_SITE_LIST_LIMIT = 200;
+
+export function statsMayMissSites(sites: ReadonlyArray<Record<string, unknown>>, range: { from: string; to: string } | null): boolean {
+  if (sites.length < MANAGER_SITE_LIST_LIMIT) return false;
+  if (!range) return true;
+  const days = sites
+    .map((site) => Date.parse(str(site.createdAt)))
+    .filter((ms) => !Number.isNaN(ms))
+    .map((ms) => todayInSeoul(ms));
+  if (days.length === 0) return true;
+  return days.reduce((min, day) => (day < min ? day : min), days[0]) > range.from;
 }

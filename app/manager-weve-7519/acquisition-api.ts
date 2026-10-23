@@ -27,6 +27,8 @@ export function createAcquisitionApi(authHeaders: () => Record<string, string>) 
     clearSite: async (siteId: string) => {
       await post<{ acquisition: null }>({ action: 'clearSite', siteId }, '유입 경로를 지우지 못했습니다.');
     },
+    saveOptions: (options: AcquisitionOption[], baseUpdateTime: string) =>
+      post<{ options: AcquisitionOption[]; updateTime: string }>({ action: 'saveOptions', options, baseUpdateTime }, '보기 목록을 저장하지 못했습니다.'),
   };
 }
 
