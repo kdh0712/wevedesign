@@ -412,6 +412,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                 </form>
               )}
               <button type="button" onClick={() => setCopyPanel(copyPanel ? null : { siteId: '', estimates: [], estimateId: '' })} className={buttonClass}>기존 견적에서 복사</button>
+              {!isPreviewOpen && <button type="button" onClick={() => setIsPreviewOpen(true)} className={buttonClass}>세부내역서 보기</button>}
               <button type="button" onClick={() => guard(closeDraft)} className={buttonClass}>목록으로</button>
               <button type="button" disabled={isBusy || !isDirty} onClick={() => void saveDraft()} className={primaryClass}>{isBusy ? '저장 중…' : '저장'}</button>
             </div>
@@ -451,7 +452,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
               </div>
             )}
 
-            <div className={`grid min-h-0 flex-1 ${isPreviewOpen ? 'xl:grid-cols-[minmax(0,1fr)_460px]' : 'xl:grid-cols-[minmax(0,1fr)_44px]'}`}>
+            <div className={`grid min-h-0 flex-1 ${isPreviewOpen ? 'xl:grid-cols-[minmax(0,1fr)_460px]' : ''}`}>
               <div className="min-h-0 overflow-auto p-5">
                 {draft.lines.length === 0 && (
                   <p className="rounded-md bg-[#f7fafb] px-4 py-6 text-center text-sm text-[#60717d]">&apos;공사 추가&apos;나 &apos;DB에서 추가&apos;로 시작해 보세요.</p>
@@ -470,13 +471,11 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                   materials={materials}
                 />
               </div>
-              <aside className="min-h-0 overflow-auto border-t border-[#edf2f5] bg-[#eef2f4] p-4 xl:border-l xl:border-t-0">
-                {isPreviewOpen ? (
+              {isPreviewOpen && (
+                <aside className="min-h-0 overflow-auto border-t border-[#edf2f5] bg-[#eef2f4] p-4 xl:border-l xl:border-t-0">
                   <TemplateDocumentPreview title={draft.name} lines={draft.lines} onCollapse={() => setIsPreviewOpen(false)} />
-                ) : (
-                  <button type="button" onClick={() => setIsPreviewOpen(true)} className="mx-auto block rounded-md border border-[#d5dde2] bg-white px-1 py-3 text-xs font-semibold [writing-mode:vertical-rl]">미리보기 펼치기</button>
-                )}
-              </aside>
+                </aside>
+              )}
             </div>
 
             <footer className="flex flex-wrap justify-end gap-6 border-t border-[#edf2f5] px-5 py-3 text-sm">

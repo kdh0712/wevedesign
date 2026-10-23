@@ -19,6 +19,7 @@ import {
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import {
   appendTemplateLines,
+  clusterTemplateLinesByName,
   insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
@@ -301,6 +302,8 @@ type DetailPrintRow =
 const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
 const MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE = '견적 DB 설정(견적 카테고리·자재 순서)을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
+// Whether the 견적서 tab's DB panel and 세부내역서 preview are open, remembered per browser.
+const ESTIMATE_PANELS_STORAGE_KEY = 'weve-estimate-panels-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 // The material picker was opened by the template editor; picked lines go to it, not into the estimate.
 const TEMPLATE_PICKER_ID = '__template__';
@@ -881,6 +884,24 @@ export default function EstimateWorkspacePage() {
     }
     void loadData(session.token, siteIdFromUrl, '', session.firebaseToken);
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(ESTIMATE_PANELS_STORAGE_KEY) || '{}') as { db?: boolean; preview?: boolean };
+      if (typeof saved.db === 'boolean') setIsDbPanelOpen(saved.db);
+      if (typeof saved.preview === 'boolean') setIsEstimatePreviewOpen(saved.preview);
+    } catch {
+      // Storage blocked or unreadable: keep both panels open.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ESTIMATE_PANELS_STORAGE_KEY, JSON.stringify({ db: isDbPanelOpen, preview: isEstimatePreviewOpen }));
+    } catch {
+      // Not remembered this time.
+    }
+  }, [isDbPanelOpen, isEstimatePreviewOpen]);
 
   useEffect(() => {
     if (lineSpaceFilter && !lineSpaceOptions.includes(lineSpaceFilter)) setLineSpaceFilter('');
@@ -2712,8 +2733,10 @@ export default function EstimateWorkspacePage() {
           <section
             className={`grid gap-4 xl:items-start ${
               isDbPanelOpen
-                ? `xl:grid-cols-[320px_minmax(0,1fr)] ${isEstimatePreviewOpen ? '2xl:grid-cols-[320px_minmax(0,1fr)_420px]' : '2xl:grid-cols-[320px_minmax(0,1fr)_44px]'}`
-                : `xl:grid-cols-[44px_minmax(0,1fr)] ${isEstimatePreviewOpen ? '2xl:grid-cols-[44px_minmax(0,1fr)_420px]' : '2xl:grid-cols-[44px_minmax(0,1fr)_44px]'}`
+                ? `xl:grid-cols-[320px_minmax(0,1fr)] ${isEstimatePreviewOpen ? '2xl:grid-cols-[320px_minmax(0,1fr)_420px]' : ''}`
+                : isEstimatePreviewOpen
+                  ? '2xl:grid-cols-[minmax(0,1fr)_420px]'
+                  : ''
             }`}
           >
             {isDbPanelOpen ? (
@@ -2796,11 +2819,7 @@ export default function EstimateWorkspacePage() {
                 )}
               </div>
               </aside>
-            ) : (
-              <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold xl:[writing-mode:vertical-rl]">
-                DB 패널 펼치기
-              </button>
-            )}
+            ) : null}
 
             <section className="flex min-w-0 flex-col rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm">
               <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -2867,6 +2886,16 @@ export default function EstimateWorkspacePage() {
                   >
                     이 견적을 템플릿으로 저장
                   </button>
+                  {!isDbPanelOpen && (
+                    <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
+                      DB 패널 열기
+                    </button>
+                  )}
+                  {!isEstimatePreviewOpen && (
+                    <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]">
+                      세부내역서 보기
+                    </button>
+                  )}
                   <select
                     value={lineSpaceFilter}
                     onChange={(event) => setLineSpaceFilter(event.target.value)}
@@ -2962,14 +2991,10 @@ export default function EstimateWorkspacePage() {
             </section>
 
             {isEstimatePreviewOpen ? (
-              <aside className="min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 xl:col-span-2 2xl:sticky 2xl:top-4 2xl:col-span-1">
+              <aside className={`min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 2xl:sticky 2xl:top-4 ${isDbPanelOpen ? 'xl:col-span-2 2xl:col-span-1' : ''}`}>
                 <TemplateDocumentPreview title={selectedSite?.title || '현장'} subtitle={versionLabel} lines={lines} onCollapse={() => setIsEstimatePreviewOpen(false)} />
               </aside>
-            ) : (
-              <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold xl:col-span-2 2xl:col-span-1 2xl:[writing-mode:vertical-rl]">
-                미리보기 펼치기
-              </button>
-            )}
+            ) : null}
           </section>
         )}
 
@@ -7363,13 +7388,15 @@ function groupLinesByCategory(lines: EstimateLine[]) {
 }
 
 // Groups lines with the same 품명 together (in first-appearance order) so the detail sheet can merge their 품명 cells.
+// The same gathering the 세부내역서 preview uses (clusterTemplateLinesByName), as groups of lines.
 function clusterLinesByName(lines: EstimateLine[]) {
-  const clusters = new Map<string, EstimateLine[]>();
-  lines.forEach((line) => {
-    const key = line.name.trim();
-    clusters.set(key, [...(clusters.get(key) || []), line]);
-  });
-  return Array.from(clusters.values());
+  const clustered = clusterTemplateLinesByName(lines);
+  return clustered.reduce<EstimateLine[][]>((clusters, line) => {
+    const last = clusters[clusters.length - 1];
+    if (last && last[0].name.trim() === line.name.trim()) last.push(line);
+    else clusters.push([line]);
+    return clusters;
+  }, []);
 }
 
 function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {

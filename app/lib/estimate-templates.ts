@@ -445,6 +445,33 @@ export function withTemplateSpace<T extends TemplateLine>(lines: T[], space: str
   return space ? lines.map((line) => ({ ...line, space })) : lines;
 }
 
+// The 세부내역서 (preview and print) lists each 공사's lines gathered by 품명, in the order the 품명 first appear.
+export function clusterTemplateLinesByName<T extends TemplateLine>(lines: T[]): T[] {
+  const clusters = new Map<string, T[]>();
+  for (const line of lines) {
+    const name = key(line.name);
+    clusters.set(name, [...(clusters.get(name) || []), line]);
+  }
+  return [...clusters.values()].flat();
+}
+
+// How many rows each 품명 cell spans: a run of the same 품명 shows it once (0 = covered by the row above). Blank names
+// are never merged.
+export function templateNameRowSpans(lines: TemplateLine[]): number[] {
+  const spans = lines.map(() => 1);
+  lines.forEach((line, index) => {
+    const name = key(line.name);
+    if (!name || spans[index] === 0) return;
+    let end = index + 1;
+    while (end < lines.length && key(lines[end].name) === name) {
+      spans[end] = 0;
+      end += 1;
+    }
+    spans[index] = end - index;
+  });
+  return spans;
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }

@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { groupColor, groupTemplateLines, namedTemplateLines, type TemplateGroup, type TemplateLine } from '../../lib/estimate-templates';
+import {
+  clusterTemplateLinesByName,
+  groupColor,
+  groupTemplateLines,
+  namedTemplateLines,
+  templateNameRowSpans,
+  type TemplateGroup,
+  type TemplateLine,
+} from '../../lib/estimate-templates';
 
 // The live 세부내역서 beside the template editor and the site estimate: grouped by 공사 like the estimate documents, lines
 // without a 품명 left out as there. 공사 colors match the editor's (screen only; printing stays grey). 실행 금액 보기
@@ -138,6 +146,9 @@ function DocumentBody({
 }
 
 function GroupRows({ group, color, showExecution, cell }: { group: TemplateGroup; color: { accent: string; soft: string }; showExecution: boolean; cell: string }) {
+  // As the printed 세부내역서: lines gathered by 품명, and a run of the same 품명 shown once.
+  const lines = clusterTemplateLinesByName(group.lines);
+  const spans = templateNameRowSpans(lines);
   return (
     <>
       <tr className="font-semibold">
@@ -150,9 +161,13 @@ function GroupRows({ group, color, showExecution, cell }: { group: TemplateGroup
           {group.label}
         </td>
       </tr>
-      {group.lines.map((line) => (
+      {lines.map((line, index) => (
         <tr key={line.id}>
-          <td className={`${cell} break-all`}>{line.name}</td>
+          {spans[index] > 0 && (
+            <td rowSpan={spans[index]} className={`${cell} break-all align-middle`}>
+              {line.name}
+            </td>
+          )}
           <td className={`${cell} break-all`}>{line.spec}</td>
           <td className={cell}>{line.unit}</td>
           <td className={`${cell} text-right`}>{line.quantity.toLocaleString('ko-KR')}</td>
