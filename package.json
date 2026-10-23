@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node --test \"tests/*.test.mjs\"",
-    "upload:projects": "node scripts/upload-project-folders.mjs"
+    "upload:projects": "node scripts/upload-project-folders.mjs",
+    "manuals": "node scripts/manuals/build-manuals.mjs"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.4.0",
