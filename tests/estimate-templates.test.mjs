@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  isAreaUnit,
+  normalizeBaseArea,
+  scaleTemplateQuantities,
+  templateBaseAreaError,
+  templateUnitOptions,
   GROUP_COLORS,
   copyTemplateGroup,
   duplicateTemplateLine,
@@ -280,4 +285,28 @@ test('the 기본견적 공사 stays first and neighbouring 공사 never share a 
   assert.deepEqual(groupTemplateLines(pinned).map((g) => g.label), ['도배', '철거 공사', '욕실 공사', '기타 공사']);
   assert.equal(GROUP_COLORS.length, 8);
   for (let i = 0; i < 20; i += 1) assert.notDeepEqual(groupColor(i), groupColor(i + 1));
+});
+
+test('area units are recognised loosely', () => {
+  for (const unit of ['m2', 'M2', ' ㎡ ', 'm²', '평', 'm 2']) assert.equal(isAreaUnit(unit), true, unit);
+  for (const unit of ['m', '식', 'EA', 'SET', '']) assert.equal(isAreaUnit(unit), false, unit);
+});
+
+test('scaling changes only ticked units and rounds to one decimal', () => {
+  const lines = [line({ id: 'a', unit: 'm2', quantity: 20 }), line({ id: 'b', unit: '식', quantity: 1 }), line({ id: 'c', unit: 'm', quantity: 7 })];
+  const { lines: out, scaledCount } = scaleTemplateQuantities(lines, 33 / 30, ['m2', 'm']);
+  assert.deepEqual(out.map((l) => l.quantity), [22, 1, 7.7]);
+  assert.equal(scaledCount, 2);
+  assert.deepEqual(scaleTemplateQuantities(lines, 0, ['m2']).lines.map((l) => l.quantity), [20, 1, 7]);
+  assert.deepEqual(scaleTemplateQuantities(lines, Number.NaN, ['m2']).lines.map((l) => l.quantity), [20, 1, 7]);
+  assert.deepEqual(templateUnitOptions(lines), [{ unit: 'm2', count: 1, area: true }, { unit: '식', count: 1, area: false }, { unit: 'm', count: 1, area: false }]);
+  assert.deepEqual(templateUnitOptions([line({ unit: ' ' }), line({ unit: 'm2' }), line({ unit: 'm2' })]), [{ unit: 'm2', count: 2, area: true }]);
+});
+
+test('기준 평형 is optional and must be 1–500', () => {
+  for (const ok of ['', null, undefined, 1, 30, '24.5', ' 30 ', 500]) assert.equal(templateBaseAreaError(ok), '', String(ok));
+  for (const bad of [0, -3, 501, 'abc']) assert.notEqual(templateBaseAreaError(bad), '', String(bad));
+  assert.equal(normalizeBaseArea(' 30 '), 30);
+  assert.equal(normalizeBaseArea(''), null);
+  assert.equal(normalizeBaseArea(null), null);
 });
