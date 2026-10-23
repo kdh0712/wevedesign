@@ -131,7 +131,9 @@ type AcquisitionOption = { id: string; label: string; hidden?: boolean };
 
 ## 4. 서버
 
-### 4.1 고객 답 받기 — `POST /api/progress/acquisition`
+### 4.1 고객 답 받기 — `POST /progress/<code>/acquisition`
+
+번호 확인 쿠키는 경로 `/progress`에서만 보내지므로, 답 받는 주소도 `/api` 아래가 아니라 `/progress/<code>/` 아래에 둔다(구현 중 결정).
 
 본문: `{ code, answer: { optionId, other? } }` 또는 `{ code, skip: true }`.
 
