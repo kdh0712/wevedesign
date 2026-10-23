@@ -1,4 +1,5 @@
-// npm run manuals [-- --only office|estimate] [-- --base http://localhost:3000]
+// npm run manuals [-- --only office|estimate] [-- --base http://localhost:3000] [-- --shots id,id]
+// --shots captures only those sections into a temp folder (no PDF), to check a screen while writing the content.
 // Makes the staff PDF manuals (spec 2026-10-23 §4): opens each screen with made-up data, marks it, captures it, prints
 // the manual and checks pages, links and size before writing manuals/<id>.pdf. A failed check writes nothing.
 import { spawn, spawnSync } from 'node:child_process';
@@ -8,7 +9,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { findChrome, launchChrome } from './cdp.mjs';
 import { renderManual, validateManual } from './layout.mjs';
-import { buildMockData, mockInitScript } from './mock-data.mjs';
+import { SCRUB_TEXT, buildMockData, mockInitScript } from './mock-data.mjs';
 import { readPdfLinks } from './pdf-links.mjs';
 import officeManual from './office-manual.mjs';
 
@@ -22,10 +23,11 @@ const SETTLE_MS = 400;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function parseArgs(argv) {
-  const args = { only: null, base: 'http://localhost:3000' };
+  const args = { only: null, base: 'http://localhost:3000', shots: null };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === '--only') args.only = argv[(index += 1)];
     else if (argv[index] === '--base') args.base = argv[(index += 1)].replace(/\/$/, '');
+    else if (argv[index] === '--shots') args.shots = argv[(index += 1)].split(',').filter(Boolean);
     else throw new Error(`알 수 없는 옵션: ${argv[index]}`);
   }
   if (args.only && !MANUALS[args.only]) throw new Error(`--only 는 ${Object.keys(MANUALS).join(' | ')} 중 하나여야 합니다.`);
@@ -97,8 +99,10 @@ function installManualHelpers() {
     const list = findAll(target, root);
     const nth = typeof target === 'object' ? target.nth : undefined;
     if (nth !== undefined) {
-      if (!list[nth]) throw new Error(`대상을 찾지 못했습니다: ${describe(target)} (보이는 것 ${list.length}개)`);
-      return list[nth];
+      // A negative nth counts from the end (-1 = the last one, e.g. the button in a window opened over a list).
+      const element = list[nth < 0 ? list.length + nth : nth];
+      if (!element) throw new Error(`대상을 찾지 못했습니다: ${describe(target)} (보이는 것 ${list.length}개)`);
+      return element;
     }
     if (list.length !== 1) throw new Error(`대상이 ${list.length}개입니다: ${describe(target)}`);
     return list[0];
@@ -148,9 +152,22 @@ async function runAction(page, action) {
   await sleep(action.wait ?? SETTLE_MS);
 }
 
-// Hides the Next.js dev badge and anything the content asks to hide, then draws the red numbers (and boxes).
+// Hides the Next.js dev badge and anything the content asks to hide, swaps real names and numbers built into the
+// screens for made-up ones (SCRUB_TEXT), then draws the red numbers (and boxes).
 async function prepareForCapture(page, hide, marks, badgeSize) {
   await page.evaluate(`(() => {
+    // The page itself and same-origin frames (the homepage preview).
+    const docs = [document, ...[...document.querySelectorAll('iframe')].map((frame) => { try { return frame.contentDocument; } catch { return null; } }).filter((doc) => doc && doc.body)];
+    for (const [from, to] of ${JSON.stringify(SCRUB_TEXT)}) for (const doc of docs) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (node.nodeValue.includes(from)) node.nodeValue = node.nodeValue.split(from).join(to);
+      }
+      for (const field of doc.querySelectorAll('input, textarea')) {
+        if (field.placeholder && field.placeholder.includes(from)) field.placeholder = field.placeholder.split(from).join(to);
+        if (field.value && field.value.includes(from)) field.value = field.value.split(from).join(to);
+      }
+    }
     const style = document.createElement('style');
     style.textContent = 'nextjs-portal { display: none !important; }';
     document.head.append(style);
@@ -159,7 +176,8 @@ async function prepareForCapture(page, hide, marks, badgeSize) {
     }
   })()`);
   await sleep(150);
-  await page.evaluate(`(() => {
+  return page.evaluate(`(() => {
+    const placed = [];
     const layer = document.createElement('div');
     layer.setAttribute('data-manual-marks', '');
     layer.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;';
@@ -190,7 +208,9 @@ async function prepareForCapture(page, hide, marks, badgeSize) {
       badge.style.cssText = 'position:absolute;display:grid;place-items:center;border-radius:50%;background:#e4572e;color:#fff;font:800 ' + Math.round(size * 0.55) + 'px/1 "Malgun Gothic",sans-serif;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);';
       Object.assign(badge.style, { left: x + 'px', top: y + 'px', width: size + 'px', height: size + 'px' });
       layer.append(badge);
+      placed.push({ n: mark.n, x: x + size / 2, y: y + size / 2 });
     }
+    return placed;
   })()`);
 }
 
@@ -212,7 +232,7 @@ async function captureSection(chrome, base, manual, section, data, unmocked) {
     await sleep(800);
     for (const action of shot.actions || []) await runAction(page, action);
     // A whole-screen capture is shrunk more on the page, so its numbers are drawn bigger.
-    await prepareForCapture(page, [...(manual.hide || []), ...(shot.hide || [])], shot.marks || [], shot.clip ? 28 : 38);
+    const placed = await prepareForCapture(page, [...(manual.hide || []), ...(shot.hide || [])], shot.marks || [], shot.clip ? 28 : 38);
     await page.evaluate('document.fonts.ready.then(() => true)');
 
     let clip;
@@ -225,6 +245,10 @@ async function captureSection(chrome, base, manual, section, data, unmocked) {
         return { x, y, width: Math.min(rect.width + pad * 2, document.documentElement.scrollWidth - x), height: rect.height + pad * 2, scale: 1 };
       })()`);
     }
+    // Every red number must be inside the picture, or the page would explain a number nobody can see.
+    const frame = clip || (await page.evaluate(`({ x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight })`));
+    const outside = placed.filter((badge) => badge.x < frame.x || badge.y < frame.y || badge.x > frame.x + frame.width || badge.y > frame.y + frame.height);
+    if (outside.length) throw new Error(`번호 ${outside.map((badge) => badge.n).join(', ')}이(가) 캡처 밖에 있습니다. shot.height를 키우거나 스크롤해 주세요.`);
     const { data: jpeg } = await page.send('Page.captureScreenshot', {
       format: 'jpeg',
       quality: JPEG_QUALITY,
@@ -305,6 +329,17 @@ async function main() {
     const data = buildMockData(today);
     for (const manual of selected) {
       const sections = manual.chapters.flatMap((chapter) => chapter.sections);
+      if (args.shots) {
+        const dir = path.join(tmpdir(), 'weve-manual-shots');
+        mkdirSync(dir, { recursive: true });
+        for (const section of sections.filter((item) => args.shots.includes(item.id))) {
+          const dataUrl = await captureSection(chrome, args.base, manual, section, data, unmocked);
+          const out = path.join(dir, `${manual.id}-${section.id}.jpg`);
+          writeFileSync(out, Buffer.from(dataUrl.split(',')[1], 'base64'));
+          console.log(out);
+        }
+        continue;
+      }
       const shots = {};
       for (const section of sections) {
         process.stdout.write(`[${manual.id}] ${section.id} 캡처…\n`);

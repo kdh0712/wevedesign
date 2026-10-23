@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import { signSessionToken } from '../app/api/manager/_token.ts';
 import { handleManualRequest } from '../app/api/manager/_manual.ts';
 import { MANAGER_MANUALS, manualContentDisposition, manualDownloadErrorMessage } from '../app/lib/manager-manuals.ts';
+import { readPdfLinks } from '../scripts/manuals/pdf-links.mjs';
 
 const SECRET = 'x'.repeat(32);
 process.env.MANAGER_SESSION_SECRET = SECRET;
@@ -75,3 +77,21 @@ test('download errors are told in plain words', () => {
   assert.equal(manualDownloadErrorMessage(500), '설명서를 내려받지 못했습니다. 잠시 후 다시 시도해 주세요.');
   assert.equal(manualDownloadErrorMessage(0), '설명서를 내려받지 못했습니다. 잠시 후 다시 시도해 주세요.');
 });
+
+// The PDFs made by `npm run manuals` and committed in manuals/ (spec 2026-10-23 §6).
+for (const book of ['office', 'estimate']) {
+  const file = new URL(`../manuals/${MANAGER_MANUALS[book].file}`, import.meta.url);
+  // estimate.pdf is required once the estimate manual exists (plan Task 6).
+  const missingAllowed = book === 'estimate' && !existsSync(file);
+  test(`the committed ${book} manual fits the 4MB limit and every link stays inside it`, { skip: missingAllowed }, () => {
+    const bytes = readFileSync(file);
+    assert.ok(bytes.length <= 4_000_000, `${bytes.length} bytes`);
+    const { pageCount, links } = readPdfLinks(bytes);
+    assert.ok(pageCount >= 2);
+    assert.ok(links.length > 0);
+    for (const link of links) {
+      assert.equal(link.uri, null);
+      assert.ok(link.targetPage >= 1 && link.targetPage <= pageCount, `link on page ${link.page} goes to ${link.targetPage}`);
+    }
+  });
+}

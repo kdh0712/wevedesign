@@ -2,7 +2,7 @@
 // contents, one A4 page per section and one per appendix entry (spec 2026-10-23 §2.2). It also returns every link it
 // wrote as { page, targetPage }, which the builder compares with the links Chrome put into the PDF.
 
-const TOC_LINES_PER_PAGE = 32;
+const TOC_LINES_PER_PAGE = 30;
 
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -206,7 +206,7 @@ h2 { font-size: 15pt; margin: 0 0 3mm; }
 .cover .meta { position: absolute; bottom: 24mm; left: 22mm; color: var(--gray); font-size: 10pt; line-height: 1.8; }
 
 .toc ol { list-style: none; margin: 0; padding: 0; }
-.toc li a { display: flex; gap: 2mm; padding: 1.1mm 0; align-items: baseline; }
+.toc li a { display: flex; gap: 2mm; padding: 0.7mm 0; align-items: baseline; }
 .toc .dots { flex: 1; border-bottom: 0.3mm dotted #b9c3ca; transform: translateY(-1mm); }
 .toc .chapter { font-weight: 700; margin-top: 2.2mm; }
 .toc .section a, .toc .appendix a { padding-left: 5mm; color: #3c4a53; }
@@ -215,7 +215,7 @@ h2 { font-size: 15pt; margin: 0 0 3mm; }
 
 .body .intro { margin: 0 0 3mm; color: #3c4a53; }
 .body figure { margin: 0; border: 0.3mm solid var(--line); border-radius: 1.5mm; overflow: hidden; background: #f3f6f8; display: flex; justify-content: center; }
-.body figure img { display: block; max-width: 100%; max-height: 150mm; object-fit: contain; }
+.body figure img { display: block; max-width: 100%; max-height: 165mm; object-fit: contain; }
 .body figure.empty { height: 100mm; }
 .steps { list-style: none; margin: 4mm 0 0; padding: 0; display: grid; gap: 2.2mm; }
 .steps li { display: grid; grid-template-columns: 7mm 1fr; gap: 2mm; }
@@ -231,5 +231,6 @@ h2 { font-size: 15pt; margin: 0 0 3mm; }
 .appx table { width: 100%; border-collapse: collapse; margin: 1.5mm 0 3mm; font-size: 9pt; }
 .appx th, .appx td { border: 0.3mm solid var(--line); padding: 1.3mm 2mm; text-align: left; vertical-align: top; }
 .appx th { background: var(--soft); }
+.appx th:first-child, .appx td:first-child { width: 30%; }
 .appx .back { margin-top: auto; margin-bottom: 4mm; color: var(--teal); font-weight: 700; }
 `;
