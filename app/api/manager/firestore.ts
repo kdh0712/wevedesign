@@ -14,7 +14,7 @@ import {
   type OfficeVersions,
 } from '../../lib/office-changes';
 import { hashId } from './_utils';
-import { SERVER_OWNED_SITE_FIELDS, stripServerOwnedSiteFields } from './_site-fields';
+import { PROTECTED_SITE_FIELDS, SERVER_OWNED_SITE_FIELDS, dropBrowserSiteFields, stripServerOwnedSiteFields } from './_site-fields';
 import {
   FirestoreConflictError,
   buildPatchQuery,
@@ -647,7 +647,8 @@ export async function getOfficeRecordFromFirestore(request: Request, type: Priva
 }
 
 // Moves a record into the 휴지통, or back out with trash = null. The whole record is written so a failed re-read
-// inside saveFirestoreDocument cannot drop its other fields; a site's server-owned progress fields are masked out.
+// inside saveFirestoreDocument cannot drop its other fields; a site's server-written fields (progress link, 유입 경로) are
+// masked out.
 export async function setOfficeRecordTrashInFirestore(
   request: Request,
   type: PrivateOfficeType,
@@ -660,7 +661,7 @@ export async function setOfficeRecordTrashInFirestore(
     { ...record, deletedAt: trash?.deletedAt ?? null, deletedBy: trash?.deletedBy ?? null },
     requestIdToken(request),
     id,
-    type === 'site' ? SERVER_OWNED_SITE_FIELDS : undefined,
+    type === 'site' ? PROTECTED_SITE_FIELDS : undefined,
   );
 }
 
@@ -677,14 +678,15 @@ export async function saveOfficeRecordToFirestoreWithPrevious(
   const now = new Date().toISOString();
   const previous = id ? await getFirestoreDocument<Record<string, unknown>>(collection, id, idToken).catch(() => null) : null;
   const record = {
-    // A site form must not write the server-owned progress fields, whatever it sends.
-    ...(type === 'site' ? stripServerOwnedSiteFields(data) : data),
+    // A site form must not write the server-written fields (progress link, 유입 경로), whatever it sends.
+    ...(type === 'site' ? dropBrowserSiteFields(data) : data),
     createdAt: typeof previous?.createdAt === 'string' ? previous.createdAt : typeof data.createdAt === 'string' ? data.createdAt : now,
     updatedAt: now,
   };
   const documentId = id || `${collection}-${hashId(`${type}-${now}-${Math.random()}`)}`;
-  // A site save is masked so it never writes the progress fields: a link created or changed while the form was open stays.
-  const saved = await saveFirestoreDocument(collection, record, idToken, documentId, type === 'site' ? SERVER_OWNED_SITE_FIELDS : undefined);
+  // A site save is masked so it never writes the server-written fields: a link or a 유입 경로 answer saved while the form was
+  // open stays.
+  const saved = await saveFirestoreDocument(collection, record, idToken, documentId, type === 'site' ? PROTECTED_SITE_FIELDS : undefined);
   return { saved, previous };
 }
 

@@ -3,7 +3,7 @@ import { canReadOffice, canWriteOffice, filterOfficeData } from '../../../lib/ma
 import { OFFICE_TRACKED_COLLECTIONS, parseOfficeVersionsParam, readableOfficeCollections } from '../../../lib/office-changes';
 import { assertSanityWriteConfigured, getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
-import { stripServerOwnedSiteFields } from '../_site-fields';
+import { dropBrowserSiteFields, stripServerOwnedSiteFields } from '../_site-fields';
 import { shouldCloseLinkOnSave } from '../_progress-link-rules';
 import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSiteProgressFields } from '../_progress-store';
 import { deleteProgressPhotos } from '../_progress-photo-storage';
@@ -306,9 +306,10 @@ export async function POST(request: Request) {
     }
 
     const sanitized = sanitizeRecord(body?.data || {});
-    // The progress link fields belong to /api/manager/progress. A site form, possibly opened before a link change,
-    // must not overwrite or revive them, so they are dropped before anything is merged over the stored record.
-    const cleanData = type === 'site' ? stripServerOwnedSiteFields(sanitized) : sanitized;
+    // The progress link fields belong to /api/manager/progress and the 유입 경로 answer to the acquisition routes. A site form,
+    // possibly opened before one of them changed, must not overwrite or revive them, so they are dropped before anything is
+    // merged over the stored record.
+    const cleanData = type === 'site' ? dropBrowserSiteFields(sanitized) : sanitized;
     const now = new Date().toISOString();
     const firestoreType = type as PrivateOfficeType;
 

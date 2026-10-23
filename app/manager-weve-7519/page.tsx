@@ -38,6 +38,7 @@ import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
 import { ProgressLinkPanel } from './progress-link-panel';
+import { AcquisitionPanel } from './acquisition-panel';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
 
@@ -167,6 +168,8 @@ type Site = {
   status?: string;
   memo?: string;
   createdAt?: string;
+  // 유입 경로 answer (server-written; see app/lib/acquisition.ts). The site form never sends it back.
+  acquisition?: unknown;
 };
 
 type EstimateSummary = {
@@ -2671,6 +2674,18 @@ export default function ManagerPage() {
                 />
               </div>
               {editingSiteId && hasAnyPermission(currentUser, ['sites']) && <ProgressLinkPanel key={editingSiteId} siteId={editingSiteId} authHeaders={() => authHeaders()} />}
+              {editingSiteId && hasAnyPermission(currentUser, ['sites']) && (
+                <AcquisitionPanel
+                  site={officeData.sites.find((site) => site._id === editingSiteId) || { _id: editingSiteId }}
+                  authHeaders={() => authHeaders()}
+                  onChange={(acquisition) =>
+                    setOfficeData((current) => ({
+                      ...current,
+                      sites: current.sites.map((site) => (site._id === editingSiteId ? { ...site, acquisition } : site)),
+                    }))
+                  }
+                />
+              )}
               {hasAnyPermission(currentUser, ['sites']) && currentUser && (
                 <section className="mt-5" aria-label="직원 할 일과 현장 기록">
                   {editingSiteId ? (

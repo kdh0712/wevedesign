@@ -91,6 +91,14 @@ This file records durable product and implementation decisions. Review it before
 - If the duplicate check cannot read recent records, the submission goes through. Never turn a real customer away because the check failed.
 - The dashboard's 30-second refresh checks Kakao BizForm+ at most every 5 minutes (`app/lib/dashboard-rules.ts`); the 동기화 button checks right away.
 
+## Acquisition Survey
+
+- A customer who passed the phone check is asked once, before the progress view, how they first found WEVE DESIGN (`app/progress/[code]/acquisition-survey.tsx`). Two-column buttons, one answer, 기타 always last with up to 40 characters, and 건너뛰기. The question shows only while the site has no `acquisition`: an answer, a skip or a staff entry all stop it, and clearing it in the 현장 tab asks again on the next visit. If the option list cannot be read, the progress view shows without the question.
+- The answer goes to `POST /progress/<code>/acquisition` (`app/api/progress/_acquisition.ts`), not under `/api`: the progress cookie is scoped to path `/progress`. It needs that cookie, keeps the first answer (a second submit or a staff entry that landed first leaves it as it is), writes on the version it read and re-reads once after a conflict. Never log the code, the cookie or the answer text.
+- `officeSites/<id>.acquisition` is server-written: the office site save drops it from what a browser sends and masks it out of the write (`PROTECTED_SITE_FIELDS`, `dropBrowserSiteFields`), but site records sent to browsers keep it. Staff enter, fix or clear it in the 현장 tab's 유입 경로 panel through `/api/manager/acquisition` (`sites` permission); a staff entry records the loginId.
+- The option list is `managerSettings/acquisitionOptions`; until it is saved, the starting list in `app/lib/acquisition.ts` is used. Options are hidden, never deleted, so old answers stay countable; hidden options leave the customer survey but staff can still pick them. '기타' is fixed last and cannot be renamed. Labels are 1-12 characters, unique ignoring spaces and case, at most 20 options.
+- The privacy policy names the 유입 경로 and its purpose; keep it in step with what the survey collects.
+
 ## Schedule Calendar
 
 - The 공정 달력, its printed 공정표 and the customer calendar draw the same bars (`app/lib/schedule-calendar.ts`): weeks run Monday to Sunday, the longest task takes the top lane (then the earlier start), a task keeps one lane within a week, and its name sits in the middle of the bar.
