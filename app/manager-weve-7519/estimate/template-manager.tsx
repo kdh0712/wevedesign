@@ -536,7 +536,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
               </div>
               <aside className="min-h-0 overflow-auto border-t border-[#edf2f5] bg-[#eef2f4] p-4 xl:border-l xl:border-t-0">
                 {isPreviewOpen ? (
-                  <TemplateDocumentPreview name={draft.name} lines={draft.lines} onCollapse={() => setIsPreviewOpen(false)} />
+                  <TemplateDocumentPreview title={draft.name} lines={draft.lines} onCollapse={() => setIsPreviewOpen(false)} />
                 ) : (
                   <button type="button" onClick={() => setIsPreviewOpen(true)} className="mx-auto block rounded-md border border-[#d5dde2] bg-white px-1 py-3 text-xs font-semibold [writing-mode:vertical-rl]">미리보기 펼치기</button>
                 )}
