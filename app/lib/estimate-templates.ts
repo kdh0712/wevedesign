@@ -264,9 +264,19 @@ export function setTemplateLineCategory<T extends TemplateLine>(lines: T[], line
   return target ? flattenGroups(remaining) : [...flattenGroups(remaining), next];
 }
 
+// The 공사 already named like this, comparing as template names do (spaces and case ignored), or null.
+export function findTemplateGroupLabel(lines: TemplateLine[], label: string): string | null {
+  const wanted = nameKey(label);
+  return groupTemplateLines(lines).find((group) => nameKey(group.label) === wanted)?.label ?? null;
+}
+
 export function templateGroupExists(lines: TemplateLine[], label: string): boolean {
-  const name = key(label);
-  return groupTemplateLines(lines).some((group) => group.label === name);
+  return findTemplateGroupLabel(lines, label) !== null;
+}
+
+// New lines at the end of their 공사 (a new 공사 at the end); blank rows already there stay.
+export function appendTemplateLines<T extends TemplateLine>(lines: T[], added: T[]): T[] {
+  return orderTemplateLinesByGroup([...lines, ...added]);
 }
 
 // Renames a 공사: every line takes the new 카테고리. A name another 공사 already has merges the lines after its own.
@@ -275,8 +285,8 @@ export function renameTemplateGroup<T extends TemplateLine>(lines: T[], from: st
   const groups = groupTemplateLines(lines);
   const source = groups.find((group) => group.label === key(from));
   if (!name || !source) return lines;
-  const renamed = source.lines.map((line) => ({ ...line, category: name }));
-  const target = groups.find((group) => group !== source && group.label === name);
+  const target = groups.find((group) => group !== source && nameKey(group.label) === nameKey(name));
+  const renamed = source.lines.map((line) => ({ ...line, category: target ? target.label : name }));
   if (target) {
     target.lines = [...target.lines, ...renamed];
     return flattenGroups(groups.filter((group) => group !== source));
@@ -411,7 +421,9 @@ const isBlankValue = (value: unknown) => value === undefined || value === null |
 // 기준 평형 of a template: may be left empty; otherwise a number from 1 to 500.
 export function templateBaseAreaError(value: unknown): string {
   if (isBlankValue(value)) return '';
-  const area = Number(typeof value === 'string' ? value.trim() : value);
+  // Only a number, or a plain decimal like "24.5": not true, [30], "1e2" or "30평".
+  const plain = typeof value === 'number' || (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value.trim()));
+  const area = plain ? Number(typeof value === 'string' ? value.trim() : value) : Number.NaN;
   return Number.isFinite(area) && area >= 1 && area <= 500 ? '' : '기준 평형은 1~500 사이 숫자로 넣어 주세요.';
 }
 
