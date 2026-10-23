@@ -101,6 +101,11 @@ This file records durable product and implementation decisions. Review it before
 - The 유입 경로 tab (고객·현장, `sites` permission) counts, for the chosen period (이번 달, 최근 3개월, 올해, 전체) by the Seoul date a site was registered, the sites at 계약·시공중·완료 plus any site with an answer, grouped by answer (`acquisitionStats`). It uses the sites and sales the manager already loaded: no extra Firestore reads. Revenue is the site's sales without '견적' and '취소' (the dashboard's rule), whatever the payment date, and its columns show only to accounts with the `sales` permission. 기타, 건너뜀 and 미응답 always come last.
 - The option list is saved only on the version staff opened; a conflict answers 409 and the tab reloads the list.
 
+## Estimate Documents
+
+- A printed 세부내역서 page is one box of 277 x 188 mm (A4 landscape inside the 10 mm / 8 mm print margins, with 6 mm spare), on screen and in print alike: the screen preview draws that box and scales it down to fit (CSS zoom), and print shows it unscaled. What the preview shows is what prints.
+- Its page breaks go by printed height, not by a row count (`app/lib/estimate-detail-pages.ts`): each row is one line high plus a line for every wrap of its 품명, 규격 or 공사 name, and a 공사 starts on a new page unless its first four rows fit. The heights in `DETAIL_LAYOUT` (estimate page) were measured with the print styles; change them together with the classes of `DetailEstimatePrintPage` and `renderDetailPrintRow`, and measure again.
+
 ## Schedule Calendar
 
 - The 공정 달력, its printed 공정표 and the customer calendar draw the same bars (`app/lib/schedule-calendar.ts`): weeks run Monday to Sunday, the longest task takes the top lane (then the earlier start), a task keeps one lane within a week, and its name sits in the middle of the bar.

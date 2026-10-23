@@ -35,6 +35,7 @@ import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
+import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
 import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -309,7 +310,6 @@ const ESTIMATE_PANELS_STORAGE_KEY = 'weve-estimate-panels-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
 // The material picker was opened by the template editor; picked lines go to it, not into the estimate.
 const TEMPLATE_PICKER_ID = '__template__';
-const DETAIL_PRINT_ROWS_PER_PAGE = 20;
 const NEW_ESTIMATE_CATEGORY_OPTION = '__new_estimate_category__';
 const SAME_AS_CATEGORY_TARGET = '__same_as_category__';
 const emptyMaterialSettings: MaterialSettings = { estimateCategories: [], estimateItems: {}, materialOrder: [] };
@@ -2506,9 +2506,11 @@ export default function EstimateWorkspacePage() {
           #estimate-print > .print-detail {
             overflow: visible !important;
           }
-          #estimate-print.batch-print > .print-detail {
-            height: 172mm !important;
+          #estimate-print > section.print-landscape.print-detail {
+            width: ${DETAIL_PAGE_WIDTH_MM}mm !important;
+            height: ${DETAIL_PAGE_HEIGHT_MM}mm !important;
             min-height: 0 !important;
+            zoom: 1 !important;
             break-inside: avoid-page !important;
             page-break-inside: avoid !important;
           }
@@ -6480,6 +6482,47 @@ function LandscapeEstimateDocumentPreview({
   );
 }
 
+// Column widths of the 세부내역서 (품명, 규격, 단위, 수량, 단가, 금액, 비고), in percent of the table.
+const DETAIL_COLUMN_PERCENT = [24, 23, 9, 7, 12, 14, 11];
+
+// Heights (CSS px) of the parts of a printed 세부내역서 page, for the page breaks. Keep them in step with the classes in
+// DetailEstimatePrintPage and renderDetailPrintRow (they were measured with the print styles applied).
+const DETAIL_LAYOUT = {
+  paddingX: 16, // section px-4
+  paddingY: 32, // section py-4, top and bottom
+  title: 44, // h1 text-2xl + pb-3
+  head: 37, // th text-base py-1.5
+  footer: 28, // mt-2 + text-sm
+  row: 29, // td text-sm py-1 + border
+  line: 20, // each further wrapped line (text-sm)
+  total: 37, // 총합계, text-lg
+};
+const DETAIL_TABLE_WIDTH_PX = DETAIL_PAGE_WIDTH_MM * PX_PER_MM - DETAIL_LAYOUT.paddingX * 2;
+const DETAIL_PAGE_CAPACITY_PX =
+  DETAIL_PAGE_HEIGHT_MM * PX_PER_MM - DETAIL_LAYOUT.paddingY - DETAIL_LAYOUT.title - DETAIL_LAYOUT.head - DETAIL_LAYOUT.footer;
+// Text width inside a cell: the column minus its padding (px-3, or px-2 for 비고) and border.
+const detailCellTextWidth = (column: number, paddingX = 24) => (DETAIL_TABLE_WIDTH_PX * DETAIL_COLUMN_PERCENT[column]) / 100 - paddingX - 1;
+
+// The printed height of a row: one text line, plus a line for each wrap of its longest 품명, 규격 or 공사 name.
+function detailRowHeight(row: DetailPrintRow): number {
+  if (row.type === 'total') return DETAIL_LAYOUT.total;
+  if (row.type === 'group') {
+    const lines = estimateTextLines(`${row.groupIndex + 1}. ${row.category}`, detailCellTextWidth(0), 14.5);
+    return DETAIL_LAYOUT.row + (lines - 1) * DETAIL_LAYOUT.line;
+  }
+  if (row.type !== 'line') return DETAIL_LAYOUT.row;
+  const { line } = row;
+  const lines = Math.max(
+    estimateTextLines(line.name, detailCellTextWidth(0), 14),
+    estimateTextLines(line.spec || line.space, detailCellTextWidth(1), 14),
+  );
+  // 비고 is 11px text (leading-tight) with py-1.
+  const noteHeight = line.note ? estimateTextLines(line.note, detailCellTextWidth(6, 16), 11) * 13.75 + 9 : 0;
+  return Math.max(DETAIL_LAYOUT.row + (lines - 1) * DETAIL_LAYOUT.line, noteHeight);
+}
+
+// One printed page of the 세부내역서, at its printed size (277 x 188 mm) on screen as well, so the preview shows exactly what
+// prints. On screen it is scaled down (CSS zoom) to the space it has; print resets the zoom.
 function DetailEstimatePrintPage({
   rows,
   pageNumber,
@@ -6495,14 +6538,41 @@ function DetailEstimatePrintPage({
   documentTitle: string;
   hiddenOnScreen?: boolean;
 }) {
+  const pageRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const page = pageRef.current;
+    const parent = page?.parentElement;
+    if (!page || !parent) return;
+    const fit = () => {
+      const style = getComputedStyle(parent);
+      const available = parent.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const zoom = Math.min(1, available / (DETAIL_PAGE_WIDTH_MM * PX_PER_MM));
+      page.style.zoom = zoom > 0 ? String(zoom) : '1';
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <section className={`print-landscape print-detail mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-10 py-8 text-[#111] print:max-w-none print:border-0 print:px-4 print:py-4 ${hiddenOnScreen ? 'hidden print:block' : ''}`}>
-      <h1 className="pb-4 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
-      <table className="print-detail-table w-full border-collapse text-sm">
+    <section
+      ref={pageRef}
+      style={{ width: `${DETAIL_PAGE_WIDTH_MM}mm`, height: `${DETAIL_PAGE_HEIGHT_MM}mm` }}
+      className={`print-landscape print-detail mx-auto box-border shrink-0 border border-[#111] bg-white px-4 py-4 text-[#111] print:border-0 ${hiddenOnScreen ? 'hidden print:block' : ''}`}
+    >
+      <h1 className="pb-3 text-center text-2xl font-semibold tracking-[0.7em]">[ 내 역 서 ]</h1>
+      <table className="print-detail-table w-full table-fixed border-collapse text-sm">
+        <colgroup>
+          {DETAIL_COLUMN_PERCENT.map((percent, index) => (
+            <col key={index} style={{ width: `${percent}%` }} />
+          ))}
+        </colgroup>
         <thead>
           <tr className="bg-[#e6e6f6]">
             {['품명', '규격', '단위', '수량', '단가', '금액', '비고'].map((header) => (
-              <th key={header} className="border border-[#111] px-2 py-2 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
+              <th key={header} className="border border-[#111] px-2 py-1.5 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
             ))}
           </tr>
         </thead>
@@ -6513,7 +6583,7 @@ function DetailEstimatePrintPage({
           })()}
         </tbody>
       </table>
-      <div className="mt-4 flex justify-between text-sm">
+      <div className="mt-2 flex justify-between text-sm">
         <span>{pageNumber}/{pageTotal}</span>
         <span>{companyName}</span>
       </div>
@@ -6545,13 +6615,13 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   if (row.type === 'group') {
     return (
       <tr key={row.key} className="font-semibold">
-        <td className="border border-[#111] px-3 py-1.5">{row.groupIndex + 1}. {row.category}</td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
-        <td className="border border-[#111] px-3 py-1.5"></td>
+        <td className="border border-[#111] px-3 py-1">{row.groupIndex + 1}. {row.category}</td>
+        <td className="border border-[#111] px-3 py-1"></td>
+        <td className="border border-[#111] px-3 py-1"></td>
+        <td className="border border-[#111] px-3 py-1"></td>
+        <td className="border border-[#111] px-3 py-1"></td>
+        <td className="border border-[#111] px-3 py-1"></td>
+        <td className="border border-[#111] px-3 py-1"></td>
       </tr>
     );
   }
@@ -6561,15 +6631,15 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
     return (
       <tr key={row.key}>
         {nameRowSpan > 1 ? (
-          <td rowSpan={nameRowSpan} className="border border-[#111] px-3 py-1.5 text-center align-middle">{line.name}</td>
+          <td rowSpan={nameRowSpan} className="border border-[#111] px-3 py-1 text-center align-middle">{line.name}</td>
         ) : nameRowSpan === 1 ? (
-          <td className="border border-[#111] px-3 py-1.5">{line.name}</td>
+          <td className="border border-[#111] px-3 py-1">{line.name}</td>
         ) : null}
-        <td className="border border-[#111] px-3 py-1.5 text-center">{line.spec || line.space}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-center">{line.unit || '식'}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity)}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.customerUnitPrice)}</td>
-        <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(line.quantity * line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1 text-center">{line.spec || line.space}</td>
+        <td className="border border-[#111] px-3 py-1 text-center">{line.unit || '식'}</td>
+        <td className="border border-[#111] px-3 py-1 text-right">{formatPlainNumber(line.quantity)}</td>
+        <td className="border border-[#111] px-3 py-1 text-right">{formatPlainNumber(line.customerUnitPrice)}</td>
+        <td className="border border-[#111] px-3 py-1 text-right">{formatPlainNumber(line.quantity * line.customerUnitPrice)}</td>
         <td className="border border-[#111] px-2 py-1 text-center text-[11px] font-semibold leading-tight text-[#c00000]">{line.note}</td>
       </tr>
     );
@@ -6580,13 +6650,13 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   const label = isTotal ? '총합계' : row.type === 'subtotal' && row.hasNameSubtotals ? '합계' : '소계';
   return (
     <tr key={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
-      <td className="border border-[#111] px-3 py-1.5 text-center"><span className="pl-[0.8em] tracking-[0.8em]">{label}</span></td>
-      <td className="border border-[#111] px-3 py-1.5"></td>
-      <td className="border border-[#111] px-3 py-1.5"></td>
-      <td className="border border-[#111] px-3 py-1.5"></td>
-      <td className="border border-[#111] px-3 py-1.5"></td>
-      <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(row.amount)}</td>
-      <td className="border border-[#111] px-3 py-1.5"></td>
+      <td className="border border-[#111] px-3 py-1 text-center"><span className="pl-[0.8em] tracking-[0.8em]">{label}</span></td>
+      <td className="border border-[#111] px-3 py-1"></td>
+      <td className="border border-[#111] px-3 py-1"></td>
+      <td className="border border-[#111] px-3 py-1"></td>
+      <td className="border border-[#111] px-3 py-1"></td>
+      <td className="border border-[#111] px-3 py-1 text-right">{formatPlainNumber(row.amount)}</td>
+      <td className="border border-[#111] px-3 py-1"></td>
     </tr>
   );
 }
@@ -7604,21 +7674,8 @@ function clusterLinesByName(lines: EstimateLine[]) {
 function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
-  const pages: DetailPrintRow[][] = [];
-  let currentPage: DetailPrintRow[] = [];
-
-  const pushPage = () => {
-    if (!currentPage.length) return;
-    pages.push(currentPage);
-    currentPage = [];
-  };
-
-  const appendRow = (row: DetailPrintRow) => {
-    if (currentPage.length >= DETAIL_PRINT_ROWS_PER_PAGE) pushPage();
-    currentPage.push(row);
-  };
-
-  grouped.forEach((group, groupIndex) => {
+  // Pages are filled by printed height (detailRowHeight), so wrapped 품명 or 규격 never push a row off the sheet.
+  const groups = grouped.map((group, groupIndex) => {
     const nameClusters = clusterLinesByName(group.lines);
     // A 품명 with several lines (e.g. 거실 욕실, 안방 욕실) gets its own 소계 when the category holds more than one 품명.
     const hasNameSubtotal = (clusterLines: EstimateLine[]) => nameClusters.length > 1 && clusterLines.length > 1;
@@ -7644,16 +7701,10 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
       },
     ];
 
-    groupRows.forEach((row, rowIndex) => {
-      if (rowIndex === 0 && currentPage.length > DETAIL_PRINT_ROWS_PER_PAGE - Math.min(groupRows.length, 4)) pushPage();
-      appendRow(row);
-    });
+    return groupRows;
   });
 
-  appendRow({ type: 'total', key: 'detail-total', amount: totalAmount });
-  pushPage();
-
-  return pages.length ? pages : [[{ type: 'total', key: 'detail-total-empty', amount: totalAmount }]];
+  return paginateByHeight(groups, [{ type: 'total', key: 'detail-total', amount: totalAmount }], detailRowHeight, DETAIL_PAGE_CAPACITY_PX);
 }
 
 function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = []) {
