@@ -5,6 +5,12 @@ import {
   NO_SPACE,
   filterTemplateLines,
   findTemplateMaterial,
+  groupTemplateLines,
+  insertIntoTemplateGroup,
+  moveTemplateGroup,
+  moveTemplateLineInGroup,
+  setTemplateLineCategory,
+  templateGroupLabel,
   isBlankEstimateLine,
   isMaterialListCurrent,
   normalizeTemplateLines,
@@ -155,4 +161,54 @@ test('repickTemplateLine puts the DB pick in place of a line and keeps its 공�
   assert.deepEqual(pick(next[1], ['space', 'quantity', 'note', 'name', 'materialId', 'customerUnitPrice']), { space: '욕실', quantity: 4, note: '벽', name: '줄눈 시공', materialId: 'm3', customerUnitPrice: 9000 });
   assert.equal(next[2].space, '욕실', 'extra rows of a 공통 pick take the 공간 of the line');
   assert.deepEqual(repickTemplateLine(lines, 'gone', picked), lines, 'a line that is no longer there changes nothing');
+});
+
+const grouped = () => [
+  line({ id: 'a', category: '철거 공사', quantity: 2, customerUnitPrice: 500, executionUnitPrice: 400 }),
+  line({ id: 'b', category: '욕실 공사', customerUnitPrice: 100, executionUnitPrice: 80 }),
+  line({ id: 'c', category: '철거 공사', customerUnitPrice: 10, executionUnitPrice: 10 }),
+  line({ id: 'd', category: '', process: '도배', customerUnitPrice: 1, executionUnitPrice: 1 }),
+  line({ id: 'e', category: ' ', process: '' }),
+];
+
+test('lines group by 카테고리, else 공정, else 기타 공사, in first-appearance order with subtotals', () => {
+  assert.equal(templateGroupLabel(line({ category: ' 욕실 공사 ' })), '욕실 공사');
+  assert.equal(templateGroupLabel(line({ category: '', process: '도배' })), '도배');
+  assert.equal(templateGroupLabel(line({})), '기타 공사');
+  const groups = groupTemplateLines(grouped());
+  assert.deepEqual(groups.map((g) => [g.label, g.lines.map((l) => l.id)]), [['철거 공사', ['a', 'c']], ['욕실 공사', ['b']], ['도배', ['d']], ['기타 공사', ['e']]]);
+  assert.deepEqual(pick(groups[0], ['customerTotal', 'executionTotal']), { customerTotal: 1010, executionTotal: 810 });
+});
+
+test('moving a 공사 moves all its lines past the neighbouring 공사', () => {
+  const ids = (lines) => lines.map((l) => l.id);
+  assert.deepEqual(ids(moveTemplateGroup(grouped(), '욕실 공사', -1)), ['b', 'a', 'c', 'd', 'e']);
+  assert.deepEqual(ids(moveTemplateGroup(grouped(), '철거 공사', 1)), ['b', 'a', 'c', 'd', 'e']);
+  assert.deepEqual(ids(moveTemplateGroup(grouped(), '철거 공사', -1)), ['a', 'c', 'b', 'd', 'e'], 'the first 공사 cannot go up; lines are only gathered');
+  assert.deepEqual(ids(moveTemplateGroup(grouped(), '없는 공사', 1)), ['a', 'c', 'b', 'd', 'e']);
+});
+
+test('a line moves only within its own 공사', () => {
+  const ids = (lines) => lines.map((l) => l.id);
+  assert.deepEqual(ids(moveTemplateLineInGroup(grouped(), 'c', -1)), ['c', 'a', 'b', 'd', 'e']);
+  assert.deepEqual(ids(moveTemplateLineInGroup(grouped(), 'a', -1)), ['a', 'c', 'b', 'd', 'e'], 'the first line of a 공사 stays first');
+  assert.deepEqual(ids(moveTemplateLineInGroup(grouped(), 'c', 1)), ['a', 'c', 'b', 'd', 'e'], 'the last line does not jump into the next 공사');
+});
+
+test('changing a line’s 카테고리 moves it to the end of that 공사, or to a new 공사 at the end', () => {
+  const ids = (lines) => lines.map((l) => [l.id, l.category]);
+  assert.deepEqual(ids(setTemplateLineCategory(grouped(), 'b', '철거 공사')).slice(0, 3), [['a', '철거 공사'], ['c', '철거 공사'], ['b', '철거 공사']]);
+  const moved = setTemplateLineCategory(grouped(), 'a', '가구공사');
+  assert.deepEqual(moved.map((l) => l.id), ['c', 'b', 'd', 'e', 'a']);
+  assert.equal(moved[4].category, '가구공사');
+  assert.deepEqual(setTemplateLineCategory(grouped(), 'a', ' 철거 공사 ').map((l) => l.id), ['a', 'c', 'b', 'd', 'e'], 'the same 공사 keeps the line where it is');
+});
+
+test('lines added to a 공사 go after its last line and take its 카테고리', () => {
+  const added = insertIntoTemplateGroup(grouped(), '철거 공사', [line({ id: 'n1', category: '타일' }), line({ id: 'n2' })]);
+  assert.deepEqual(added.map((l) => l.id), ['a', 'c', 'n1', 'n2', 'b', 'd', 'e']);
+  assert.deepEqual([added[2].category, added[3].category], ['철거 공사', '철거 공사']);
+  const fresh = insertIntoTemplateGroup(grouped(), '가구공사', [line({ id: 'n3' })]);
+  assert.deepEqual(fresh.map((l) => l.id), ['a', 'c', 'b', 'd', 'e', 'n3'], 'a new 공사 starts at the end');
+  assert.equal(fresh[5].category, '가구공사');
 });
