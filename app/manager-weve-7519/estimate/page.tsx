@@ -19,6 +19,7 @@ import {
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import { isBlankEstimateLine, isMaterialListCurrent, placeTemplateLines } from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
+import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
@@ -644,6 +645,7 @@ export default function EstimateWorkspacePage() {
   const templatePickRef = useRef<((lines: EstimateLine[]) => void) | null>(null);
   const [isTemplateManagerOpen, setIsTemplateManagerOpen] = useState(false);
   const [isTemplateLoadOpen, setIsTemplateLoadOpen] = useState(false);
+  const [isTemplateSaveOpen, setIsTemplateSaveOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'lines' | 'work' | 'materials' | 'schedule' | 'purchase' | 'extras' | 'documents'>('lines');
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
   const [isManualNewEstimateVersion, setIsManualNewEstimateVersion] = useState(false);
@@ -2852,6 +2854,14 @@ export default function EstimateWorkspacePage() {
                   >
                     템플릿 불러오기
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsTemplateSaveOpen(true)}
+                    disabled={isLoadingSite || !selectedSite}
+                    className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8] disabled:opacity-50"
+                  >
+                    이 견적을 템플릿으로 저장
+                  </button>
                   <select
                     value={lineGroupBy}
                     onChange={(event) => setLineGroupBy(event.target.value as typeof lineGroupBy)}
@@ -4365,6 +4375,17 @@ export default function EstimateWorkspacePage() {
           pickFromDb={openTemplateMaterialPicker}
           newLineId={() => emptyLine().id}
           onClose={() => setIsTemplateManagerOpen(false)}
+        />
+      )}
+
+      {isTemplateSaveOpen && (
+        <SaveAsTemplateDialog
+          api={(query) => fetchEstimateApi(query) as Promise<TemplateApiData>}
+          post={postEstimateApi}
+          lines={lines}
+          isBase={isBaseEstimateLine}
+          newLineId={() => emptyLine().id}
+          onClose={() => setIsTemplateSaveOpen(false)}
         />
       )}
 

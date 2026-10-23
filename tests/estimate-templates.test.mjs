@@ -4,6 +4,12 @@ import {
   NO_CATEGORY,
   namedTemplateLines,
   templateLineLabel,
+  templateAreaRatio,
+  isAreaUnit,
+  normalizeBaseArea,
+  scaleTemplateQuantities,
+  templateBaseAreaError,
+  templateUnitOptions,
   GROUP_COLORS,
   copyTemplateGroup,
   duplicateTemplateLine,
@@ -289,4 +295,36 @@ test('the 세부내역서 keeps only lines with a 품명 and survives saved line
   assert.deepEqual(namedTemplateLines(saved).map((l) => l.id), ['z']);
   assert.equal(templateLineLabel({ id: 'q' }), '이 항목');
   assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
+});
+
+test('area units are recognised loosely', () => {
+  for (const unit of ['m2', 'M2', ' ㎡ ', 'm²', '평', 'm 2']) assert.equal(isAreaUnit(unit), true, unit);
+  for (const unit of ['m', '식', 'EA', 'SET', '']) assert.equal(isAreaUnit(unit), false, unit);
+});
+
+test('scaling changes only ticked units and rounds to one decimal', () => {
+  const lines = [line({ id: 'a', unit: 'm2', quantity: 20 }), line({ id: 'b', unit: '식', quantity: 1 }), line({ id: 'c', unit: 'm', quantity: 7 })];
+  const { lines: out, scaledCount } = scaleTemplateQuantities(lines, 33 / 30, ['m2', 'm']);
+  assert.deepEqual(out.map((l) => l.quantity), [22, 1, 7.7]);
+  assert.equal(scaledCount, 2);
+  assert.deepEqual(scaleTemplateQuantities(lines, 0, ['m2']).lines.map((l) => l.quantity), [20, 1, 7]);
+  assert.deepEqual(scaleTemplateQuantities(lines, Number.NaN, ['m2']).lines.map((l) => l.quantity), [20, 1, 7]);
+  assert.deepEqual(templateUnitOptions(lines), [{ unit: 'm2', count: 1, area: true }, { unit: '식', count: 1, area: false }, { unit: 'm', count: 1, area: false }]);
+  assert.deepEqual(templateUnitOptions([line({ unit: ' ' }), line({ unit: 'm2' }), line({ unit: 'm2' })]), [{ unit: 'm2', count: 2, area: true }]);
+});
+
+test('기준 평형 is optional and must be 1–500', () => {
+  for (const ok of ['', null, undefined, 1, 30, '24.5', ' 30 ', 500]) assert.equal(templateBaseAreaError(ok), '', String(ok));
+  for (const bad of [0, -3, 501, 'abc']) assert.notEqual(templateBaseAreaError(bad), '', String(bad));
+  assert.equal(normalizeBaseArea(' 30 '), 30);
+  assert.equal(normalizeBaseArea(''), null);
+  assert.equal(normalizeBaseArea(null), null);
+});
+
+test('the 평형 ratio needs both areas as positive numbers', () => {
+  assert.equal(templateAreaRatio('30', '33'), 1.1);
+  assert.ok(Number.isNaN(templateAreaRatio('30', '')));
+  assert.ok(Number.isNaN(templateAreaRatio('', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
 });

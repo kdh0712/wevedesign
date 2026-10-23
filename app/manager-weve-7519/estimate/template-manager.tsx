@@ -12,6 +12,7 @@ import {
   repickTemplateLine,
   templateCopyName,
   templateCustomerTotal,
+  templateBaseAreaError,
   templateLinesError,
   templateNameError,
   type TemplateLine,
@@ -22,7 +23,7 @@ import {
 // editor where a template is built like an estimate. Templates are stored apart from sites; nothing here touches the
 // estimate that is open on the page.
 
-export type EstimateTemplateSummary = { id: string; name: string; lineCount: number; customerTotal: number; updatedAt: string; updatedBy: string };
+export type EstimateTemplateSummary = { id: string; name: string; lineCount: number; customerTotal: number; baseArea: number | null; updatedAt: string; updatedBy: string };
 export type EstimateTemplate = EstimateTemplateSummary & { lines: TemplateLine[]; updateTime: string };
 export type TemplateApiData = {
   error?: string;
@@ -44,11 +45,13 @@ type TemplateManagerProps = {
   onClose: () => void;
 };
 
-type Draft = { id: string; name: string; lines: TemplateLine[]; baseUpdateTime: string };
+// baseArea: the 기준 평형 field as typed ('' = not set).
+type Draft = { id: string; name: string; baseArea: string; lines: TemplateLine[]; baseUpdateTime: string };
 type ConfirmBox = { message: string; actions: Array<{ label: string; run: () => void; primary?: boolean }> };
 
-const snapshotOf = (draft: Draft | null) => (draft ? JSON.stringify({ name: draft.name.trim(), lines: draft.lines }) : '');
+const snapshotOf = (draft: Draft | null) => (draft ? JSON.stringify({ name: draft.name.trim(), baseArea: draft.baseArea.trim(), lines: draft.lines }) : '');
 const money = (value: number) => `${Math.round(value).toLocaleString('ko-KR')}원`;
+const areaText = (value: number | null | undefined) => (value ? String(value) : '');
 const shortDate = (value: string) => (value ? value.slice(0, 10) : '');
 const errorText = (caught: unknown, fallback: string) => (caught instanceof Error && caught.message ? caught.message : fallback);
 const emptyTemplateLine = (id: string): TemplateLine => ({
@@ -171,14 +174,14 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       void run(async () => {
         try {
           const template = await readTemplate(id);
-          openDraft({ id: template.id, name: template.name, lines: template.lines, baseUpdateTime: template.updateTime }, true);
+          openDraft({ id: template.id, name: template.name, baseArea: areaText(template.baseArea), lines: template.lines, baseUpdateTime: template.updateTime }, true);
         } catch (caught) {
           await afterMissing(caught);
         }
       }, '템플릿을 불러오지 못했어요.');
     });
 
-  const newTemplate = () => guard(() => openDraft({ id: '', name: '', lines: [], baseUpdateTime: '' }, false));
+  const newTemplate = () => guard(() => openDraft({ id: '', name: '', baseArea: '', lines: [], baseUpdateTime: '' }, false));
 
   const copyTemplate = (summary: EstimateTemplateSummary) =>
     guard(() => {
@@ -186,7 +189,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
         try {
           const template = await readTemplate(summary.id);
           const name = templateCopyName(template.name, templates.map((item) => item.name));
-          openDraft({ id: '', name, lines: template.lines.map((line) => ({ ...line, id: newLineId() })), baseUpdateTime: '' }, false);
+          openDraft({ id: '', name, baseArea: areaText(template.baseArea), lines: template.lines.map((line) => ({ ...line, id: newLineId() })), baseUpdateTime: '' }, false);
           setStatus('복사본을 열었어요. 저장해야 템플릿으로 생겨요.');
         } catch (caught) {
           await afterMissing(caught);
@@ -200,7 +203,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       const nameError = templateNameError(name, others);
       if (nameError) throw new Error(nameError);
       const template = await readTemplate(id);
-      const { response, data } = await postJson({ action: 'saveTemplate', template: { id, name, lines: template.lines, baseUpdateTime: template.updateTime } });
+      const { response, data } = await postJson({ action: 'saveTemplate', template: { id, name, baseArea: template.baseArea, lines: template.lines, baseUpdateTime: template.updateTime } });
       if (!response.ok) throw new Error(data.error || '이름을 바꾸지 못했어요.');
       setRenaming(null);
       await loadList();
@@ -230,12 +233,12 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       if (!draft) return;
       const target = asNew ? { ...draft, id: '', name: asNew.name, baseUpdateTime: '' } : draft;
       const others = templates.filter((item) => item.id !== target.id).map((item) => item.name);
-      const problem = templateNameError(target.name, others) || templateLinesError(target.lines);
+      const problem = templateNameError(target.name, others) || templateBaseAreaError(target.baseArea) || templateLinesError(target.lines);
       if (problem) throw new Error(problem);
       const lines = target.lines.filter((line) => !isBlankEstimateLine(line));
       const { response, data } = await postJson({
         action: 'saveTemplate',
-        template: { id: target.id || undefined, name: target.name, lines, baseUpdateTime: target.baseUpdateTime || undefined },
+        template: { id: target.id || undefined, name: target.name, baseArea: target.baseArea.trim(), lines, baseUpdateTime: target.baseUpdateTime || undefined },
       });
       if (response.status === 409 && data.conflict === 'changed') {
         setConflict('changed');
@@ -249,7 +252,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       }
       if (!response.ok || !data.template) throw new Error(data.error || '템플릿을 저장하지 못했어요.');
       const saved = data.template;
-      openDraft({ id: saved.id, name: saved.name, lines: saved.lines, baseUpdateTime: saved.updateTime }, true);
+      openDraft({ id: saved.id, name: saved.name, baseArea: areaText(saved.baseArea), lines: saved.lines, baseUpdateTime: saved.updateTime }, true);
       await loadList();
       setStatus('템플릿을 저장했어요.');
     }, '템플릿을 저장하지 못했어요.');
@@ -260,7 +263,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
     void run(async () => {
       try {
         const template = await readTemplate(id);
-        openDraft({ id: template.id, name: template.name, lines: template.lines, baseUpdateTime: template.updateTime }, true);
+        openDraft({ id: template.id, name: template.name, baseArea: areaText(template.baseArea), lines: template.lines, baseUpdateTime: template.updateTime }, true);
         setStatus('다른 곳에서 저장한 내용을 다시 불러왔어요.');
       } catch (caught) {
         await afterMissing(caught);
@@ -365,7 +368,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                       <button type="button" onClick={() => openTemplate(template.id)} className="min-w-0 flex-1 text-left">
                         <span className="block truncate font-semibold">{template.name}</span>
                         <span className="text-xs text-[#60717d]">
-                          항목 {template.lineCount}개 · 고객 합계 {money(template.customerTotal)} · {shortDate(template.updatedAt)} {template.updatedBy}
+                          항목 {template.lineCount}개 · 고객 합계 {money(template.customerTotal)}{template.baseArea ? ` · ${template.baseArea}평 기준` : ''} · {shortDate(template.updatedAt)} {template.updatedBy}
                         </span>
                       </button>
                     )}
@@ -387,6 +390,10 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
               <label className="grid min-w-[240px] flex-1 gap-1 text-xs font-semibold text-[#4d5d66]">
                 템플릿 이름
                 <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="예: 30평형 풀공사" className={inputClass} />
+              </label>
+              <label className="grid w-28 gap-1 text-xs font-semibold text-[#4d5d66]">
+                기준 평형
+                <input value={draft.baseArea} onChange={(event) => setDraft({ ...draft, baseArea: event.target.value })} inputMode="decimal" placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
               </label>
               <button type="button" onClick={addFromDb} className={buttonClass}>DB에서 추가</button>
               {newGroupName === null ? (

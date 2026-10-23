@@ -5,8 +5,11 @@ import {
   filterTemplateLines,
   isBlankEstimateLine,
   refreshTemplateLines,
+  scaleTemplateQuantities,
+  templateAreaRatio,
   templateCustomerTotal,
   templateSelectionOptions,
+  templateUnitOptions,
   type TemplateLine,
   type TemplateMaterial,
   type TemplateRefreshResult,
@@ -37,6 +40,12 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
   // Lines refreshed at the latest 단가, waiting for 바꾸기 / 덧붙이기 when the estimate already has lines.
   const [pending, setPending] = useState<TemplateRefreshResult | null>(null);
   const [result, setResult] = useState<TemplateRefreshResult | null>(null);
+  // 평형에 맞춰 수량 조정 (spec 2026-10-23 §4): off by default; unitTicks null = the area units of the chosen lines.
+  const [scaleOn, setScaleOn] = useState(false);
+  const [baseAreaText, setBaseAreaText] = useState('');
+  const [siteAreaText, setSiteAreaText] = useState('');
+  const [unitTicks, setUnitTicks] = useState<string[] | null>(null);
+  const [resultScaled, setResultScaled] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -56,8 +65,21 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
 
   const options = useMemo(() => (template ? templateSelectionOptions(template.lines) : { categories: [], spaces: [] }), [template]);
   const chosen = useMemo(() => (template ? filterTemplateLines(template.lines, selection) : []), [template, selection]);
+  const unitOptions = useMemo(() => templateUnitOptions(chosen), [chosen]);
+  const tickedUnits = unitTicks ?? unitOptions.filter((option) => option.area).map((option) => option.unit);
+  const baseArea = Number(baseAreaText.trim());
+  const siteArea = Number(siteAreaText.trim());
+  const ratio = templateAreaRatio(baseAreaText, siteAreaText);
+  // With the option on, loading waits for both 평형: loading unscaled would not be what was asked for.
+  const scaleIncomplete = scaleOn && !Number.isFinite(ratio);
+  const scaled = useMemo(
+    () => (scaleOn ? scaleTemplateQuantities(chosen, ratio, tickedUnits) : { lines: chosen, scaledCount: 0 }),
+    // tickedUnits is derived from unitTicks and unitOptions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [chosen, ratio, scaleOn, unitTicks, unitOptions],
+  );
   // The preview uses the materials on screen; the load itself checks they are current first.
-  const preview = useMemo(() => refreshTemplateLines(chosen, materials, () => ''), [chosen, materials]);
+  const preview = useMemo(() => refreshTemplateLines(scaled.lines, materials, () => ''), [scaled, materials]);
 
   const chooseTemplate = async (id: string) => {
     setIsBusy(true);
@@ -67,6 +89,9 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
       if (!data.template) throw new Error('삭제된 템플릿이에요.');
       const all = templateSelectionOptions(data.template.lines);
       setTemplate(data.template);
+      setScaleOn(false);
+      setBaseAreaText(data.template.baseArea ? String(data.template.baseArea) : '');
+      setUnitTicks(null);
       setSelection({ categories: all.categories.map((item) => item.label), spaces: all.spaces.map((item) => item.label) });
     } catch (caught) {
       setError(errorText(caught, '템플릿을 불러오지 못했어요.'));
@@ -93,10 +118,18 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
     onApply(refreshed.lines, mode);
     setPending(null);
     setResult(refreshed);
+    setResultScaled(scaled.scaledCount);
   };
+  // Changing the 평형 option also drops a pending 바꾸기 / 덧붙이기 question: its lines used the old quantities.
+  const changeScale = (change: () => void) => {
+    setPending(null);
+    change();
+  };
+  const toggleUnit = (unit: string) =>
+    changeScale(() => setUnitTicks(tickedUnits.includes(unit) ? tickedUnits.filter((item) => item !== unit) : [...tickedUnits, unit]));
 
   const load = async () => {
-    if (!chosen.length) return;
+    if (!chosen.length || scaleIncomplete) return;
     setIsBusy(true);
     setError('');
     try {
@@ -106,7 +139,7 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
       } catch {
         throw new Error('최신 단가를 확인하지 못했어요. 다시 시도해 주세요.');
       }
-      const refreshed = refreshTemplateLines(chosen, latest, newLineId);
+      const refreshed = refreshTemplateLines(scaled.lines, latest, newLineId);
       if (currentLines.every(isBlankEstimateLine)) place(refreshed, 'replace');
       else setPending(refreshed);
     } catch (caught) {
@@ -155,7 +188,7 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {result ? (
             <div className="grid gap-4 text-sm">
-              <p className="rounded-md bg-[#edf8fb] px-4 py-3 font-semibold text-[#267d8c]">견적서에 항목 {result.lines.length}개를 넣었어요.</p>
+              <p className="rounded-md bg-[#edf8fb] px-4 py-3 font-semibold text-[#267d8c]">견적서에 항목 {result.lines.length}개를 넣었어요.{resultScaled ? ` 수량을 평형에 맞춰 조정한 항목 ${resultScaled}개.` : ''}</p>
               {result.changed.length > 0 && (
                 <div>
                   <h3 className="font-semibold">단가가 바뀐 항목 {result.changed.length}개</h3>
@@ -200,8 +233,42 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
               </div>
               {checklist('categories', '카테고리')}
               {checklist('spaces', '공간')}
+              <fieldset className="min-w-0 rounded-lg border border-[#d5dde2] p-3">
+                <label className="flex items-center gap-2 text-sm font-semibold">
+                  <input type="checkbox" checked={scaleOn} onChange={(event) => changeScale(() => setScaleOn(event.target.checked))} />
+                  평형에 맞춰 수량 조정
+                  <span className="text-xs font-normal text-[#60717d]">(켜지 않으면 템플릿 수량 그대로)</span>
+                </label>
+                {scaleOn && (
+                  <div className="mt-3 grid gap-3">
+                    <div className="flex flex-wrap items-end gap-3 text-xs font-semibold text-[#4d5d66]">
+                      <label className="grid gap-1">
+                        기준 평형
+                        <input value={baseAreaText} onChange={(event) => changeScale(() => setBaseAreaText(event.target.value))} inputMode="decimal" aria-label="기준 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+                      </label>
+                      <label className="grid gap-1">
+                        이 현장 평형
+                        <input value={siteAreaText} onChange={(event) => changeScale(() => setSiteAreaText(event.target.value))} inputMode="decimal" aria-label="이 현장 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+                      </label>
+                      <p className="pb-1.5 text-sm font-normal text-[#171512]">
+                        {Number.isFinite(ratio) ? `${siteArea} ÷ ${baseArea} = ${Math.round(ratio * 1000) / 1000}배` : '두 평형을 넣으면 비율이 나와요.'}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {unitOptions.map((option) => (
+                        <label key={option.unit} className={`flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-sm ${tickedUnits.includes(option.unit) ? 'border-[#38a9bd] bg-[#edf8fb]' : 'border-[#d5dde2] bg-white text-[#8a979f]'}`}>
+                          <input type="checkbox" checked={tickedUnits.includes(option.unit)} onChange={() => toggleUnit(option.unit)} />
+                          {option.unit}
+                          <span className="text-xs text-[#60717d]">{option.count}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-xs text-[#60717d]">체크한 단위의 수량만 비율대로 바꾸고 소수 첫째 자리에서 반올림해요. 면적 단위(m2·㎡·평)는 처음부터 체크돼 있어요.</p>
+                  </div>
+                )}
+              </fieldset>
               <div className="grid gap-1 rounded-lg bg-[#f7fafb] p-4 text-sm">
-                <p>불러올 항목 <b>{chosen.length}개</b> · 최신 단가 기준 고객 합계 <b>{money(templateCustomerTotal(preview.lines))}</b></p>
+                <p>불러올 항목 <b>{chosen.length}개</b>{scaled.scaledCount ? ` (수량 조정 ${scaled.scaledCount}개)` : ''} · 최신 단가 기준 고객 합계 <b>{money(templateCustomerTotal(preview.lines))}</b></p>
                 <p className="text-[#60717d]">템플릿 단가와 달라진 항목 {preview.changed.length}개 · DB에서 못 찾은 항목 {preview.notFound.length}개</p>
               </div>
             </div>
@@ -220,9 +287,12 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
             </>
           ) : (
             template && (
-              <button type="button" disabled={isBusy || chosen.length === 0} onClick={() => void load()} className={primaryClass}>
+              <>
+              {scaleIncomplete && <p className="mr-auto self-center text-sm font-semibold text-amber-800">평형 조정을 켰어요. 기준 평형과 이 현장 평형을 모두 넣어 주세요.</p>}
+              <button type="button" disabled={isBusy || chosen.length === 0 || scaleIncomplete} onClick={() => void load()} className={primaryClass}>
                 {isBusy ? '최신 단가 확인 중…' : '불러오기'}
               </button>
+              </>
             )
           )}
         </footer>

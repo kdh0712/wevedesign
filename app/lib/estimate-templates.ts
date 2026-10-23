@@ -376,6 +376,58 @@ export function templateLineLabel(line: Partial<TemplateLine>): string {
   return [key(line.name), key(line.spec)].filter(Boolean).join(' · ') || '이 항목';
 }
 
+// 평형에 맞춰 수량 조정 (spec 2026-10-23 §4): area units are ticked by default; any ticked unit is scaled.
+const AREA_UNITS = new Set(['m2', '㎡', 'm²', '평']);
+
+export function isAreaUnit(unit: string): boolean {
+  return AREA_UNITS.has(text(unit).replace(/\s/g, '').toLowerCase());
+}
+
+export function templateUnitOptions(lines: TemplateLine[]): Array<{ unit: string; count: number; area: boolean }> {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const unit = key(line.unit);
+    if (unit) counts.set(unit, (counts.get(unit) || 0) + 1);
+  }
+  return [...counts].map(([unit, count]) => ({ unit, count, area: isAreaUnit(unit) }));
+}
+
+// Quantities of lines in the ticked units × ratio, rounded to one decimal. A ratio that is not a positive number changes
+// nothing.
+export function scaleTemplateQuantities<T extends TemplateLine>(lines: T[], ratio: number, units: string[]): { lines: T[]; scaledCount: number } {
+  if (!Number.isFinite(ratio) || ratio <= 0) return { lines, scaledCount: 0 };
+  const ticked = new Set(units.map(key));
+  let scaledCount = 0;
+  const scaled = lines.map((line) => {
+    if (!ticked.has(key(line.unit))) return line;
+    scaledCount += 1;
+    return { ...line, quantity: Math.round(number(line.quantity) * ratio * 10) / 10 };
+  });
+  return { lines: scaled, scaledCount };
+}
+
+const isBlankValue = (value: unknown) => value === undefined || value === null || (typeof value === 'string' && !value.trim());
+
+// 기준 평형 of a template: may be left empty; otherwise a number from 1 to 500.
+export function templateBaseAreaError(value: unknown): string {
+  if (isBlankValue(value)) return '';
+  const area = Number(typeof value === 'string' ? value.trim() : value);
+  return Number.isFinite(area) && area >= 1 && area <= 500 ? '' : '기준 평형은 1~500 사이 숫자로 넣어 주세요.';
+}
+
+export function normalizeBaseArea(value: unknown): number | null {
+  if (isBlankValue(value) || templateBaseAreaError(value)) return null;
+  return Number(typeof value === 'string' ? value.trim() : value);
+}
+
+// 현장 평형 ÷ 기준 평형, or NaN unless both are positive numbers (then nothing may be scaled).
+export function templateAreaRatio(baseArea: string, siteArea: string): number {
+  if (!key(baseArea) || !key(siteArea)) return Number.NaN;
+  const base = Number(key(baseArea));
+  const site = Number(key(siteArea));
+  return Number.isFinite(base) && Number.isFinite(site) && base > 0 && site > 0 ? site / base : Number.NaN;
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }
