@@ -96,6 +96,11 @@ This file records durable product and implementation decisions. Review it before
 - A line picked from the 자재 DB keeps `materialId`, in templates and in site estimates (the estimate save keeps it). Loading a template sets both 고객 단가 and 실행 단가 to the current DB 단가 of that item; a line without one is matched only when exactly one DB item has the same 품명·규격·단위 (never for a 공통 line); anything else keeps the template 단가 and is reported as not found.
 - Before a load the page reads only the material version (`part=materialsMeta`, one read) and rereads every material only when that version differs from the cached one. A failed check stops the load; never load with prices that may be stale.
 - Loaded lines get new ids. Replacing lines unlinks the 실행 내역 rows that pointed at the removed lines, as deleting a line does.
+- The template editor and the site estimate share one 공사별 table (`app/manager-weve-7519/estimate/grouped-lines-editor.tsx`). A line drags only within its own 공사; moving it to another 공사 goes through the line menu (다른 공사로 옮기기). While a 공간 filter is on, dragging and the order buttons are locked.
+- Site estimate lines are kept and saved gathered by 공사, in the order the 공사 first appear, with the 공사 holding the 기본견적 line first (`pinBaseGroupFirst`). Opening an estimate arranges them before the saved-state snapshot, so it never shows as unsaved. The 세부내역서 follows the same order.
+- 공사 colors are screen-only (`GROUP_COLORS`); printed and customer documents stay grey.
+- 평형 수량 조정 is off unless ticked in the load dialog: quantities of the ticked units (area units m2·㎡·m²·평 ticked by default) × 현장 평형 ÷ 기준 평형, rounded to one decimal. A template's `baseArea` is optional, 1–500.
+- '이 견적을 템플릿으로 저장' saves the ticked 공사 (the 기본견적 공사 starts unticked) as a new template or over an existing one after a second confirmation, with the same version check as any template save.
 
 ## Portfolio
 
