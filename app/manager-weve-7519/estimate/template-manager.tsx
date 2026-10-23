@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { TemplateDocumentPreview } from './template-document-preview';
 import {
+  appendTemplateLines,
   insertIntoTemplateGroup,
   orderTemplateLinesByGroup,
   isBlankEstimateLine,
@@ -81,8 +82,6 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
   const [saveAsName, setSaveAsName] = useState('');
   const [isPreviewOpen, setIsPreviewOpen] = useState(true);
-  // The name typed for '공사 추가' (null while that field is closed).
-  const [newGroupName, setNewGroupName] = useState<string | null>(null);
   const [copyPanel, setCopyPanel] = useState<{ siteId: string; estimates: NonNullable<TemplateApiData['estimates']>; estimateId: string } | null>(null);
 
   const isDirty = Boolean(draft) && snapshotOf(draft) !== savedSnapshot;
@@ -141,7 +140,6 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
     const next = { ...opened, lines: orderTemplateLinesByGroup(opened.lines) };
     setDraft(next);
     setSavedSnapshot(saved ? snapshotOf(next) : '');
-    setNewGroupName(null);
     setConflict(null);
     setCopyPanel(null);
   };
@@ -274,15 +272,8 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
   const updateLines = (change: (lines: TemplateLine[]) => TemplateLine[]) => setDraft((current) => (current ? { ...current, lines: change(current.lines) } : current));
   const updateLine = (id: string, patch: Partial<TemplateLine>) => updateLines((lines) => lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
   // Lines picked in the DB picker join the 공사 of their DB 카테고리 (a new 공사 goes to the end).
-  const addFromDb = () => pickFromDb((picked) => updateLines((lines) => orderTemplateLinesByGroup(placeTemplateLines(lines, picked, 'append'))));
+  const addFromDb = () => pickFromDb((picked) => updateLines((lines) => appendTemplateLines(lines, picked)));
   const addFromDbToGroup = (label: string) => pickFromDb((picked) => updateLines((lines) => insertIntoTemplateGroup(lines, label, picked)));
-  const addLineToGroup = (label: string) => updateLines((lines) => insertIntoTemplateGroup(lines, label, [emptyTemplateLine(newLineId())]));
-  const addGroup = () => {
-    const name = (newGroupName || '').trim();
-    if (!name) return;
-    addLineToGroup(name);
-    setNewGroupName(null);
-  };
 
   const chooseCopySite = (siteId: string) => {
     setCopyPanel({ siteId, estimates: [], estimateId: '' });
@@ -395,22 +386,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                 기준 평형
                 <input value={draft.baseArea} onChange={(event) => setDraft({ ...draft, baseArea: event.target.value })} inputMode="decimal" placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
               </label>
-              <button type="button" onClick={addFromDb} className={buttonClass}>DB에서 추가</button>
-              {newGroupName === null ? (
-                <button type="button" onClick={() => setNewGroupName('')} className={buttonClass}>공사 추가</button>
-              ) : (
-                <form
-                  className="flex gap-1"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    addGroup();
-                  }}
-                >
-                  <input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} list="template-categories" placeholder="공사 이름 (예: 욕실 공사)" aria-label="새 공사 이름" autoFocus className={`${inputClass} w-48`} />
-                  <button type="submit" disabled={!newGroupName.trim()} className={primaryClass}>추가</button>
-                  <button type="button" onClick={() => setNewGroupName(null)} className={buttonClass}>취소</button>
-                </form>
-              )}
+              <button type="button" onClick={addFromDb} className={primaryClass}>＋ DB에서 추가</button>
               <button type="button" onClick={() => setCopyPanel(copyPanel ? null : { siteId: '', estimates: [], estimateId: '' })} className={buttonClass}>기존 견적에서 복사</button>
               {!isPreviewOpen && <button type="button" onClick={() => setIsPreviewOpen(true)} className={buttonClass}>세부내역서 보기</button>}
               <button type="button" onClick={() => guard(closeDraft)} className={buttonClass}>목록으로</button>
@@ -455,7 +431,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
             <div className={`grid min-h-0 flex-1 ${isPreviewOpen ? 'xl:grid-cols-[minmax(0,1fr)_460px]' : ''}`}>
               <div className="min-h-0 overflow-auto p-5">
                 {draft.lines.length === 0 && (
-                  <p className="rounded-md bg-[#f7fafb] px-4 py-6 text-center text-sm text-[#60717d]">&apos;공사 추가&apos;나 &apos;DB에서 추가&apos;로 시작해 보세요.</p>
+                  <p className="rounded-md bg-[#f7fafb] px-4 py-6 text-center text-sm text-[#60717d]">&apos;＋ DB에서 추가&apos;나 아래 &apos;＋ 새 공사 추가&apos;로 시작해 보세요.</p>
                 )}
                 <GroupedLinesEditor
                   lines={draft.lines}
