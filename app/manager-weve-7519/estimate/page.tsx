@@ -24,6 +24,7 @@ import {
   orderTemplateLinesByGroup,
   pinBaseGroupFirst,
   placeTemplateLines,
+  withTemplateSpace,
 } from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
@@ -1570,7 +1571,7 @@ export default function EstimateWorkspacePage() {
   };
 
   const addMaterialToEstimate = (material: Material, library: MaterialLibrary = dbLibrary) => {
-    setLines((current) => arrangeEstimateLines([...current, applyMaterialToLine(emptyLine(), material, library)]));
+    setLines((current) => arrangeEstimateLines([...current, ...withTemplateSpace([applyMaterialToLine(emptyLine(), material, library)], lineSpaceFilter)]));
     setActiveTab('lines');
   };
 
@@ -2734,18 +2735,14 @@ export default function EstimateWorkspacePage() {
 
         {activeTab === 'lines' && (
           <section
-            className={`grid gap-4 2xl:items-start ${
+            className={`grid gap-4 xl:items-start ${
               isDbPanelOpen
-                ? isEstimatePreviewOpen
-                  ? '2xl:grid-cols-[320px_minmax(0,1fr)_420px]'
-                  : '2xl:grid-cols-[320px_minmax(0,1fr)_44px]'
-                : isEstimatePreviewOpen
-                  ? '2xl:grid-cols-[44px_minmax(0,1fr)_420px]'
-                  : '2xl:grid-cols-[44px_minmax(0,1fr)_44px]'
+                ? `xl:grid-cols-[320px_minmax(0,1fr)] ${isEstimatePreviewOpen ? '2xl:grid-cols-[320px_minmax(0,1fr)_420px]' : '2xl:grid-cols-[320px_minmax(0,1fr)_44px]'}`
+                : `xl:grid-cols-[44px_minmax(0,1fr)] ${isEstimatePreviewOpen ? '2xl:grid-cols-[44px_minmax(0,1fr)_420px]' : '2xl:grid-cols-[44px_minmax(0,1fr)_44px]'}`
             }`}
           >
             {isDbPanelOpen ? (
-              <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm 2xl:sticky 2xl:top-4">
+              <aside className="rounded-lg border border-[#d5dde2] bg-white p-4 shadow-sm xl:sticky xl:top-4">
                 <div className="mb-2 flex justify-end">
                   <button type="button" onClick={() => setIsDbPanelOpen(false)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">DB 패널 접기</button>
                 </div>
@@ -2825,7 +2822,7 @@ export default function EstimateWorkspacePage() {
               </div>
               </aside>
             ) : (
-              <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold 2xl:[writing-mode:vertical-rl]">
+              <button type="button" onClick={() => setIsDbPanelOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold xl:[writing-mode:vertical-rl]">
                 DB 패널 펼치기
               </button>
             )}
@@ -2867,7 +2864,7 @@ export default function EstimateWorkspacePage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(placeTemplateLines(current, picked, 'append'))))}
+                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(placeTemplateLines(current, withTemplateSpace(picked, lineSpaceFilter), 'append'))))}
                     className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
                   >
                     DB에서 추가
@@ -2970,7 +2967,7 @@ export default function EstimateWorkspacePage() {
                         <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
                       ),
                   }}
-                  onAddFromDb={(group) => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, group, picked))))}
+                  onAddFromDb={(group) => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, group, withTemplateSpace(picked, lineSpaceFilter)))))}
                   selectedLineId={selectedLineId}
                   onSelectLine={setSelectedLineId}
                   spaceFilter={lineSpaceFilter}
@@ -2990,11 +2987,11 @@ export default function EstimateWorkspacePage() {
             </section>
 
             {isEstimatePreviewOpen ? (
-              <aside className="min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 2xl:sticky 2xl:top-4">
+              <aside className="min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 xl:col-span-2 2xl:sticky 2xl:top-4 2xl:col-span-1">
                 <TemplateDocumentPreview title={selectedSite?.title || '현장'} subtitle={versionLabel} lines={lines} onCollapse={() => setIsEstimatePreviewOpen(false)} />
               </aside>
             ) : (
-              <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold 2xl:[writing-mode:vertical-rl]">
+              <button type="button" onClick={() => setIsEstimatePreviewOpen(true)} className="rounded-md border border-[#d5dde2] bg-white px-1 py-4 text-xs font-semibold xl:col-span-2 2xl:col-span-1 2xl:[writing-mode:vertical-rl]">
                 미리보기 펼치기
               </button>
             )}

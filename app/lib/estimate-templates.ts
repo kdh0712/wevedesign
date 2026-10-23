@@ -428,6 +428,11 @@ export function templateAreaRatio(baseArea: string, siteArea: string): number {
   return Number.isFinite(base) && Number.isFinite(site) && base > 0 && site > 0 ? site / base : Number.NaN;
 }
 
+// While the site estimate is filtered to one 공간, lines added there take that 공간 so they do not vanish from view.
+export function withTemplateSpace<T extends TemplateLine>(lines: T[], space: string): T[] {
+  return space ? lines.map((line) => ({ ...line, space })) : lines;
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }
