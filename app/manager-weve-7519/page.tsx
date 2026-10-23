@@ -37,6 +37,7 @@ import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
+import { ManualDownloadButton } from './manual-download-button';
 import { ProgressLinkPanel } from './progress-link-panel';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
@@ -2366,6 +2367,7 @@ export default function ManagerPage() {
                 </span>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-semibold text-[#267d8c]">자동 갱신 {OFFICE_REFRESH_SECONDS}초</span>
                 {lastRefreshedAt && <span className="rounded-full bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#60717d]">갱신 {lastRefreshedAt}</span>}
+                <ManualDownloadButton book="office" authHeaders={() => authHeaders()} onError={setError} />
                 <button type="button" onClick={handleLogout} className="inline-flex items-center gap-2 text-sm font-semibold text-[#60717d] hover:text-[#171512]">
                   <LogOut size={15} />
                   로그아웃
