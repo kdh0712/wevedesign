@@ -264,6 +264,107 @@ export function setTemplateLineCategory<T extends TemplateLine>(lines: T[], line
   return target ? flattenGroups(remaining) : [...flattenGroups(remaining), next];
 }
 
+export function templateGroupExists(lines: TemplateLine[], label: string): boolean {
+  const name = key(label);
+  return groupTemplateLines(lines).some((group) => group.label === name);
+}
+
+// Renames a 공사: every line takes the new 카테고리. A name another 공사 already has merges the lines after its own.
+export function renameTemplateGroup<T extends TemplateLine>(lines: T[], from: string, to: string): T[] {
+  const name = key(to);
+  const groups = groupTemplateLines(lines);
+  const source = groups.find((group) => group.label === key(from));
+  if (!name || !source) return lines;
+  const renamed = source.lines.map((line) => ({ ...line, category: name }));
+  const target = groups.find((group) => group !== source && group.label === name);
+  if (target) {
+    target.lines = [...target.lines, ...renamed];
+    return flattenGroups(groups.filter((group) => group !== source));
+  }
+  source.lines = renamed;
+  return flattenGroups(groups);
+}
+
+// "<공사> 복사", then "<공사> 복사 2", 3, … : a name no 공사 has yet.
+export function templateCopyGroupName(label: string, labels: string[]): string {
+  const taken = new Set(labels.map(nameKey));
+  for (let n = 1; ; n += 1) {
+    const candidate = `${key(label)}${n === 1 ? ' 복사' : ` 복사 ${n}`}`;
+    if (!taken.has(nameKey(candidate))) return candidate;
+  }
+}
+
+export function copyTemplateGroup<T extends TemplateLine>(lines: T[], label: string, newLabel: string, newId: () => string): T[] {
+  const groups = groupTemplateLines(lines);
+  const index = groups.findIndex((group) => group.label === key(label));
+  if (index < 0) return lines;
+  const copies = groups[index].lines.map((line) => ({ ...line, id: newId(), category: key(newLabel) }));
+  return [...flattenGroups(groups.slice(0, index + 1)), ...copies, ...flattenGroups(groups.slice(index + 1))];
+}
+
+export function removeTemplateGroup<T extends TemplateLine>(lines: T[], label: string): { lines: T[]; removedIds: string[] } {
+  const groups = groupTemplateLines(lines);
+  const removed = groups.find((group) => group.label === key(label));
+  return {
+    lines: flattenGroups(groups.filter((group) => group !== removed)),
+    removedIds: removed ? removed.lines.map((line) => line.id) : [],
+  };
+}
+
+export function duplicateTemplateLine<T extends TemplateLine>(lines: T[], lineId: string, newId: () => string): T[] {
+  const ordered = orderTemplateLinesByGroup(lines);
+  const index = ordered.findIndex((line) => line.id === lineId);
+  if (index < 0) return lines;
+  return [...ordered.slice(0, index + 1), { ...ordered[index], id: newId() }, ...ordered.slice(index + 1)];
+}
+
+// A dragged line lands before another line of the same 공사, or at its end (null). Any other target changes nothing.
+export function moveTemplateLineBefore<T extends TemplateLine>(lines: T[], lineId: string, beforeLineId: string | null): T[] {
+  const groups = groupTemplateLines(lines);
+  const group = groups.find((item) => item.lines.some((line) => line.id === lineId));
+  if (!group || lineId === beforeLineId) return lines;
+  if (beforeLineId !== null && !group.lines.some((line) => line.id === beforeLineId)) return lines;
+  const moving = group.lines.find((line) => line.id === lineId)!;
+  const rest = group.lines.filter((line) => line.id !== lineId);
+  const at = beforeLineId === null ? rest.length : rest.findIndex((line) => line.id === beforeLineId);
+  group.lines = [...rest.slice(0, at), moving, ...rest.slice(at)];
+  return flattenGroups(groups);
+}
+
+// A dragged 공사 lands before another 공사, or at the end (null).
+export function moveTemplateGroupBefore<T extends TemplateLine>(lines: T[], label: string, beforeLabel: string | null): T[] {
+  const groups = groupTemplateLines(lines);
+  const moving = groups.find((group) => group.label === key(label));
+  if (!moving || key(label) === beforeLabel) return flattenGroups(groups);
+  const rest = groups.filter((group) => group !== moving);
+  const found = beforeLabel === null ? -1 : rest.findIndex((group) => group.label === key(beforeLabel));
+  const at = found < 0 ? rest.length : found;
+  return flattenGroups([...rest.slice(0, at), moving, ...rest.slice(at)]);
+}
+
+// The 공사 holding the estimate's 기본견적 line always comes first.
+export function pinBaseGroupFirst<T extends TemplateLine>(lines: T[], isBase: (line: T) => boolean): T[] {
+  const groups = groupTemplateLines(lines);
+  const pinned = groups.filter((group) => group.lines.some(isBase));
+  return flattenGroups([...pinned, ...groups.filter((group) => !pinned.includes(group))]);
+}
+
+// 공사 colors on screen only (never printed): a dark accent readable on white, and a soft background.
+export const GROUP_COLORS: ReadonlyArray<{ accent: string; soft: string }> = [
+  { accent: '#2563b8', soft: '#e8f0fb' },
+  { accent: '#c2410c', soft: '#fdeee4' },
+  { accent: '#15803d', soft: '#e6f4ea' },
+  { accent: '#7c3aed', soft: '#f0eafd' },
+  { accent: '#be185d', soft: '#fce8f1' },
+  { accent: '#0e7490', soft: '#e1f3f6' },
+  { accent: '#92400e', soft: '#f6ede2' },
+  { accent: '#3730a3', soft: '#e9e8f8' },
+];
+
+export function groupColor(index: number) {
+  return GROUP_COLORS[((index % GROUP_COLORS.length) + GROUP_COLORS.length) % GROUP_COLORS.length];
+}
+
 export function templateLinesError(lines: unknown[]): string {
   return lines.length > TEMPLATE_LINE_MAX ? '템플릿은 2,000줄까지 저장할 수 있어요. 템플릿을 나눠 주세요.' : '';
 }
