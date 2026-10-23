@@ -187,6 +187,10 @@ async function prepareForCapture(page, hide, marks, badgeSize) {
     for (const mark of ${JSON.stringify(marks)}) {
       const element = window.__manual.findOne(mark.target);
       const rect = element.getBoundingClientRect();
+      // The element must be what is drawn at its centre: not scrolled out of a box (a wide table) or under something else.
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      // A see-through control laid over it in the same box (a file input over a drop zone) does not count as covering it.
+      const hidden = hit !== null && !element.contains(hit) && !hit.contains(element) && !(element.parentElement && element.parentElement.contains(hit));
       const left = rect.left + window.scrollX;
       const top = rect.top + window.scrollY;
       if (mark.box) {
@@ -209,7 +213,7 @@ async function prepareForCapture(page, hide, marks, badgeSize) {
       badge.style.cssText = 'position:absolute;display:grid;place-items:center;border-radius:50%;background:#e4572e;color:#fff;font:800 ' + Math.round(size * 0.55) + 'px/1 "Malgun Gothic",sans-serif;box-shadow:0 0 0 2px #fff,0 2px 6px rgba(0,0,0,.35);';
       Object.assign(badge.style, { left: x + 'px', top: y + 'px', width: size + 'px', height: size + 'px' });
       layer.append(badge);
-      placed.push({ n: mark.n, x: x + size / 2, y: y + size / 2 });
+      placed.push({ n: mark.n, x: x + size / 2, y: y + size / 2, hidden });
     }
     return placed;
   })()`);
@@ -248,6 +252,8 @@ async function captureSection(chrome, base, manual, section, data, unmocked) {
     }
     // Every red number must be inside the picture, or the page would explain a number nobody can see.
     const frame = clip || (await page.evaluate(`({ x: window.scrollX, y: window.scrollY, width: window.innerWidth, height: window.innerHeight })`));
+    const hidden = placed.filter((badge) => badge.hidden);
+    if (hidden.length) throw new Error(`번호 ${hidden.map((badge) => badge.n).join(', ')}의 대상이 가려져 있습니다(상자 밖으로 스크롤됐거나 다른 것에 덮임).`);
     const outside = placed.filter((badge) => badge.x < frame.x || badge.y < frame.y || badge.x > frame.x + frame.width || badge.y > frame.y + frame.height);
     if (outside.length) throw new Error(`번호 ${outside.map((badge) => badge.n).join(', ')}이(가) 캡처 밖에 있습니다. shot.height를 키우거나 스크롤해 주세요.`);
     const { data: jpeg } = await page.send('Page.captureScreenshot', {

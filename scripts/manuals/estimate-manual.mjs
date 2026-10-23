@@ -101,13 +101,13 @@ export default {
             path: ESTIMATE,
             width: WIDE,
             height: 1000,
-            actions: [{ scrollTo: { text: '견적서', closest: 'h2' } }, { run: 'window.scrollBy(0, -90)' }],
+            actions: [{ scrollTo: { text: '견적서', closest: 'h2' } }, { run: 'window.scrollBy(0, -90)' }, { click: { selector: 'button[aria-haspopup="menu"]', nth: 0 } }],
             marks: [
               { n: 1, target: { text: '견적 단가 DB', closest: 'h2' }, place: 'left' },
               { n: 2, target: { text: '＋ DB에서 추가', nth: 0 } },
-              { n: 3, target: { selector: 'button[aria-haspopup="menu"]', nth: 0 } },
+              { n: 3, target: { selector: '[role="menu"]' }, box: true, place: 'tr' },
               { n: 4, target: { selector: 'select[aria-label="공간 보기"]' } },
-              { n: 5, target: { selector: '[aria-label="줄 메뉴"]', nth: 2 }, place: 'left' },
+              { n: 5, target: { selector: '[aria-label="철거 공사 메뉴"]' }, place: 'tr' },
               { n: 6, target: { text: '세부내역서 미리보기' }, place: 'left' },
             ],
           },
@@ -116,10 +116,10 @@ export default {
             { n: 2, title: 'DB에서 추가', text: '분류 → 공종 → 품명 순서로 골라 새 줄을 넣습니다. 공사 이름 옆의 같은 버튼은 그 공사에 넣습니다.' },
             { n: 3, title: '템플릿 ▾', text: '템플릿 불러오기, 이 견적을 템플릿으로 저장, 템플릿 관리가 있습니다.' },
             { n: 4, title: '공간 보기', text: '거실, 욕실처럼 한 공간의 줄만 봅니다. 이때는 줄 순서를 바꿀 수 없습니다.' },
-            { n: 5, title: '줄 메뉴 ⋯', text: '복제, 다른 공사로 옮기기, 위·아래로 옮기기, DB에 저장, 삭제가 있습니다.' },
+            { n: 5, title: '⋯ 메뉴', text: '공사 이름 옆 ⋯는 빈 줄 추가, 이름 바꾸기, 공사 복사, 위·아래로 옮기기, 공사 삭제입니다. 줄마다 맨 오른쪽에도 ⋯ 줄 메뉴가 있습니다(다음 쪽).' },
             { n: 6, title: '세부내역서 미리보기', text: '고객에게 나갈 세부내역서 모양을 바로 봅니다. 실행 금액 보기, 크게 보기가 있습니다.' },
           ],
-          tip: '줄은 분류(없으면 공종)가 같은 것끼리 공사로 묶입니다. 기본견적 공사는 항상 맨 위에 있고, 공사 이름의 ⋯ 메뉴로 줄 추가, 이름 바꾸기, 공사 복사·삭제를 합니다.',
+          tip: '줄은 분류(없으면 공종)가 같은 것끼리 공사로 묶입니다. 기본견적 공사는 항상 맨 위에 있습니다. 공사 이름을 두 번 누르면 이름을 바꿉니다.',
         },
         {
           id: 'line-menu',
@@ -365,8 +365,28 @@ export default {
           tip: '일정은 견적의 저장을 눌러야 이 버전에 남습니다. 고객 진행 현황의 공정 달력도 이 일정으로 그려집니다.',
         },
         {
+          id: 'schedule-menu',
+          title: '막대 우클릭 메뉴',
+          shot: {
+            path: ESTIMATE,
+            width: WIDE,
+            actions: [tab('공정 일정'), { scrollTo: { text: '공정 달력', closest: 'h2' } }, { run: 'window.scrollBy(0, -140)' }, { rightClick: { selector: '[title^="목공 ·"]', nth: 0 } }],
+            marks: [
+              { n: 1, target: { selector: '[data-task-menu]' }, box: true, place: 'tr' },
+              { n: 2, target: { text: '수정', within: { selector: '[data-task-menu]' } }, place: 'left' },
+              { n: 3, target: { text: '삭제', within: { selector: '[data-task-menu]' } }, place: 'left' },
+            ],
+          },
+          steps: [
+            { n: 1, title: '우클릭 메뉴', text: '일정 막대를 오른쪽 클릭하면 그 일정 이름과 메뉴가 나옵니다. Esc나 바깥을 누르면 닫힙니다.' },
+            { n: 2, title: '수정', text: '일정 수정 창을 엽니다. 막대를 두 번 눌러도 같습니다.' },
+            { n: 3, title: '삭제', text: '일정 이름과 기간을 보여 주고 한 번 더 묻습니다. 막대 마지막 날의 ✕, 일정 상세의 휴지통도 같은 창을 띄웁니다.' },
+          ],
+          tip: '지운 일정도 견적의 저장을 눌러야 이 버전에서 빠집니다.',
+        },
+        {
           id: 'schedule-edit',
-          title: '일정 수정 창과 우클릭 메뉴',
+          title: '일정 수정 창',
           shot: {
             path: ESTIMATE,
             width: WIDE,
@@ -384,7 +404,7 @@ export default {
             { n: 2, title: '진행 기간 · 진행률', text: '며칠 걸리는지와 진행률(0~100)입니다. 진행률을 1~99로 넣은 일정이 끝날 날을 넘기면 고객 화면에 지연으로 보입니다.' },
             { n: 3, title: '표시 종료일', text: '휴일을 빼고 계산한 실제 끝나는 날입니다.' },
             { n: 4, title: '담당 작업자 · 색상 · 메모', text: '협력업체에서 담당을 고르고 막대 색을 정합니다. 담당과 메모는 고객에게 보이지 않습니다.' },
-            { n: 5, title: '저장 · 삭제', text: '달력에 반영합니다. 막대를 오른쪽 클릭해도 수정·삭제 메뉴가 나오고, 삭제는 항상 한 번 더 묻습니다.' },
+            { n: 5, title: '저장 · 삭제', text: '달력에 반영합니다. 삭제는 항상 한 번 더 묻습니다.' },
           ],
         },
         {

@@ -2566,7 +2566,7 @@ export default function EstimateWorkspacePage() {
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">WEVE ESTIMATE</p>
               <h1 className="text-xl font-semibold tracking-normal md:text-2xl">현장별 견적 작업</h1>
             </div>
-            <ManualDownloadButton book="estimate" authHeaders={() => authHeaders()} onError={setError} />
+            <ManualDownloadButton book="estimate" authHeaders={() => authHeaders()} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select

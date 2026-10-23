@@ -2,7 +2,7 @@
 // contents, one A4 page per section and one per appendix entry (spec 2026-10-23 §2.2). It also returns every link it
 // wrote as { page, targetPage }, which the builder compares with the links Chrome put into the PDF.
 
-const TOC_LINES_PER_PAGE = 32;
+const TOC_LINES_PER_PAGE = 34;
 
 const escapeHtml = (value) =>
   String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -205,7 +205,7 @@ h2 { font-size: 15pt; margin: 0 0 3mm; }
 .cover .lead { color: var(--gray); font-size: 12pt; margin: 0; }
 .cover .meta { position: absolute; bottom: 24mm; left: 22mm; color: var(--gray); font-size: 10pt; line-height: 1.8; }
 
-.toc ol { list-style: none; margin: 0; padding: 0; line-height: 1.45; }
+.toc ol { list-style: none; margin: 0; padding: 0; line-height: 1.4; }
 .toc li a { display: flex; gap: 2mm; padding: 0.7mm 0; align-items: baseline; }
 .toc .dots { flex: 1; border-bottom: 0.3mm dotted #b9c3ca; transform: translateY(-1mm); }
 .toc .chapter { font-weight: 700; margin-top: 2.2mm; }
