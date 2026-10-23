@@ -18,6 +18,18 @@ export async function readAcquisitionOptions(): Promise<{ options: AcquisitionOp
   return { options: checked.ok ? checked.options : [...DEFAULT_ACQUISITION_OPTIONS], updateTime: read.updateTime };
 }
 
+// Saves the list only if it is still the version staff opened (baseUpdateTime '' = never saved), so two people editing it
+// cannot overwrite each other; a conflict throws FirestoreConflictError. Returns the list with its new version.
+export async function saveAcquisitionOptions(options: AcquisitionOption[], updatedBy: string, baseUpdateTime: string) {
+  await patchFirestoreFields(
+    SETTINGS_COLLECTION,
+    OPTIONS_ID,
+    { options, updatedAt: new Date().toISOString(), updatedBy },
+    { precondition: baseUpdateTime ? { updateTime: baseUpdateTime } : { exists: false } },
+  );
+  return readAcquisitionOptions();
+}
+
 // null clears the answer, so the customer is asked again on the next visit.
 export async function writeSiteAcquisition(siteId: string, acquisition: SiteAcquisition | null, precondition: FirestorePrecondition) {
   return patchFirestoreFields<Record<string, unknown>>(officeFirestoreCollections.site, siteId, { acquisition }, { precondition });

@@ -98,6 +98,8 @@ This file records durable product and implementation decisions. Review it before
 - `officeSites/<id>.acquisition` is server-written: the office site save drops it from what a browser sends and masks it out of the write (`PROTECTED_SITE_FIELDS`, `dropBrowserSiteFields`), but site records sent to browsers keep it. Staff enter, fix or clear it in the 현장 tab's 유입 경로 panel through `/api/manager/acquisition` (`sites` permission); a staff entry records the loginId.
 - The option list is `managerSettings/acquisitionOptions`; until it is saved, the starting list in `app/lib/acquisition.ts` is used. Options are hidden, never deleted, so old answers stay countable; hidden options leave the customer survey but staff can still pick them. '기타' is fixed last and cannot be renamed. Labels are 1-12 characters, unique ignoring spaces and case, at most 20 options.
 - The privacy policy names the 유입 경로 and its purpose; keep it in step with what the survey collects.
+- The 유입 경로 tab (고객·현장, `sites` permission) counts, for the chosen period (이번 달, 최근 3개월, 올해, 전체) by the Seoul date a site was registered, the sites at 계약·시공중·완료 plus any site with an answer, grouped by answer (`acquisitionStats`). It uses the sites and sales the manager already loaded: no extra Firestore reads. Revenue is the site's sales without '견적' and '취소' (the dashboard's rule), whatever the payment date, and its columns show only to accounts with the `sales` permission. 기타, 건너뜀 and 미응답 always come last.
+- The option list is saved only on the version staff opened; a conflict answers 409 and the tab reloads the list.
 
 ## Schedule Calendar
 

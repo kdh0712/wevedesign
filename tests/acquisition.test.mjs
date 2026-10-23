@@ -8,12 +8,15 @@ import {
   OTHER_OPTION_ID,
   OTHER_OPTION_LABEL,
   acquisitionAnswerText,
+  acquisitionStats,
+  periodRange,
   cleanOtherText,
   needsAcquisitionSurvey,
   normalizeAcquisitionOptions,
   parseAcquisitionChoice,
   readSiteAcquisition,
   showAcquisitionSurvey,
+  statsMayMissSites,
   surveyOptions,
 } from '../app/lib/acquisition.ts';
 
@@ -143,9 +146,88 @@ test('acquisitionAnswerText follows renames, falls back to the stored label and 
   assert.equal(acquisitionAnswerText({ status: 'skipped', by: 'customer', at: 'x' }, options), '건너뜀');
 });
 
+test('periodRange gives this month, the last three months (this one included), this year, or everything', () => {
+  assert.deepEqual(periodRange('month', '2026-10-23'), { from: '2026-10-01', to: '2026-10-23' });
+  assert.deepEqual(periodRange('3months', '2026-10-23'), { from: '2026-08-01', to: '2026-10-23' });
+  assert.deepEqual(periodRange('3months', '2026-02-10'), { from: '2025-12-01', to: '2026-02-10' });
+  assert.deepEqual(periodRange('year', '2026-10-23'), { from: '2026-01-01', to: '2026-10-23' });
+  assert.equal(periodRange('all', '2026-10-23'), null);
+});
+
+const statsOptions = [
+  { id: 'naver-place', label: '네이버 플레이스' },
+  { id: 'instagram', label: '인스타그램' },
+  { id: 'friend', label: '지인 소개', hidden: true },
+];
+const site = (_id, status, createdAt, acquisition, extra = {}) => ({ _id, title: `현장${_id}`, customerName: `고객${_id}`, status, createdAt, ...(acquisition ? { acquisition } : {}), ...extra });
+const by = (optionId, label, extra = {}) => ({ status: 'answered', optionId, label, by: 'customer', at: '2026-10-20T00:00:00.000Z', ...extra });
+const statsSites = [
+  site('a', '시공중', '2026-10-05T00:00:00Z', by('instagram', '인스타')),
+  site('b', '완료', '2026-10-06T00:00:00Z', by('instagram', '인스타그램')),
+  site('c', '계약', '2026-10-07T00:00:00Z', by('naver-place', '네이버 플레이스')),
+  site('d', '상담중', '2026-10-08T00:00:00Z'),
+  site('e', '상담중', '2026-10-09T00:00:00Z', by('friend', '지인 소개', { by: 'staff', staffId: 'kim' })),
+  site('f', '계약', '2026-10-10T00:00:00Z'),
+  site('g', '시공중', '2026-10-11T00:00:00Z', by('other', '기타', { other: '엘리베이터 광고' })),
+  site('h', '완료', '2026-10-12T00:00:00Z', { status: 'skipped', by: 'customer', at: '2026-10-21T00:00:00.000Z' }),
+  site('i', '계약', '2026-10-12T00:00:00Z', by('instagram', '인스타그램'), { deletedAt: '2026-10-22T00:00:00Z' }),
+  site('j', '계약', '2026-10-13T00:00:00Z', by('gone', '전단지')),
+  site('k', '계약', '2026-09-30T16:00:00Z', by('naver-place', '네이버 플레이스')),
+  site('l', '계약', '2026-09-30T14:00:00Z', by('naver-place', '네이버 플레이스')),
+];
+const sale = (siteId, amount, status, extra = {}) => ({ _id: `sale-${siteId}-${amount}`, siteId, amount, status, ...extra });
+const statsSales = [
+  sale('a', 1000, '입금 완료'),
+  sale('a', 500, '취소'),
+  sale('b', 2000, '계약'),
+  sale('c', 300, '견적'),
+  sale('c', 700, ''),
+  sale('k', 100, '부분 입금'),
+  sale('g', 50, '입금 완료', { deletedAt: '2026-10-22T00:00:00Z' }),
+  sale('h', 400, '입금 완료'),
+];
+
+test('acquisitionStats groups the counted sites of the period by answer, with revenue', () => {
+  const rows = acquisitionStats({ sites: statsSites, sales: statsSales, options: statsOptions, range: periodRange('month', '2026-10-23') });
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.label, row.kind, row.siteCount, row.salesTotal, row.average]),
+    [
+      ['naver-place', '네이버 플레이스', 'option', 2, 800, 400],
+      ['instagram', '인스타그램', 'option', 2, 3000, 1500],
+      ['friend', '지인 소개', 'option', 1, 0, 0],
+      ['gone', '전단지', 'option', 1, 0, 0],
+      ['other', '기타', 'other', 1, 0, 0],
+      ['skipped', '건너뜀', 'skipped', 1, 400, 400],
+      ['none', '미응답', 'none', 1, 0, 0],
+    ],
+  );
+  const other = rows.find((row) => row.key === 'other');
+  assert.deepEqual(other.sites, [{ _id: 'g', title: '현장g', customerName: '고객g', answer: '기타 · 엘리베이터 광고', by: 'customer', at: '2026-10-20T00:00:00.000Z' }]);
+  assert.deepEqual(rows.find((row) => row.key === 'none').sites, [{ _id: 'f', title: '현장f', customerName: '고객f', answer: '', by: '', at: '' }]);
+  assert.deepEqual(rows.find((row) => row.key === 'friend').sites.map((entry) => entry.by), ['staff']);
+});
+
+test('acquisitionStats counts every period with no range, and sorts by count before list order', () => {
+  const rows = acquisitionStats({ sites: statsSites, sales: statsSales, options: statsOptions, range: null });
+  assert.deepEqual(rows.map((row) => [row.key, row.siteCount]).slice(0, 2), [
+    ['naver-place', 3],
+    ['instagram', 2],
+  ]);
+  assert.deepEqual(acquisitionStats({ sites: [], sales: [], options: statsOptions, range: null }), []);
+});
+
 test('showAcquisitionSurvey lets a customer see the progress first when saving the answer keeps failing', () => {
   assert.equal(showAcquisitionSurvey({}, undefined), true);
   assert.equal(showAcquisitionSurvey({}, '1'), false, '?later=1 skips the question for this visit');
   assert.equal(showAcquisitionSurvey({}, ['1']), true, 'only a plain later=1 counts');
   assert.equal(showAcquisitionSurvey({ acquisition: { status: 'skipped', by: 'customer', at: 'x' } }, undefined), false);
+});
+
+test('statsMayMissSites warns when the manager list (the newest 200 sites) may not reach back to the start of the period', () => {
+  const many = (count, oldest) =>
+    Array.from({ length: count }, (_, index) => ({ _id: `s${index}`, createdAt: index === count - 1 ? oldest : '2026-10-20T00:00:00Z' }));
+  assert.equal(statsMayMissSites(many(199, '2025-01-01T00:00:00Z'), null), false, 'fewer than 200: every site is here');
+  assert.equal(statsMayMissSites(many(200, '2025-01-01T00:00:00Z'), null), true, '전체 with a full list may miss older sites');
+  assert.equal(statsMayMissSites(many(200, '2026-01-05T00:00:00Z'), { from: '2026-10-01', to: '2026-10-23' }), false, 'the list reaches back past the period');
+  assert.equal(statsMayMissSites(many(200, '2026-01-05T00:00:00Z'), { from: '2026-01-01', to: '2026-10-23' }), true, 'the period starts before the oldest loaded site');
 });
