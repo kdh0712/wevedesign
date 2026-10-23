@@ -4,6 +4,9 @@ import {
   NO_CATEGORY,
   namedTemplateLines,
   templateLineLabel,
+  appendTemplateLines,
+  findTemplateGroupLabel,
+  withTemplateSpace,
   templateAreaRatio,
   isAreaUnit,
   normalizeBaseArea,
@@ -327,4 +330,30 @@ test('the 평형 ratio needs both areas as positive numbers', () => {
   assert.ok(Number.isNaN(templateAreaRatio('', '33')));
   assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
   assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
+});
+
+test('lines added while a 공간 filter is on take that 공간, so they stay in view', () => {
+  const added = [line({ id: 'a', space: '' }), line({ id: 'b', space: '거실' })];
+  assert.deepEqual(withTemplateSpace(added, '욕실').map((l) => l.space), ['욕실', '욕실']);
+  assert.equal(withTemplateSpace(added, ''), added, 'no filter changes nothing');
+});
+
+test('renaming to a name that differs only in spaces or case merges into the existing 공사', () => {
+  assert.equal(findTemplateGroupLabel(grouped(), '욕실공사'), '욕실 공사');
+  assert.equal(findTemplateGroupLabel(grouped(), '가구공사'), null);
+  assert.equal(templateGroupExists(grouped(), '욕실공사'), true);
+  const merged = renameTemplateGroup(grouped(), '철거 공사', '욕실공사');
+  assert.deepEqual(groupTemplateLines(merged).map((g) => [g.label, g.lines.map((l) => l.id)]), [['욕실 공사', ['b', 'a', 'c']], ['도배', ['d']], ['기타 공사', ['e']]]);
+  assert.ok(merged.filter((l) => ['a', 'c'].includes(l.id)).every((l) => l.category === '욕실 공사'), 'merged lines take the existing name');
+});
+
+test('appending lines keeps blank rows the user already added', () => {
+  const current = [line({ id: 'a', category: '도배', name: '벽지' }), line({ id: 'blank', category: '도배' })];
+  const out = appendTemplateLines(current, [line({ id: 'n', category: '도배', name: '합지' })]);
+  assert.deepEqual(out.map((l) => l.id), ['a', 'blank', 'n']);
+});
+
+test('기준 평형 accepts only plain numbers', () => {
+  for (const bad of [true, [30], '1e2', '30평', '0x1f']) assert.notEqual(templateBaseAreaError(bad), '', String(bad));
+  for (const ok of [30, 24.5, '24.5', ' 30 ', '']) assert.equal(templateBaseAreaError(ok), '', String(ok));
 });

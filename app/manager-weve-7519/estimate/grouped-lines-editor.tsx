@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type R
 import { NumberTextInput } from './number-text-input';
 import {
   copyTemplateGroup,
+  findTemplateGroupLabel,
   duplicateTemplateLine,
   findTemplateMaterial,
   groupColor,
@@ -19,7 +20,6 @@ import {
   renameTemplateGroup,
   setTemplateLineCategory,
   templateCopyGroupName,
-  templateGroupExists,
   templateLineLabel,
   type TemplateLine,
   type TemplateMaterial,
@@ -136,7 +136,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   useEffect(() => {
     if (!menu) return;
     const close = (event: MouseEvent) => {
-      if (!(event.target as HTMLElement).closest('[data-line-menu]')) setMenu(null);
+      if (!(event.target as HTMLElement).closest(`[data-line-menu="${menu.lineId}"]`)) setMenu(null);
     };
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') setMenu(null);
@@ -176,10 +176,23 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
       return;
     }
     const index = visibleOrder.indexOf(line.id) + (event.shiftKey ? -1 : 1);
-    if (index >= 0 && index < visibleOrder.length) focusCell(visibleOrder[index], col);
+    if (index < 0 || index >= visibleOrder.length) return;
+    const target = visibleOrder[index];
+    const targetGroup = groups.find((item) => item.lines.some((other) => other.id === target))?.label;
+    if (targetGroup && folded.includes(targetGroup)) setFolded((current) => current.filter((item) => item !== targetGroup));
+    focusCell(target, col);
   };
 
   const ask = (message: string, yes: string, onYes: () => void) => setConfirm({ message, yes, onYes });
+
+  useEffect(() => {
+    if (!confirm) return;
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setConfirm(null);
+    };
+    window.addEventListener('keydown', escape);
+    return () => window.removeEventListener('keydown', escape);
+  }, [confirm]);
   const withNote = (message: string, removed: T[]) => {
     const note = props.removeNote?.(removed);
     return note ? `${message}\n${note}` : message;
@@ -205,8 +218,9 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
     const name = value.trim();
     setRenaming(null);
     if (!name || name === label) return;
-    if (templateGroupExists(lines, name)) {
-      ask(`'${name}' 공사가 이미 있어요. '${label}' 항목을 '${name}'에 합칠까요?`, '합치기', () => commit(renameTemplateGroup(lines, label, name)));
+    const existing = findTemplateGroupLabel(lines, name);
+    if (existing && existing !== label) {
+      ask(`'${existing}' 공사가 이미 있어요. '${label}' 항목을 '${existing}'에 합칠까요?`, '합치기', () => commit(renameTemplateGroup(lines, label, existing)));
       return;
     }
     commit(renameTemplateGroup(lines, label, name));
@@ -273,7 +287,16 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
           </select>
         );
       case 'category':
-        return <CategoryCell line={line} keys={keys} onCommit={(category) => commit(setTemplateLineCategory(lines, line.id, category))} />;
+        return (
+          <CategoryCell
+            line={line}
+            keys={keys}
+            onCommit={(category) => {
+              commit(setTemplateLineCategory(lines, line.id, category));
+              focusCell(line.id, 'category');
+            }}
+          />
+        );
       case 'name': {
         const notInDb = materials && !isBlankEstimateLine(line) && !findTemplateMaterial(line, materials);
         return (
@@ -440,7 +463,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                           onClick={() => props.onSelectLine?.(line.id)}
                           onDragOver={(event) => onRowDragOver(event, line, group.lines)}
                           onDrop={onDrop}
-                          className={`border-b border-[#edf2f5] align-top last:border-b-0 ${selectedLineId === line.id ? 'bg-[#fff8e1]' : linePinned ? 'bg-[#fffbea]' : ''}`}
+                          className={`border-b border-[#edf2f5] align-top last:border-b-0 ${selectedLineId === line.id ? 'bg-[#fff8e1] outline outline-2 -outline-offset-2 outline-[#f1c76a]' : linePinned ? 'bg-[#fffbea]' : ''}`}
                           style={dropBefore ? { boxShadow: `inset 0 3px 0 ${color.accent}` } : dropAfter ? { boxShadow: `inset 0 -3px 0 ${color.accent}` } : undefined}
                         >
                           <td className="py-2 pl-1 text-center">
@@ -464,7 +487,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
                             <td key={column} className="py-1.5 pr-2">{cell(line, column, group.label, isLast)}</td>
                           ))}
                           <td className="py-1.5 pr-2">
-                            <div className="relative flex gap-1" data-line-menu>
+                            <div className="relative flex gap-1" data-line-menu={line.id}>
                               <button type="button" aria-label="위로" disabled={!canMoveLine || index === 0 || Boolean(isPinned?.(group.lines[index - 1]))} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, -1))} className={SMALL}>↑</button>
                               <button type="button" aria-label="아래로" disabled={!canMoveLine || isLast} onClick={() => commit(moveTemplateLineInGroup(lines, line.id, 1))} className={SMALL}>↓</button>
                               <button
@@ -523,7 +546,7 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
           <section role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-xl border border-[#d5dde2] bg-white p-6 shadow-2xl">
             <p className="whitespace-pre-line text-sm leading-6">{confirm.message}</p>
             <div className="mt-5 flex justify-end gap-2">
-              <button type="button" onClick={() => setConfirm(null)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">취소</button>
+              <button type="button" autoFocus onClick={() => setConfirm(null)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">취소</button>
               <button
                 type="button"
                 onClick={() => {
@@ -559,13 +582,14 @@ function CategoryCell<T extends TemplateLine>({
   onCommit,
 }: {
   line: T;
-  keys: { 'data-line': string; 'data-gcol': string };
+  keys: { 'data-line': string; 'data-gcol': string; onKeyDown: (event: KeyboardEvent<HTMLElement>) => void };
   onCommit: (value: string) => void;
 }) {
   const [text, setText] = useState(line.category);
   useEffect(() => setText(line.category), [line.category]);
+  const changed = () => text.trim() !== String(line.category || '').trim();
   const apply = () => {
-    if (text.trim() !== line.category.trim()) onCommit(text);
+    if (changed()) onCommit(text);
   };
   return (
     <input
@@ -573,7 +597,13 @@ function CategoryCell<T extends TemplateLine>({
       onChange={(event) => setText(event.target.value)}
       onBlur={apply}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' && !event.nativeEvent.isComposing) apply();
+        if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+        if (changed()) {
+          event.preventDefault();
+          apply();
+        } else {
+          keys.onKeyDown(event);
+        }
       }}
       list="grouped-editor-categories"
       aria-label="분류"
