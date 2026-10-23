@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SERVER_OWNED_SITE_FIELDS, stripServerOwnedSiteFields } from '../app/api/manager/_site-fields.ts';
+import { PROTECTED_SITE_FIELDS, SERVER_OWNED_SITE_FIELDS, dropBrowserSiteFields, stripServerOwnedSiteFields } from '../app/api/manager/_site-fields.ts';
 
 const full = () => ({
   _id: 'site-1',
@@ -49,4 +49,24 @@ test('stripServerOwnedSiteFields drops the fields whatever their value (a stale 
 test('stripServerOwnedSiteFields does not touch similarly named fields', () => {
   const input = { progressNote: '메모', progressCodeHint: 'x', Progresscode: 'y', progress: 50 };
   assert.deepEqual(stripServerOwnedSiteFields(input), input);
+});
+
+const answer = { status: 'skipped', by: 'customer', at: '2026-10-23T05:00:00.000Z' };
+
+test('the protected site fields are the four progress fields and the 유입 경로 answer', () => {
+  assert.deepEqual([...PROTECTED_SITE_FIELDS].sort(), ['acquisition', 'progressAccess', 'progressCode', 'progressCodeCreatedAt', 'progressEnabled']);
+});
+
+test('dropBrowserSiteFields removes every protected field from a site a browser sent', () => {
+  assert.deepEqual(dropBrowserSiteFields({ ...full(), acquisition: answer }), {
+    _id: 'site-1',
+    title: '테스트 현장',
+    customerName: '홍길동',
+    customerPhone: '010-1234-5678',
+    deletedAt: null,
+  });
+});
+
+test('a site sent to a browser keeps its 유입 경로 answer', () => {
+  assert.deepEqual(stripServerOwnedSiteFields({ ...full(), acquisition: answer }).acquisition, answer);
 });
