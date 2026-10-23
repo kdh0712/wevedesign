@@ -4,6 +4,7 @@ import {
   NO_CATEGORY,
   namedTemplateLines,
   templateLineLabel,
+  withTemplateSpace,
   templateAreaRatio,
   isAreaUnit,
   normalizeBaseArea,
@@ -327,4 +328,10 @@ test('the 평형 ratio needs both areas as positive numbers', () => {
   assert.ok(Number.isNaN(templateAreaRatio('', '33')));
   assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
   assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
+});
+
+test('lines added while a 공간 filter is on take that 공간, so they stay in view', () => {
+  const added = [line({ id: 'a', space: '' }), line({ id: 'b', space: '거실' })];
+  assert.deepEqual(withTemplateSpace(added, '욕실').map((l) => l.space), ['욕실', '욕실']);
+  assert.equal(withTemplateSpace(added, ''), added, 'no filter changes nothing');
 });
