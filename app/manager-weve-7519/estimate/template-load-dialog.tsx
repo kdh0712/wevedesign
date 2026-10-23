@@ -6,6 +6,7 @@ import {
   isBlankEstimateLine,
   refreshTemplateLines,
   scaleTemplateQuantities,
+  templateAreaRatio,
   templateCustomerTotal,
   templateSelectionOptions,
   templateUnitOptions,
@@ -68,7 +69,9 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
   const tickedUnits = unitTicks ?? unitOptions.filter((option) => option.area).map((option) => option.unit);
   const baseArea = Number(baseAreaText.trim());
   const siteArea = Number(siteAreaText.trim());
-  const ratio = baseAreaText.trim() && siteAreaText.trim() && baseArea > 0 && siteArea > 0 ? siteArea / baseArea : Number.NaN;
+  const ratio = templateAreaRatio(baseAreaText, siteAreaText);
+  // With the option on, loading waits for both 평형: loading unscaled would not be what was asked for.
+  const scaleIncomplete = scaleOn && !Number.isFinite(ratio);
   const scaled = useMemo(
     () => (scaleOn ? scaleTemplateQuantities(chosen, ratio, tickedUnits) : { lines: chosen, scaledCount: 0 }),
     // tickedUnits is derived from unitTicks and unitOptions.
@@ -126,7 +129,7 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
     changeScale(() => setUnitTicks(tickedUnits.includes(unit) ? tickedUnits.filter((item) => item !== unit) : [...tickedUnits, unit]));
 
   const load = async () => {
-    if (!chosen.length) return;
+    if (!chosen.length || scaleIncomplete) return;
     setIsBusy(true);
     setError('');
     try {
@@ -284,9 +287,12 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
             </>
           ) : (
             template && (
-              <button type="button" disabled={isBusy || chosen.length === 0} onClick={() => void load()} className={primaryClass}>
+              <>
+              {scaleIncomplete && <p className="mr-auto self-center text-sm font-semibold text-amber-800">평형 조정을 켰어요. 기준 평형과 이 현장 평형을 모두 넣어 주세요.</p>}
+              <button type="button" disabled={isBusy || chosen.length === 0 || scaleIncomplete} onClick={() => void load()} className={primaryClass}>
                 {isBusy ? '최신 단가 확인 중…' : '불러오기'}
               </button>
+              </>
             )
           )}
         </footer>

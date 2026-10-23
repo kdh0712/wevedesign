@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  templateAreaRatio,
   isAreaUnit,
   normalizeBaseArea,
   scaleTemplateQuantities,
   templateBaseAreaError,
   templateUnitOptions,
+  namedTemplateLines,
+  templateLineLabel,
   GROUP_COLORS,
   copyTemplateGroup,
   duplicateTemplateLine,
@@ -309,4 +312,19 @@ test('기준 평형 is optional and must be 1–500', () => {
   assert.equal(normalizeBaseArea(' 30 '), 30);
   assert.equal(normalizeBaseArea(''), null);
   assert.equal(normalizeBaseArea(null), null);
+});
+
+test('the 세부내역서 keeps only lines with a 품명 and survives saved lines missing fields', () => {
+  const saved = [{ id: 'x' }, line({ id: 'y', name: '  ' }), line({ id: 'z', name: '타일' }), { id: 'w', name: null }];
+  assert.deepEqual(namedTemplateLines(saved).map((l) => l.id), ['z']);
+  assert.equal(templateLineLabel({ id: 'q' }), '이 항목');
+  assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
+});
+
+test('the 평형 ratio needs both areas as positive numbers', () => {
+  assert.equal(templateAreaRatio('30', '33'), 1.1);
+  assert.ok(Number.isNaN(templateAreaRatio('30', '')));
+  assert.ok(Number.isNaN(templateAreaRatio('', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('0', '33')));
+  assert.ok(Number.isNaN(templateAreaRatio('abc', '33')));
 });
