@@ -62,33 +62,33 @@ export type VerifyResult = { status: number; body: Record<string, unknown>; head
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
 // A customer's check result must never be cached by the browser or a CDN.
-const reply = (status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): VerifyResult => ({
+export const progressReply = (status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): VerifyResult => ({
   status,
   body,
   headers: { 'Cache-Control': 'private, no-store', ...headers },
 });
 
-const linkOff = () => reply(404, { error: PROGRESS_LINK_OFF_MESSAGE });
-const unavailable = () => reply(500, { error: PROGRESS_UNAVAILABLE_MESSAGE });
-const retry = () => reply(503, { error: PROGRESS_RETRY_MESSAGE, retry: true }, { 'Retry-After': String(VERIFY_RETRY_AFTER_SECONDS) });
+const linkOff = () => progressReply(404, { error: PROGRESS_LINK_OFF_MESSAGE });
+const unavailable = () => progressReply(500, { error: PROGRESS_UNAVAILABLE_MESSAGE });
+const retry = () => progressReply(503, { error: PROGRESS_RETRY_MESSAGE, retry: true }, { 'Retry-After': String(VERIFY_RETRY_AFTER_SECONDS) });
 
 function locked(state: ProgressAccessState, nowMs: number) {
   const retryAfterSeconds = Math.max(1, Math.ceil((Date.parse(state.lockedUntil) - nowMs) / 1000));
-  return reply(423, { error: progressLockedMessage(retryAfterSeconds), retryAfterSeconds }, { 'Retry-After': String(retryAfterSeconds) });
+  return progressReply(423, { error: progressLockedMessage(retryAfterSeconds), retryAfterSeconds }, { 'Retry-After': String(retryAfterSeconds) });
 }
 
 // Missing, trashed, switched-off and rotated links all look the same from outside.
-const isOpenFor = (site: VerifySite | null, code: string): site is VerifySite =>
+export const isProgressLinkOpen = (site: VerifySite | null, code: string): site is VerifySite =>
   Boolean(site) && !site!.deletedAt && Boolean(site!.progressEnabled) && site!.progressCode === code;
 
 export async function verifyProgressAttempt<S extends VerifySite>(
   body: unknown,
   deps: { store: VerifyStore<S>; storeReady: boolean; key: Buffer | null; nowMs: number },
 ): Promise<VerifyResult> {
-  if (!isRecord(body) || typeof body.code !== 'string' || typeof body.last4 !== 'string') return reply(400, { error: VERIFY_BAD_REQUEST_MESSAGE });
+  if (!isRecord(body) || typeof body.code !== 'string' || typeof body.last4 !== 'string') return progressReply(400, { error: VERIFY_BAD_REQUEST_MESSAGE });
   const { code, last4 } = body;
   // A malformed number is a typo, not a guess, so it answers 400 before anything is looked up or counted.
-  if (!/^\d{4}$/.test(last4)) return reply(400, { error: VERIFY_BAD_LAST4_MESSAGE });
+  if (!/^\d{4}$/.test(last4)) return progressReply(400, { error: VERIFY_BAD_LAST4_MESSAGE });
   // Missing, switched-off and unknown codes (and a server without Firestore) all look the same from outside.
   if (!isProgressCodeShape(code) || !deps.storeReady) return linkOff();
 
@@ -97,7 +97,7 @@ export async function verifyProgressAttempt<S extends VerifySite>(
   let phone: string;
   try {
     const found = await store.findSiteByCode(code);
-    if (!isOpenFor(found, code)) return linkOff();
+    if (!isProgressLinkOpen(found, code)) return linkOff();
     if (!key) {
       console.error('Progress verify unavailable: neither MANAGER_SESSION_SECRET nor SANITY_WRITE_TOKEN is set.');
       return unavailable();
@@ -105,7 +105,7 @@ export async function verifyProgressAttempt<S extends VerifySite>(
 
     // The decision is made on a fresh read, and its result is written only on that same version.
     read = await store.readSite(found._id);
-    if (!read || !isOpenFor(read.site, code)) return linkOff();
+    if (!read || !isProgressLinkOpen(read.site, code)) return linkOff();
 
     // The lock is checked first and nothing is counted or written while it holds: nextProgressAccessState(locked, true) would clear it.
     const access = read.site.progressAccess;
@@ -118,7 +118,7 @@ export async function verifyProgressAttempt<S extends VerifySite>(
   }
 
   const expected = phoneLast4(phone);
-  if (!expected) return reply(409, { error: PROGRESS_NO_PHONE_MESSAGE });
+  if (!expected) return progressReply(409, { error: PROGRESS_NO_PHONE_MESSAGE });
 
   const right = last4 === expected;
   const next = nextProgressAccessState(read.site.progressAccess, right, nowMs);
@@ -130,10 +130,10 @@ export async function verifyProgressAttempt<S extends VerifySite>(
     return retry();
   }
 
-  if (!right) return isProgressLocked(next, nowMs) ? locked(next, nowMs) : reply(401, { error: PROGRESS_WRONG_LAST4_MESSAGE });
+  if (!right) return isProgressLocked(next, nowMs) ? locked(next, nowMs) : progressReply(401, { error: PROGRESS_WRONG_LAST4_MESSAGE });
 
   return {
-    ...reply(200, { ok: true }),
+    ...progressReply(200, { ok: true }),
     cookie: {
       name: progressCookieName(code),
       // Bound to the code and the customer's whole number: a new link or a changed number invalidates it.
