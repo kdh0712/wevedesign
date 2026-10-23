@@ -152,6 +152,52 @@ test('buildCustomerProgressView sorts updates newest first and survives a broken
   assert.equal(buildCustomerProgressView({ site: {}, updates: [], estimates: [], today: '2026-10-05' }).schedule, null);
 });
 
+test('buildCustomerProgressView moves end dates past holidays like the manager calendar and passes colors and holidays', () => {
+  const view = buildCustomerProgressView({
+    site: { title: '현장' },
+    updates: [],
+    estimates: [
+      {
+        versionType: 'final',
+        updatedAt: '2026-10-01',
+        scheduleJson: JSON.stringify([
+          { id: '1', name: '전기', startDate: '2026-10-21', endDate: '2026-10-27', durationDays: 7, progress: 0, color: '#f0a35e', vendorName: '김전기' },
+          { id: '2', name: '도장', startDate: '2026-10-29', endDate: '2026-10-30', durationDays: 2, progress: 0, color: 'url(javascript:alert(1))' },
+        ]),
+        holidaysJson: JSON.stringify(['2026-10-24', '2026-12-25', 'nope', '2026-10-24']),
+      },
+    ],
+    today: '2026-10-23',
+  });
+  assert.deepEqual(
+    view.schedule.tasks.map((t) => [t.name, t.endDate, t.color]),
+    [
+      ['전기', '2026-10-28', '#f0a35e'],
+      ['도장', '2026-10-30', ''],
+    ],
+  );
+  assert.equal(view.schedule.endDate, '2026-10-30');
+  assert.deepEqual(view.schedule.holidays, ['2026-10-24'], 'only real holidays inside the construction period, once each');
+  assert.ok(!JSON.stringify(view).includes('김전기'));
+});
+
+test('buildCustomerProgressView ignores unreadable holidays', () => {
+  const view = buildCustomerProgressView({
+    site: {},
+    updates: [],
+    estimates: [
+      {
+        versionType: 'final',
+        scheduleJson: JSON.stringify([{ id: '1', name: '전기', startDate: '2026-10-21', endDate: '2026-10-27', durationDays: 7, progress: 0 }]),
+        holidaysJson: '{not json',
+      },
+    ],
+    today: '2026-10-23',
+  });
+  assert.equal(view.schedule.tasks[0].endDate, '2026-10-27');
+  assert.deepEqual(view.schedule.holidays, []);
+});
+
 test('fillProgressTemplate inserts values literally', () => {
   assert.equal(
     fillProgressTemplate('#{고객명} #{코드}', { customerName: '$& #{코드}', siteTitle: '', date: '', code: 'z' }),

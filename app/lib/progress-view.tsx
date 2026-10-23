@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react';
 import { Check, Phone } from 'lucide-react';
 import { PROGRESS_CONTACT_PHONE, PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE } from './progress-public';
+import { ProgressMenu } from './progress-menu';
 import { ProgressPhotoGallery } from './progress-photo-gallery';
-import type { CustomerProgressView, ProgressTaskView } from './site-progress';
+import { ProgressScheduleCalendar } from './progress-schedule-calendar';
+import type { CustomerProgressView, CustomerSchedule, ProgressTaskView } from './site-progress';
 
 // Display-only pieces of the customer progress page. No hooks and no server-only imports: the same components render in the
-// server-rendered customer page and inside the manager's client-side preview. Interactivity lives in ProgressPhotoGallery.
+// server-rendered customer page and inside the manager's client-side preview. Interactivity lives in ProgressMenu (which
+// section is shown), ProgressScheduleCalendar (which month) and ProgressPhotoGallery.
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
@@ -118,7 +121,7 @@ function TaskMarker({ state }: { state: ProgressTaskView['state'] }) {
   return <span className="h-6 w-6 shrink-0 rounded-full border-2 border-[#d5dde2] bg-white" aria-hidden="true" />;
 }
 
-function ScheduleSection({ schedule }: { schedule: NonNullable<CustomerProgressView['schedule']> }) {
+function ScheduleSection({ schedule }: { schedule: CustomerSchedule }) {
   const allDone = schedule.tasks.every((task) => task.state === 'done');
   return (
     <>
@@ -168,9 +171,15 @@ function ScheduleSection({ schedule }: { schedule: NonNullable<CustomerProgressV
         )}
       </section>
 
+      <section className={sectionClass} aria-labelledby="progress-calendar-title">
+        <SectionTitle id="progress-calendar-title">공정 달력</SectionTitle>
+        <ProgressScheduleCalendar schedule={schedule} />
+      </section>
+
       <section className={sectionClass} aria-labelledby="progress-schedule-title">
         <SectionTitle id="progress-schedule-title">공정 일정</SectionTitle>
-        <ol className="space-y-1.5">
+        {/* A long schedule scrolls inside its box (about six rows) instead of stretching the page. */}
+        <ol className="max-h-80 space-y-1.5 overflow-y-auto overscroll-contain pr-1" tabIndex={0} aria-label="공정 일정 목록">
           {schedule.tasks.map((task) => (
             <li
               key={task.id}
@@ -194,60 +203,83 @@ function ScheduleSection({ schedule }: { schedule: NonNullable<CustomerProgressV
   );
 }
 
-// The customer's own view of one site: header, progress and schedule (when there is one), dated records with photos, contact.
-// It renders the content column only; the public page wraps it in ProgressShell.
-export function ProgressView({ view }: { view: CustomerProgressView }) {
+function NoScheduleSection() {
+  return (
+    <section className={sectionClass} aria-labelledby="progress-schedule-title">
+      <SectionTitle id="progress-schedule-title">공정 일정</SectionTitle>
+      <p className="rounded-lg bg-[#f7f9fa] px-3 py-6 text-center text-sm text-[#60717d]">공정 일정이 정해지면 이곳에서 확인하실 수 있습니다.</p>
+    </section>
+  );
+}
+
+function RecordsSection({ view }: { view: CustomerProgressView }) {
+  return (
+    <section className={sectionClass} aria-labelledby="progress-records-title">
+      <SectionTitle id="progress-records-title">현황 사진</SectionTitle>
+      {view.photosUnavailable && (
+        <p role="status" className="mb-3 rounded-lg bg-[#fff8e6] px-3 py-2.5 text-sm font-semibold text-[#8b6420]">
+          {PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE}
+        </p>
+      )}
+      {view.updates.length === 0 ? (
+        <p className="rounded-lg bg-[#f7f9fa] px-3 py-6 text-center text-sm text-[#60717d]">아직 등록된 진행 기록이 없습니다.</p>
+      ) : (
+        <div className="space-y-4">
+          {view.updates.map((update) => {
+            const dateLabel = formatReportDate(update.reportDate);
+            return (
+              <article key={update.id} className="rounded-lg border border-[#d5dde2] p-3">
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-sm font-bold">{dateLabel}</h3>
+                  {update.designer && <p className="shrink-0 text-xs font-semibold text-[#60717d]">담당 {update.designer}</p>}
+                </div>
+                {update.workDetail && (
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-[#38434b]">{update.workDetail}</p>
+                )}
+                {update.photos.length > 0 && (
+                  <div className="mt-3">
+                    <ProgressPhotoGallery photos={update.photos} label={dateLabel} />
+                  </div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// The customer's own view of one site. The header carries the ☰ menu; the first section (공사 일정: progress, calendar and
+// schedule) is the home view, and other sections such as 현황 사진 are picked from the menu. New customer features belong
+// in the menu as further sections. The contact button stays under every section.
+// It renders the content column only; the public page wraps it in ProgressShell and keeps the section in the address.
+export function ProgressView({ view, syncHash = false }: { view: CustomerProgressView; syncHash?: boolean }) {
   const heading = view.customerName ? `${view.customerName} 고객님의 공사 진행 현황` : '고객님의 공사 진행 현황';
 
   return (
     <div className={columnClass}>
-      <header className="pb-1 text-center">
-        <ProgressBrand />
-        {view.siteTitle && <p className="text-sm font-semibold text-[#60717d]">{view.siteTitle}</p>}
-        <h1 className="mt-1 text-xl font-extrabold leading-snug">{heading}</h1>
-      </header>
-
-      {view.schedule && <ScheduleSection schedule={view.schedule} />}
-
-      <section className={sectionClass} aria-labelledby="progress-records-title">
-        <SectionTitle id="progress-records-title">진행 기록</SectionTitle>
-        {view.photosUnavailable && (
-          <p role="status" className="mb-3 rounded-lg bg-[#fff8e6] px-3 py-2.5 text-sm font-semibold text-[#8b6420]">
-            {PROGRESS_PHOTOS_UNAVAILABLE_MESSAGE}
-          </p>
-        )}
-        {view.updates.length === 0 ? (
-          <p className="rounded-lg bg-[#f7f9fa] px-3 py-6 text-center text-sm text-[#60717d]">아직 등록된 진행 기록이 없습니다.</p>
-        ) : (
-          <div className="space-y-4">
-            {view.updates.map((update) => {
-              const dateLabel = formatReportDate(update.reportDate);
-              return (
-                <article key={update.id} className="rounded-lg border border-[#d5dde2] p-3">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h3 className="text-sm font-bold">{dateLabel}</h3>
-                    {update.designer && <p className="shrink-0 text-xs font-semibold text-[#60717d]">담당 {update.designer}</p>}
-                  </div>
-                  {update.workDetail && (
-                    <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed text-[#38434b]">{update.workDetail}</p>
-                  )}
-                  {update.photos.length > 0 && (
-                    <div className="mt-3">
-                      <ProgressPhotoGallery photos={update.photos} label={dateLabel} />
-                    </div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className={sectionClass} aria-labelledby="progress-contact-title">
-        <SectionTitle id="progress-contact-title">문의</SectionTitle>
-        <p className="mb-3 text-sm text-[#38434b]">공사에 대해 궁금한 점은 언제든 전화로 문의해 주세요.</p>
-        <CallButton phone={view.contactPhone} />
-      </section>
+      <ProgressMenu
+        syncHash={syncHash}
+        header={
+          <header className="px-12 pb-1 text-center">
+            <ProgressBrand />
+            {view.siteTitle && <p className="text-sm font-semibold text-[#60717d]">{view.siteTitle}</p>}
+            <h1 className="mt-1 text-xl font-extrabold leading-snug">{heading}</h1>
+          </header>
+        }
+        sections={[
+          { key: 'schedule', label: '공사 일정', content: view.schedule ? <ScheduleSection schedule={view.schedule} /> : <NoScheduleSection /> },
+          { key: 'photos', label: '현황 사진', count: view.updates.length, content: <RecordsSection view={view} /> },
+        ]}
+        footer={
+          <section className={sectionClass} aria-labelledby="progress-contact-title">
+            <SectionTitle id="progress-contact-title">문의</SectionTitle>
+            <p className="mb-3 text-sm text-[#38434b]">공사에 대해 궁금한 점은 언제든 전화로 문의해 주세요.</p>
+            <CallButton phone={view.contactPhone} />
+          </section>
+        }
+      />
     </div>
   );
 }

@@ -34,6 +34,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
+import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -670,6 +671,10 @@ export default function EstimateWorkspacePage() {
   const [selectedLineId, setSelectedLineId] = useState('');
   const [materialPicker, setMaterialPicker] = useState<MaterialPickerState | null>(null);
   const [scheduleEditor, setScheduleEditor] = useState<ScheduleTask | null>(null);
+  // 공정 달력: the right-click menu of a bar, the task waiting for its delete confirmation, and the calendar print window.
+  const [taskMenu, setTaskMenu] = useState<{ task: ScheduleTask; x: number; y: number } | null>(null);
+  const [taskToDelete, setTaskToDelete] = useState<ScheduleTask | null>(null);
+  const [isSchedulePrintOpen, setIsSchedulePrintOpen] = useState(false);
   const [documentView, setDocumentView] = useState<string>('detail');
   const [documentDetailPageIndex, setDocumentDetailPageIndex] = useState(0);
   const [isDocumentBatchOpen, setIsDocumentBatchOpen] = useState(false);
@@ -749,6 +754,32 @@ export default function EstimateWorkspacePage() {
     [calendarMonth, calendarWeekStart, effectiveStartDate, isStartWeekCalendar],
   );
   const holidaySet = useMemo(() => new Set(holidays), [holidays]);
+  const calendarTasks = useMemo(() => scheduleBarTasks(schedule, holidaySet), [holidaySet, schedule]);
+  const calendarWeeks = useMemo(
+    () => Array.from({ length: Math.ceil(calendarDays.length / 7) }, (_, index) => calendarDays.slice(index * 7, index * 7 + 7)),
+    [calendarDays],
+  );
+
+  useEffect(() => {
+    if (!taskMenu) return;
+    const close = (event: MouseEvent) => {
+      if (!(event.target instanceof Element && event.target.closest('[data-task-menu]'))) setTaskMenu(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setTaskMenu(null);
+    };
+    const closeNow = () => setTaskMenu(null);
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', escape);
+    window.addEventListener('scroll', closeNow, true);
+    window.addEventListener('resize', closeNow);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', escape);
+      window.removeEventListener('scroll', closeNow, true);
+      window.removeEventListener('resize', closeNow);
+    };
+  }, [taskMenu]);
   const { estimateCategories, estimateItems } = materialSettings;
   const orderedMaterials = useMemo(
     () => applyMaterialOrder(materials, materialOrderDraft || materialSettings.materialOrder),
@@ -2262,6 +2293,12 @@ export default function EstimateWorkspacePage() {
     setScheduleEditor((current) => (current?.id === id ? null : current));
   };
 
+  // Bar ✕, the right-click menu, the 일정 상세 list and the edit window all delete through this confirmation.
+  const requestTaskDelete = (task: ScheduleTask) => {
+    setTaskMenu(null);
+    setTaskToDelete(task);
+  };
+
   const addHoliday = () => {
     if (!holidayDate) return;
     setHolidays((current) => Array.from(new Set([...current, holidayDate])).sort());
@@ -3551,6 +3588,10 @@ export default function EstimateWorkspacePage() {
                       시작 주로
                     </button>
                   )}
+                  <button type="button" onClick={() => setIsSchedulePrintOpen(true)} className="inline-flex h-10 items-center gap-2 rounded-md border border-[#171512] bg-white px-3 text-sm font-semibold text-[#171512] hover:bg-[#f7fafb]">
+                    <Printer size={16} />
+                    달력 출력
+                  </button>
                 </div>
               </div>
 
@@ -3616,61 +3657,84 @@ export default function EstimateWorkspacePage() {
                     <div key={day} className="border-b border-r border-[#edf2f5] px-2 py-3 last:border-r-0">{day}</div>
                   ))}
                 </div>
-                <div className="grid min-w-[980px] grid-cols-7">
-                  {calendarDays.map((day) => {
-                    const dayTasks = tasksForDate(schedule, day.date, holidaySet);
-                    const isHoliday = holidaySet.has(day.date);
+                <div className="min-w-[980px]">
+                  {calendarWeeks.map((week) => {
+                    const { bars, laneCount } = layoutCalendarWeek(calendarTasks, week[0].date);
                     return (
                       <div
-                        key={day.key}
+                        key={week[0].key}
+                        className="grid min-h-36 grid-cols-7"
+                        style={{ gridTemplateRows: `36px repeat(${laneCount}, auto) minmax(12px, 1fr)` }}
                         onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => handleCalendarDrop(event, day.date)}
-                        className={`min-h-36 border-b border-r border-[#edf2f5] p-2 last:border-r-0 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'} ${isHoliday ? 'bg-[linear-gradient(135deg,#fff7f7_0,#fff7f7_50%,#fff_50%,#fff_100%)]' : ''}`}
+                        onDrop={(event) => {
+                          // The drop lands on the day under the pointer, also when that spot is covered by a bar.
+                          const rect = event.currentTarget.getBoundingClientRect();
+                          const column = Math.min(6, Math.max(0, Math.floor(((event.clientX - rect.left) / rect.width) * 7)));
+                          handleCalendarDrop(event, week[column].date);
+                        }}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.label}</span>
-                          {day.date === effectiveStartDate && <span className="rounded-full bg-[#171512] px-2 py-0.5 text-[10px] font-bold text-white">공사 시작</span>}
-                          {isHoliday && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">휴일</span>}
-                          <button
-                            type="button"
-                            onClick={() => setScheduleEditor({ ...emptyTask(), startDate: day.date, endDate: day.date })}
-                            className="text-xs text-[#87949c]"
-                          >
-                            +
-                          </button>
-                        </div>
-                        <div className="mt-2 grid gap-1">
-                          {dayTasks.map((task) => {
-                            const adjustedEndDate = adjustedTaskEndDate(task, holidaySet);
-                            const isStart = day.date === task.startDate;
-                            const isEnd = day.date === adjustedEndDate;
-                            return (
-                              <div
-                                key={task.id}
-                                onDoubleClick={() => setScheduleEditor(task)}
-                                className={`group relative flex min-h-7 cursor-pointer items-center gap-1 px-2 py-1 text-left text-xs font-semibold text-[#171512] shadow-sm ${
-                                  isStart ? 'rounded-l-full' : '-ml-2'
-                                } ${isEnd ? 'rounded-r-full' : '-mr-2'} ${!isStart && !isEnd ? 'rounded-none' : ''}`}
-                                style={{ backgroundColor: softenColor(task.color || '#f1c76a') }}
-                                title={`${task.name} · ${task.startDate}~${adjustedEndDate}`}
-                              >
-                                {isStart && <span className="truncate">{task.name || '공정명 없음'}</span>}
-                                {isHoliday && <span className="text-[10px] text-red-600">연장</span>}
+                        {week.map((day, index) => {
+                          const isHoliday = holidaySet.has(day.date);
+                          return (
+                            <div
+                              key={day.key}
+                              style={{ gridColumn: index + 1, gridRow: '1 / -1' }}
+                              className={`border-b border-[#edf2f5] p-2 ${index < 6 ? 'border-r' : ''} ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'} ${isHoliday ? 'bg-[linear-gradient(135deg,#fff7f7_0,#fff7f7_50%,#fff_50%,#fff_100%)]' : ''}`}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.label}</span>
+                                {day.date === effectiveStartDate && <span className="rounded-full bg-[#171512] px-2 py-0.5 text-[10px] font-bold text-white">공사 시작</span>}
+                                {isHoliday && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">휴일</span>}
+                                <button
+                                  type="button"
+                                  onClick={() => setScheduleEditor({ ...emptyTask(), startDate: day.date, endDate: day.date })}
+                                  aria-label={`${day.date} 일정 추가`}
+                                  className="text-xs text-[#87949c]"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {bars.map((bar) => {
+                          const { task } = bar.task;
+                          const name = task.name || '공정명 없음';
+                          return (
+                            <div
+                              key={task.id}
+                              onDoubleClick={() => setScheduleEditor(task)}
+                              onContextMenu={(event) => {
+                                event.preventDefault();
+                                setTaskMenu({ task, x: event.clientX, y: event.clientY });
+                              }}
+                              style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: softenColor(task.color || '#f1c76a') }}
+                              className={`relative z-[1] my-0.5 flex h-7 min-w-0 cursor-pointer select-none items-center justify-center px-7 text-xs font-semibold text-[#171512] shadow-sm ${
+                                bar.startsHere ? 'ml-2 rounded-l-full' : ''
+                              } ${bar.endsHere ? 'mr-2 rounded-r-full' : ''}`}
+                              title={`${name} · ${task.startDate}~${bar.task.endDate} · 두 번 누르면 수정, 오른쪽 클릭하면 메뉴`}
+                            >
+                              {!bar.startsHere && <span className="absolute left-2 text-[8px] text-black/40" aria-hidden="true">◀</span>}
+                              <span className="truncate">{name}</span>
+                              {bar.endsHere ? (
                                 <button
                                   type="button"
                                   onClick={(event) => {
                                     event.stopPropagation();
-                                    deleteScheduleTask(task.id);
+                                    requestTaskDelete(task);
                                   }}
-                                  className="ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/80 text-red-600"
-                                  aria-label="공정 삭제"
+                                  onDoubleClick={(event) => event.stopPropagation()}
+                                  className="absolute right-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/80 text-red-600 hover:bg-white"
+                                  aria-label={`${name} 일정 삭제`}
                                 >
                                   <X size={12} />
                                 </button>
-                              </div>
-                            );
-                          })}
-                        </div>
+                              ) : (
+                                <span className="absolute right-2 text-[8px] text-black/40" aria-hidden="true">▶</span>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   })}
@@ -3693,7 +3757,7 @@ export default function EstimateWorkspacePage() {
                       <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{adjustedTaskEndDate(task, holidaySet) || '-'}</div>
                       <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{formatNumber(task.durationDays || 1)}일</div>
                       <div className="rounded-md border border-[#d5dde2] px-3 py-2 text-sm">{task.vendorName || '담당자 미지정'}</div>
-                      <button type="button" onClick={() => deleteScheduleTask(task.id)} className="rounded-md border border-red-200 p-2 text-red-600">
+                      <button type="button" onClick={() => requestTaskDelete(task)} aria-label={`${task.name || '공정명 없음'} 일정 삭제`} className="rounded-md border border-red-200 p-2 text-red-600">
                         <Trash2 size={16} />
                       </button>
                     </div>
@@ -4363,9 +4427,72 @@ export default function EstimateWorkspacePage() {
           holidaySet={holidaySet}
           onChange={setScheduleEditor}
           onSave={saveScheduleEditor}
-          onDelete={() => deleteScheduleTask(scheduleEditor.id)}
+          onDelete={() => requestTaskDelete(scheduleEditor)}
           onClose={() => setScheduleEditor(null)}
         />
+      )}
+
+      {taskMenu && (
+        <div
+          data-task-menu
+          role="menu"
+          className="no-print fixed z-[70] w-44 rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg"
+          style={{ left: Math.min(taskMenu.x, window.innerWidth - 184), top: Math.min(taskMenu.y, window.innerHeight - 120) }}
+        >
+          <p className="truncate px-3 py-1.5 text-xs font-semibold text-[#60717d]">{taskMenu.task.name || '공정명 없음'}</p>
+          <hr className="my-1 border-[#edf2f5]" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setScheduleEditor(taskMenu.task);
+              setTaskMenu(null);
+            }}
+            className="block w-full px-3 py-1.5 text-left hover:bg-[#f2f6f8]"
+          >
+            수정
+          </button>
+          <button type="button" role="menuitem" onClick={() => requestTaskDelete(taskMenu.task)} className="block w-full px-3 py-1.5 text-left text-red-700 hover:bg-red-50">
+            삭제
+          </button>
+        </div>
+      )}
+
+      {taskToDelete && (
+        <div
+          className="no-print fixed inset-0 z-[75] flex items-center justify-center bg-[#171512]/45 px-4 backdrop-blur-sm"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setTaskToDelete(null);
+          }}
+        >
+          <section role="alertdialog" aria-modal="true" aria-labelledby="task-delete-title" className="w-full max-w-sm rounded-xl border border-[#d5dde2] bg-white p-6 shadow-2xl">
+            <h2 id="task-delete-title" className="text-lg font-semibold">‘{taskToDelete.name || '공정명 없음'}’ 일정을 삭제할까요?</h2>
+            <p className="mt-2 text-sm leading-6 text-[#60717d]">
+              {taskToDelete.startDate && (
+                <>
+                  {formatMonthDay(taskToDelete.startDate)} ~ {formatMonthDay(adjustedTaskEndDate(taskToDelete, holidaySet))} · {formatNumber(taskToDelete.durationDays || 1)}일
+                  <br />
+                </>
+              )}
+              저장을 눌러야 이 버전에 반영됩니다.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" autoFocus onClick={() => setTaskToDelete(null)} className="rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm font-semibold">
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteScheduleTask(taskToDelete.id);
+                  setTaskToDelete(null);
+                }}
+                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white"
+              >
+                삭제
+              </button>
+            </div>
+          </section>
+        </div>
       )}
 
       {isLegacyWorkModalOpen && (
@@ -4748,9 +4875,29 @@ export default function EstimateWorkspacePage() {
           versionLabel={versionLabel}
           schedule={schedule}
           holidays={holidays}
+          startDate={effectiveStartDate}
+          calendarMonth={calendarMonth}
           purchaseOrders={purchaseOrders}
           extraItems={extraItems}
           onClose={() => setIsDocumentBatchOpen(false)}
+        />
+      )}
+
+      {isSchedulePrintOpen && (
+        <DocumentBatchPrintModal
+          scheduleOnly
+          initialScheduleMode={isStartWeekCalendar ? 'startWeek' : 'month'}
+          site={selectedSite}
+          lines={lines}
+          totals={totals}
+          versionLabel={versionLabel}
+          schedule={schedule}
+          holidays={holidays}
+          startDate={effectiveStartDate}
+          calendarMonth={isStartWeekCalendar ? calendarWeekStart.slice(0, 7) : calendarMonth}
+          purchaseOrders={purchaseOrders}
+          extraItems={extraItems}
+          onClose={() => setIsSchedulePrintOpen(false)}
         />
       )}
     </main>
@@ -4860,34 +5007,62 @@ function UnnamedPricedLinesWarning({ count, className = '' }: { count: number; c
   );
 }
 
+// One page of the printed 공정표: a month (days of other months muted) or a run of weeks from the construction start
+// (days before the start muted).
+type SchedulePrintSheet = { key: string; title: string; weeks: string[]; monthKey?: string; fromDate?: string };
+
 function DocumentBatchPrintModal({
+  scheduleOnly = false,
+  initialScheduleMode = 'month',
   site,
   lines,
   totals,
   versionLabel,
   schedule,
   holidays,
+  startDate,
+  calendarMonth,
   purchaseOrders,
   extraItems,
   onClose,
 }: {
+  // scheduleOnly: the 공정 달력 tab's '달력 출력' window (only the 공정표 and its options).
+  scheduleOnly?: boolean;
+  initialScheduleMode?: 'month' | 'startWeek';
   site?: Site;
   lines: EstimateLine[];
   totals: ReturnType<typeof calculateTotals>;
   versionLabel: string;
   schedule: ScheduleTask[];
   holidays: string[];
+  // The construction start (공사 시작일, or the first task's start when none is set); '' when there is neither.
+  startDate: string;
+  calendarMonth: string;
   purchaseOrders: PurchaseOrder[];
   extraItems: ExtraItem[];
   onClose: () => void;
 }) {
-  const [selectedKeys, setSelectedKeys] = useState<string[]>(['cover', 'summary', 'detail']);
-  const [scheduleMonth, setScheduleMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [selectedKeys, setSelectedKeys] = useState<string[]>(scheduleOnly ? ['schedule'] : ['cover', 'summary', 'detail']);
+  const holidaySet = useMemo(() => new Set(holidays), [holidays]);
+  const scheduleTasks = useMemo(() => scheduleBarTasks(schedule, holidaySet), [holidaySet, schedule]);
+  const span = scheduleSpan(scheduleTasks);
+  const [scheduleMode, setScheduleMode] = useState<'month' | 'startWeek'>(initialScheduleMode === 'startWeek' && startDate ? 'startWeek' : 'month');
+  // The months default to the whole construction period, or to the month on screen when there are no tasks yet.
+  const [scheduleFrom, setScheduleFrom] = useState(() => (span ? [span.start, startDate].filter(Boolean).sort()[0].slice(0, 7) : calendarMonth));
+  const [scheduleTo, setScheduleTo] = useState(() => (span ? span.end.slice(0, 7) : calendarMonth));
+  const scheduleSheets: SchedulePrintSheet[] =
+    scheduleMode === 'startWeek' && startDate
+      ? weekPages(startDate, span && span.end > startDate ? span.end : startDate, 5).map((weeks, index) => ({ key: `start-${index}`, title: '공정표', weeks, fromDate: startDate }))
+      : monthKeysBetween(scheduleFrom, scheduleTo).map((month) => ({ key: month, title: `${formatMonthLabel(month)} 공정표`, weeks: monthWeekStarts(month), monthKey: month }));
+  const scheduleLabel =
+    scheduleMode === 'startWeek' && startDate
+      ? '공정표 (공사 시작부터)'
+      : `공정표 (${formatMonthLabel(scheduleFrom)}${scheduleSheets.length > 1 ? ` ~ ${formatMonthLabel(scheduleSheets[scheduleSheets.length - 1].key)}` : ''})`;
   const documentOptions = [
     { key: 'cover', label: '견적 표지' },
     { key: 'summary', label: '견적 갑지' },
     { key: 'detail', label: '세부내역서' },
-    { key: 'schedule', label: `공정표 (${formatMonthLabel(scheduleMonth)})` },
+    { key: 'schedule', label: scheduleLabel },
     { key: 'extras', label: '추가 사항' },
     ...purchaseOrders.map((order) => ({ key: `purchase:${order.id}`, label: `발주서 - ${order.title || order.vendorName || '무제'}` })),
   ];
@@ -4910,33 +5085,66 @@ function DocumentBatchPrintModal({
       <aside className="no-print w-[320px] shrink-0 overflow-auto border-r border-[#c7d3da] bg-white p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">PRINT SET</p>
-            <h2 className="mt-1 text-2xl font-bold">여러 서류 출력</h2>
-            <p className="mt-2 text-sm leading-6 text-[#60717d]">출력할 서류를 선택하고 오른쪽 미리보기에서 한 번에 인쇄합니다.</p>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#38a9bd]">{scheduleOnly ? 'PRINT' : 'PRINT SET'}</p>
+            <h2 className="mt-1 text-2xl font-bold">{scheduleOnly ? '공정 달력 출력' : '여러 서류 출력'}</h2>
+            <p className="mt-2 text-sm leading-6 text-[#60717d]">
+              {scheduleOnly ? '출력 방식을 고르면 오른쪽에 A4 가로로 미리 보여 줍니다.' : '출력할 서류를 선택하고 오른쪽 미리보기에서 한 번에 인쇄합니다.'}
+            </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full border border-[#d5dde2] p-2 text-[#60717d]">
+          <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full border border-[#d5dde2] p-2 text-[#60717d]">
             <X size={18} />
           </button>
         </div>
-        <UnnamedPricedLinesWarning count={unnamedPricedLineCount(lines)} className="mt-4" />
-        <label className="mt-5 block text-xs font-bold text-[#60717d]">공정표 출력 월</label>
-        <input type="month" value={scheduleMonth} onChange={(event) => setScheduleMonth(event.target.value)} className="mt-2 w-full rounded-md border border-[#d5dde2] px-3 py-2" />
-        <div className="mt-5 grid gap-2">
-          {documentOptions.map((option) => (
-            <label key={option.key} className="flex cursor-pointer items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f8fbfc] px-3 py-3 text-sm font-semibold">
-              <input type="checkbox" checked={selectedKeys.includes(option.key)} onChange={() => toggleKey(option.key)} />
-              <span>{option.label}</span>
-            </label>
+        {!scheduleOnly && <UnnamedPricedLinesWarning count={unnamedPricedLineCount(lines)} className="mt-4" />}
+        <p className="mt-5 text-xs font-bold text-[#60717d]">공정표 출력 방식</p>
+        <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[#edf2f5] p-1">
+          {([
+            ['month', '월별'],
+            ['startWeek', '공사 시작부터'],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              disabled={mode === 'startWeek' && !startDate}
+              onClick={() => setScheduleMode(mode)}
+              className={`rounded px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${scheduleMode === mode ? 'bg-white text-[#171512] shadow-sm' : 'text-[#60717d] hover:text-[#171512]'}`}
+            >
+              {label}
+            </button>
           ))}
         </div>
+        {scheduleMode === 'month' ? (
+          <>
+            <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <input type="month" aria-label="출력 시작 달" value={scheduleFrom} onChange={(event) => event.target.value && setScheduleFrom(event.target.value)} className="min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 text-sm" />
+              <span className="text-sm text-[#60717d]">~</span>
+              <input type="month" aria-label="출력 끝 달" value={scheduleTo} onChange={(event) => event.target.value && setScheduleTo(event.target.value)} className="min-w-0 rounded-md border border-[#d5dde2] px-2 py-2 text-sm" />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-[#60717d]">한 달에 한 장씩 출력합니다. (최대 12장)</p>
+          </>
+        ) : (
+          <p className="mt-3 rounded-md bg-[#f7fafb] p-3 text-xs leading-5 text-[#4d5d66]">
+            공사 시작 주({formatMonthDay(startDate)})부터 마지막 공정이 끝나는 주까지 5주씩 한 장으로 출력합니다. 공사 시작일보다 앞선 날은 흐리게 보입니다.
+          </p>
+        )}
+        {!scheduleOnly && (
+          <div className="mt-5 grid gap-2">
+            {documentOptions.map((option) => (
+              <label key={option.key} className="flex cursor-pointer items-center gap-3 rounded-md border border-[#d5dde2] bg-[#f8fbfc] px-3 py-3 text-sm font-semibold">
+                <input type="checkbox" checked={selectedKeys.includes(option.key)} onChange={() => toggleKey(option.key)} />
+                <span>{option.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
         <button type="button" onClick={() => window.print()} disabled={selectedKeys.length === 0} className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-4 py-3 font-semibold text-white disabled:opacity-50">
           <Printer size={17} />
-          선택 서류 한 번에 출력
+          {scheduleOnly ? `인쇄 (${scheduleSheets.length}장)` : '선택 서류 한 번에 출력'}
         </button>
       </aside>
       <section className="flex-1 overflow-auto p-6">
         <div className="no-print mb-4 flex items-center justify-between rounded-lg border border-[#c7d3da] bg-white px-4 py-3 shadow-sm">
-          <span className="text-sm font-semibold text-[#60717d]">선택 {selectedKeys.length}개</span>
+          <span className="text-sm font-semibold text-[#60717d]">{scheduleOnly ? `공정표 ${scheduleSheets.length}장` : `선택 ${selectedKeys.length}개`}</span>
           <button type="button" onClick={() => window.print()} disabled={selectedKeys.length === 0} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-bold disabled:opacity-50">
             전체 인쇄
           </button>
@@ -4949,7 +5157,7 @@ function DocumentBatchPrintModal({
             if (key === 'cover') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="cover" unwrap />;
             if (key === 'summary') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="summary" unwrap />;
             if (key === 'detail') return <LandscapeEstimateDocumentPreview key={key} site={site} lines={lines} totals={totals} versionLabel={versionLabel} view="detail" unwrap />;
-            if (key === 'schedule') return <SchedulePrintPage key={key} monthKey={scheduleMonth} tasks={schedule} holidays={holidays} site={site} />;
+            if (key === 'schedule') return <SchedulePrintPages key={key} sheets={scheduleSheets} tasks={scheduleTasks} holidays={holidaySet} startDate={startDate} site={site} />;
             if (key === 'extras') return <ExtraItemsPrintPage key={key} items={extraItems} site={site} />;
             if (key.startsWith('purchase:')) {
               const order = purchaseOrders.find((item) => item.id === key.replace('purchase:', ''));
@@ -5039,44 +5247,86 @@ function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?:
   );
 }
 
-function SchedulePrintPage({ monthKey, tasks, holidays, site }: { monthKey: string; tasks: ScheduleTask[]; holidays: string[]; site?: Site }) {
-  const holidaySet = new Set(holidays);
-  const days = buildCalendarDays(monthKey);
-  const weeks = Array.from({ length: 6 }).map((_, index) => days.slice(index * 7, index * 7 + 7));
-
+// The printed 공정표: the same bars as the 공정 달력 (longest task on top, name and worker in the middle), one A4 landscape
+// page per sheet.
+function SchedulePrintPages({
+  sheets,
+  tasks,
+  holidays,
+  startDate,
+  site,
+}: {
+  sheets: SchedulePrintSheet[];
+  tasks: ScheduleBarTask[];
+  holidays: Set<string>;
+  startDate: string;
+  site?: Site;
+}) {
   return (
-    <section className="print-landscape rounded-lg bg-white p-6 shadow-sm">
-      <DocumentPrintHeader title={`${formatMonthLabel(monthKey)} 공정표`} site={site} compact />
-      <table className="mt-5 w-full table-fixed border-collapse text-xs">
-        <thead>
-          <tr>{['월', '화', '수', '목', '금', '토', '일'].map((day) => <th key={day} className="border border-[#171512] bg-[#f4f1ec] py-2">{day}</th>)}</tr>
-        </thead>
-        <tbody>
-          {weeks.map((week, weekIndex) => (
-            <tr key={weekIndex}>
-              {week.map((day) => {
-                const dayTasks = tasksForDate(tasks, day.key, holidaySet);
+    <>
+      {sheets.map((sheet) => (
+        <section key={sheet.key} className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] rounded-lg bg-white p-6 shadow-sm print:rounded-none print:p-0 print:shadow-none">
+          <div className="flex h-full flex-col">
+            <DocumentPrintHeader title={sheet.title} site={site} compact />
+            <div className="mt-4 flex min-h-0 flex-1 flex-col border border-[#171512] text-xs">
+              <div className="grid grid-cols-7">
+                {['월', '화', '수', '목', '금', '토', '일'].map((day, index) => (
+                  <div key={day} className={`border-b border-[#171512] bg-[#f4f1ec] py-1.5 text-center font-bold ${index < 6 ? 'border-r' : ''}`}>
+                    {day}
+                  </div>
+                ))}
+              </div>
+              {sheet.weeks.map((weekStart, weekIndex) => {
+                const { bars, laneCount } = layoutCalendarWeek(tasks, weekStart);
                 return (
-                  <td key={day.key} className={`h-[28mm] align-top border border-[#171512] p-1 ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f5f5f5] text-[#9aa6ad]'}`}>
-                    <div className="flex justify-between text-[10px] font-bold">
-                      <span>{day.day}</span>
-                      {holidaySet.has(day.key) && <span className="text-red-600">휴일</span>}
-                    </div>
-                    <div className="mt-1 space-y-1">
-                      {dayTasks.slice(0, 4).map((task) => (
-                        <div key={`${day.key}-${task.id}`} className="truncate rounded px-1 py-0.5 text-[10px] font-semibold text-white" style={{ backgroundColor: normalizeColor(task.color || '#38a9bd') }}>
-                          {task.name} {task.vendorName ? `· ${task.vendorName}` : ''}
+                  <div
+                    key={weekStart}
+                    className={`grid flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}
+                    style={{ gridTemplateRows: `18px repeat(${laneCount}, auto) minmax(4px, 1fr)` }}
+                  >
+                    {Array.from({ length: 7 }, (_, index) => {
+                      const date = addDays(weekStart, index);
+                      const muted = sheet.monthKey ? !date.startsWith(sheet.monthKey) : Boolean(sheet.fromDate && date < sheet.fromDate);
+                      const day = Number(date.slice(8));
+                      const label = !sheet.monthKey && (index === 0 || day === 1) ? `${Number(date.slice(5, 7))}/${day}` : String(day);
+                      return (
+                        <div
+                          key={date}
+                          style={{ gridColumn: index + 1, gridRow: '1 / -1' }}
+                          className={`px-1 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f5f5f5] text-[#9aa6ad]' : 'bg-white'}`}
+                        >
+                          <div className="flex items-center gap-1 text-[10px] font-bold">
+                            <span>{label}</span>
+                            {date === startDate && <span className="rounded-full bg-[#171512] px-1.5 text-[9px] text-white">공사 시작</span>}
+                            {holidays.has(date) && <span className="text-red-600">휴일</span>}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </td>
+                      );
+                    })}
+                    {bars.map((bar) => {
+                      const { task } = bar.task;
+                      const color = normalizeColor(task.color);
+                      return (
+                        <div
+                          key={task.id}
+                          style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: color, color: readableTextColor(color) }}
+                          className={`relative z-[1] my-px flex h-4 min-w-0 items-center justify-center px-1 text-[10px] font-semibold ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
+                        >
+                          <span className="truncate">
+                            {task.name || '공정명 없음'}
+                            {task.vendorName ? ` · ${task.vendorName}` : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 );
               })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+            </div>
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -7515,15 +7765,6 @@ function formatMonthDay(dateKeyValue: string) {
   return `${date.getMonth() + 1}월 ${date.getDate()}일`;
 }
 
-function tasksForDate(tasks: ScheduleTask[], date: string, holidays: Set<string>) {
-  return tasks.filter((task) => {
-    const start = task.startDate || task.endDate;
-    const end = adjustedTaskEndDate(task, holidays);
-    if (!start && !end) return false;
-    return date >= start && date <= end;
-  });
-}
-
 function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number);
   return `${year}년 ${month}월`;
@@ -7536,30 +7777,18 @@ function formatShortDate(value?: string) {
   return `${date.getFullYear()}.${`${date.getMonth() + 1}`.padStart(2, '0')}.${`${date.getDate()}`.padStart(2, '0')}`;
 }
 
+// The last day the calendar shows for a task: durationDays from the start, moved later for every holiday inside.
 function adjustedTaskEndDate(task: ScheduleTask, holidays: Set<string>) {
-  const start = task.startDate || task.endDate;
-  if (!start) return '';
-  const rawEnd = task.durationDays ? addDays(start, Math.max(1, Number(task.durationDays || 1)) - 1) : task.endDate || start;
-  return extendEndDateForHolidays(start, rawEnd, holidays);
+  return scheduleTaskEnd(task, holidays);
 }
 
-function extendEndDateForHolidays(start: string, rawEnd: string, holidays: Set<string>) {
-  let end = rawEnd;
-  let previousEnd = '';
-  while (end !== previousEnd) {
-    previousEnd = end;
-    const holidayCount = countHolidaysBetween(start, end, holidays);
-    end = addDays(rawEnd, holidayCount);
-  }
-  return end;
-}
+// A calendar bar: the task with the day it really ends (tasks without a start are not on the calendar).
+type ScheduleBarTask = { id: string; startDate: string; endDate: string; task: ScheduleTask };
 
-function countHolidaysBetween(start: string, end: string, holidays: Set<string>) {
-  let count = 0;
-  holidays.forEach((date) => {
-    if (date >= start && date <= end) count += 1;
-  });
-  return count;
+function scheduleBarTasks(schedule: ScheduleTask[], holidays: Set<string>): ScheduleBarTask[] {
+  return schedule
+    .filter((task) => task.startDate)
+    .map((task) => ({ id: task.id, startDate: task.startDate, endDate: adjustedTaskEndDate(task, holidays), task }));
 }
 
 function addDays(dateKeyValue: string, days: number) {
@@ -7613,6 +7842,13 @@ function colorForName(name: string) {
 function normalizeColor(value?: string) {
   const color = String(value || '').trim();
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
+}
+
+// Dark text on light bar colors, white text on dark ones (e.g. 차콜).
+function readableTextColor(color: string) {
+  const hex = normalizeColor(color).replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((index) => parseInt(hex.slice(index, index + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#171512' : '#ffffff';
 }
 
 function softenColor(color: string) {

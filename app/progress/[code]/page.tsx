@@ -74,7 +74,7 @@ export default async function ProgressPage({ params }: { params: Promise<{ code:
     });
     return (
       <ProgressShell>
-        <ProgressView view={view} />
+        <ProgressView view={view} syncHash />
       </ProgressShell>
     );
   } catch (error) {

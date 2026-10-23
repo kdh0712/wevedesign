@@ -1,6 +1,8 @@
 // Progress calculations for the customer construction progress page. Pure functions only (no Next.js or network),
 // so API routes, the server-rendered customer page and the manager screen all share the same rules.
 
+import { isDateKey, scheduleTaskEnd } from './schedule-calendar.ts';
+
 export type ProgressScheduleTask = {
   id: string;
   name: string;
@@ -8,6 +10,7 @@ export type ProgressScheduleTask = {
   endDate: string;
   durationDays: number;
   progress: number;
+  color?: string;
 };
 
 export type ProgressTaskView = {
@@ -18,6 +21,8 @@ export type ProgressTaskView = {
   // 'delayed': past its end date while staff set a progress below 100.
   state: 'done' | 'active' | 'upcoming' | 'delayed';
   percent: number;
+  // The bar color from the manager calendar (#rrggbb), or '' when there is none.
+  color: string;
 };
 
 export type ScheduleSummary = {
@@ -54,10 +59,14 @@ export type ProgressUpdate = {
 // A progress record as the manager screen receives it: the same record with signed photo URLs instead of pathnames.
 export type ProgressUpdateView = Omit<ProgressUpdate, 'photos'> & { photos: ProgressPhotoView[] };
 
+// The customer's schedule also carries, for the calendar, the manager's holidays inside the construction period and the day
+// the states were worked out for (so the server and the browser agree on "today").
+export type CustomerSchedule = ScheduleSummary & { holidays: string[]; today: string };
+
 export type CustomerProgressView = {
   siteTitle: string;
   customerName: string;
-  schedule: ScheduleSummary | null;
+  schedule: CustomerSchedule | null;
   updates: Array<{ id: string; reportDate: string; designer: string; workDetail: string; photos: ProgressPhotoView[] }>;
   contactPhone: '031-381-0489';
   // Set when the photo URLs could not be made: the records are shown without photos and with a short notice.
@@ -136,7 +145,8 @@ export function summarizeSchedule(tasks: ProgressScheduleTask[], today: string):
     weightedTotal += percent * weight;
     weightSum += weight;
 
-    views.push({ id: String(task.id ?? ''), name, startDate, endDate, state, percent });
+    const color = /^#[0-9a-fA-F]{6}$/.test(String(task.color ?? '')) ? String(task.color) : '';
+    views.push({ id: String(task.id ?? ''), name, startDate, endDate, state, percent, color });
   }
 
   if (views.length === 0) return null;
@@ -174,7 +184,31 @@ function parseScheduleTasks(scheduleJson: unknown): ProgressScheduleTask[] {
       endDate: typeof item.endDate === 'string' ? item.endDate : '',
       durationDays: Number(item.durationDays) || 0,
       progress: Number(item.progress) || 0,
+      color: typeof item.color === 'string' ? item.color : '',
     }));
+}
+
+// holidaysJson is the manager's list of days off (YYYY-MM-DD); anything unreadable means no holidays.
+function parseHolidays(holidaysJson: unknown): string[] {
+  if (typeof holidaysJson !== 'string' || !holidaysJson.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(holidaysJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  return Array.from(new Set(parsed.filter((item): item is string => typeof item === 'string' && isDateKey(item)))).sort();
+}
+
+// The schedule as the customer sees it: each task ends on the day the manager calendar shows (holidays move it later), and
+// the holidays inside the construction period come along for the calendar.
+function customerSchedule(estimate: Record<string, unknown>, today: string): CustomerSchedule | null {
+  const holidays = parseHolidays(estimate.holidaysJson);
+  const tasks = parseScheduleTasks(estimate.scheduleJson).map((task) => ({ ...task, endDate: scheduleTaskEnd(task, holidays) || task.endDate }));
+  const summary = summarizeSchedule(tasks, today);
+  if (!summary) return null;
+  return { ...summary, holidays: holidays.filter((date) => date >= summary.startDate && date <= summary.endDate), today };
 }
 
 function compareDescending(a: string, b: string): number {
@@ -193,7 +227,7 @@ export function buildCustomerProgressView(input: {
   const { site, updates, estimates, today, photosUnavailable } = input;
   // Only the title and the customer name are read from the site; every other field stays on the server.
   const picked = pickScheduleEstimate(estimates);
-  const schedule = picked ? summarizeSchedule(parseScheduleTasks(picked.scheduleJson), today) : null;
+  const schedule = picked ? customerSchedule(picked, today) : null;
 
   return {
     siteTitle: typeof site.title === 'string' ? site.title : '',
