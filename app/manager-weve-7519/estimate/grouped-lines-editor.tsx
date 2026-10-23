@@ -78,23 +78,26 @@ const LABELS: Record<GroupedColumn, string> = {
   margin: '마진',
   note: '비고',
 };
-// Column widths in px. Every column has one, 품명 the widest, and the table is never narrower than their sum, so no column
-// (품명 in particular) is squeezed when the screen is narrow; the table scrolls sideways instead.
+// Column widths in px. 품명 and 규격 (0 here) share the space left over, never narrower than FLEX_MIN; the table is never
+// narrower than all of them together, so on a narrow screen it scrolls sideways instead of squeezing a column.
 const WIDTHS: Record<GroupedColumn, number> = {
-  space: 96,
-  category: 128,
-  process: 112,
-  name: 240,
-  spec: 160,
-  unit: 64,
-  quantity: 80,
-  customerUnitPrice: 112,
-  executionUnitPrice: 112,
-  margin: 88,
-  note: 128,
+  space: 80,
+  category: 112,
+  process: 100,
+  name: 0,
+  spec: 0,
+  unit: 56,
+  quantity: 64,
+  customerUnitPrice: 100,
+  executionUnitPrice: 100,
+  margin: 72,
+  note: 100,
 };
+const FLEX_MIN: Partial<Record<GroupedColumn, number>> = { name: 180, spec: 140 };
 const HANDLE_WIDTH = 28;
-const MENU_WIDTH = 112;
+// ↑, ↓ and ⋯ side by side.
+const MENU_WIDTH = 108;
+const columnMinWidth = (column: GroupedColumn) => WIDTHS[column] || FLEX_MIN[column] || 0;
 const INPUT = 'w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]';
 const SMALL = 'rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold disabled:opacity-40';
 const won = (value: number) => Math.round(value).toLocaleString('ko-KR');
@@ -444,12 +447,12 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
             </div>
             {!isFolded && (
               <div className="overflow-x-auto">
-                <table className="w-full table-fixed border-collapse text-sm" style={{ minWidth: HANDLE_WIDTH + columns.reduce((sum, column) => sum + WIDTHS[column], 0) + MENU_WIDTH }}>
+                <table className="w-full table-fixed border-collapse text-sm" style={{ minWidth: HANDLE_WIDTH + columns.reduce((sum, column) => sum + columnMinWidth(column), 0) + MENU_WIDTH }}>
                   <thead>
                     <tr className="border-b border-[#edf2f5] text-left text-xs text-[#60717d]">
                       <th style={{ width: HANDLE_WIDTH }} />
                       {columns.map((column) => (
-                        <th key={column} style={{ width: WIDTHS[column] }} className={`py-1.5 pr-2 ${column === 'margin' ? 'text-right' : ''}`}>{labels[column]}</th>
+                        <th key={column} style={WIDTHS[column] ? { width: WIDTHS[column] } : undefined} className={`py-1.5 pr-2 ${column === 'margin' ? 'text-right' : ''}`}>{labels[column]}</th>
                       ))}
                       <th style={{ width: MENU_WIDTH }} className="py-1.5 pr-2">순서·메뉴</th>
                     </tr>

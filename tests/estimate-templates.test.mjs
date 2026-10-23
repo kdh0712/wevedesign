@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  clusterTemplateLinesByName,
+  templateNameRowSpans,
   namedTemplateLines,
   templateLineLabel,
   appendTemplateLines,
@@ -356,4 +358,18 @@ test('appending lines keeps blank rows the user already added', () => {
 test('기준 평형 accepts only plain numbers', () => {
   for (const bad of [true, [30], '1e2', '30평', '0x1f']) assert.notEqual(templateBaseAreaError(bad), '', String(bad));
   for (const ok of [30, 24.5, '24.5', ' 30 ', '']) assert.equal(templateBaseAreaError(ok), '', String(ok));
+});
+
+test('lines of a 공사 gather by 품명 like the printed 세부내역서, and the 품명 cell spans its run', () => {
+  const lines = [
+    line({ id: 'a', name: '거실 욕실' }),
+    line({ id: 'b', name: '안방 욕실' }),
+    line({ id: 'c', name: ' 거실 욕실 ' }),
+    line({ id: 'd', name: '거실 욕실' }),
+  ];
+  const clustered = clusterTemplateLinesByName(lines);
+  assert.deepEqual(clustered.map((l) => l.id), ['a', 'c', 'd', 'b']);
+  assert.deepEqual(templateNameRowSpans(clustered), [3, 0, 0, 1]);
+  assert.deepEqual(templateNameRowSpans([line({ name: '' }), line({ name: '' })]), [1, 1], 'blank names are never merged');
+  assert.deepEqual(templateNameRowSpans([]), []);
 });
