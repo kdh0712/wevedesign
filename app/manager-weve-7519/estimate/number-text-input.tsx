@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 
 // The estimate page's comma-formatted number field (same behaviour as NumberTextInput in page.tsx), for the dialogs
 // that live in their own files.
@@ -9,11 +9,18 @@ export function NumberTextInput({
   onChange,
   ariaLabel,
   className = '',
+  onKeyDown,
+  dataLine,
+  dataCol,
 }: {
   value: number;
   onChange: (value: number) => void;
   ariaLabel?: string;
   className?: string;
+  // For the grouped estimate table's keyboard moves (Enter to the next row).
+  onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
+  dataLine?: string;
+  dataCol?: string;
 }) {
   const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
   const [isEditing, setIsEditing] = useState(false);
@@ -27,6 +34,9 @@ export function NumberTextInput({
       type="text"
       inputMode="decimal"
       aria-label={ariaLabel}
+      data-line={dataLine}
+      data-gcol={dataCol}
+      onKeyDown={onKeyDown}
       value={displayValue}
       onFocus={() => setIsEditing(true)}
       onBlur={() => {
