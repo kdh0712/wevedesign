@@ -54,6 +54,9 @@ This file records durable product and implementation decisions. Review it before
 - A schedule task past its end date counts as done, except when staff entered a progress of 1-99: then the customer sees it as 지연 with that progress. A task whose progress was never entered keeps the date rule.
 - Permanently deleting a site also deletes its `siteProgressUpdates` records and their photos (photos after the answer; a failed photo delete is only logged).
 - The link panel shows staff when the customer last got in (`lastOkAt`) and, while wrong numbers have locked the link, until when; never the code or the number.
+- The page shows one section at a time, picked from the ☰ menu at the top (`app/lib/progress-menu.tsx`). 공사 일정 (진행률, 공정 달력, the schedule list) is the first page; 현황 사진 holds the dated records. Put new customer features into that menu as further sections, not under the first page. The 문의 call button stays under every section. On the public page the chosen section is kept in the address (`#photos`), so the phone's back button works; the manager preview switches without touching its address.
+- A long 공정 일정 list scrolls inside its box instead of stretching the page.
+- The customer's task end dates are the ones the manager calendar shows: `durationDays` from the start, moved later for every holiday the manager set (`scheduleTaskEnd`). The customer view carries the bar color and the holidays inside the construction period for the calendar, never the worker.
 
 ## Staff Phone App
 
@@ -87,6 +90,12 @@ This file records durable product and implementation decisions. Review it before
 - The connection is stored only as `ipHash`, an HMAC of the address keyed with `CONSULTATION_RATE_SECRET` (or `MANAGER_SESSION_SECRET`). Never store or log the address itself. Records also keep `phoneDigits` for the duplicate check.
 - If the duplicate check cannot read recent records, the submission goes through. Never turn a real customer away because the check failed.
 - The dashboard's 30-second refresh checks Kakao BizForm+ at most every 5 minutes (`app/lib/dashboard-rules.ts`); the 동기화 button checks right away.
+
+## Schedule Calendar
+
+- The 공정 달력, its printed 공정표 and the customer calendar draw the same bars (`app/lib/schedule-calendar.ts`): weeks run Monday to Sunday, the longest task takes the top lane (then the earlier start), a task keeps one lane within a week, and its name sits in the middle of the bar.
+- A task is deleted from its bar's ✕ (on its last day only), the bar's right-click menu, the 일정 상세 list or the edit window, and every one of them asks first. Double-clicking a bar opens the edit window.
+- '달력 출력' prints 월별 (one A4 landscape page per month, at most 12) or 공사 시작부터 (from the week of the construction start to the week of the last task, 5 weeks a page, titled just '공정표'). 여러 서류 출력's 공정표 uses the same choice. Printed bars show the task name and the worker.
 
 ## Estimate Templates
 
