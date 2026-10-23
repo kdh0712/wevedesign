@@ -18,6 +18,7 @@ import {
 } from '../../lib/estimate-common-options';
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import {
+  appendTemplateLines,
   insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
@@ -301,7 +302,6 @@ const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로�
 const MATERIAL_SETTINGS_UNAVAILABLE_MESSAGE = '견적 DB 설정(견적 카테고리·자재 순서)을 불러오지 못했습니다. 잠시 후 새로고침해 주세요.';
 const MATERIAL_CACHE_STORAGE_KEY = 'weve-estimate-materials-cache-v1';
 const NEW_ESTIMATE_ID = '__new_estimate_version__';
-const LINE_DRAFT_PICKER_ID = '__line_draft__';
 // The material picker was opened by the template editor; picked lines go to it, not into the estimate.
 const TEMPLATE_PICKER_ID = '__template__';
 const DETAIL_PRINT_ROWS_PER_PAGE = 20;
@@ -608,7 +608,6 @@ export default function EstimateWorkspacePage() {
   const [memo, setMemo] = useState('');
   const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
   const [lineDraft, setLineDraft] = useState<EstimateLine>(() => emptyLine());
-  const [editingLineId, setEditingLineId] = useState('');
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [workLineDraft, setWorkLineDraft] = useState<WorkLine>(() => emptyWorkLine());
   const [editingWorkLineId, setEditingWorkLineId] = useState('');
@@ -676,6 +675,8 @@ export default function EstimateWorkspacePage() {
   const [isEstimatePreviewOpen, setIsEstimatePreviewOpen] = useState(true);
   const [estimateNewGroup, setEstimateNewGroup] = useState<string | null>(null);
   const [pendingDbSaveOpen, setPendingDbSaveOpen] = useState(false);
+  // The line the 'DB에 저장' panel was opened for; the panel follows its later edits and closes if it is deleted.
+  const [dbSaveLineId, setDbSaveLineId] = useState('');
   const [workGroupBy, setWorkGroupBy] = useState<'space' | 'category'>('category');
   const [editingMaterial, setEditingMaterial] = useState<Material>({});
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -885,11 +886,23 @@ export default function EstimateWorkspacePage() {
     if (lineSpaceFilter && !lineSpaceOptions.includes(lineSpaceFilter)) setLineSpaceFilter('');
   }, [lineSpaceFilter, lineSpaceOptions]);
 
+  useEffect(() => {
+    if (!isLineDbSaveOpen || !dbSaveLineId) return;
+    const line = lines.find((item) => item.id === dbSaveLineId);
+    if (!line) {
+      setIsLineDbSaveOpen(false);
+      setDbSaveLineId('');
+      return;
+    }
+    setLineDraft((current) => (JSON.stringify(current) === JSON.stringify(line) ? current : { ...line }));
+  }, [dbSaveLineId, isLineDbSaveOpen, lines]);
+
   // A line menu's 'DB에 저장' puts the line into the draft first; the save panel reads the draft, so it opens on the next render.
   useEffect(() => {
     if (!pendingDbSaveOpen) return;
     setPendingDbSaveOpen(false);
     openLineDbSave();
+    requestAnimationFrame(() => document.getElementById('line-db-save-heading')?.scrollIntoView({ block: 'center', behavior: 'smooth' }));
     // openLineDbSave reads the draft set together with this request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingDbSaveOpen]);
@@ -917,7 +930,6 @@ export default function EstimateWorkspacePage() {
       setLines(nextLines);
       setWorkLines(deriveWorkLines(nextLines));
       setLineDraft(emptyLine());
-      setEditingLineId('');
       setWorkLineDraft(emptyWorkLine());
       setEditingWorkLineId('');
       setSchedule([emptyTask()]);
@@ -976,7 +988,6 @@ export default function EstimateWorkspacePage() {
     setLines(nextLines);
     setWorkLines(nextWorkLines.length ? nextWorkLines : deriveWorkLines(nextLines));
     setLineDraft(emptyLine());
-    setEditingLineId('');
     setWorkLineDraft(emptyWorkLine());
     setEditingWorkLineId('');
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
@@ -1006,7 +1017,6 @@ export default function EstimateWorkspacePage() {
       setLines(nextLinesForSite);
       setWorkLines(deriveWorkLines(nextLinesForSite));
       setLineDraft(emptyLine());
-      setEditingLineId('');
       setWorkLineDraft(emptyWorkLine());
       setEditingWorkLineId('');
       const nextSitePurchaseOrders = [emptyPurchaseOrder()];
@@ -1581,7 +1591,7 @@ export default function EstimateWorkspacePage() {
       return;
     }
 
-    setLines((current) => current.map((line) => (line.id === selectedLineId ? applyMaterialToLine(line, material) : line)));
+    setLines((current) => arrangeEstimateLines(current.map((line) => (line.id === selectedLineId ? applyMaterialToLine(line, material) : line))));
     setActiveTab('lines');
   };
 
@@ -1605,17 +1615,6 @@ export default function EstimateWorkspacePage() {
       step: pickerStepFor(step, line.category, line.process),
       category: line.category,
       process: line.process,
-      search: '',
-    });
-  };
-
-  const openLineDraftMaterialPicker = (step: MaterialPickerState['step'] = 'category') => {
-    rememberPickerOpener();
-    setMaterialPicker({
-      lineId: LINE_DRAFT_PICKER_ID,
-      step: pickerStepFor(step, lineDraft.category, lineDraft.process),
-      category: lineDraft.category,
-      process: lineDraft.process,
       search: '',
     });
   };
@@ -1712,16 +1711,7 @@ export default function EstimateWorkspacePage() {
       setMaterialPicker(null);
       return;
     }
-    if (materialPicker.lineId === LINE_DRAFT_PICKER_ID) {
-      setLineDraft((current) => apply(current));
-      setLineDraftSource(material);
-      // A DB-save list loaded for the draft before this pick must not be saved over another item.
-      setIsLineDbSaveOpen(false);
-      setMaterialPicker(null);
-      setActiveTab('lines');
-      return;
-    }
-    setLines((current) => current.map((line) => (line.id === materialPicker.lineId ? apply(line) : line)));
+    setLines((current) => arrangeEstimateLines(current.map((line) => (line.id === materialPicker.lineId ? apply(line) : line))));
     setMaterialPicker(null);
     setActiveTab('lines');
   };
@@ -1733,11 +1723,10 @@ export default function EstimateWorkspacePage() {
       choosePickerMaterial(material, options[0]);
       return;
     }
-    const fromDraft = materialPicker.lineId === LINE_DRAFT_PICKER_ID;
-    const target = fromDraft ? lineDraft : lines.find((line) => line.id === materialPicker.lineId);
-    // Row 1 replaces a line when the picker was opened for a line in the list, or for a draft that is editing one.
-    const replaceLineId = fromDraft ? editingLineId : materialPicker.lineId;
-    const replacing = Boolean(target && replaceLineId && lines.some((line) => line.id === replaceLineId));
+    const target = lines.find((line) => line.id === materialPicker.lineId);
+    // Row 1 replaces the line the picker was opened for.
+    const replaceLineId = materialPicker.lineId;
+    const replacing = Boolean(target && lines.some((line) => line.id === replaceLineId));
     setCommonBulkAdd({
       material,
       options,
@@ -1749,28 +1738,22 @@ export default function EstimateWorkspacePage() {
       replacedLine: replacing && target ? { quantity: target.quantity, note: target.note } : null,
       opener: pickerOpenerRef.current,
     });
-    if (fromDraft) setIsLineDbSaveOpen(false);
     setMaterialPicker(null);
   };
 
-  // Every row becomes a line built like a single pick of the item. From the draft the lines are added like 항목 추가
-  // (replacing the line being edited, like 수정 반영); from a line in the list, that line becomes row 1 and the rest follow it.
+  // Every row becomes a line built like a single pick of the item: the line the picker was opened for becomes row 1 and
+  // the rest follow it (the template editor gets the rows instead).
   const addCommonBulkLines = (shared: CommonBulkShared, rows: CommonBulkRow[]) => {
     if (!commonBulkAdd) return;
     const { material, library, targetLineId, replaceLineId } = commonBulkAdd;
-    const fromDraft = targetLineId === LINE_DRAFT_PICKER_ID;
-    const base = fromDraft ? lineDraft : lines.find((line) => line.id === targetLineId) || emptyLine();
+    const base = lines.find((line) => line.id === targetLineId) || emptyLine();
     const newLines = buildCommonBulkLines(applyMaterialToLine(base, material, library), shared, rows, () => emptyLine().id);
     if (targetLineId === TEMPLATE_PICKER_ID) {
       templatePickRef.current?.(newLines);
       setCommonBulkAdd(null);
       return;
     }
-    setLines((current) => placeCommonBulkLines(current, newLines, replaceLineId));
-    if (fromDraft) {
-      resetLineDraft();
-      setSelectedLineId(replaceLineId && newLines.length === 1 ? replaceLineId : newLines[newLines.length - 1].id);
-    }
+    setLines((current) => arrangeEstimateLines(placeCommonBulkLines(current, newLines, replaceLineId)));
     setCommonBulkAdd(null);
     setActiveTab('lines');
     setError('');
@@ -1802,7 +1785,6 @@ export default function EstimateWorkspacePage() {
         : deriveWorkLines(nextLines),
     );
     setLineDraft(emptyLine());
-    setEditingLineId('');
     setWorkLineDraft(emptyWorkLine());
     setEditingWorkLineId('');
     setSchedule(copyCurrent && schedule.some((task) => task.name) ? cloneScheduleTasks(schedule) : [emptyTask()]);
@@ -1832,13 +1814,6 @@ export default function EstimateWorkspacePage() {
     setLines((current) => current.map((line) => (line.id === id ? { ...line, ...updates } : line)));
   };
 
-  const resetLineDraft = () => {
-    setLineDraft(emptyLine());
-    setEditingLineId('');
-    setLineDraftSource(null);
-    setIsLineDbSaveOpen(false);
-  };
-
   // 템플릿 불러오기: the lines come in with new ids; 실행 내역 rows that pointed at lines this removes are unlinked, as when
   // a line is deleted.
   const applyTemplateLines = (incoming: EstimateLine[], mode: 'replace' | 'append') => {
@@ -1854,7 +1829,7 @@ export default function EstimateWorkspacePage() {
   const openLineDbSaveFor = (line: EstimateLine) => {
     setLineDraft({ ...line });
     setLineDraftSource(null);
-    setEditingLineId('');
+    setDbSaveLineId(line.id);
     setPendingDbSaveOpen(true);
   };
 
@@ -2864,7 +2839,7 @@ export default function EstimateWorkspacePage() {
                   )}
                   <button
                     type="button"
-                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(placeTemplateLines(current, withTemplateSpace(picked, lineSpaceFilter), 'append'))))}
+                    onClick={() => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(appendTemplateLines(current, withTemplateSpace(picked, lineSpaceFilter)))))}
                     className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm font-semibold hover:bg-[#f2f6f8]"
                   >
                     DB에서 추가
@@ -2907,7 +2882,7 @@ export default function EstimateWorkspacePage() {
               </div>
 
               {isLineDbSaveOpen && (
-                <p className="mb-1 text-sm font-semibold">DB에 저장 · {lineDraft.name || '이름 없는 항목'} {lineDraft.spec ? `(${lineDraft.spec})` : ''}</p>
+                <p id="line-db-save-heading" className="mb-1 text-sm font-semibold">DB에 저장 · {lineDraft.name || '이름 없는 항목'} {lineDraft.spec ? `(${lineDraft.spec})` : ''}</p>
               )}
                 {isLineDbSaveOpen && (
                   <div className="mt-3 grid gap-2 rounded-md border border-[#e7d8bd] bg-[#fffdf8] p-3 md:grid-cols-[minmax(0,220px)_auto_auto_auto] md:items-center">
