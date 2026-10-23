@@ -17,7 +17,13 @@ import {
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
 import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
-import { isBlankEstimateLine, isMaterialListCurrent, placeTemplateLines } from '../../lib/estimate-templates';
+import {
+  isBlankEstimateLine,
+  isMaterialListCurrent,
+  orderTemplateLinesByGroup,
+  pinBaseGroupFirst,
+  placeTemplateLines,
+} from '../../lib/estimate-templates';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
@@ -956,7 +962,9 @@ export default function EstimateWorkspacePage() {
     setVersionType(nextVersionType);
     setVersionLabel(estimate?.versionLabel || defaultVersionLabel(nextVersionType, selectedSiteEstimates));
     setMemo(estimate?.memo || '');
-    const nextLines = parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]);
+    // Lines are shown and saved gathered by 공사 with the 기본견적 공사 first (spec 2026-10-23 §3). The saved-state snapshot
+    // is taken after this, so opening an estimate never counts as an unsaved change.
+    const nextLines = arrangeEstimateLines(parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]));
     const nextWorkLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(estimate?.workLinesJson, []));
     const nextPurchaseOrders = hydratePurchaseOrders(parseJson<Partial<PurchaseOrder>[]>(estimate?.purchaseOrdersJson, [emptyPurchaseOrder()]));
     const nextPurchaseOrderTemplatePresets = hydratePurchaseOrderTemplatePresets(parseJson<Partial<PurchaseOrderTemplatePreset>[]>(estimate?.purchaseOrderTemplatesJson, defaultPurchaseOrderTemplatePresets));
@@ -1558,7 +1566,7 @@ export default function EstimateWorkspacePage() {
   };
 
   const addMaterialToEstimate = (material: Material, library: MaterialLibrary = dbLibrary) => {
-    setLines((current) => [...current, applyMaterialToLine(emptyLine(), material, library)]);
+    setLines((current) => arrangeEstimateLines([...current, applyMaterialToLine(emptyLine(), material, library)]));
     setActiveTab('lines');
   };
 
@@ -1859,7 +1867,7 @@ export default function EstimateWorkspacePage() {
   const applyTemplateLines = (incoming: EstimateLine[], mode: 'replace' | 'append') => {
     const removedIds = (mode === 'replace' ? lines : lines.filter(isBlankEstimateLine)).map((line) => line.id);
     setLines((current) => {
-      const next = placeTemplateLines(current, incoming, mode);
+      const next = arrangeEstimateLines(placeTemplateLines(current, incoming, mode));
       return next.length ? next : [emptyLine()];
     });
     setWorkLines((current) => removedIds.reduce((rows, id) => unlinkWorkLinesFromLine(rows, id), current));
@@ -7373,6 +7381,11 @@ function sortEstimateLines(lines: EstimateLine[], groupBy: 'space' | 'category')
     if (groupDiff !== 0) return groupDiff;
     return (a.process || a.name).localeCompare(b.process || b.name, 'ko-KR');
   });
+}
+
+// Each 공사's lines together, in the order the 공사 first appear, with the 기본견적 공사 first.
+function arrangeEstimateLines(lines: EstimateLine[]) {
+  return pinBaseGroupFirst(orderTemplateLinesByGroup(lines), isBaseEstimateLine);
 }
 
 function isBaseEstimateLine(line: EstimateLine) {
