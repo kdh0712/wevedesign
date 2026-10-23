@@ -126,6 +126,13 @@ This file records durable product and implementation decisions. Review it before
 - 평형 수량 조정 is off unless ticked in the load dialog: quantities of the ticked units (area units m2·㎡·m²·평 ticked by default) × 현장 평형 ÷ 기준 평형, rounded to one decimal. A template's `baseArea` is optional, 1–500.
 - '이 견적을 템플릿으로 저장' saves the ticked 공사 (the 기본견적 공사 starts unticked) as a new template or over an existing one after a second confirmation, with the same version check as any template save.
 
+## Staff Manuals
+
+- The PDF manuals (spec `docs/superpowers/specs/2026-10-23-manager-manuals-design.md`) are `manuals/office.pdf` (통합 매니저) and `manuals/estimate.pdf` (견적 작업). Staff download them with '사용 설명서' in the manager header and the estimate header, through `GET /api/manager/manual?book=office|estimate`. Any logged-in account gets the office manual; the estimate manual needs `estimates`. They live outside `public/`, so no URL serves them without a session.
+- Remake them with `npm run manuals` (Chrome or Edge on the PC; it starts `next dev` on port 3000 when nothing answers there). The content of each manual is one file, `scripts/manuals/office-manual.mjs` and `scripts/manuals/estimate-manual.mjs`; red numbers are placed on elements found by their text, so they follow moved buttons. After a visible change to a manager screen, remake the manuals and commit the PDFs.
+- Screens are captured with made-up data only (`scripts/manuals/mock-data.mjs`, `mock-estimate.mjs`), served to the page by a mock `fetch` that answers every `/api/manager/*` and `/api/integrations/*` request, so nothing reaches a real server. Real names and numbers built into the screens (default designer, the estimate documents' company block, placeholders, fallback phones) are swapped for made-up ones before each capture (`SCRUB_TEXT`). Never put a real customer, site or vendor into the fake data.
+- The builder refuses to write a PDF when a page overflows, a red number falls outside its picture, a link does not land on its section's page, or the file exceeds 4,000,000 bytes (a Vercel function cannot send more than 4.5 MB). `next.config.ts` lists `./manuals/*.pdf` in `outputFileTracingIncludes` so the deployed route has the files.
+
 ## Portfolio
 
 - Project cards must remain real anchor links with crawlable `/portfolio/...` URLs while normal clicks may open the modal experience.

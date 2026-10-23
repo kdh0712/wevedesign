@@ -28,6 +28,7 @@ import {
   placeTemplateLines,
   withTemplateSpace,
 } from '../../lib/estimate-templates';
+import { ManualDownloadButton } from '../manual-download-button';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
@@ -2567,6 +2568,7 @@ export default function EstimateWorkspacePage() {
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#38a9bd]">WEVE ESTIMATE</p>
               <h1 className="text-xl font-semibold tracking-normal md:text-2xl">현장별 견적 작업</h1>
             </div>
+            <ManualDownloadButton book="estimate" authHeaders={() => authHeaders()} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select

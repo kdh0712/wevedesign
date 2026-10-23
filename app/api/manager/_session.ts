@@ -3,8 +3,8 @@ import {
   hasAnyPermission,
   type ManagerPermission,
   type ManagerRole,
-} from '../../lib/manager-permissions';
-import { resolveSessionKey, signSessionToken, verifySessionToken, type SessionPayload, type SessionSource } from './_token';
+} from '../../lib/manager-permissions.ts';
+import { resolveSessionKey, signSessionToken, verifySessionToken, type SessionPayload, type SessionSource } from './_token.ts';
 
 export type ManagerSession = SessionPayload & { permissions: ManagerPermission[] };
 

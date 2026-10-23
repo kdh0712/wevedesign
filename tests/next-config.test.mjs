@@ -50,3 +50,8 @@ test('the staff app service worker may control /manager-weve-7519/m', async () =
   assert.ok(rule, 'a header rule for the service worker');
   assert.equal(headerMap(rule)['Service-Worker-Allowed'], '/manager-weve-7519/m');
 });
+
+// The manual route reads manuals/*.pdf from disk at run time; without this the Vercel function bundle leaves them out.
+test('the manual PDFs ship with the manual download route', () => {
+  assert.ok(nextConfig.outputFileTracingIncludes?.['/api/manager/manual']?.includes('./manuals/*.pdf'));
+});
