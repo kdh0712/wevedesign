@@ -2,8 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { NumberTextInput } from './number-text-input';
+import { TemplateDocumentPreview } from './template-document-preview';
 import {
   findTemplateMaterial,
+  groupTemplateLines,
+  insertIntoTemplateGroup,
+  moveTemplateGroup,
+  moveTemplateLineInGroup,
+  orderTemplateLinesByGroup,
+  setTemplateLineCategory,
   isBlankEstimateLine,
   normalizeTemplateLines,
   placeTemplateLines,
@@ -75,6 +82,10 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
   // 'changed': someone saved this template after it was opened; 'deleted': it was deleted meanwhile.
   const [conflict, setConflict] = useState<'changed' | 'deleted' | null>(null);
   const [saveAsName, setSaveAsName] = useState('');
+  const [foldedGroups, setFoldedGroups] = useState<string[]>([]);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+  // The name typed for '공사 추가' (null while that field is closed).
+  const [newGroupName, setNewGroupName] = useState<string | null>(null);
   const [copyPanel, setCopyPanel] = useState<{ siteId: string; estimates: NonNullable<TemplateApiData['estimates']>; estimateId: string } | null>(null);
 
   const isDirty = Boolean(draft) && snapshotOf(draft) !== savedSnapshot;
@@ -128,9 +139,13 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
     await loadList().catch(() => undefined);
   };
 
-  const openDraft = (next: Draft, saved: boolean) => {
+  // Lines are kept gathered by 공사 (older templates may not be), so the editor and the 내역서 show the same order.
+  const openDraft = (opened: Draft, saved: boolean) => {
+    const next = { ...opened, lines: orderTemplateLinesByGroup(opened.lines) };
     setDraft(next);
     setSavedSnapshot(saved ? snapshotOf(next) : '');
+    setFoldedGroups([]);
+    setNewGroupName(null);
     setConflict(null);
     setCopyPanel(null);
   };
@@ -170,7 +185,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
       }, '템플릿을 불러오지 못했어요.');
     });
 
-  const newTemplate = () => guard(() => openDraft({ id: '', name: '', lines: [emptyTemplateLine(newLineId())], baseUpdateTime: '' }, false));
+  const newTemplate = () => guard(() => openDraft({ id: '', name: '', lines: [], baseUpdateTime: '' }, false));
 
   const copyTemplate = (summary: EstimateTemplateSummary) =>
     guard(() => {
@@ -262,17 +277,18 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
 
   const updateLines = (change: (lines: TemplateLine[]) => TemplateLine[]) => setDraft((current) => (current ? { ...current, lines: change(current.lines) } : current));
   const updateLine = (id: string, patch: Partial<TemplateLine>) => updateLines((lines) => lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
-  const moveLine = (index: number, offset: number) =>
-    updateLines((lines) => {
-      const target = index + offset;
-      if (target < 0 || target >= lines.length) return lines;
-      const next = [...lines];
-      [next[index], next[target]] = [next[target], next[index]];
-      return next;
-    });
-
-  // Lines picked in the DB picker come in at the end, or in place of an untouched empty line.
-  const addFromDb = () => pickFromDb((picked) => updateLines((lines) => placeTemplateLines(lines, picked, 'append')));
+  // Lines picked in the DB picker join the 공사 of their DB 카테고리 (a new 공사 goes to the end).
+  const addFromDb = () => pickFromDb((picked) => updateLines((lines) => orderTemplateLinesByGroup(placeTemplateLines(lines, picked, 'append'))));
+  const addFromDbToGroup = (label: string) => pickFromDb((picked) => updateLines((lines) => insertIntoTemplateGroup(lines, label, picked)));
+  const addLineToGroup = (label: string) => updateLines((lines) => insertIntoTemplateGroup(lines, label, [emptyTemplateLine(newLineId())]));
+  const addGroup = () => {
+    const name = (newGroupName || '').trim();
+    if (!name) return;
+    addLineToGroup(name);
+    setNewGroupName(null);
+  };
+  const toggleGroup = (label: string) =>
+    setFoldedGroups((current) => (current.includes(label) ? current.filter((item) => item !== label) : [...current, label]));
 
   const chooseCopySite = (siteId: string) => {
     setCopyPanel({ siteId, estimates: [], estimateId: '' });
@@ -288,7 +304,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
     if (!estimate || !draft) return;
     const copied = normalizeTemplateLines(estimate.linesJson).map((line) => ({ ...line, id: newLineId() }));
     const place = (mode: 'replace' | 'append') => {
-      updateLines((lines) => placeTemplateLines(lines, copied, mode));
+      updateLines((lines) => orderTemplateLinesByGroup(placeTemplateLines(lines, copied, mode)));
       setCopyPanel(null);
       setStatus(`견적 항목 ${copied.length}개를 가져왔어요. 'DB에서 못 찾음' 표시가 붙은 줄은 DB에서 다시 골라 주세요.`);
     };
@@ -312,7 +328,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
 
   return (
     <div className="no-print fixed inset-0 z-40 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
-      <section role="dialog" aria-modal="true" aria-labelledby="template-manager-title" className="relative flex max-h-[92vh] w-full max-w-7xl flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
+      <section role="dialog" aria-modal="true" aria-labelledby="template-manager-title" className="relative flex max-h-[94vh] w-full max-w-[1640px] flex-col overflow-hidden rounded-xl border border-[#d5dde2] bg-white shadow-2xl">
         <datalist id="template-categories">
           {categoryOptions.map((category) => (
             <option key={category} value={category} />
@@ -382,7 +398,21 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
                 <input value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="예: 30평형 풀공사" className={inputClass} />
               </label>
               <button type="button" onClick={addFromDb} className={buttonClass}>DB에서 추가</button>
-              <button type="button" onClick={() => updateLines((lines) => [...lines, emptyTemplateLine(newLineId())])} className={buttonClass}>줄 추가</button>
+              {newGroupName === null ? (
+                <button type="button" onClick={() => setNewGroupName('')} className={buttonClass}>공사 추가</button>
+              ) : (
+                <form
+                  className="flex gap-1"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    addGroup();
+                  }}
+                >
+                  <input value={newGroupName} onChange={(event) => setNewGroupName(event.target.value)} list="template-categories" placeholder="공사 이름 (예: 욕실 공사)" aria-label="새 공사 이름" autoFocus className={`${inputClass} w-48`} />
+                  <button type="submit" disabled={!newGroupName.trim()} className={primaryClass}>추가</button>
+                  <button type="button" onClick={() => setNewGroupName(null)} className={buttonClass}>취소</button>
+                </form>
+              )}
               <button type="button" onClick={() => setCopyPanel(copyPanel ? null : { siteId: '', estimates: [], estimateId: '' })} className={buttonClass}>기존 견적에서 복사</button>
               <button type="button" onClick={() => guard(closeDraft)} className={buttonClass}>목록으로</button>
               <button type="button" disabled={isBusy || !isDirty} onClick={() => void saveDraft()} className={primaryClass}>{isBusy ? '저장 중…' : '저장'}</button>
@@ -423,59 +453,94 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-auto p-5">
-              <table className="w-full min-w-[1180px] table-fixed border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-[#d5dde2] text-left text-xs text-[#60717d]">
-                    <th className="w-24 py-2 pr-2">공간</th>
-                    <th className="w-32 py-2 pr-2">카테고리</th>
-                    <th className="py-2 pr-2">품명</th>
-                    <th className="w-32 py-2 pr-2">규격</th>
-                    <th className="w-16 py-2 pr-2">단위</th>
-                    <th className="w-20 py-2 pr-2">수량</th>
-                    <th className="w-28 py-2 pr-2">고객 단가</th>
-                    <th className="w-28 py-2 pr-2">실행 단가</th>
-                    <th className="w-36 py-2 pr-2">비고</th>
-                    <th className="w-28 py-2">순서·삭제</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {draft.lines.map((line, index) => {
-                    const notInDb = !isBlankEstimateLine(line) && !findTemplateMaterial(line, materials);
-                    return (
-                      <tr key={line.id} className="border-b border-[#edf2f5] align-top">
-                        <td className="py-1.5 pr-2">
-                          <select value={line.space} onChange={(event) => updateLine(line.id, { space: event.target.value })} aria-label="공간" className={inputClass}>
-                            <option value="">-</option>
-                            {(spaceOptions.includes(line.space) || !line.space ? spaceOptions : [line.space, ...spaceOptions]).map((space) => (
-                              <option key={space} value={space}>{space}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="py-1.5 pr-2"><input value={line.category} onChange={(event) => updateLine(line.id, { category: event.target.value })} list="template-categories" aria-label="카테고리" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2">
-                          <input value={line.name} onChange={(event) => updateLine(line.id, { name: event.target.value })} aria-label="품명" className={inputClass} />
-                          <button type="button" onClick={() => pickFromDb((picked) => updateLines((lines) => repickTemplateLine(lines, line.id, picked)))} className="mt-1 mr-1 rounded border border-[#d5dde2] px-1.5 py-0.5 text-[11px] font-semibold">DB에서 다시 고르기</button>
-                          {notInDb && <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">DB에서 못 찾음</span>}
-                        </td>
-                        <td className="py-1.5 pr-2"><input value={line.spec} onChange={(event) => updateLine(line.id, { spec: event.target.value })} aria-label="규격" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2"><input value={line.unit} onChange={(event) => updateLine(line.id, { unit: event.target.value })} aria-label="단위" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2"><NumberTextInput value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} ariaLabel="수량" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2"><NumberTextInput value={line.customerUnitPrice} onChange={(value) => updateLine(line.id, { customerUnitPrice: value })} ariaLabel="고객 단가" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2"><NumberTextInput value={line.executionUnitPrice} onChange={(value) => updateLine(line.id, { executionUnitPrice: value })} ariaLabel="실행 단가" className={inputClass} /></td>
-                        <td className="py-1.5 pr-2"><input value={line.note} onChange={(event) => updateLine(line.id, { note: event.target.value })} aria-label="비고" className={inputClass} /></td>
-                        <td className="py-1.5">
-                          <div className="flex gap-1">
-                            <button type="button" aria-label="위로" disabled={index === 0} onClick={() => moveLine(index, -1)} className="rounded border border-[#d5dde2] px-2 py-1 text-xs disabled:opacity-40">↑</button>
-                            <button type="button" aria-label="아래로" disabled={index === draft.lines.length - 1} onClick={() => moveLine(index, 1)} className="rounded border border-[#d5dde2] px-2 py-1 text-xs disabled:opacity-40">↓</button>
-                            <button type="button" onClick={() => updateLines((lines) => lines.filter((item) => item.id !== line.id))} className="rounded border border-[#d5dde2] px-2 py-1 text-xs text-red-700">삭제</button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div className={`grid min-h-0 flex-1 ${isPreviewOpen ? 'xl:grid-cols-[minmax(0,1fr)_460px]' : 'xl:grid-cols-[minmax(0,1fr)_44px]'}`}>
+              <div className="min-h-0 overflow-auto p-5">
+                {draft.lines.length === 0 && (
+                  <p className="rounded-md bg-[#f7fafb] px-4 py-6 text-center text-sm text-[#60717d]">&apos;공사 추가&apos;나 &apos;DB에서 추가&apos;로 시작해 보세요.</p>
+                )}
+                {groupTemplateLines(draft.lines).map((group, groupIndex, groups) => {
+                  const folded = foldedGroups.includes(group.label);
+                  return (
+                    <section key={group.label} className="mb-4 overflow-hidden rounded-lg border border-[#d5dde2]">
+                      <div className="flex flex-wrap items-center gap-2 border-b border-[#d5dde2] bg-[#f3f7f9] px-3 py-2">
+                        <button type="button" onClick={() => toggleGroup(group.label)} aria-label={folded ? `${group.label} 펼치기` : `${group.label} 접기`} className="rounded border border-[#d5dde2] bg-white px-2 py-0.5 text-xs">{folded ? '▶' : '▼'}</button>
+                        <b className="text-[15px]">{group.label}</b>
+                        <span className="text-xs text-[#60717d]">항목 {group.lines.length}개 · 고객 소계 {money(group.customerTotal)}</span>
+                        <span className="flex-1" />
+                        <button type="button" onClick={() => addFromDbToGroup(group.label)} className="rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">이 공사에 DB에서 추가</button>
+                        <button type="button" onClick={() => addLineToGroup(group.label)} className="rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">이 공사에 줄 추가</button>
+                        <button type="button" disabled={groupIndex === 0} onClick={() => updateLines((lines) => moveTemplateGroup(lines, group.label, -1))} className="rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold disabled:opacity-40">공사 ↑</button>
+                        <button type="button" disabled={groupIndex === groups.length - 1} onClick={() => updateLines((lines) => moveTemplateGroup(lines, group.label, 1))} className="rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold disabled:opacity-40">공사 ↓</button>
+                      </div>
+                      {!folded && (
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[1040px] table-fixed border-collapse text-sm">
+                            <thead>
+                              <tr className="border-b border-[#edf2f5] text-left text-xs text-[#60717d]">
+                                <th className="w-24 px-2 py-1.5">공간</th>
+                                <th className="w-32 py-1.5 pr-2">카테고리</th>
+                                <th className="py-1.5 pr-2">품명</th>
+                                <th className="w-32 py-1.5 pr-2">규격</th>
+                                <th className="w-16 py-1.5 pr-2">단위</th>
+                                <th className="w-20 py-1.5 pr-2">수량</th>
+                                <th className="w-28 py-1.5 pr-2">고객 단가</th>
+                                <th className="w-28 py-1.5 pr-2">실행 단가</th>
+                                <th className="w-32 py-1.5 pr-2">비고</th>
+                                <th className="w-28 py-1.5">순서·삭제</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {group.lines.map((line, index) => {
+                                const notInDb = !isBlankEstimateLine(line) && !findTemplateMaterial(line, materials);
+                                return (
+                                  <tr key={line.id} className="border-b border-[#edf2f5] align-top last:border-b-0">
+                                    <td className="px-2 py-1.5">
+                                      <select value={line.space} onChange={(event) => updateLine(line.id, { space: event.target.value })} aria-label="공간" className={inputClass}>
+                                        <option value="">-</option>
+                                        {(spaceOptions.includes(line.space) || !line.space ? spaceOptions : [line.space, ...spaceOptions]).map((space) => (
+                                          <option key={space} value={space}>{space}</option>
+                                        ))}
+                                      </select>
+                                    </td>
+                                    <td className="py-1.5 pr-2">
+                                      <CategoryCell value={line.category} className={inputClass} onCommit={(category) => updateLines((lines) => setTemplateLineCategory(lines, line.id, category))} />
+                                    </td>
+                                    <td className="py-1.5 pr-2">
+                                      <input value={line.name} onChange={(event) => updateLine(line.id, { name: event.target.value })} aria-label="품명" className={inputClass} />
+                                      <button type="button" onClick={() => pickFromDb((picked) => updateLines((lines) => repickTemplateLine(lines, line.id, picked)))} className="mt-1 mr-1 rounded border border-[#d5dde2] px-1.5 py-0.5 text-[11px] font-semibold">DB에서 다시 고르기</button>
+                                      {notInDb && <span className="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800">DB에서 못 찾음</span>}
+                                    </td>
+                                    <td className="py-1.5 pr-2"><input value={line.spec} onChange={(event) => updateLine(line.id, { spec: event.target.value })} aria-label="규격" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2"><input value={line.unit} onChange={(event) => updateLine(line.id, { unit: event.target.value })} aria-label="단위" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2"><NumberTextInput value={line.quantity} onChange={(value) => updateLine(line.id, { quantity: value })} ariaLabel="수량" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2"><NumberTextInput value={line.customerUnitPrice} onChange={(value) => updateLine(line.id, { customerUnitPrice: value })} ariaLabel="고객 단가" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2"><NumberTextInput value={line.executionUnitPrice} onChange={(value) => updateLine(line.id, { executionUnitPrice: value })} ariaLabel="실행 단가" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2"><input value={line.note} onChange={(event) => updateLine(line.id, { note: event.target.value })} aria-label="비고" className={inputClass} /></td>
+                                    <td className="py-1.5 pr-2">
+                                      <div className="flex gap-1">
+                                        <button type="button" aria-label="위로" disabled={index === 0} onClick={() => updateLines((lines) => moveTemplateLineInGroup(lines, line.id, -1))} className="rounded border border-[#d5dde2] px-2 py-1 text-xs disabled:opacity-40">↑</button>
+                                        <button type="button" aria-label="아래로" disabled={index === group.lines.length - 1} onClick={() => updateLines((lines) => moveTemplateLineInGroup(lines, line.id, 1))} className="rounded border border-[#d5dde2] px-2 py-1 text-xs disabled:opacity-40">↓</button>
+                                        <button type="button" onClick={() => updateLines((lines) => lines.filter((item) => item.id !== line.id))} className="rounded border border-[#d5dde2] px-2 py-1 text-xs text-red-700">삭제</button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+              <aside className="min-h-0 overflow-auto border-t border-[#edf2f5] bg-[#eef2f4] p-4 xl:border-l xl:border-t-0">
+                {isPreviewOpen ? (
+                  <TemplateDocumentPreview name={draft.name} lines={draft.lines} onCollapse={() => setIsPreviewOpen(false)} />
+                ) : (
+                  <button type="button" onClick={() => setIsPreviewOpen(true)} className="mx-auto block rounded-md border border-[#d5dde2] bg-white px-1 py-3 text-xs font-semibold [writing-mode:vertical-rl]">미리보기 펼치기</button>
+                )}
+              </aside>
             </div>
 
             <footer className="flex flex-wrap justify-end gap-6 border-t border-[#edf2f5] px-5 py-3 text-sm">
@@ -510,5 +575,28 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
         )}
       </section>
     </div>
+  );
+}
+
+// 카테고리 moves the line to another 공사, so it is applied when typing ends (leaving the field or Enter), not on every
+// keystroke, which would move the line away mid-word.
+function CategoryCell({ value, className, onCommit }: { value: string; className: string; onCommit: (value: string) => void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const commit = () => {
+    if (text.trim() !== value.trim()) onCommit(text);
+  };
+  return (
+    <input
+      value={text}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') commit();
+      }}
+      list="template-categories"
+      aria-label="카테고리"
+      className={className}
+    />
   );
 }

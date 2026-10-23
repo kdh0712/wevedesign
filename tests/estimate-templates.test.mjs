@@ -9,6 +9,7 @@ import {
   insertIntoTemplateGroup,
   moveTemplateGroup,
   moveTemplateLineInGroup,
+  orderTemplateLinesByGroup,
   setTemplateLineCategory,
   templateGroupLabel,
   isBlankEstimateLine,
@@ -211,4 +212,9 @@ test('lines added to a 공사 go after its last line and take its 카테고리',
   const fresh = insertIntoTemplateGroup(grouped(), '가구공사', [line({ id: 'n3' })]);
   assert.deepEqual(fresh.map((l) => l.id), ['a', 'c', 'b', 'd', 'e', 'n3'], 'a new 공사 starts at the end');
   assert.equal(fresh[5].category, '가구공사');
+});
+
+test('an older template opens with each 공사 gathered, in first-appearance order', () => {
+  assert.deepEqual(orderTemplateLinesByGroup(grouped()).map((l) => l.id), ['a', 'c', 'b', 'd', 'e']);
+  assert.deepEqual(orderTemplateLinesByGroup([]), []);
 });

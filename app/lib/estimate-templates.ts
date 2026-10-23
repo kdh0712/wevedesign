@@ -210,6 +210,10 @@ export function groupTemplateLines<T extends TemplateLine>(lines: T[]): Array<Te
 
 const flattenGroups = <T extends TemplateLine>(groups: Array<{ lines: T[] }>) => groups.flatMap((group) => group.lines);
 
+export function orderTemplateLinesByGroup<T extends TemplateLine>(lines: T[]): T[] {
+  return flattenGroups(groupTemplateLines(lines));
+}
+
 // Every change below also gathers each 공사's lines together, in the order the 공사 first appear.
 export function moveTemplateGroup<T extends TemplateLine>(lines: T[], label: string, offset: number): T[] {
   const groups = groupTemplateLines(lines);
