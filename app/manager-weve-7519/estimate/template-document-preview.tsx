@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { groupColor, groupTemplateLines, namedTemplateLines, type TemplateGroup, type TemplateLine } from '../../lib/estimate-templates';
 
 // The live 세부내역서 beside the template editor and the site estimate: grouped by 공사 like the estimate documents, lines
@@ -49,7 +50,9 @@ export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: 
         </div>
       </div>
       {body(false)}
-      {isLarge && (
+      {/* Drawn on document.body: inside the sticky preview column it would sit under the page header. */}
+      {isLarge &&
+        createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -57,7 +60,7 @@ export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: 
           onClick={(event) => {
             if (event.target === event.currentTarget) setIsLarge(false);
           }}
-          className="no-print fixed inset-0 z-[60] flex items-start justify-center overflow-auto bg-[#171512]/60 p-6"
+          className="no-print fixed inset-0 z-[80] flex items-start justify-center overflow-auto bg-[#171512]/60 p-6"
         >
           <section className="w-full max-w-[1120px] rounded-xl bg-white p-5 shadow-2xl">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -69,8 +72,9 @@ export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: 
             </div>
             {body(true)}
           </section>
-        </div>
-      )}
+        </div>,
+        document.body,
+        )}
     </div>
   );
 }
