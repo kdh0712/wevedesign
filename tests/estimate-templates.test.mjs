@@ -2,6 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   NO_CATEGORY,
+  namedTemplateLines,
+  templateLineLabel,
+  GROUP_COLORS,
+  copyTemplateGroup,
+  duplicateTemplateLine,
+  groupColor,
+  moveTemplateGroupBefore,
+  moveTemplateLineBefore,
+  pinBaseGroupFirst,
+  removeTemplateGroup,
+  renameTemplateGroup,
+  templateCopyGroupName,
+  templateGroupExists,
   NO_SPACE,
   filterTemplateLines,
   findTemplateMaterial,
@@ -217,4 +230,63 @@ test('lines added to a 공사 go after its last line and take its 카테고리',
 test('an older template opens with each 공사 gathered, in first-appearance order', () => {
   assert.deepEqual(orderTemplateLinesByGroup(grouped()).map((l) => l.id), ['a', 'c', 'b', 'd', 'e']);
   assert.deepEqual(orderTemplateLinesByGroup([]), []);
+});
+
+test('renaming a 공사 renames every line, and an existing name merges after it', () => {
+  const renamed = renameTemplateGroup(grouped(), '철거 공사', '해체 공사');
+  assert.deepEqual(groupTemplateLines(renamed).map((g) => [g.label, g.lines.map((l) => l.id)]), [['해체 공사', ['a', 'c']], ['욕실 공사', ['b']], ['도배', ['d']], ['기타 공사', ['e']]]);
+  const merged = renameTemplateGroup(grouped(), '철거 공사', ' 욕실 공사 ');
+  assert.deepEqual(groupTemplateLines(merged).map((g) => [g.label, g.lines.map((l) => l.id)]), [['욕실 공사', ['b', 'a', 'c']], ['도배', ['d']], ['기타 공사', ['e']]]);
+  assert.equal(renameTemplateGroup(grouped(), '도배', '도배 공사').find((l) => l.id === 'd').category, '도배 공사', 'a 공정-labelled 공사 gets a 카테고리');
+  assert.deepEqual(renameTemplateGroup(grouped(), '철거 공사', '  ').map((l) => l.id), grouped().map((l) => l.id));
+  assert.equal(templateGroupExists(grouped(), ' 욕실 공사'), true);
+  assert.equal(templateGroupExists(grouped(), '가구공사'), false);
+});
+
+test('copying a 공사 puts new-id lines right after it under the new name', () => {
+  assert.equal(templateCopyGroupName('욕실 공사', ['욕실 공사', '욕실 공사 복사']), '욕실 공사 복사 2');
+  assert.equal(templateCopyGroupName('욕실 공사', ['욕실 공사']), '욕실 공사 복사');
+  let n = 0;
+  const copied = copyTemplateGroup(grouped(), '철거 공사', '철거 공사 복사', () => `n${++n}`);
+  assert.deepEqual(copied.map((l) => l.id), ['a', 'c', 'n1', 'n2', 'b', 'd', 'e']);
+  assert.deepEqual(copied.slice(2, 4).map((l) => [l.category, l.customerUnitPrice]), [['철거 공사 복사', 500], ['철거 공사 복사', 10]]);
+});
+
+test('removing a 공사 reports the removed ids', () => {
+  const { lines, removedIds } = removeTemplateGroup(grouped(), '철거 공사');
+  assert.deepEqual(lines.map((l) => l.id), ['b', 'd', 'e']);
+  assert.deepEqual(removedIds, ['a', 'c']);
+});
+
+test('a duplicated line sits right below the original', () => {
+  assert.deepEqual(duplicateTemplateLine(grouped(), 'a', () => 'z').map((l) => l.id), ['a', 'z', 'c', 'b', 'd', 'e']);
+  assert.deepEqual(duplicateTemplateLine(grouped(), 'gone', () => 'z').map((l) => l.id), ['a', 'b', 'c', 'd', 'e'], 'a missing line changes nothing');
+});
+
+test('dragging a line only lands inside its own 공사', () => {
+  const lines = [...grouped(), line({ id: 'f', category: '철거 공사' })];
+  const ids = (ls) => ls.map((l) => l.id);
+  assert.deepEqual(ids(moveTemplateLineBefore(lines, 'f', 'a')).slice(0, 3), ['f', 'a', 'c']);
+  assert.deepEqual(ids(moveTemplateLineBefore(lines, 'a', null)).slice(0, 3), ['c', 'f', 'a']);
+  assert.deepEqual(ids(moveTemplateLineBefore(lines, 'a', 'b')), ids(lines), 'another 공사 is not a drop target');
+});
+
+test('dragging a 공사 moves it before another, or to the end', () => {
+  const labels = (ls) => groupTemplateLines(ls).map((g) => g.label);
+  assert.deepEqual(labels(moveTemplateGroupBefore(grouped(), '도배', '철거 공사')), ['도배', '철거 공사', '욕실 공사', '기타 공사']);
+  assert.deepEqual(labels(moveTemplateGroupBefore(grouped(), '철거 공사', null)), ['욕실 공사', '도배', '기타 공사', '철거 공사']);
+});
+
+test('the 기본견적 공사 stays first and neighbouring 공사 never share a color', () => {
+  const pinned = pinBaseGroupFirst(grouped(), (l) => l.id === 'd');
+  assert.deepEqual(groupTemplateLines(pinned).map((g) => g.label), ['도배', '철거 공사', '욕실 공사', '기타 공사']);
+  assert.equal(GROUP_COLORS.length, 8);
+  for (let i = 0; i < 20; i += 1) assert.notDeepEqual(groupColor(i), groupColor(i + 1));
+});
+
+test('the 세부내역서 keeps only lines with a 품명 and survives saved lines missing fields', () => {
+  const saved = [{ id: 'x' }, line({ id: 'y', name: '  ' }), line({ id: 'z', name: '타일' }), { id: 'w', name: null }];
+  assert.deepEqual(namedTemplateLines(saved).map((l) => l.id), ['z']);
+  assert.equal(templateLineLabel({ id: 'q' }), '이 항목');
+  assert.equal(templateLineLabel(line({ name: '타일', spec: '600각' })), '타일 · 600각');
 });
