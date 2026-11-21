@@ -55,3 +55,13 @@ test('the staff app service worker may control /manager-weve-7519/m', async () =
 test('the manual PDFs ship with the manual download route', () => {
   assert.ok(nextConfig.outputFileTracingIncludes?.['/api/manager/manual']?.includes('./manuals/*.pdf'));
 });
+
+// The staff sign-up link carries its token after '#'; a browser never sends that part, but the page sends no referrer at all.
+test('the staff sign-up page sends no referrer, and that rule wins over the site-wide one', async () => {
+  const rules = await nextConfig.headers();
+  const joinIndex = rules.findIndex((rule) => rule.source === '/manager-weve-7519/join');
+  const siteWideIndex = rules.findIndex((rule) => rule.source === '/:path*');
+  assert.ok(joinIndex >= 0);
+  assert.equal(headerMap(rules[joinIndex])['Referrer-Policy'], 'no-referrer');
+  assert.ok(siteWideIndex >= 0 && siteWideIndex < joinIndex);
+});

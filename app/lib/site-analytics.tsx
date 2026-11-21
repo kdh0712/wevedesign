@@ -3,14 +3,15 @@
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
 import { Analytics, type BeforeSend } from '@vercel/analytics/next';
-import { naverAnalyticsAllowed, scrubProgressUrl } from './analytics-scrub';
+import { naverAnalyticsAllowed, scrubAnalyticsUrl } from './analytics-scrub';
 
 // Every analytics script of the site, rendered by the root layout.
 // The customer progress link (/progress/<code>) carries a secret code in its URL, so:
 //  - Naver wcslog (third party, logs the page URL) is not loaded at all on /progress paths, nor on the manager screens.
 //  - Vercel Analytics still runs there, but its events are rewritten to /progress/[code] before they are sent.
+// The staff sign-up page (/manager-weve-7519/join) carries a one-time token after '#', which its events lose the same way.
 
-const scrubVercelEvent: BeforeSend = (event) => ({ ...event, url: scrubProgressUrl(event.url) });
+const scrubVercelEvent: BeforeSend = (event) => ({ ...event, url: scrubAnalyticsUrl(event.url) });
 
 export function SiteAnalytics({ naverAnalyticsId }: { naverAnalyticsId: string }) {
   const pathname = usePathname();

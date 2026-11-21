@@ -45,6 +45,12 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The staff sign-up page: its link carries a one-time token after '#', and the page sends no referrer at all.
+        // This rule comes after '/:path*', so its Referrer-Policy wins.
+        source: '/manager-weve-7519/join',
+        headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }],
+      },
+      {
         // The push alert worker sits at /manager-weve-7519/m/sw.js, so by default it could control only
         // /manager-weve-7519/m/ (with the slash) and not the app page /manager-weve-7519/m; browsers refuse that registration.
         source: '/manager-weve-7519/m/sw.js',
