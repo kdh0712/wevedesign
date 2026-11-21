@@ -53,8 +53,20 @@ test('stripServerOwnedSiteFields does not touch similarly named fields', () => {
 
 const answer = { status: 'skipped', by: 'customer', at: '2026-10-23T05:00:00.000Z' };
 
-test('the protected site fields are the four progress fields and the 유입 경로 answer', () => {
-  assert.deepEqual([...PROTECTED_SITE_FIELDS].sort(), ['acquisition', 'progressAccess', 'progressCode', 'progressCodeCreatedAt', 'progressEnabled']);
+test('the protected site fields are the four progress fields, the 유입 경로 answer and the contract alimtalk time', () => {
+  assert.deepEqual([...PROTECTED_SITE_FIELDS].sort(), [
+    'acquisition',
+    'contractAlimtalkSentAt',
+    'progressAccess',
+    'progressCode',
+    'progressCodeCreatedAt',
+    'progressEnabled',
+  ]);
+});
+
+test('a site form cannot write the contract alimtalk time, but a browser may read it', () => {
+  assert.deepEqual(dropBrowserSiteFields({ _id: 's', contractAlimtalkSentAt: '2026-11-02T00:00:00.000Z', memo: 'm' }), { _id: 's', memo: 'm' });
+  assert.equal(stripServerOwnedSiteFields({ _id: 's', contractAlimtalkSentAt: '2026-11-02T00:00:00.000Z' }).contractAlimtalkSentAt, '2026-11-02T00:00:00.000Z');
 });
 
 test('dropBrowserSiteFields removes every protected field from a site a browser sent', () => {

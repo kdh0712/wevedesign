@@ -474,6 +474,16 @@ async function bumpOfficeChanges(collection: string, idToken?: string) {
   }
 }
 
+// Writes only these fields of an existing office record with the server service account (a masked write, so every other
+// field, a staff edit saved a moment ago included, stays as it is), then bumps the change marker so dashboards re-read
+// the list. Throws FirestoreConflictError when the record no longer exists.
+export async function patchOfficeRecordFields(type: PrivateOfficeType, id: string, fields: Record<string, unknown>) {
+  const collection = officeFirestoreCollections[type];
+  const saved = await patchFirestoreFields<Record<string, unknown>>(collection, id, fields, { precondition: { exists: true } });
+  await bumpOfficeChanges(collection);
+  return saved;
+}
+
 // preserveFields: fields this save must never write. The PATCH then masks every other field of the merged record and leaves
 // these out of the body, so their stored values stay exactly as they are. Without it the whole document is written, as before.
 export async function saveFirestoreDocument<T extends Record<string, unknown>>(

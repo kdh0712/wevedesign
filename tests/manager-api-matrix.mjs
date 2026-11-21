@@ -160,6 +160,8 @@ await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/project-main-image', 'consult', 403, {});
 await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'consult', 403, {});
+// The contract alimtalk is per site now: the merged 고객·현장 tab's sites permission may send it (a missing site answers 404).
+await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'sites', notAuthBlocked, { action: 'contract-complete', siteId: 'matrix-missing-site' });
 await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'none', 403);
 await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'consult', 200);
 await expectStatus('GET', '/api/manager/office', 'estimates', 200);

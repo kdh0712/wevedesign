@@ -11,7 +11,8 @@ export const SERVER_OWNED_SITE_FIELDS = ['progressCode', 'progressEnabled', 'pro
 
 // Fields the server writes that are not secret: browsers may read them, but a site save never writes them.
 // - acquisition (유입 경로): /api/progress/acquisition (the customer) and /api/manager/acquisition (staff).
-export const SERVER_WRITTEN_SITE_FIELDS = ['acquisition'] as const;
+// - contractAlimtalkSentAt (계약 완료 안내 알림톡, per site): /api/integrations/aligo-alimtalk/send.
+export const SERVER_WRITTEN_SITE_FIELDS = ['acquisition', 'contractAlimtalkSentAt'] as const;
 
 // Masked out of every office site save and dropped from every site record a browser sends.
 export const PROTECTED_SITE_FIELDS: readonly string[] = [...SERVER_OWNED_SITE_FIELDS, ...SERVER_WRITTEN_SITE_FIELDS];
