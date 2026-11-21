@@ -47,7 +47,7 @@ import { AcquisitionPanel } from './acquisition-panel';
 import { AcquisitionTab } from './acquisition-tab';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
-import { CustomerSiteTab } from './customer-site-tab';
+import { CustomerSiteTab, type ConsultationDraft } from './customer-site-tab';
 
 type UploadResult = {
   projectTitle: string;
@@ -693,20 +693,18 @@ export default function ManagerPage() {
   const [sendingAlimtalk, setSendingAlimtalk] = useState(false);
   const [consultationView, setConsultationView] = useState<'new' | 'progress' | 'done'>('new');
   const [dailyReportSiteId, setDailyReportSiteId] = useState('');
-  const [pendingConsultationForCustomer, setPendingConsultationForCustomer] = useState<Consultation | null>(null);
+  // A consultation on its way into the 고객·현장 tab ("고객·현장 등록").
+  const [consultationDraft, setConsultationDraft] = useState<ConsultationDraft | null>(null);
   const [activePreviewTarget, setActivePreviewTarget] = useState<PreviewTarget | null>(null);
   const [isSurveyEditorOpen, setIsSurveyEditorOpen] = useState(false);
   const [surveyEditorTab, setSurveyEditorTab] = useState(0);
   const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
-  const [customerForm, setCustomerForm] = useState({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
   const [saleForm, setSaleForm] = useState({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
-  const [editingCustomerId, setEditingCustomerId] = useState('');
   const [editingSaleId, setEditingSaleId] = useState('');
   const [editingInventoryId, setEditingInventoryId] = useState('');
   const [editingVendorId, setEditingVendorId] = useState('');
-  const customerFormRef = useRef<HTMLDivElement | null>(null);
   const saleFormRef = useRef<HTMLDivElement | null>(null);
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
@@ -1469,16 +1467,10 @@ export default function ManagerPage() {
     }
   };
 
-  const completeConsultation = async (consultation: Consultation, registerCustomer: boolean) => {
+  const completeConsultation = async (consultation: Consultation) => {
     setError('');
     setStatus('');
     if (!requirePassword()) return;
-
-    if (registerCustomer) {
-      prepareCustomerFromConsultation(consultation, true);
-      setStatus('고객 정보를 확인한 뒤 저장하면 상담 완료와 현장 등록까지 함께 처리됩니다.');
-      return;
-    }
 
     setSavingOffice(true);
     try {
@@ -1491,14 +1483,28 @@ export default function ManagerPage() {
     }
   };
 
-  const scrollToForm = (ref: React.RefObject<HTMLDivElement | null>) => {
-    window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  // "고객·현장 등록" from a consultation (the list, its detail window or the 완료 window): the 고객·현장 tab opens a new-site
+  // form filled from it, and saving that form completes the consultation.
+  const startRegistrationFromConsultation = (consultation: Consultation) => {
+    setConsultationDraft({
+      consultationId: consultation._id,
+      name: consultation.name || '',
+      phone: consultation.phone || '',
+      siteType: consultation.propertyType || consultation.siteType || '아파트',
+      address: consultation.fullAddress || consultation.address || '',
+      memo: consultation.message || '',
+    });
+    setSelectedConsultation(null);
+    setCompletionConsultation(null);
+    setActiveTab('sites');
   };
 
-  const resetCustomerForm = () => {
-    setEditingCustomerId('');
-    setPendingConsultationForCustomer(null);
-    setCustomerForm({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
+  const finishRegisteredConsultation = async (consultationId: string) => {
+    await saveOfficeRecord('consultation', { status: '완료' }, consultationId);
+  };
+
+  const scrollToForm = (ref: React.RefObject<HTMLDivElement | null>) => {
+    window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
   const resetSaleForm = () => {
@@ -1538,45 +1544,6 @@ export default function ManagerPage() {
       permissions: account.permissions?.length ? account.permissions : ['dashboard', 'consultations'],
       isActive: account.isActive !== false,
     });
-  };
-
-  const prepareCustomerFromConsultation = (consultation: Consultation, completeAfterSave = false) => {
-    setEditingCustomerId('');
-    setPendingConsultationForCustomer(completeAfterSave ? consultation : null);
-    setCustomerForm({
-      name: consultation.name || '',
-      phone: consultation.phone || '',
-      chatRoomUrl: '',
-      siteType: consultation.propertyType || consultation.siteType || '아파트',
-      address: consultation.fullAddress || consultation.address || '',
-      status: completeAfterSave ? '상담완료' : '상담중',
-      memo: consultation.message || '',
-      siteTitle: '',
-      siteStatus: completeAfterSave ? '상담완료' : '상담중',
-      siteMemo: consultation.message || '',
-    });
-    setSelectedConsultation(null);
-    setCompletionConsultation(null);
-    setActiveTab('sites');
-    scrollToForm(customerFormRef);
-  };
-
-  const editCustomer = (customer: Customer) => {
-    setEditingCustomerId(customer._id);
-    setPendingConsultationForCustomer(null);
-    setCustomerForm({
-      name: customer.name || '',
-      phone: customer.phone || '',
-      chatRoomUrl: customer.chatRoomUrl || '',
-      siteType: customer.siteType || '아파트',
-      address: customer.address || '',
-      status: customer.status || '상담중',
-      memo: customer.memo || '',
-      siteTitle: '',
-      siteStatus: '상담중',
-      siteMemo: '',
-    });
-    scrollToForm(customerFormRef);
   };
 
   // After a customer edit in the 고객·현장 tab: the server copies the new name and number to the customer's other sites
@@ -2422,12 +2389,14 @@ export default function ManagerPage() {
                         </option>
                       ))}
                     </select>
-                    <button
-                      onClick={() => prepareCustomerFromConsultation(item)}
-                      className="rounded-md bg-[#f1c76a] px-3 py-1.5 text-xs font-semibold"
-                    >
-                      고객으로 등록
-                    </button>
+                    {hasAnyPermission(currentUser, ['customers', 'sites']) && (
+                      <button
+                        onClick={() => startRegistrationFromConsultation(item)}
+                        className="rounded-md bg-[#f1c76a] px-3 py-1.5 text-xs font-semibold"
+                      >
+                        고객·현장 등록
+                      </button>
+                    )}
                     <button onClick={() => setCompletionConsultation(item)} className="rounded-md bg-[#38bcd4] px-3 py-1.5 text-xs font-semibold text-white">
                       상담 완료
                     </button>
@@ -2460,9 +2429,9 @@ export default function ManagerPage() {
                   }
                 : undefined
             }
-            consultationDraft={null}
-            onConsultationDraftUsed={() => undefined}
-            onConsultationRegistered={async () => undefined}
+            consultationDraft={consultationDraft}
+            onConsultationDraftUsed={() => setConsultationDraft(null)}
+            onConsultationRegistered={finishRegisteredConsultation}
             setStatus={setStatus}
             setError={setError}
           />
@@ -3459,7 +3428,7 @@ export default function ManagerPage() {
             consultation={selectedConsultation}
             onClose={() => setSelectedConsultation(null)}
             onComplete={() => setCompletionConsultation(selectedConsultation)}
-            onRegisterCustomer={() => prepareCustomerFromConsultation(selectedConsultation)}
+            onRegisterCustomer={hasAnyPermission(currentUser, ['customers', 'sites']) ? () => startRegistrationFromConsultation(selectedConsultation) : undefined}
             onDelete={() => deleteOfficeRecord(selectedConsultation._id, 'consultation')}
           />
         )}
@@ -3468,10 +3437,10 @@ export default function ManagerPage() {
             consultation={completionConsultation}
             disabled={savingOffice}
             onClose={() => setCompletionConsultation(null)}
-            onCompleteOnly={() => completeConsultation(completionConsultation, false)}
+            onCompleteOnly={() => completeConsultation(completionConsultation)}
             onRegisterCustomer={
-              // Registering continues in the customer form, which needs the customers permission.
-              hasAnyPermission(currentUser, ['customers']) ? () => completeConsultation(completionConsultation, true) : undefined
+              // Registering continues in the 고객·현장 tab, which opens with either permission.
+              hasAnyPermission(currentUser, ['customers', 'sites']) ? () => startRegistrationFromConsultation(completionConsultation) : undefined
             }
           />
         )}
@@ -4829,7 +4798,7 @@ function ConsultationDetailModal({
   consultation: Consultation;
   onClose: () => void;
   onComplete: () => void;
-  onRegisterCustomer: () => void;
+  onRegisterCustomer?: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -4869,9 +4838,11 @@ function ConsultationDetailModal({
           <button type="button" onClick={onDelete} className="rounded-md border border-red-200 px-4 py-2 text-sm font-semibold text-red-600">
             삭제
           </button>
-          <button type="button" onClick={onRegisterCustomer} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
-            고객으로 등록
-          </button>
+          {onRegisterCustomer && (
+            <button type="button" onClick={onRegisterCustomer} className="rounded-md bg-[#f1c76a] px-4 py-2 text-sm font-semibold text-[#171512]">
+              고객·현장 등록
+            </button>
+          )}
           <button type="button" onClick={onComplete} className="rounded-md bg-[#38bcd4] px-4 py-2 text-sm font-semibold text-white">
             상담 완료
           </button>
@@ -4897,21 +4868,20 @@ function ConsultationCompleteModal({
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-[#17212b]/60 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">Complete</p>
-        <h2 className="mt-2 text-2xl font-semibold">상담 완료 처리</h2>
+        <h2 className="text-2xl font-semibold">상담 완료 처리</h2>
         <p className="mt-3 text-sm leading-6 text-[#60717d]">
-          {consultation.name || '고객'}님의 상담을 완료합니다.{onRegisterCustomer ? ' 고객 등록과 함께 비공개 현장도 만들까요?' : ''}
+          {consultation.name || '고객'}님의 상담을 완료합니다.{onRegisterCustomer ? ' 고객·현장을 등록하면 저장할 때 함께 완료됩니다.' : ''}
         </p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
             취소
           </button>
           <button type="button" onClick={onCompleteOnly} disabled={disabled} className="rounded-md border border-[#d5dde2] px-4 py-2 text-sm font-semibold">
-            상담만 완료
+            등록 없이 완료
           </button>
           {onRegisterCustomer && (
             <button type="button" onClick={onRegisterCustomer} disabled={disabled} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
-              고객 + 현장 등록
+              고객·현장 등록
             </button>
           )}
         </div>

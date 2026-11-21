@@ -4,12 +4,19 @@
 // Spec: docs/superpowers/specs/2026-11-21-customer-site-merge-design.md
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { MoreHorizontal } from 'lucide-react';
-import { countSitesByCustomer, customerDeleteBlockedMessage, groupSitesByCustomer, pickSitesToSync, siteMatchesQuery } from '../lib/customer-match';
+import {
+  countSitesByCustomer,
+  customerDeleteBlockedMessage,
+  findSamePhoneCustomers,
+  groupSitesByCustomer,
+  pickSitesToSync,
+  siteMatchesQuery,
+} from '../lib/customer-match';
 import { CustomerEditDialog } from './customer-edit-dialog';
-import type { NewCustomerFields } from './customer-picker';
+import { emptyNewCustomer, type NewCustomerFields } from './customer-picker';
 import { CustomerSiteForm, type SaveOfficeRecord, type SiteFormPrefill } from './customer-site-form';
 import type { Customer, Site } from './office-types';
-import { Panel, SITE_STATUSES, statusBadgeClass } from './office-ui';
+import { Panel, SITE_STATUSES, formatPhoneNumber, statusBadgeClass } from './office-ui';
 
 export type ConsultationDraft = { consultationId: string; name: string; phone: string; siteType: string; address: string; memo: string };
 
@@ -342,9 +349,18 @@ export function CustomerSiteTab({
   );
 }
 
-// Task 7 fills this in; until then a draft opens an empty new-site form.
-function buildConsultationPrefill(draft: ConsultationDraft, customers: readonly Customer[]): SiteFormPrefill | null {
-  void draft;
-  void customers;
-  return null;
+// A consultation's new-site form: the one existing customer with its number is picked (a returning customer is not
+// registered twice); otherwise a new customer filled from the consultation, where the picker still warns about any
+// customers sharing the number. Saving completes the consultation and records consultationId on the site.
+function buildConsultationPrefill(draft: ConsultationDraft, customers: readonly Customer[]): SiteFormPrefill {
+  const samePhone = findSamePhoneCustomers(draft.phone, customers);
+  const linked = samePhone.length === 1 ? samePhone[0] : undefined;
+  return {
+    picked: linked ? { kind: 'existing', customer: linked } : emptyNewCustomer({ name: draft.name, phone: formatPhoneNumber(draft.phone) }),
+    fields: { siteType: draft.siteType || '아파트', address: draft.address, memo: draft.memo, status: '상담완료' },
+    notice: linked
+      ? '상담 요청에서 가져왔습니다. 같은 번호의 기존 고객으로 연결했습니다. 다른 고객이면 [다른 고객]을 누르세요. 저장하면 상담은 완료로 바뀝니다.'
+      : '상담 요청에서 가져왔습니다. 저장하면 상담은 완료로 바뀝니다.',
+    consultationId: draft.consultationId,
+  };
 }
