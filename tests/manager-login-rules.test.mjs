@@ -15,6 +15,17 @@ test('a Firebase account on a server without the Firebase settings is an outage,
   assert.equal(reloadSourceOutage('master', { firebaseConfigured: false }), null);
 });
 
+test('an ID account on a server without the Firestore service account is an outage, not a removed account', () => {
+  assert.equal(reloadSourceOutage('firestore', { firebaseConfigured: true, firestoreConfigured: false }), 'Firestore 설정이 없어 계정을 확인할 수 없습니다.');
+  assert.equal(reloadSourceOutage('firestore', { firebaseConfigured: false, firestoreConfigured: true }), null);
+  assert.equal(reloadSourceOutage('account', { firebaseConfigured: true, firestoreConfigured: false }), null);
+});
+
+test('callers that do not say whether Firestore is set up keep the old answers', () => {
+  assert.equal(reloadSourceOutage('firestore', { firebaseConfigured: true }), null);
+  assert.match(reloadSourceOutage('firebase', { firebaseConfigured: false }), /Firebase/);
+});
+
 test('a failed phone login or logout answers a fixed message, never the server error', () => {
   assert.deepEqual(sessionFailureAnswer('login'), { status: 500, error: LOGIN_FAILED_MESSAGE });
   assert.deepEqual(sessionFailureAnswer('logout'), { status: 500, error: LOGOUT_FAILED_MESSAGE });

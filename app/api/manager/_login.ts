@@ -1,8 +1,10 @@
 import type { ManagerRole } from '../../lib/manager-permissions';
+import { normalizeLoginId } from '../../lib/staff-signup-rules';
 import { managerClient } from './_utils';
 import { clientIp, loginLimiter } from './_login-limit';
 import { isFirebaseCredentialRefusal, reloadSourceOutage } from './_login-rules';
 import { hashPassword, safeEqual, verifyPasswordOrDummy } from './_password';
+import { accountDocId, getIdAccount, isStaffAccountStoreReady, updateIdAccount, type IdAccount } from './_staff-accounts';
 import type { SessionSource } from './_token';
 import {
   firebaseAdminDbAuth,
@@ -43,6 +45,18 @@ const accountUser = (account: ManagerAccount, loginId: string): LoginUser => ({
   role: account.role === 'admin' ? 'admin' : 'staff',
   permissions: account.permissions,
 });
+
+// A staff sign-up account (Firestore managerAccounts).
+const idAccountUser = (account: IdAccount): LoginUser => ({
+  id: account._id,
+  name: account.name || account.loginId || '직원',
+  loginId: account.loginId || '',
+  role: account.role === 'admin' ? 'admin' : 'staff',
+  permissions: account.permissions,
+});
+
+const SANITY_ACCOUNT_QUERY =
+  '*[_type == "managerAccount" && loginId == $loginId && isActive != false][0]{_id,name,loginId,password,role,permissions,isActive}';
 
 const WRONG_CREDENTIALS = '계정 또는 비밀번호가 올바르지 않습니다.';
 
@@ -107,17 +121,36 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
     return { ok: true, user: MASTER_USER, src: 'master', credential: managerPassword };
   }
 
-  const account = await managerClient.fetch<ManagerAccount | null>(
-    '*[_type == "managerAccount" && loginId == $loginId && isActive != false][0]{_id,name,loginId,password,role,permissions,isActive}',
-    { loginId },
-  );
-  const verified = await verifyPasswordOrDummy(loginPassword, account?.password);
+  // The sign-up account (by its normalized id) and the Sanity account (by the id as typed) are read together: reading one
+  // after the other would let the time of the second read tell whether the first account exists. Without the Firestore
+  // service account there are no sign-up accounts to read. An off sign-up account counts as missing.
+  const [idAccountFound, account] = await Promise.all([
+    isStaffAccountStoreReady() ? getIdAccount(accountDocId(normalizeLoginId(loginId))) : Promise.resolve(null),
+    managerClient.fetch<ManagerAccount | null>(SANITY_ACCOUNT_QUERY, { loginId }),
+  ]);
+  const idAccount = idAccountFound && idAccountFound.isActive !== false ? idAccountFound : null;
+  const verified = await verifyPasswordOrDummy(loginPassword, idAccount ? idAccount.passwordHash : account?.password);
 
-  if (!account || !verified.ok) {
+  if ((!idAccount && !account) || !verified.ok) {
     loginLimiter.recordFailure(ip, loginId);
     return { ok: false, status: 401, error: WRONG_CREDENTIALS };
   }
   loginLimiter.recordSuccess(ip, loginId);
+
+  if (idAccount) {
+    let storedHash = idAccount.passwordHash || '';
+    if (verified.needsRehash) {
+      try {
+        const rehashed = await hashPassword(loginPassword);
+        await updateIdAccount(idAccount._id, { passwordHash: rehashed });
+        storedHash = rehashed;
+      } catch (error) {
+        console.warn('Staff ID account password rehash failed:', error);
+      }
+    }
+    return { ok: true, user: idAccountUser(idAccount), src: 'firestore', credential: storedHash };
+  }
+  if (!account) return { ok: false, status: 401, error: WRONG_CREDENTIALS };
 
   let storedPassword = account.password || '';
   if (verified.needsRehash && process.env.SANITY_WRITE_TOKEN) {
@@ -138,7 +171,7 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
 // device's stamp, so a changed password signs it out too. Unexpected failures throw, and so does a Firebase account on a
 // deploy without the Firebase settings: that is a configuration slip, and the phone must keep its device through it.
 export async function reloadManagerUser(src: SessionSource, userId: string): Promise<{ user: LoginUser; credential: string | null } | null> {
-  const outage = reloadSourceOutage(src, { firebaseConfigured: isFirebaseManagerConfigured() });
+  const outage = reloadSourceOutage(src, { firebaseConfigured: isFirebaseManagerConfigured(), firestoreConfigured: isStaffAccountStoreReady() });
   if (outage) throw new Error(outage);
 
   if (src === 'master') {
@@ -164,6 +197,12 @@ export async function reloadManagerUser(src: SessionSource, userId: string): Pro
       },
       credential: null,
     };
+  }
+
+  if (src === 'firestore') {
+    const idAccount = await getIdAccount(userId);
+    if (!idAccount || idAccount.isActive === false) return null;
+    return { user: idAccountUser(idAccount), credential: idAccount.passwordHash || '' };
   }
 
   const account = await managerClient.fetch<ManagerAccount | null>(

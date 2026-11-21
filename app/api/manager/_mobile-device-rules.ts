@@ -9,7 +9,7 @@ export type MobileDeviceRecord = {
   userId: string;
   loginId: string;
   userName: string;
-  src: 'master' | 'account' | 'firebase';
+  src: 'master' | 'account' | 'firebase' | 'firestore';
   deviceLabel: string;
   tokenHash: string;
   createdAt: string;

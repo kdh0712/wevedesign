@@ -1,11 +1,14 @@
 // Pure rules for the manager logins (no imports), shared by _login.ts, the phone session route and Node tests.
 
-export type AccountSource = 'master' | 'account' | 'firebase';
+// 'account' is a Sanity ID account, 'firestore' an ID account made from a staff sign-up (managerAccounts).
+export type AccountSource = 'master' | 'account' | 'firebase' | 'firestore';
 
-// A Firebase account checked on a deploy that lacks the Firebase settings: the server can not tell whether the account
-// still exists, so this is an outage (the phone keeps its device and tries again), never a removed account.
-export function reloadSourceOutage(src: AccountSource, env: { firebaseConfigured: boolean }): string | null {
+// A Firebase account checked on a deploy that lacks the Firebase settings, or a Firestore ID account on one without the
+// Firestore service account: the server can not tell whether the account still exists, so this is an outage (the phone
+// keeps its device and tries again), never a removed account. firestoreConfigured left out counts as set up.
+export function reloadSourceOutage(src: AccountSource, env: { firebaseConfigured: boolean; firestoreConfigured?: boolean }): string | null {
   if (src === 'firebase' && !env.firebaseConfigured) return 'Firebase 설정이 없어 계정을 확인할 수 없습니다.';
+  if (src === 'firestore' && env.firestoreConfigured === false) return 'Firestore 설정이 없어 계정을 확인할 수 없습니다.';
   return null;
 }
 
