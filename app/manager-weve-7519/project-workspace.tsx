@@ -19,7 +19,9 @@ import type { CategoryOption, ManagedProject, ManagedProjectImage } from './proj
 import { compressImage } from './project-upload-files';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
-const label = 'grid gap-1 text-xs font-semibold text-[#4d5d66]';
+const label = 'grid content-start gap-1 text-xs font-semibold text-[#4d5d66]';
+// A narrow field (focus point numbers, group names): the same look without the full width.
+const narrowInput = 'rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
 const primaryButton = 'rounded-md bg-[#273541] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1d2833] disabled:opacity-50';
 const secondaryButton = 'rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-xs font-semibold text-[#273541] hover:bg-[#f7fafb] disabled:opacity-50';
 const LEAVE_CONFIRM = '저장하지 않은 변경이 있습니다. 버리고 넘어갈까요?';
@@ -500,11 +502,11 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                 <span>중심점: 사진을 눌러 정하기</span>
                 <label className="flex items-center gap-1">
                   X
-                  <input className={`${input} w-16`} inputMode="numeric" value={form.mainImagePositionX} onChange={(event) => set({ mainImagePositionX: Number(event.target.value) })} disabled={busy} />
+                  <input className={`${narrowInput} w-16`} inputMode="numeric" value={form.mainImagePositionX} onChange={(event) => set({ mainImagePositionX: Number(event.target.value) })} disabled={busy} />
                 </label>
                 <label className="flex items-center gap-1">
                   Y
-                  <input className={`${input} w-16`} inputMode="numeric" value={form.mainImagePositionY} onChange={(event) => set({ mainImagePositionY: Number(event.target.value) })} disabled={busy} />
+                  <input className={`${narrowInput} w-16`} inputMode="numeric" value={form.mainImagePositionY} onChange={(event) => set({ mainImagePositionY: Number(event.target.value) })} disabled={busy} />
                 </label>
               </div>
               {mainOptions.length > 0 && (
@@ -585,7 +587,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                   <div key={group.key} className="grid gap-2 rounded-md border border-[#e3e8eb] p-3">
                     <div className="flex flex-wrap items-center gap-2">
                       <input
-                        className={`${input} w-40`}
+                        className={`${narrowInput} w-40`}
                         value={group.title}
                         aria-label="묶음 이름"
                         onChange={(event) => setGroups((groups) => groups.map((item, index) => (index === groupIndex ? { ...item, title: event.target.value } : item)))}
