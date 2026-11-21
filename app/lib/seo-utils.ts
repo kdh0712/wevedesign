@@ -30,6 +30,15 @@ export function projectSlug(project: { id?: string; _id?: string; title?: string
   return suffix ? `${base}-${suffix}` : base;
 }
 
+// An address that no longer matches (the project was renamed or moved to another category) still ends with the last 8
+// characters of the project's id; when exactly one project has them, that project's canonical address replaces it.
+export function findProjectByOldSlug<P extends { id?: string; _id?: string }>(slug: string, projects: readonly P[]): P | null {
+  const suffix = (slug.split('-').pop() || '').toLowerCase();
+  if (!/^[a-z0-9]{8}$/.test(suffix)) return null;
+  const matches = projects.filter((project) => shortId(project.id || project._id) === suffix);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function projectPath(project: { id?: string; _id?: string; title?: string; location?: string; categoryTitle?: string }) {
   return `/portfolio/${projectSlug(project)}`;
 }

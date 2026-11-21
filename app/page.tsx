@@ -3020,7 +3020,7 @@ function PortfolioGalleryCard({ project, onClick }: { project: Project; onClick:
         <p className="text-sm font-semibold text-[#8f6f43]">{project.categoryTitle || 'Project'}</p>
         <h3 className="mt-2 text-xl font-semibold tracking-normal text-[#171512]">{project.title}</h3>
         <div className="mt-3 flex flex-wrap gap-3 text-sm text-[#625d54]">
-          {project.area && (
+          {Number(project.area) > 0 && (
             <span className="inline-flex items-center gap-1">
               <Ruler size={15} />
               {project.area}평
@@ -3076,7 +3076,7 @@ function ProjectCard({ project, onClick }: { project: Project; onClick: () => vo
       <div className="flex min-h-32 flex-1 flex-col justify-between p-5">
         <h3 className="text-xl font-semibold tracking-normal">{project.title}</h3>
         <div className="mt-4 flex flex-wrap gap-3 text-sm text-[#625d54]">
-          {project.area && (
+          {Number(project.area) > 0 && (
             <span className="inline-flex items-center gap-1">
               <Ruler size={15} />
               {project.area}평
@@ -3174,7 +3174,7 @@ function ProjectModal({ project, onClose }: { project: Project; onClose: () => v
               </p>
               <div className="grid gap-3 border-y border-[#d8d1c5] py-5 text-sm">
                 {project.location && <InfoRow label="지역" value={project.location} />}
-                {project.area && <InfoRow label="면적" value={`${project.area}평`} />}
+                {Number(project.area) > 0 && <InfoRow label="면적" value={`${project.area}평`} />}
                 {project.year && <InfoRow label="연도" value={project.year} />}
                 {project.materials && <InfoRow label="주요 자재" value={project.materials} />}
               </div>
