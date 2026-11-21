@@ -158,7 +158,12 @@ record('POST /api/manager/progress (uploadPhoto) as consult', photoAsConsult.sta
 await expectStatus('POST', '/api/manager/migrate-firestore', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});
-await expectStatus('POST', '/api/manager/project-main-image', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/project-asset', 'consult', 403, {});
+await expectStatus('POST', '/api/manager/project-asset', 'portfolio', notAuthBlocked, {});
+// Publishing a 시공 사례 is a portfolio action; a missing project answers 400.
+const visibilityBody = { type: 'project', id: 'project-matrix-missing', action: 'setVisibility', isVisible: true };
+await expectStatus('POST', '/api/manager/office', 'consult', 403, visibilityBody);
+await expectStatus('POST', '/api/manager/office', 'portfolio', notAuthBlocked, visibilityBody);
 await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'consult', 403, {});
 // Copying a customer edit to its sites follows the site write permission (a missing customer answers 404).
 const syncBody = { action: 'syncCustomerToSites', customerId: 'matrix-missing-customer', previousPhone: '' };

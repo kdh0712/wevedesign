@@ -9,6 +9,7 @@ import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSi
 import { deleteProgressPhotos } from '../_progress-photo-storage';
 import { deleteSiteNotesOfSite } from '../_site-notes';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
+import { buildProjectPatch, publishBlockReason } from '../../../lib/project-form';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -41,6 +42,34 @@ const typeMap: Record<OfficeType, string> = {
   category: 'category',
 };
 
+// The 시공 사례 list for the manager (홈페이지 > 시공 사례): with each photo's _key and order and the 시공 전 사진, so the editor
+// can rename and reorder groups, remove photos and save them back (app/lib/project-form.ts).
+const PROJECTS_QUERY = `*[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
+    _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
+    "mainImage": mainImage.asset->url,
+    "mainImageAssetId": mainImage.asset->_id,
+    "mainImageAlt": mainImage.alt,
+    "beforeImage": beforeImage.asset->url,
+    "beforeImageAssetId": beforeImage.asset->_id,
+    "categoryId": category->_id,
+    "categoryTitle": category->title,
+    "galleryGroups": galleryGroups[] {
+      _key, roomType, title, displayOrder,
+      images[] {
+        _key,
+        "assetId": asset->_id,
+        "url": asset->url,
+        alt, caption, displayOrder
+      }
+    },
+    "gallery": gallery[] {
+      _key,
+      "assetId": asset->_id,
+      "url": asset->url,
+      alt, caption, roomType
+    }
+  }`;
+
 const query = `{
   "consultations": *[_type == "officeConsultation" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0...100] {
     _id, name, phone, siteType, propertyType, areaRange, homeStatus, reason, budget, timeline,
@@ -67,54 +96,14 @@ const query = `{
   "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
     _id, title, "slug": slug.current
   },
-  "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
-    _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
-    "mainImage": mainImage.asset->url,
-    "mainImageAssetId": mainImage.asset->_id,
-    "mainImageAlt": mainImage.alt,
-    "categoryId": category->_id,
-    "categoryTitle": category->title,
-    "galleryGroups": galleryGroups[] {
-      roomType, title,
-      images[] {
-        "assetId": asset->_id,
-        "url": asset->url,
-        alt, caption
-      }
-    },
-    "gallery": gallery[] {
-      "assetId": asset->_id,
-      "url": asset->url,
-      alt, caption, roomType
-    }
-  }
+  "projects": ${PROJECTS_QUERY}
 }`;
 
 const publicQuery = `{
   "categories": *[_type == "category"] | order(displayOrder asc, title asc) {
     _id, title, "slug": slug.current
   },
-  "projects": *[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
-    _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
-    "mainImage": mainImage.asset->url,
-    "mainImageAssetId": mainImage.asset->_id,
-    "mainImageAlt": mainImage.alt,
-    "categoryId": category->_id,
-    "categoryTitle": category->title,
-    "galleryGroups": galleryGroups[] {
-      roomType, title,
-      images[] {
-        "assetId": asset->_id,
-        "url": asset->url,
-        alt, caption
-      }
-    },
-    "gallery": gallery[] {
-      "assetId": asset->_id,
-      "url": asset->url,
-      alt, caption, roomType
-    }
-  }
+  "projects": ${PROJECTS_QUERY}
 }`;
 
 const trashProjection = '{ _id, name, phone, title, customerName, projectTitle, amount, itemName, deletedAt, deletedBy, createdAt }';
@@ -350,13 +339,37 @@ export async function POST(request: Request) {
       }
 
       const projectId = String(body.id).replace(/^drafts\./, '');
-      const updates = { ...cleanData, updatedAt: now };
-      const record = await managerClient.patch(projectId).set(updates).commit();
       const draftId = `drafts.${projectId}`;
       const draft = await managerClient.fetch('*[_id == $draftId][0]{_id}', { draftId });
 
+      // 홈페이지에 공개 / 숨기기: publishing checks the stored project, whatever the screen thought.
+      if (body?.action === 'setVisibility') {
+        const isVisible = body?.isVisible === true;
+        if (isVisible) {
+          const stored = await managerClient.fetch<{ title?: string; categoryId?: string; mainImageAssetId?: string } | null>(
+            '*[_id == $id][0]{title, "categoryId": category._ref, "mainImageAssetId": mainImage.asset._ref}',
+            { id: projectId },
+          );
+          const blocked = publishBlockReason(stored || {});
+          if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
+        }
+        const visibility = { isVisible, updatedAt: now };
+        await managerClient.patch(projectId).set(visibility).commit();
+        if (draft?._id) await managerClient.patch(draftId).set(visibility).commit();
+        return NextResponse.json({ ok: true, isVisible });
+      }
+
+      // The 시공 사례 form: checked and turned into a Sanity patch (blank fields are removed, never saved as '' or 0).
+      if (typeof body?.data !== 'object' || body.data === null) {
+        return NextResponse.json({ error: '요청 형식이 올바르지 않습니다.' }, { status: 400 });
+      }
+      const built = buildProjectPatch(body.data);
+      if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 });
+      const updates = { ...built.patch.set, updatedAt: now };
+      const record = await managerClient.patch(projectId).set(updates).unset(built.patch.unset).commit();
+
       if (draft?._id) {
-        await managerClient.patch(draftId).set(updates).commit();
+        await managerClient.patch(draftId).set(updates).unset(built.patch.unset).commit();
       }
 
       return NextResponse.json({ record });
