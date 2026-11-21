@@ -6,16 +6,19 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode
 import { ArrowDown, ArrowUp, X } from 'lucide-react';
 import {
   buildProjectPatch,
+  formFromStoredProject,
   hasDuplicateTitle,
   isProjectFormDirty,
   legacyGalleryToGroup,
+  legacyImagesFromStored,
   publishBlockReason,
   type EditableGroup,
   type EditableImage,
   type ProjectFormInput,
 } from '../lib/project-form';
 import { Panel } from './office-ui';
-import type { CategoryOption, ManagedProject, ManagedProjectImage } from './project-types';
+import { afterUploadSelection, type UploadResult } from '../lib/project-upload-rules';
+import type { CategoryOption, ManagedProject } from './project-types';
 import { compressImage } from './project-upload-files';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
@@ -29,38 +32,6 @@ const LEAVE_CONFIRM = '저장하지 않은 변경이 있습니다. 버리고 넘
 type VisibilityFilter = 'all' | 'visible' | 'hidden';
 
 const isVisible = (project: ManagedProject) => project.isVisible !== false;
-
-const toEditableImage = (image: ManagedProjectImage, fallbackKey: string): EditableImage | null =>
-  image.assetId ? { key: image._key || fallbackKey, assetId: image.assetId, url: image.url, alt: image.alt, caption: image.caption } : null;
-
-export function formFromProject(project: ManagedProject): ProjectFormInput {
-  return {
-    title: project.title || '',
-    categoryId: project.categoryId || '',
-    location: project.location || '',
-    // A stored 0 area means "none" (it used to be saved for a blank field).
-    area: project.area && project.area > 0 ? String(project.area) : '',
-    year: project.year || '',
-    materials: project.materials || '',
-    blogUrl: project.blogUrl || '',
-    description: project.description || '',
-    // A stored 0 order is shown as 0 and kept (decided 2026-11-21: the homepage order does not move until staff change it).
-    displayOrder: project.displayOrder === undefined || project.displayOrder === null ? '' : String(project.displayOrder),
-    featured: Boolean(project.featured),
-    mainImageAssetId: project.mainImageAssetId || '',
-    mainImagePositionX: project.mainImagePositionX ?? 50,
-    mainImagePositionY: project.mainImagePositionY ?? 50,
-    beforeImageAssetId: project.beforeImageAssetId || '',
-    galleryGroups: (project.galleryGroups || []).map((group, groupIndex) => ({
-      key: group._key || `group-${groupIndex}`,
-      title: group.title || group.roomType || '사진',
-      roomType: group.roomType,
-      images: (group.images || [])
-        .map((image, imageIndex) => toEditableImage(image, `image-${groupIndex}-${imageIndex}`))
-        .filter((image): image is EditableImage => image !== null),
-    })),
-  };
-}
 
 // Featured first, then by 보이는 순서 (projects without one after those with one), then newest (the list arrives newest first).
 function sortForList(projects: ManagedProject[]) {
@@ -94,7 +65,7 @@ export type ProjectWorkspaceProps = {
   setStatus: (text: string) => void;
   setError: (text: string) => void;
   // The upload panel (Task 7) for a new project or for one project's photos.
-  renderUpload?: (request: { mode: 'new' } | { mode: 'replace'; project: ManagedProject }, close: (openProjectId?: string, showHidden?: boolean) => void) => ReactNode;
+  renderUpload?: (request: { mode: 'new' } | { mode: 'replace'; project: ManagedProject }, close: (results?: UploadResult[]) => void) => ReactNode;
 };
 
 export function ProjectWorkspace({ projects, categories, authHeaders, reload, setStatus, setError, renderUpload }: ProjectWorkspaceProps) {
@@ -111,6 +82,9 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
   const busyRef = useRef(false);
 
   const selected = projects.find((project) => project._id === selectedId);
+  // The project a request was started for; a result that comes back after staff moved on is dropped.
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
   const dirty = Boolean(form && initial && (isProjectFormDirty(initial, form) || newCategory.trim() !== ''));
 
   const listed = useMemo(() => {
@@ -131,7 +105,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       setInitial(null);
       return;
     }
-    const next = formFromProject(project);
+    const next = formFromStoredProject(project);
     setSelectedId(project._id);
     setForm(next);
     setInitial(next);
@@ -152,6 +126,8 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
     setBusy(true);
     try {
       await task();
+    } catch (caught) {
+      setError(caught instanceof Error && caught.message ? caught.message : '처리하지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } finally {
       busyRef.current = false;
       setBusy(false);
@@ -178,6 +154,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
     run(async () => {
       if (!form || !selected) return;
       setError('');
+      const startedId = selected._id;
       let next = form;
       if (newCategory.trim()) {
         const response = await fetch('/api/manager/office', {
@@ -200,13 +177,14 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       const response = await fetch('/api/manager/office', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'project', id: selected._id, data: next }),
+        body: JSON.stringify({ type: 'project', id: selected._id, rev: selected._rev, data: next }),
       });
       const data = await readJson<{ error?: string }>(response);
       if (!response.ok) {
         setError(data.error || '시공 사례를 저장하지 못했습니다.');
         return;
       }
+      if (selectedIdRef.current !== startedId) return;
       setForm(next);
       setInitial(next);
       setNewCategory('');
@@ -246,10 +224,11 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
 
   const replacePhoto = (kind: 'main' | 'before', file: File | undefined) =>
     run(async () => {
-      if (!file) return;
+      if (!file || !selected) return;
       setError('');
+      const startedId = selected._id;
       const uploaded = await uploadPhoto(file);
-      if (!uploaded) return;
+      if (!uploaded || selectedIdRef.current !== startedId) return;
       if (kind === 'main') {
         set({ mainImageAssetId: uploaded.assetId, mainImagePositionX: 50, mainImagePositionY: 50 });
         setPreviewUrls((current) => ({ ...current, main: uploaded.url }));
@@ -268,13 +247,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
     });
   };
 
-  const legacyImages = useMemo(
-    () =>
-      (selected?.gallery || [])
-        .map((image, index) => toEditableImage(image, `legacy-${index}`))
-        .filter((image): image is EditableImage => image !== null),
-    [selected],
-  );
+  const legacyImages = useMemo(() => legacyImagesFromStored(selected?.gallery), [selected]);
   const onLegacyOnly = Boolean(form && form.galleryGroups.length === 0 && legacyImages.length > 0);
   // Photos that can become the representative one: every group photo, the old single photos, and the current one.
   const mainOptions = useMemo(() => {
@@ -288,15 +261,17 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
   const objectPosition = form ? `${form.mainImagePositionX}% ${form.mainImagePositionY}%` : '50% 50%';
   const duplicateTitle = form && selected ? hasDuplicateTitle(form.title, selected._id, projects) : false;
 
-  const closeUpload = (openProjectId?: string, showHidden?: boolean) => {
+  // After an upload the editor never keeps its old form: the project to work on reopens from the reloaded list (below), so
+  // replaced photos show and a later save cannot put the old ones back. [취소] (no results) changes nothing.
+  const closeUpload = (results?: UploadResult[]) => {
+    const replaceTargetId = upload?.mode === 'replace' ? upload.project._id : '';
     setUpload(null);
-    if (showHidden) setVisibility('hidden');
-    if (openProjectId) {
-      // Opened fresh (below) once the reloaded list has it, so a re-upload shows the new photos.
-      setForm(null);
-      setInitial(null);
-      setSelectedId(openProjectId);
-    }
+    if (!results) return;
+    const next = afterUploadSelection({ results, replaceTargetId, currentSelectedId: selectedId });
+    if (next.showHidden) setVisibility('hidden');
+    setForm(null);
+    setInitial(null);
+    setSelectedId(next.openProjectId);
   };
 
   // A project chosen without a form yet (just uploaded or re-uploaded) opens when the list has it.
@@ -312,10 +287,15 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
           <button
             type="button"
             onClick={() => {
-              if (dirty && !window.confirm(LEAVE_CONFIRM)) return;
+              if (dirty) {
+                if (!window.confirm(LEAVE_CONFIRM)) return;
+                // Discarded, as the question says.
+                setForm(initial);
+                setNewCategory('');
+              }
               setUpload({ mode: 'new' });
             }}
-            disabled={!renderUpload}
+            disabled={busy || !renderUpload}
             className={`${primaryButton} justify-self-start`}
           >
             + 새 시공 사례 올리기
@@ -361,6 +341,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                   <button
                     type="button"
                     onClick={() => requestOpen(project)}
+                    disabled={busy}
                     className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left ${project._id === selectedId ? 'border-[#273541] bg-[#f3f6f8]' : 'border-[#e3e8eb] bg-white hover:bg-[#f7fafb]'}`}
                   >
                     {project.mainImage ? (

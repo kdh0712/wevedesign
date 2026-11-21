@@ -39,6 +39,11 @@ export function findProjectByOldSlug<P extends { id?: string; _id?: string }>(sl
   return matches.length === 1 ? matches[0] : null;
 }
 
+// The canonical address for a redirect: a Location header carries only ASCII, and the slug is Korean.
+export function canonicalRedirectPath(project: { id?: string; _id?: string; title?: string; location?: string; categoryTitle?: string }) {
+  return encodeURI(projectPath(project));
+}
+
 export function projectPath(project: { id?: string; _id?: string; title?: string; location?: string; categoryTitle?: string }) {
   return `/portfolio/${projectSlug(project)}`;
 }

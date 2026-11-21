@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, permanentRedirect } from 'next/navigation';
 import WeveDesignLanding from '@/app/page';
 import { getProjectBySlug, getProjects } from '@/app/lib/portfolio-data';
-import { absoluteUrl, findProjectByOldSlug, projectDetailText, projectPath, projectSlug, siteUrl } from '@/app/lib/seo-utils';
+import { absoluteUrl, canonicalRedirectPath, findProjectByOldSlug, projectDetailText, projectPath, projectSlug, siteUrl } from '@/app/lib/seo-utils';
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -61,7 +61,7 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
   if (!project) {
     // A renamed or re-categorised project keeps the end of its address: send the old address on to the canonical one.
     const moved = findProjectByOldSlug(decodeSlug(slug), (await getProjects()) || []);
-    if (moved) permanentRedirect(projectPath(moved));
+    if (moved) permanentRedirect(canonicalRedirectPath(moved));
     notFound();
   }
 

@@ -9,7 +9,7 @@ import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSi
 import { deleteProgressPhotos } from '../_progress-photo-storage';
 import { deleteSiteNotesOfSite } from '../_site-notes';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
-import { buildProjectPatch, publishBlockReason } from '../../../lib/project-form';
+import { buildProjectPatch, isSanityRevisionConflict, publishBlockReason } from '../../../lib/project-form';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -45,7 +45,7 @@ const typeMap: Record<OfficeType, string> = {
 // The 시공 사례 list for the manager (홈페이지 > 시공 사례): with each photo's _key and order and the 시공 전 사진, so the editor
 // can rename and reorder groups, remove photos and save them back (app/lib/project-form.ts).
 const PROJECTS_QUERY = `*[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
-    _id, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
+    _id, _rev, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
     "mainImage": mainImage.asset->url,
     "mainImageAssetId": mainImage.asset->_id,
     "mainImageAlt": mainImage.alt,
@@ -66,7 +66,7 @@ const PROJECTS_QUERY = `*[_type == "project" && !(_id in path("drafts.**"))] | o
       _key,
       "assetId": asset->_id,
       "url": asset->url,
-      alt, caption, roomType
+      alt, caption, roomType, displayOrder
     }
   }`;
 
@@ -366,7 +366,19 @@ export async function POST(request: Request) {
       const built = buildProjectPatch(body.data);
       if (!built.ok) return NextResponse.json({ error: built.error }, { status: 400 });
       const updates = { ...built.patch.set, updatedAt: now };
-      const record = await managerClient.patch(projectId).set(updates).unset(built.patch.unset).commit();
+      // The form rewrites every photo field, so it saves only on the version it was opened at: a tab left open while photos
+      // were replaced elsewhere is told to reload instead of silently putting the old photos back.
+      const rev = typeof body?.rev === 'string' ? body.rev : '';
+      let record;
+      try {
+        const patch = managerClient.patch(projectId).set(updates).unset(built.patch.unset);
+        record = await (rev ? patch.ifRevisionId(rev) : patch).commit();
+      } catch (error) {
+        if (isSanityRevisionConflict(error)) {
+          return NextResponse.json({ error: '다른 곳에서 이 시공 사례가 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.' }, { status: 409 });
+        }
+        throw error;
+      }
 
       if (draft?._id) {
         await managerClient.patch(draftId).set(updates).unset(built.patch.unset).commit();

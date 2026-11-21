@@ -92,3 +92,18 @@ export function uploadSummary(results: UploadResult[]): string {
   const failed = count('failed');
   return `새로 만듦 ${count('created')} · 사진 바꿈 ${count('replaced')} · 건너뜀 ${count('skipped')}${failed > 0 ? ` · 실패 ${failed}` : ''}`;
 }
+
+// After an upload the editor reopens a project from the reloaded list, never keeping a form that may hold replaced photos:
+// the replaced project ([사진 다시 올리기]), else the one new project, else the project that was open (its photos may have
+// been replaced from the new-upload panel too). Several new projects also switch the list to the hidden ones.
+export function afterUploadSelection(input: {
+  results: UploadResult[];
+  replaceTargetId: string;
+  currentSelectedId: string;
+}): { openProjectId: string; showHidden: boolean } {
+  const created = input.results.filter((result) => result.status === 'created' && result.projectId);
+  const showHidden = created.length > 1;
+  if (input.replaceTargetId) return { openProjectId: input.replaceTargetId, showHidden };
+  if (created.length === 1) return { openProjectId: created[0].projectId || '', showHidden };
+  return { openProjectId: input.currentSelectedId, showHidden };
+}

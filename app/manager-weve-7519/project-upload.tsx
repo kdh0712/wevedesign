@@ -43,7 +43,8 @@ export function ProjectUploadPanel({
   categories: CategoryOption[];
   authHeaders: () => Record<string, string>;
   reload: () => Promise<void>;
-  onClose: (openProjectId?: string, showHidden?: boolean) => void;
+  // Called with the results after an upload, without them for [취소].
+  onClose: (results?: UploadResult[]) => void;
   setStatus: (text: string) => void;
   setError: (text: string) => void;
 }) {
@@ -129,12 +130,8 @@ export function ProjectUploadPanel({
       if (problems.length > 0) setError(problems.map((result) => `${result.projectTitle}: ${result.reason || '처리하지 못했습니다.'}`).join(' / '));
       await reload();
 
-      // The form starts clean next time (it closes); the project to work on next opens.
-      const created = results.filter((result) => result.status === 'created');
-      const replaced = results.find((result) => result.status === 'replaced');
-      if (replaceTarget) onClose(replaced ? replaceTarget._id : undefined);
-      else if (created.length === 1) onClose(created[0].projectId);
-      else onClose(undefined, created.length > 1);
+      // The form starts clean next time (it closes); the editor reopens the project to work on (afterUploadSelection).
+      onClose(results);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '올리는 중 오류가 발생했습니다.');
     } finally {

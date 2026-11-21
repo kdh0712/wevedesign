@@ -84,3 +84,19 @@ test('uploadSummary counts the results and mentions failures only when there are
     '새로 만듦 0 · 사진 바꿈 0 · 건너뜀 1 · 실패 1',
   );
 });
+
+test('afterUploadSelection says which project the editor reopens from fresh data', async () => {
+  const { afterUploadSelection } = await import('../app/lib/project-upload-rules.ts');
+  const created = (id) => ({ projectTitle: id, status: 'created', projectId: id });
+  // Replacing one project's photos reopens it, so the form never keeps the old photos.
+  assert.deepEqual(afterUploadSelection({ results: [{ projectTitle: 'A', status: 'replaced', projectId: 'p1' }], replaceTargetId: 'p1', currentSelectedId: 'p1' }), { openProjectId: 'p1', showHidden: false });
+  // A single new project opens.
+  assert.deepEqual(afterUploadSelection({ results: [created('n1')], replaceTargetId: '', currentSelectedId: 'p1' }), { openProjectId: 'n1', showHidden: false });
+  // Several new projects: the list shows hidden ones, and the project that was open reopens fresh (its photos may have been replaced too).
+  assert.deepEqual(
+    afterUploadSelection({ results: [created('n1'), created('n2'), { projectTitle: 'B', status: 'replaced', projectId: 'p1' }], replaceTargetId: '', currentSelectedId: 'p1' }),
+    { openProjectId: 'p1', showHidden: true },
+  );
+  // Nothing created and nothing open: nothing to open.
+  assert.deepEqual(afterUploadSelection({ results: [{ projectTitle: 'A', status: 'failed' }], replaceTargetId: '', currentSelectedId: '' }), { openProjectId: '', showHidden: false });
+});

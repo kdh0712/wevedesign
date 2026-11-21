@@ -183,3 +183,58 @@ test('isProjectFormDirty ignores surrounding spaces but sees order and removed p
   assert.equal(isProjectFormDirty(base(), removed), true);
   assert.equal(isProjectFormDirty(base(), { ...base(), featured: true }), true);
 });
+
+test('formFromStoredProject follows the stored photo order, like the homepage', async () => {
+  const { formFromStoredProject } = await import('../app/lib/project-form.ts');
+  const form = formFromStoredProject({
+    _id: 'p',
+    title: '평촌',
+    area: 0,
+    displayOrder: 0,
+    galleryGroups: [
+      { _key: 'g-late', title: '주방', displayOrder: 2, images: [{ _key: 'i3', assetId: asset('c'), displayOrder: 1 }] },
+      {
+        _key: 'g-first',
+        title: '거실',
+        displayOrder: 1,
+        images: [
+          { _key: 'i2', assetId: asset('b'), displayOrder: 2 },
+          { _key: 'i1', assetId: asset('a'), displayOrder: 1 },
+          { _key: 'i0', assetId: asset('z') },
+        ],
+      },
+      { _key: 'g-none', title: '욕실', images: [] },
+    ],
+  });
+  assert.deepEqual(form.galleryGroups.map((group) => group.key), ['g-first', 'g-late', 'g-none'], 'groups by displayOrder, missing last');
+  assert.deepEqual(form.galleryGroups[0].images.map((image) => image.key), ['i1', 'i2', 'i0'], 'photos by displayOrder, missing last');
+  assert.equal(form.area, '', 'a stored 0 area reads as none');
+  assert.equal(form.displayOrder, '0', 'a stored 0 order stays 0');
+});
+
+test('formFromStoredProject turns an old position word into the focus point it meant', async () => {
+  const { formFromStoredProject } = await import('../app/lib/project-form.ts');
+  assert.deepEqual([formFromStoredProject({ _id: 'p', mainImagePosition: 'top' }).mainImagePositionX, formFromStoredProject({ _id: 'p', mainImagePosition: 'top' }).mainImagePositionY], [50, 0]);
+  assert.equal(formFromStoredProject({ _id: 'p', mainImagePosition: 'left' }).mainImagePositionX, 0);
+  assert.equal(formFromStoredProject({ _id: 'p', mainImagePosition: 'bottom' }).mainImagePositionY, 100);
+  const kept = formFromStoredProject({ _id: 'p', mainImagePosition: 'top', mainImagePositionX: 30, mainImagePositionY: 70 });
+  assert.deepEqual([kept.mainImagePositionX, kept.mainImagePositionY], [30, 70], 'numbers win over the old word');
+});
+
+test('legacyImagesFromStored keeps the old photos in their homepage order', async () => {
+  const { legacyImagesFromStored } = await import('../app/lib/project-form.ts');
+  const images = legacyImagesFromStored([
+    { _key: 'b', assetId: asset('b'), displayOrder: 2 },
+    { _key: 'a', assetId: asset('a'), displayOrder: 1 },
+    { _key: 'x' },
+  ]);
+  assert.deepEqual(images.map((image) => image.key), ['a', 'b'], 'ordered, and photos without an asset are left out');
+});
+
+test('isSanityRevisionConflict recognises a save that lost to a newer version', async () => {
+  const { isSanityRevisionConflict } = await import('../app/lib/project-form.ts');
+  assert.equal(isSanityRevisionConflict({ statusCode: 409, message: 'Document "p" has unexpected revision ID ("x"), blocking mutation' }), true);
+  assert.equal(isSanityRevisionConflict({ statusCode: 409 }), true);
+  assert.equal(isSanityRevisionConflict(new Error('network down')), false);
+  assert.equal(isSanityRevisionConflict(null), false);
+});

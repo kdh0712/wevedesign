@@ -26,6 +26,8 @@ export type ManagedProjectGalleryGroup = {
 
 export type ManagedProject = {
   _id: string;
+  // The Sanity revision the list was read at; a save is accepted only on it.
+  _rev?: string;
   title?: string;
   description?: string;
   location?: string;

@@ -179,3 +179,80 @@ const trimDeep = (value: unknown): unknown => {
 export function isProjectFormDirty(initial: ProjectFormInput, current: ProjectFormInput): boolean {
   return JSON.stringify(trimDeep(initial)) !== JSON.stringify(trimDeep(current));
 }
+
+// The stored project as the manager reads it (the office API's PROJECTS_QUERY), as far as the form needs it.
+type StoredImage = { _key?: string; assetId?: string; url?: string; alt?: string; caption?: string; displayOrder?: number };
+type StoredProject = {
+  _id: string;
+  title?: string;
+  categoryId?: string;
+  location?: string;
+  area?: number;
+  year?: string;
+  materials?: string;
+  blogUrl?: string;
+  description?: string;
+  displayOrder?: number;
+  featured?: boolean;
+  mainImageAssetId?: string;
+  mainImagePosition?: string;
+  mainImagePositionX?: number;
+  mainImagePositionY?: number;
+  beforeImageAssetId?: string;
+  galleryGroups?: Array<{ _key?: string; title?: string; roomType?: string; displayOrder?: number; images?: StoredImage[] }>;
+};
+
+// The homepage orders groups and photos by displayOrder (missing ones last); the form keeps that order, so saving it never
+// reorders the homepage. The sort is stable for equal or missing values.
+const byDisplayOrder = <T extends { displayOrder?: number }>(items: readonly T[]) =>
+  items
+    .map((item, index) => ({ item, index, order: typeof item.displayOrder === 'number' ? item.displayOrder : 9999 }))
+    .sort((a, b) => a.order - b.order || a.index - b.index)
+    .map(({ item }) => item);
+
+const editableImages = (images: readonly StoredImage[], keyPrefix: string): EditableImage[] =>
+  byDisplayOrder(images)
+    .filter((image) => Boolean(image.assetId))
+    .map((image, index) => ({ key: image._key || `${keyPrefix}-${index}`, assetId: image.assetId || '', url: image.url, alt: image.alt, caption: image.caption }));
+
+// The old single-photo list (gallery) in its homepage order; photos whose asset cannot be read are left out.
+export function legacyImagesFromStored(gallery: readonly StoredImage[] | undefined): EditableImage[] {
+  return editableImages(gallery || [], 'legacy');
+}
+
+// The old position words (the removed dropdown) as the focus point they meant, used only when no numbers are stored.
+const POSITION_WORDS: Record<string, [number, number]> = { center: [50, 50], top: [50, 0], bottom: [50, 100], left: [0, 50], right: [100, 50] };
+
+export function formFromStoredProject(project: StoredProject): ProjectFormInput {
+  const [wordX, wordY] = POSITION_WORDS[project.mainImagePosition || ''] || [50, 50];
+  return {
+    title: project.title || '',
+    categoryId: project.categoryId || '',
+    location: project.location || '',
+    // A stored 0 area means "none" (it used to be saved for a blank field).
+    area: typeof project.area === 'number' && project.area > 0 ? String(project.area) : '',
+    year: typeof project.year === 'string' ? project.year : '',
+    materials: project.materials || '',
+    blogUrl: project.blogUrl || '',
+    description: project.description || '',
+    // A stored 0 order is shown and kept (decided 2026-11-21: the homepage order moves only when staff change it).
+    displayOrder: typeof project.displayOrder === 'number' ? String(project.displayOrder) : '',
+    featured: Boolean(project.featured),
+    mainImageAssetId: project.mainImageAssetId || '',
+    mainImagePositionX: typeof project.mainImagePositionX === 'number' ? project.mainImagePositionX : wordX,
+    mainImagePositionY: typeof project.mainImagePositionY === 'number' ? project.mainImagePositionY : wordY,
+    beforeImageAssetId: project.beforeImageAssetId || '',
+    galleryGroups: byDisplayOrder(project.galleryGroups || []).map((group, groupIndex) => ({
+      key: group._key || `group-${groupIndex}`,
+      title: group.title || group.roomType || '사진',
+      roomType: group.roomType,
+      images: editableImages(group.images || [], `image-${groupIndex}`),
+    })),
+  };
+}
+
+// A save sent with the revision the form was opened at lost to a newer save (Sanity answers 409).
+export function isSanityRevisionConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  return (error as { statusCode?: unknown }).statusCode === 409;
+}
