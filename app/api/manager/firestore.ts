@@ -568,6 +568,9 @@ async function listEstimateSummariesFromFirestore(idToken: string) {
 // Office records in the 휴지통 (trash) carry deletedAt; every list except the trash view leaves them out.
 const notTrashed = <T extends Record<string, unknown>>(record: T) => !record.deletedAt;
 
+// The customer fields the manager screens use (the 고객·현장 tab, the alimtalk window, the trash keeps its own read).
+export const CUSTOMER_LIST_FIELDS = ['_id', 'name', 'phone', 'chatRoomUrl', 'memo', 'createdAt', 'deletedAt', 'contractAlimtalkSentAt'] as const;
+
 type OfficeRows = Array<Record<string, unknown>>;
 type OfficeLists = Record<OfficeListKey, OfficeRows>;
 
@@ -575,8 +578,10 @@ type OfficeLists = Record<OfficeListKey, OfficeRows>;
 const officeListReaders: Record<OfficeTrackedCollection, (idToken: string) => Promise<OfficeRows>> = {
   officeConsultations: (idToken) =>
     listFirestoreCollection('officeConsultations', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+  // Every customer, not only the newest: registering a site picks from all of them (the 고객·현장 tab). The field mask keeps
+  // the list small; the old customer-only fields (address, siteType, status) are no longer shown.
   officeCustomers: (idToken) =>
-    listFirestoreCollection('officeCustomers', idToken).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt'])).slice(0, 100)),
+    listFirestoreCollection('officeCustomers', idToken, 1000, [...CUSTOMER_LIST_FIELDS]).then((rows) => rows.filter(notTrashed).sort(byNewest(['createdAt']))),
   // The link code and its lockout record are server-owned; no browser gets them (see _site-fields.ts). Full and delta
   // reads both come through here.
   officeSites: (idToken) =>

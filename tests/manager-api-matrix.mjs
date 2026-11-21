@@ -160,6 +160,10 @@ await expectStatus('POST', '/api/manager/bulk-upload', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/settings-image', 'consult', 403, {});
 await expectStatus('POST', '/api/manager/project-main-image', 'consult', 403, {});
 await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'consult', 403, {});
+// Copying a customer edit to its sites follows the site write permission (a missing customer answers 404).
+const syncBody = { action: 'syncCustomerToSites', customerId: 'matrix-missing-customer', previousPhone: '' };
+await expectStatus('POST', '/api/manager/office', 'consult', 403, syncBody);
+await expectStatus('POST', '/api/manager/office', 'sites', notAuthBlocked, syncBody);
 // The contract alimtalk is per site now: the merged 고객·현장 tab's sites permission may send it (a missing site answers 404).
 await expectStatus('POST', '/api/integrations/aligo-alimtalk/send', 'sites', notAuthBlocked, { action: 'contract-complete', siteId: 'matrix-missing-site' });
 await expectStatus('POST', '/api/integrations/kakao-bizform/sync', 'none', 403);

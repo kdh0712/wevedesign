@@ -8,12 +8,16 @@ import { shouldCloseLinkOnSave } from '../_progress-link-rules';
 import { deleteProgressUpdate, isProgressStoreReady, listProgressUpdates, saveSiteProgressFields } from '../_progress-store';
 import { deleteProgressPhotos } from '../_progress-photo-storage';
 import { deleteSiteNotesOfSite } from '../_site-notes';
+import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
+  getFirestoreDocument,
   getOfficeRecordFromFirestore,
   listFirestoreCollection,
   officeFirestoreCollections,
+  patchOfficeRecordFields,
+  queryFirestoreCollectionByField,
   readOfficeDataWithVersionsFromFirestore,
   readOfficeTrashFromFirestore,
   saveOfficeRecordToFirestoreWithPrevious,
@@ -294,6 +298,11 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
+    if (body?.action === 'syncCustomerToSites') {
+      if (!canWriteOffice(access.session, 'site')) return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
+      return await syncCustomerToSites(body);
+    }
+
     const type = body?.type as OfficeType;
     const sanityType = typeMap[type];
 
@@ -413,6 +422,13 @@ export async function DELETE(request: Request) {
 
     const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
 
+    // A customer with sites stays: the sites (trashed ones too, which could be restored) would point at nothing.
+    if (type === 'customer') {
+      const linked = await countCustomerSites(request, id, useFirestore);
+      const blocked = customerDeleteBlockedMessage(linked.total, linked.trashed);
+      if (blocked) return NextResponse.json({ error: blocked }, { status: 409 });
+    }
+
     if (type === 'site') {
       const linkedEstimateCount = await countSiteEstimates(request, id, useFirestore);
       if (linkedEstimateCount > 0) {
@@ -513,6 +529,62 @@ export async function PATCH(request: Request) {
 async function findOfficeRecord(request: Request, type: PrivateOfficeType, id: string, useFirestore: boolean) {
   if (useFirestore) return getOfficeRecordFromFirestore(request, type, id);
   return managerClient.fetch<Record<string, unknown> | null>('*[_id == $id][0]{_type, deletedAt}', { id });
+}
+
+// Every site linked to the customer, trashed ones included (they can be restored).
+async function countCustomerSites(request: Request, customerId: string, useFirestore: boolean) {
+  if (useFirestore) {
+    const sites = await queryFirestoreCollectionByField<{ deletedAt?: unknown }>(
+      officeFirestoreCollections.site,
+      'customerId',
+      customerId,
+      request.headers.get('x-firebase-token') || '',
+    );
+    return { total: sites.length, trashed: sites.filter((site) => Boolean(site.deletedAt)).length };
+  }
+
+  return managerClient.fetch<{ total: number; trashed: number }>(
+    '{"total": count(*[_type == "officeSite" && customerId == $customerId]), "trashed": count(*[_type == "officeSite" && customerId == $customerId && defined(deletedAt)])}',
+    { customerId },
+  );
+}
+
+// After a customer edit in the 고객·현장 tab: copies the customer's new name and number to its other sites that carried the
+// old number or none (pickSitesToSync). Only those two fields are written (masked), so nothing else on a site changes.
+// Firestore only, with the server service account; a failure part way leaves the sites done so far, and calling it again
+// is safe.
+async function syncCustomerToSites(body: Record<string, unknown>) {
+  if (!isProgressStoreReady()) {
+    return NextResponse.json({ error: '고객 정보 반영은 Firestore에서만 할 수 있습니다.' }, { status: 400 });
+  }
+  const customerId = typeof body.customerId === 'string' ? body.customerId.trim() : '';
+  if (!customerId) return NextResponse.json({ error: '고객을 찾을 수 없습니다.' }, { status: 404 });
+
+  const customer = await getFirestoreDocument<{ name?: unknown; phone?: unknown; deletedAt?: unknown }>(officeFirestoreCollections.customer, customerId);
+  if (!customer || customer.deletedAt) return NextResponse.json({ error: '고객을 찾을 수 없습니다.' }, { status: 404 });
+
+  const sites = await queryFirestoreCollectionByField<{ _id: string; customerId?: string; customerPhone?: string; deletedAt?: unknown }>(
+    officeFirestoreCollections.site,
+    'customerId',
+    customerId,
+  );
+  const targets = pickSitesToSync(sites, customerId, body.previousPhone);
+  const fields = {
+    customerName: typeof customer.name === 'string' ? customer.name : '',
+    customerPhone: typeof customer.phone === 'string' ? customer.phone : '',
+  };
+
+  let updated = 0;
+  for (const site of targets) {
+    try {
+      await patchOfficeRecordFields('site', site._id, fields);
+      updated += 1;
+    } catch (error) {
+      console.error('Customer sync to a site failed:', error);
+      return NextResponse.json({ error: '일부 현장에 반영하지 못했습니다. 다시 시도해 주세요.', updated }, { status: 500 });
+    }
+  }
+  return NextResponse.json({ updated });
 }
 
 async function countSiteEstimates(request: Request, siteId: string, useFirestore: boolean) {
