@@ -34,6 +34,7 @@ This file records durable product and implementation decisions. Review it before
 - Keep Kakao, Naver Place, blog, Instagram, and future external-service links in the dedicated external-channel tab.
 - Do not show a legacy management-password field in the dashboard.
 - Reset project and site-folder upload forms after a successful upload so the next job starts cleanly.
+- A site's customer on the manager screens (the dashboard's 알림톡 button, the daily report window) is the customer its `customerId` links to (`findSiteCustomer`, `app/lib/site-customer.ts`). One person often has several customer records and different people share names, so phone or name stand in only when that link cannot be followed, only when exactly one customer fits, and a site with a phone number is never matched by name alone.
 
 ## Customer Progress Page
 

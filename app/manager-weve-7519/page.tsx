@@ -34,6 +34,7 @@ import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib
 import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
 import { todayInSeoul } from '../lib/site-progress';
 import { salesTotals, shouldAutoSyncKakao } from '../lib/dashboard-rules';
+import { findSiteCustomer } from '../lib/site-customer';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
@@ -823,27 +824,14 @@ export default function ManagerPage() {
   const dashboardSiteSale = dashboardSite
     ? officeData.sales.find((sale) => sale.siteId === dashboardSite._id) || officeData.sales.find((sale) => sale.projectTitle === dashboardSite.title)
     : undefined;
-  const dashboardSiteCustomer = dashboardSite
-    ? officeData.customers.find(
-        (customer) =>
-          customer._id === dashboardSite.customerId ||
-          (normalizePhone(customer.phone) && normalizePhone(customer.phone) === normalizePhone(dashboardSite.customerPhone)) ||
-          (customer.name && customer.name === dashboardSite.customerName),
-      )
-    : undefined;
+  // The site's linked customer, never another record that only shares its phone or name (app/lib/site-customer.ts).
+  const dashboardSiteCustomer = dashboardSite ? findSiteCustomer(dashboardSite, officeData.customers) : undefined;
   const dailyReportSite = useMemo(
     () => officeData.sites.find((site) => site._id === dailyReportSiteId),
     [dailyReportSiteId, officeData.sites],
   );
   const dailyReportEstimate = dailyReportSite ? latestEstimateBySite.get(dailyReportSite._id) : undefined;
-  const dailyReportCustomer = dailyReportSite
-    ? officeData.customers.find(
-        (customer) =>
-          customer._id === dailyReportSite.customerId ||
-          (normalizePhone(customer.phone) && normalizePhone(customer.phone) === normalizePhone(dailyReportSite.customerPhone)) ||
-          (customer.name && customer.name === dailyReportSite.customerName),
-      )
-    : undefined;
+  const dailyReportCustomer = dailyReportSite ? findSiteCustomer(dailyReportSite, officeData.customers) : undefined;
   const saleFormSite = useMemo(() => officeData.sites.find((site) => site._id === saleForm.siteId), [officeData.sites, saleForm.siteId]);
   const saleFormSiteEstimates = useMemo(
     () => sortEstimateSummaries(officeData.estimates.filter((estimate) => estimate.siteId === saleForm.siteId)),
@@ -6656,10 +6644,6 @@ function formatTime(value: Date) {
 
 function onlyNumber(value: string) {
   return value.replace(/[^\d]/g, '');
-}
-
-function normalizePhone(value?: string) {
-  return (value || '').replace(/[^\d]/g, '');
 }
 
 function parseEstimateLines(estimate?: EstimateSummary): EstimateLine[] {
