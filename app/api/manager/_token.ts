@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { ManagerPermission, ManagerRole } from '../../lib/manager-permissions';
 
-export type SessionSource = 'master' | 'account' | 'firebase';
+export type SessionSource = 'master' | 'account' | 'firebase' | 'firestore';
 
 export type SessionPayload = {
   v: 1;

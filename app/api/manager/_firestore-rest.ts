@@ -17,14 +17,18 @@ export type FirestorePrecondition = { updateTime: string } | { exists: boolean }
 export function buildPatchQuery(fieldKeys: readonly string[], precondition?: FirestorePrecondition): string {
   if (fieldKeys.length === 0) throw new Error('A masked Firestore write needs at least one field in its mask.');
   const params = fieldKeys.map((key) => `updateMask.fieldPaths=${encodeURIComponent(quoteFieldPath(key))}`);
-  if (precondition && 'updateTime' in precondition) {
-    if (!precondition.updateTime) throw new Error('A Firestore updateTime precondition needs the version that was read.');
-    params.push(`currentDocument.updateTime=${encodeURIComponent(precondition.updateTime)}`);
-  } else if (precondition && 'exists' in precondition) {
-    // exists=false creates the document only if it is still missing.
-    params.push(`currentDocument.exists=${precondition.exists ? 'true' : 'false'}`);
-  }
+  if (precondition) params.push(buildPreconditionQuery(precondition));
   return params.join('&');
+}
+
+// The precondition part of a write or delete query string.
+export function buildPreconditionQuery(precondition: FirestorePrecondition): string {
+  if ('updateTime' in precondition) {
+    if (!precondition.updateTime) throw new Error('A Firestore updateTime precondition needs the version that was read.');
+    return `currentDocument.updateTime=${encodeURIComponent(precondition.updateTime)}`;
+  }
+  // exists=false creates the document only if it is still missing.
+  return `currentDocument.exists=${precondition.exists ? 'true' : 'false'}`;
 }
 
 // An office save writes every field of the merged record except the preserved ones, which stay out of both the mask and the

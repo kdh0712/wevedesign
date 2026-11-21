@@ -127,6 +127,14 @@ await expectStatus('GET', '/api/manager/alert-phones', 'admin', 200);
 // Locally there is no Firebase service account, so an allowed save stops at 503 before writing anything.
 await expectStatus('PUT', '/api/manager/alert-phones', 'admin', 503, { phones: ['010-1234-5678'] });
 
+// Staff sign-up: the admin API is for the 총괄 관리자 only (503 locally without the Firebase service account); the public
+// sign-up API answers without a session (an unknown token is a plain { ok: false }, or 503 without the store).
+for (const who of ['missing', 'forged', 'expired']) await expectStatus('GET', '/api/manager/signup', who, 401);
+await expectStatus('GET', '/api/manager/signup', 'consult', 403);
+await expectStatus('POST', '/api/manager/signup', 'consult', 403, { action: 'createLink', memo: 'matrix', days: 7 });
+await expectStatus('GET', '/api/manager/signup', 'admin', (status) => status === 200 || status === 503);
+await expectStatus('POST', '/api/staff-signup', 'missing', (status) => status === 200 || status === 503, { action: 'check', token: 'matrix-unknown-token-0000' });
+
 // Customer progress API. Locally there is no Firebase service account, so an allowed request answers 503 (store not ready)
 // before it reads or writes anything; with a store the site does not exist, so the same requests end in a harmless 404 (or 400).
 const progressPath = '/api/manager/progress?siteId=matrix-missing-site';

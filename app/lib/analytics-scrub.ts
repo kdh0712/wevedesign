@@ -41,3 +41,22 @@ export function scrubProgressUrl(url: string): string {
   const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(url);
   return isAbsolute ? `${parsed.origin}${SCRUBBED_PROGRESS_PATH}` : SCRUBBED_PROGRESS_PATH;
 }
+
+// The staff sign-up page carries its one-time token after '#'.
+const isStaffJoinPath = (pathname: string) => /^\/manager-weve-7519\/join\/?$/.test(normalizedPath(pathname));
+
+// For Vercel Analytics, whose event URL is location.href ('#' part included): progress links as scrubProgressUrl does, and
+// the staff sign-up page without its query and hash. Other URLs are untouched.
+export function scrubAnalyticsUrl(url: string): string {
+  const scrubbed = scrubProgressUrl(url);
+  if (scrubbed !== url) return scrubbed;
+  let parsed: URL;
+  try {
+    parsed = new URL(url, 'http://localhost');
+  } catch {
+    return url;
+  }
+  if (!isStaffJoinPath(parsed.pathname)) return url;
+  const isAbsolute = /^[a-z][a-z0-9+.-]*:/i.test(url);
+  return `${isAbsolute ? parsed.origin : ''}/manager-weve-7519/join`;
+}

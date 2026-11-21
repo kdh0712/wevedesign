@@ -18,6 +18,7 @@ import { PROTECTED_SITE_FIELDS, SERVER_OWNED_SITE_FIELDS, dropBrowserSiteFields,
 import {
   FirestoreConflictError,
   buildPatchQuery,
+  buildPreconditionQuery,
   isFirestoreConflictError,
   isFirestoreConflictResponse,
   maskedWrite,
@@ -512,17 +513,29 @@ export async function saveFirestoreDocument<T extends Record<string, unknown>>(
   return toRecord<T>(data);
 }
 
-export async function deleteFirestoreDocument(collection: string, id: string, idToken?: string) {
-  const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}`, {
+// options.precondition: the delete happens only on that version ({ updateTime }) or while the document exists; otherwise
+// it throws FirestoreConflictError and nothing was deleted.
+export async function deleteFirestoreDocument(
+  collection: string,
+  id: string,
+  idToken?: string,
+  options: { precondition?: FirestorePrecondition } = {},
+) {
+  const query = options.precondition ? `?${buildPreconditionQuery(options.precondition)}` : '';
+  const response = await fetch(`${docBaseUrl()}/${encodePath(collection, id)}${query}`, {
     method: 'DELETE',
     headers: await firestoreHeaders(idToken, false),
   });
   // Without a precondition Firestore answers 200 even when the document did not exist, so such a delete still bumps
   // the change marker (one harmless extra re-read). A 404, if one ever comes back, changed nothing and does not bump.
-  if (response.status === 404) return;
-  const data = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+  if (response.status === 404 && !options.precondition) return;
+  const data = (await response.json().catch(() => null)) as { error?: { message?: string; status?: string } } | null;
   if (!response.ok) {
-    throw new Error(firestorePermissionMessage(data?.error?.message || `Firestore document delete failed: ${collection}/${id}`));
+    const message = data?.error?.message || `Firestore document delete failed: ${collection}/${id}`;
+    if (options.precondition && isFirestoreConflictResponse(response.status, data?.error?.status)) {
+      throw new FirestoreConflictError(data?.error?.status || `HTTP ${response.status}`, message);
+    }
+    throw new Error(firestorePermissionMessage(message));
   }
   await bumpOfficeChanges(collection, idToken);
 }

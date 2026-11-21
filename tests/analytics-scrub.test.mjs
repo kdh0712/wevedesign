@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SCRUBBED_PROGRESS_PATH, isProgressPath, naverAnalyticsAllowed, scrubProgressUrl } from '../app/lib/analytics-scrub.ts';
+import { SCRUBBED_PROGRESS_PATH, isProgressPath, naverAnalyticsAllowed, scrubAnalyticsUrl, scrubProgressUrl } from '../app/lib/analytics-scrub.ts';
 
 const code = 'Zm9vYmFyYmF6cXV4MTIzNA';
 
@@ -57,4 +57,17 @@ test('scrubProgressUrl leaves every other URL exactly as it was', () => {
 test('scrubProgressUrl drops an unreadable URL that mentions the progress path', () => {
   assert.equal(scrubProgressUrl(`http://${'['}/progress/${code}`), SCRUBBED_PROGRESS_PATH);
   assert.equal(scrubProgressUrl('http://['), 'http://[');
+});
+
+// Vercel Analytics sends location.href, '#' part included: the staff sign-up token must not go with it.
+test('scrubAnalyticsUrl drops the hash and query of the staff sign-up page', () => {
+  assert.equal(scrubAnalyticsUrl('https://www.wevedesign.co.kr/manager-weve-7519/join#Zk3x9_token'), 'https://www.wevedesign.co.kr/manager-weve-7519/join');
+  assert.equal(scrubAnalyticsUrl('https://www.wevedesign.co.kr/manager-weve-7519/join?x=1#tok'), 'https://www.wevedesign.co.kr/manager-weve-7519/join');
+  assert.equal(scrubAnalyticsUrl('/manager-weve-7519/join/#tok'), '/manager-weve-7519/join');
+});
+
+test('scrubAnalyticsUrl scrubs progress links as before and leaves other pages alone', () => {
+  assert.equal(scrubAnalyticsUrl(`https://www.wevedesign.co.kr/progress/${code}`), scrubProgressUrl(`https://www.wevedesign.co.kr/progress/${code}`));
+  assert.equal(scrubAnalyticsUrl('https://www.wevedesign.co.kr/portfolio/a#b'), 'https://www.wevedesign.co.kr/portfolio/a#b');
+  assert.equal(scrubAnalyticsUrl('https://www.wevedesign.co.kr/manager-weve-7519/joinus#x'), 'https://www.wevedesign.co.kr/manager-weve-7519/joinus#x');
 });

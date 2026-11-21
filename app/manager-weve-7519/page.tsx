@@ -29,6 +29,7 @@ import {
   WalletCards,
   Instagram,
 } from 'lucide-react';
+import { formatKoreanMobile } from '../lib/alert-phones';
 import { MANAGER_PERMISSIONS, effectivePermissions, hasAnyPermission, type ManagerPermission } from '../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession } from '../lib/manager-session-storage';
 import { mergeOfficeLists, officeRefreshVersionsParam, shouldApplyOfficeRefresh, type OfficeVersions } from '../lib/office-changes';
@@ -41,6 +42,7 @@ import { contractSendConfirmText } from '../lib/office-format';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
+import { SignupPanel } from './signup-panel';
 import { DailyReportProgress, PROGRESS_BUSY_CLOSE_CONFIRM } from './daily-report-progress';
 import { ManualDownloadButton } from './manual-download-button';
 import { ProgressLinkPanel } from './progress-link-panel';
@@ -82,8 +84,14 @@ type ManagerUser = {
   permissions: ManagerPermission[];
 };
 
+// kind: where the account lives (accounts API): 'id' = Firestore ID account (staff sign-up), 'sanity' = older ID account,
+// 'firebase' = email login.
+type AccountKind = 'firebase' | 'sanity' | 'id';
+
 type ManagerAccount = {
   _id: string;
+  kind?: AccountKind;
+  phone?: string;
   name?: string;
   loginId?: string;
   role?: 'admin' | 'staff';
@@ -493,8 +501,12 @@ export default function ManagerPage() {
   const [loginPassword, setLoginPassword] = useState('');
   const [currentUser, setCurrentUser] = useState<ManagerUser | null>(null);
   const [accounts, setAccounts] = useState<ManagerAccount[]>([]);
+  // Staff sign-up requests waiting for the admin (the 계정 권한 badge).
+  const [pendingSignups, setPendingSignups] = useState(0);
   const [accountForm, setAccountForm] = useState({
     id: '',
+    kind: '' as AccountKind | '',
+    phone: '',
     name: '',
     loginId: '',
     password: '',
@@ -831,6 +843,26 @@ export default function ManagerPage() {
     }
   }, [activeTab, visibleTabs]);
 
+  // The 계정 권한 badge: pending staff sign-up requests, read once when an admin signs in. The sign-up panel updates it after
+  // each approval or rejection; it does not need to be live.
+  useEffect(() => {
+    if (currentUser?.role !== 'admin' || !password) {
+      setPendingSignups(0);
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/manager/signup', { headers: authHeaders() })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { requests?: unknown[] } | null) => {
+        if (!cancelled && Array.isArray(data?.requests)) setPendingSignups(data.requests.length);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.role, password]);
+
   useEffect(() => {
     if (activeTab === 'accounts' && currentUser?.role === 'admin') {
       void loadAccounts();
@@ -991,7 +1023,11 @@ export default function ManagerPage() {
     const account = visibleAccounts.find((item) => item._id === id);
     const accountName = account?.name || account?.loginId || '';
     const selfWarning = id === currentUser?.id ? '\n지금 로그인한 본인 계정입니다.' : '';
-    if (!window.confirm(`${accountName ? `'${accountName}'` : '선택한'} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`)) return;
+    const turnOff = account?.kind === 'id';
+    const question = turnOff
+      ? `${accountName ? `'${accountName}'` : '선택한'} 계정을 끌까요?\n끈 계정으로는 로그인할 수 없고, 휴대폰 번호는 지워집니다. 나중에 다시 켤 수 있습니다.${selfWarning}`
+      : `${accountName ? `'${accountName}'` : '선택한'} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`;
+    if (!window.confirm(question)) return;
     setSavingOffice(true);
     try {
       const response = await fetch('/api/manager/accounts', {
@@ -1000,11 +1036,11 @@ export default function ManagerPage() {
           ...authHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id, kind: account?.kind }),
       });
       const data = await readJsonResponse<AccountApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '계정을 삭제하지 못했습니다.');
-      setStatus('계정을 삭제했습니다.');
+      setStatus(turnOff ? '계정을 껐습니다.' : '계정을 삭제했습니다.');
       await loadAccounts();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '계정 삭제 중 오류가 발생했습니다.');
@@ -1418,6 +1454,8 @@ export default function ManagerPage() {
   const resetAccountForm = () => {
     setAccountForm({
       id: '',
+      kind: '',
+      phone: '',
       name: '',
       loginId: '',
       password: '',
@@ -1430,6 +1468,8 @@ export default function ManagerPage() {
   const editAccount = (account: ManagerAccount) => {
     setAccountForm({
       id: account._id,
+      kind: account.kind || '',
+      phone: account.phone && /^\d{10,11}$/.test(account.phone) ? formatKoreanMobile(account.phone) : account.phone || '',
       name: account.name || '',
       loginId: account.loginId || '',
       password: '',
@@ -1815,7 +1855,7 @@ export default function ManagerPage() {
               계정별 권한에 따라 사무업무와 홈페이지 관리 메뉴를 표시합니다.
             </p>
             <label className="mt-5 grid gap-2 text-sm font-semibold text-[#4d5d66]">
-              계정 ID 또는 이메일
+              아이디 또는 이메일
               <input
                 type="text"
                 value={loginId}
@@ -1868,6 +1908,11 @@ export default function ManagerPage() {
               >
                 {section.icon}
                 {section.label}
+                {section.key === 'accounts' && pendingSignups > 0 && (
+                  <span className="ml-auto rounded-full bg-[#b42318] px-2 text-xs text-white" aria-label={`가입 요청 ${pendingSignups}건`}>
+                    {pendingSignups}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -1924,6 +1969,11 @@ export default function ManagerPage() {
                   >
                     {section.icon}
                     {section.label}
+                    {section.key === 'accounts' && pendingSignups > 0 && (
+                      <span className="rounded-full bg-[#b42318] px-2 text-xs text-white" aria-label={`가입 요청 ${pendingSignups}건`}>
+                        {pendingSignups}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -2310,11 +2360,34 @@ export default function ManagerPage() {
 
         {activeTab === 'accounts' && currentUser?.role === 'admin' && (
           <div className="grid gap-5 xl:grid-cols-[0.85fr_1.15fr] xl:items-start">
+            <div className="xl:col-span-2">
+              <SignupPanel
+                authHeaders={() => authHeaders()}
+                permissionLabels={PERMISSION_LABELS}
+                onAccountsChanged={() => loadAccounts()}
+                onPendingCountChange={setPendingSignups}
+              />
+            </div>
             <Panel title={accountForm.id ? '계정 권한 수정' : '계정 생성'}>
               <div className="grid gap-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <SettingInput label="이름" value={accountForm.name} onChange={(value) => setAccountForm({ ...accountForm, name: value })} placeholder="예: 현장 관리자" />
-                <SettingInput label="로그인 이메일" value={accountForm.loginId} onChange={(value) => setAccountForm({ ...accountForm, loginId: value.trim() })} placeholder="예: staff@wevedesign.co.kr" />
+                  {accountForm.kind === 'id' ? (
+                    <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
+                      로그인 아이디
+                      <input value={accountForm.loginId} readOnly className="rounded-md border border-[#d5dde2] bg-[#eef2f4] px-4 py-3 font-normal text-[#4d5d66] outline-none" />
+                    </label>
+                  ) : (
+                    <SettingInput
+                      label="로그인 아이디 또는 이메일"
+                      value={accountForm.loginId}
+                      onChange={(value) => setAccountForm({ ...accountForm, loginId: value.trim() })}
+                      placeholder="예: park01 또는 staff@wevedesign.co.kr"
+                    />
+                  )}
+                  {(accountForm.kind === 'id' || (!accountForm.id && accountForm.loginId !== '' && !accountForm.loginId.includes('@'))) && (
+                    <SettingInput label="휴대폰" value={accountForm.phone} onChange={(value) => setAccountForm({ ...accountForm, phone: value })} placeholder="010-0000-0000" />
+                  )}
                   <SettingInput
                     label={accountForm.id ? '새 비밀번호(변경 시 입력)' : '비밀번호'}
                     value={accountForm.password}
@@ -2333,6 +2406,10 @@ export default function ManagerPage() {
                     </select>
                   </label>
                 </div>
+                {!accountForm.id && <p className="-mt-2 text-xs text-[#60717d]">@ 없이 적으면 아이디 계정으로 만듭니다(영문 소문자·숫자와 . _ - 4~20자).</p>}
+                {accountForm.kind === 'id' && !accountForm.isActive && (
+                  <p className="-mt-2 text-xs text-[#8a6215]">계정을 끄면 휴대폰 번호는 지워집니다.</p>
+                )}
                 <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
@@ -2403,7 +2480,14 @@ export default function ManagerPage() {
                 items={visibleAccounts.map((account) => ({
                   key: account._id,
                   title: `${account.name || '이름 없음'} · ${account.loginId || 'ID 없음'}`,
-                  meta: `${account.role === 'admin' ? '총괄 관리자' : '실무 계정'} · ${account.isActive === false ? '비활성' : '사용 중'}`,
+                  tag: account.kind ? (account.kind === 'firebase' ? '이메일' : '아이디') : undefined,
+                  meta: [
+                    account.role === 'admin' ? '총괄 관리자' : '실무 계정',
+                    account.isActive === false ? '비활성' : '사용 중',
+                    account.kind === 'id' && account.phone ? (/^\d{10,11}$/.test(account.phone) ? formatKoreanMobile(account.phone) : account.phone) : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · '),
                   body: (Array.isArray(account.permissions) ? account.permissions : [])
                     .map((permission) => tabs.find((tab) => tab.key === permission)?.label || permission)
                     .join(', '),
@@ -2413,7 +2497,7 @@ export default function ManagerPage() {
                         수정
                       </button>
                       <button onClick={() => deleteAccount(account._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                        삭제
+                        {account.kind === 'id' ? '끄기' : '삭제'}
                       </button>
                     </div>
                   ),
@@ -5291,7 +5375,7 @@ function RecordList({
   items,
 }: {
   empty: string;
-  items: Array<{ key: string; title: string; meta?: string; body?: string; action?: React.ReactNode; onClick?: () => void }>;
+  items: Array<{ key: string; title: string; tag?: string; meta?: string; body?: string; action?: React.ReactNode; onClick?: () => void }>;
 }) {
   if (items.length === 0) {
     return <p className="rounded-md bg-[#f7fafb] px-4 py-4 text-sm text-[#60717d]">{empty}</p>;
@@ -5307,7 +5391,12 @@ function RecordList({
         >
           <div className="flex flex-col justify-between gap-2 md:flex-row">
             <div>
-              <h3 className="text-sm font-semibold">{item.title}</h3>
+              <h3 className="text-sm font-semibold">
+                {item.title}
+                {item.tag && (
+                  <span className="ml-2 rounded border border-[#d5dde2] bg-white px-1.5 py-0.5 align-middle text-[11px] font-semibold text-[#60717d]">{item.tag}</span>
+                )}
+              </h3>
               {item.meta && <p className="mt-1 text-xs text-[#625d54]">{item.meta}</p>}
             </div>
             {item.action}

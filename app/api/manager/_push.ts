@@ -11,7 +11,7 @@ import {
   markPushSent,
   type PushSubscriptionRecord,
 } from './_push-subscriptions';
-import { resolveSessionKey } from './_token';
+import { resolveSessionKey, type SessionSource } from './_token';
 
 // Sends web push alerts (spec 2026-10-21 staff push §2). Nothing here may change the result of saving a consultation:
 // callers run it after the answer (after()), and every failure is logged, never thrown. Push addresses are never logged.
@@ -59,7 +59,7 @@ export async function sendPushToDevice(deviceId: string, message: PushMessage): 
 type AlertAccount = { credential: string | null; canGetAlerts: boolean } | null;
 
 // null: the account is gone. Throws when it cannot be read now (an outage), so that send is skipped, never dropped.
-const alertAccount = async (src: 'master' | 'account' | 'firebase', userId: string): Promise<AlertAccount> => {
+const alertAccount = async (src: SessionSource, userId: string): Promise<AlertAccount> => {
   const account = await reloadManagerUser(src, userId);
   if (!account) return null;
   const permissions = Array.isArray(account.user.permissions) ? (account.user.permissions as string[]) : [];

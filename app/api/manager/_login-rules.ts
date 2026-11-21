@@ -1,11 +1,37 @@
 // Pure rules for the manager logins (no imports), shared by _login.ts, the phone session route and Node tests.
 
-export type AccountSource = 'master' | 'account' | 'firebase';
+// 'account' is a Sanity ID account, 'firestore' an ID account made from a staff sign-up (managerAccounts).
+export type AccountSource = 'master' | 'account' | 'firebase' | 'firestore';
 
-// A Firebase account checked on a deploy that lacks the Firebase settings: the server can not tell whether the account
-// still exists, so this is an outage (the phone keeps its device and tries again), never a removed account.
-export function reloadSourceOutage(src: AccountSource, env: { firebaseConfigured: boolean }): string | null {
+// A Firebase account checked on a deploy that lacks the Firebase settings, or a Firestore ID account on one without the
+// Firestore service account: the server can not tell whether the account still exists, so this is an outage (the phone
+// keeps its device and tries again), never a removed account. firestoreConfigured left out counts as set up.
+export function reloadSourceOutage(src: AccountSource, env: { firebaseConfigured: boolean; firestoreConfigured?: boolean }): string | null {
   if (src === 'firebase' && !env.firebaseConfigured) return 'Firebase 설정이 없어 계정을 확인할 수 없습니다.';
+  if (src === 'firestore' && env.firestoreConfigured === false) return 'Firestore 설정이 없어 계정을 확인할 수 없습니다.';
+  return null;
+}
+
+type IdAccountLike = { isActive?: boolean; passwordHash?: string };
+
+// An ID account (Firestore managerAccounts) may be used only while it is on and holds a scrypt hash. The server only ever
+// writes scrypt hashes there, so any other value was not written by it and must never log in (verifyPassword would
+// otherwise compare it as an old plain-text password). isPasswordHash comes from _password.ts.
+export function usableIdAccount<T extends IdAccountLike>(account: T | null, isPasswordHash: (stored: string) => boolean): T | null {
+  if (!account || account.isActive === false) return null;
+  return typeof account.passwordHash === 'string' && isPasswordHash(account.passwordHash) ? account : null;
+}
+
+// The account an ID login (no '@') is checked against: a usable ID account first, otherwise the Sanity account. Both are read
+// together by the caller, and the password is checked once against storedHash (or a dummy when there is no account).
+export function chooseLoginAccount<I extends IdAccountLike, S extends { password?: string }>(
+  idAccount: I | null,
+  sanityAccount: S | null,
+  isPasswordHash: (stored: string) => boolean,
+): { src: 'firestore'; account: I; storedHash: string } | { src: 'account'; account: S; storedHash: string | undefined } | null {
+  const usable = usableIdAccount(idAccount, isPasswordHash);
+  if (usable) return { src: 'firestore', account: usable, storedHash: usable.passwordHash as string };
+  if (sanityAccount) return { src: 'account', account: sanityAccount, storedHash: sanityAccount.password };
   return null;
 }
 
