@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { looksAutomated } from '../../lib/consultation-guard';
-import { LOGIN_ID_TAKEN_MESSAGE, UNUSABLE_LINK_MESSAGE, isLinkUsable, loginIdError, normalizeLoginId } from '../../lib/staff-signup-rules';
+import { LOGIN_ID_TAKEN_MESSAGE, UNUSABLE_LINK_MESSAGE, formStartedAt, isLinkUsable, loginIdError, normalizeLoginId } from '../../lib/staff-signup-rules';
 import { clientIp, createLoginLimiter } from '../manager/_login-limit';
 import { isLoginIdTaken, submitSignup } from '../manager/_signup-flow';
 import { firestoreSignupStore, isStaffAccountStoreReady, signupTokenHash } from '../manager/_staff-accounts';
@@ -66,8 +66,9 @@ export async function POST(request: Request) {
 
     if (action === 'submit') {
       if (overLimit(submitLimiter, ip, nowMs)) return json({ ok: false, error: TOO_MANY }, 429);
-      // A filled hidden field or a form sent within 3 seconds: answered like a success, nothing is stored.
-      if (looksAutomated({ honeypot: body?.website, startedAt: body?.startedAt, now: nowMs })) return json({ ok: true });
+      // A filled hidden field or a form sent within 3 seconds of opening (measured on the phone): answered like a success,
+      // nothing is stored.
+      if (looksAutomated({ honeypot: body?.website, startedAt: formStartedAt(body?.elapsedMs, nowMs), now: nowMs })) return json({ ok: true });
       if (!TOKEN.test(token)) return json({ ok: false, error: UNUSABLE_LINK_MESSAGE }, 404);
 
       const result = await submitSignup(

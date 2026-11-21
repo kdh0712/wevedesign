@@ -115,6 +115,13 @@ export function approvalError(decision: { role: unknown; permissions: unknown })
   return null;
 }
 
+// The join page measures how long its form was open with the phone's own clock and sends that; the server turns it into a
+// start time on its own clock, so a phone whose clock is off is never mistaken for a bot. Anything else: not judged by time.
+export function formStartedAt(elapsedMs: unknown, nowMs: number): number | undefined {
+  if (typeof elapsedMs !== 'number' || !Number.isFinite(elapsedMs) || elapsedMs < 0) return undefined;
+  return nowMs - elapsedMs;
+}
+
 // The token goes after '#', so it never reaches a server log, a Referer header or an analytics page URL.
 export function signupLinkUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, '')}/manager-weve-7519/join#${token}`;

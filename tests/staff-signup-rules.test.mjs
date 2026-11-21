@@ -9,6 +9,7 @@ import {
   RESERVED_LOGIN_IDS,
   UNUSABLE_LINK_MESSAGE,
   approvalError,
+  formStartedAt,
   idAccountUpdate,
   isLinkUsable,
   isRequestExpired,
@@ -171,4 +172,16 @@ test('idAccountUpdate keeps the normalized permissions for an admin (the session
   const admin = idAccountUpdate({ name: '김동호', phone: '', role: 'admin', permissions: ['sites', 'x'], isActive: true });
   assert.deepEqual(admin.fields.permissions, ['sites']);
   assert.equal(admin.fields.role, 'admin');
+});
+
+// The phone measures how long the form was open with its own clock; the server turns that into a start time on its clock,
+// so a phone whose clock is off is never mistaken for a bot.
+test('formStartedAt turns the time the form was open into a server start time', () => {
+  const now = Date.parse('2026-11-22T00:00:00Z');
+  assert.equal(formStartedAt(45000, now), now - 45000);
+  assert.equal(formStartedAt(0, now), now);
+  assert.equal(formStartedAt(-5, now), undefined);
+  assert.equal(formStartedAt('45000', now), undefined);
+  assert.equal(formStartedAt(Number.NaN, now), undefined);
+  assert.equal(formStartedAt(undefined, now), undefined);
 });

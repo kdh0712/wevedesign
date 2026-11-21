@@ -72,6 +72,9 @@ function fakeStore({ links = {}, requests = {}, accounts = {}, sanityIds = [] } 
     async hashPassword(password) {
       return `hash:${password}`;
     },
+    isPasswordHash(stored) {
+      return typeof stored === 'string' && stored.startsWith('hash:');
+    },
     isConflict(error) {
       return error instanceof Conflict;
     },
@@ -314,4 +317,18 @@ test('an approval that stopped half way does not lock the request for good', asy
 test('rejecting a request that is gone says it was already handled', async () => {
   const { store } = fakeStore();
   assert.deepEqual(await rejectSignup({ requestId: 'r9' }, store, NOW), { ok: false, status: 404, error: HANDLED });
+});
+
+// A request the server did not write (a reserved id, a password that is not a hash) is never turned into an account.
+test('a request with a reserved id or without a real hash cannot be approved', async () => {
+  const { store, state } = fakeStore({ requests: { r1: pending({ loginId: 'admin' }), r2: pending({ loginId: 'kim02', passwordHash: 'hunter2hunter2' }) } });
+  for (const requestId of ['r1', 'r2']) {
+    assert.deepEqual(await approveSignup({ requestId, role: 'admin', permissions: [], approvedBy: 'admin' }, store, NOW), {
+      ok: false,
+      status: 400,
+      error: '이 요청은 승인할 수 없습니다. 거절해 주세요.',
+    });
+  }
+  assert.deepEqual(state.accounts, {});
+  assert.deepEqual(await rejectSignup({ requestId: 'r2' }, store, NOW), { ok: true });
 });

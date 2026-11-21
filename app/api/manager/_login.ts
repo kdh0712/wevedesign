@@ -2,8 +2,8 @@ import type { ManagerRole } from '../../lib/manager-permissions';
 import { normalizeLoginId } from '../../lib/staff-signup-rules';
 import { managerClient } from './_utils';
 import { clientIp, loginLimiter } from './_login-limit';
-import { isFirebaseCredentialRefusal, reloadSourceOutage } from './_login-rules';
-import { hashPassword, safeEqual, verifyPasswordOrDummy } from './_password';
+import { chooseLoginAccount, isFirebaseCredentialRefusal, reloadSourceOutage, usableIdAccount } from './_login-rules';
+import { hashPassword, isPasswordHash, safeEqual, verifyPasswordOrDummy } from './_password';
 import { accountDocId, getIdAccount, isStaffAccountStoreReady, updateIdAccount, type IdAccount } from './_staff-accounts';
 import type { SessionSource } from './_token';
 import {
@@ -123,22 +123,24 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
 
   // The sign-up account (by its normalized id) and the Sanity account (by the id as typed) are read together: reading one
   // after the other would let the time of the second read tell whether the first account exists. Without the Firestore
-  // service account there are no sign-up accounts to read. An off sign-up account counts as missing.
-  const [idAccountFound, account] = await Promise.all([
+  // service account there are no sign-up accounts to read. An off sign-up account, or one without a scrypt hash, counts as
+  // missing (chooseLoginAccount).
+  const [idAccountFound, sanityAccount] = await Promise.all([
     isStaffAccountStoreReady() ? getIdAccount(accountDocId(normalizeLoginId(loginId))) : Promise.resolve(null),
     managerClient.fetch<ManagerAccount | null>(SANITY_ACCOUNT_QUERY, { loginId }),
   ]);
-  const idAccount = idAccountFound && idAccountFound.isActive !== false ? idAccountFound : null;
-  const verified = await verifyPasswordOrDummy(loginPassword, idAccount ? idAccount.passwordHash : account?.password);
+  const chosen = chooseLoginAccount(idAccountFound, sanityAccount, isPasswordHash);
+  const verified = await verifyPasswordOrDummy(loginPassword, chosen?.storedHash);
 
-  if ((!idAccount && !account) || !verified.ok) {
+  if (!chosen || !verified.ok) {
     loginLimiter.recordFailure(ip, loginId);
     return { ok: false, status: 401, error: WRONG_CREDENTIALS };
   }
   loginLimiter.recordSuccess(ip, loginId);
 
-  if (idAccount) {
-    let storedHash = idAccount.passwordHash || '';
+  if (chosen.src === 'firestore') {
+    const idAccount = chosen.account;
+    let storedHash = chosen.storedHash;
     if (verified.needsRehash) {
       try {
         const rehashed = await hashPassword(loginPassword);
@@ -150,7 +152,7 @@ export async function verifyManagerLogin(request: Request, rawLoginId: unknown, 
     }
     return { ok: true, user: idAccountUser(idAccount), src: 'firestore', credential: storedHash };
   }
-  if (!account) return { ok: false, status: 401, error: WRONG_CREDENTIALS };
+  const account = chosen.account;
 
   let storedPassword = account.password || '';
   if (verified.needsRehash && process.env.SANITY_WRITE_TOKEN) {
@@ -200,8 +202,8 @@ export async function reloadManagerUser(src: SessionSource, userId: string): Pro
   }
 
   if (src === 'firestore') {
-    const idAccount = await getIdAccount(userId);
-    if (!idAccount || idAccount.isActive === false) return null;
+    const idAccount = usableIdAccount(await getIdAccount(userId), isPasswordHash);
+    if (!idAccount) return null;
     return { user: idAccountUser(idAccount), credential: idAccount.passwordHash || '' };
   }
 

@@ -119,7 +119,8 @@ export default function StaffJoinPage() {
         loginId,
         password,
         website,
-        startedAt: startedAtRef.current,
+        // Measured with the phone's clock only; the server compares it with nothing on its own clock.
+        elapsedMs: Date.now() - startedAtRef.current,
       });
       if (status === 200 && data.ok) setPhase({ kind: 'done' });
       else if (status === 404) setPhase({ kind: 'unusable' });

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { isRequestExpired, isLinkUsable } from '../../lib/staff-signup-rules';
 import type { ManagerRole } from '../../lib/manager-permissions';
 import type { LinkRecord, RequestRecord, SignupStore } from './_signup-flow';
-import { hashPassword } from './_password';
+import { hashPassword, isPasswordHash } from './_password';
 import { managerClient } from './_utils';
 import {
   canUseFirestoreOnServer,
@@ -115,6 +115,7 @@ export function firestoreSignupStore(): SignupStore {
     loginIdInPendingRequests,
     createAccount: createIdAccount,
     hashPassword,
+    isPasswordHash,
     isConflict: isFirestoreConflictError,
   };
 }

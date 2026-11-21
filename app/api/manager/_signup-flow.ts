@@ -1,7 +1,16 @@
 // Staff sign-up: the order of the writes for a sign-up request, its approval and its rejection, and how each one loses a
 // race. The store is passed in (Firestore in _staff-accounts.ts, an in-memory fake in tests/signup-flow.test.mjs).
 // Spec: docs/superpowers/specs/2026-11-21-staff-signup-approval-design.md §5.1, §5.2
-import { LOGIN_ID_TAKEN_MESSAGE, UNUSABLE_LINK_MESSAGE, approvalError, approvalPermissions, isLinkUsable, isRequestExpired, validateSignupInput } from '../../lib/staff-signup-rules.ts';
+import {
+  LOGIN_ID_TAKEN_MESSAGE,
+  UNUSABLE_LINK_MESSAGE,
+  approvalError,
+  approvalPermissions,
+  isLinkUsable,
+  isRequestExpired,
+  loginIdError,
+  validateSignupInput,
+} from '../../lib/staff-signup-rules.ts';
 
 export type Versioned<T> = { record: T; updateTime: string };
 export type LinkRecord = { _id: string; status: string; expiresAt: string; memo?: string };
@@ -37,6 +46,8 @@ export type SignupStore = {
   // Creates the account only if no account has this id yet; otherwise throws a conflict.
   createAccount(loginId: string, fields: Record<string, unknown>): Promise<void>;
   hashPassword(password: string): Promise<string>;
+  // Whether a stored value is a scrypt hash as hashPassword writes it (_password.ts).
+  isPasswordHash(stored: string): boolean;
   isConflict(error: unknown): boolean;
 };
 
@@ -45,6 +56,7 @@ export type FlowResult = { ok: true; requestId?: string } | { ok: false; status:
 const HANDLED_MESSAGE = '이미 처리된 요청입니다.';
 const SAME_ID_MESSAGE = '이미 같은 아이디 계정이 있습니다.';
 const EXPIRED_MESSAGE = '30일이 지나 지워진 요청입니다. 새 링크로 다시 받아 주세요.';
+const FORGED_MESSAGE = '이 요청은 승인할 수 없습니다. 거절해 주세요.';
 // An approval that stopped between its claim and its last write (a crashed function) frees the request after this long.
 const APPROVING_HOLD_MS = 2 * 60000;
 
@@ -115,6 +127,10 @@ export async function approveSignup(
   const request = found.record;
   if (isRequestExpired(request, nowMs)) return fail(410, EXPIRED_MESSAGE);
   if (approvalInProgress(request, nowMs)) return fail(409, HANDLED_MESSAGE);
+  // A request this server wrote always has a valid id and a scrypt hash; anything else never becomes an account.
+  if (typeof request.loginId !== 'string' || loginIdError(request.loginId) || typeof request.passwordHash !== 'string' || !store.isPasswordHash(request.passwordHash)) {
+    return fail(400, FORGED_MESSAGE);
+  }
   if (await store.loginIdInAccounts(request.loginId)) return fail(409, SAME_ID_MESSAGE);
 
   const now = new Date(nowMs).toISOString();

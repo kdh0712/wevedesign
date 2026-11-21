@@ -12,6 +12,29 @@ export function reloadSourceOutage(src: AccountSource, env: { firebaseConfigured
   return null;
 }
 
+type IdAccountLike = { isActive?: boolean; passwordHash?: string };
+
+// An ID account (Firestore managerAccounts) may be used only while it is on and holds a scrypt hash. The server only ever
+// writes scrypt hashes there, so any other value was not written by it and must never log in (verifyPassword would
+// otherwise compare it as an old plain-text password). isPasswordHash comes from _password.ts.
+export function usableIdAccount<T extends IdAccountLike>(account: T | null, isPasswordHash: (stored: string) => boolean): T | null {
+  if (!account || account.isActive === false) return null;
+  return typeof account.passwordHash === 'string' && isPasswordHash(account.passwordHash) ? account : null;
+}
+
+// The account an ID login (no '@') is checked against: a usable ID account first, otherwise the Sanity account. Both are read
+// together by the caller, and the password is checked once against storedHash (or a dummy when there is no account).
+export function chooseLoginAccount<I extends IdAccountLike, S extends { password?: string }>(
+  idAccount: I | null,
+  sanityAccount: S | null,
+  isPasswordHash: (stored: string) => boolean,
+): { src: 'firestore'; account: I; storedHash: string } | { src: 'account'; account: S; storedHash: string | undefined } | null {
+  const usable = usableIdAccount(idAccount, isPasswordHash);
+  if (usable) return { src: 'firestore', account: usable, storedHash: usable.passwordHash as string };
+  if (sanityAccount) return { src: 'account', account: sanityAccount, storedHash: sanityAccount.password };
+  return null;
+}
+
 // What Firebase answers for a wrong email or password (or a disabled user): told to the user as a refused login, not as a
 // server error. Anything else from Firebase is an outage.
 const FIREBASE_CREDENTIAL_CODES = /^(INVALID_LOGIN_CREDENTIALS|INVALID_PASSWORD|EMAIL_NOT_FOUND|INVALID_EMAIL|USER_DISABLED)\b/;
