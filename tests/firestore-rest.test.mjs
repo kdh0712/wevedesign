@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   FirestoreConflictError,
   buildPatchQuery,
+  buildPreconditionQuery,
   isFirestoreConflictError,
   isFirestoreConflictResponse,
   maskedWrite,
@@ -46,6 +47,13 @@ test('the patch query carries the precondition', () => {
   assert.equal(query, 'updateMask.fieldPaths=progressAccess&currentDocument.updateTime=2026-10-17T05%3A30%3A00.123456Z');
   assert.equal(new URLSearchParams(query).get('currentDocument.updateTime'), updateTime);
   assert.equal(new URLSearchParams(query).has('currentDocument.exists'), false);
+});
+
+test('a delete precondition is the same query without mask paths', () => {
+  const updateTime = '2026-11-21T05:30:00.123456Z';
+  assert.equal(buildPreconditionQuery({ updateTime }), 'currentDocument.updateTime=2026-11-21T05%3A30%3A00.123456Z');
+  assert.equal(buildPreconditionQuery({ exists: true }), 'currentDocument.exists=true');
+  assert.throws(() => buildPreconditionQuery({ updateTime: '' }), /updateTime/);
 });
 
 test('a patch with no mask path or an empty version is refused, since it would replace the whole document', () => {
