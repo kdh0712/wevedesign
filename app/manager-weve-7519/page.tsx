@@ -49,24 +49,12 @@ import { AcquisitionTab } from './acquisition-tab';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
 import { CustomerSiteTab, type ConsultationDraft } from './customer-site-tab';
-
-type UploadResult = {
-  projectTitle: string;
-  status: 'created' | 'updated' | 'skipped';
-  imageCount?: number;
-  groupCount?: number;
-  reason?: string;
-};
-
-type PreviewProject = {
-  title: string;
-  count: number;
-  rooms: string[];
-};
+import type { CategoryOption, ManagedProject, ManagedProjectImage } from './project-types';
+import { ProjectUploadPanel } from './project-upload';
+import { ProjectWorkspace } from './project-workspace';
 
 type ManagerApiResponse = {
   error?: string;
-  results?: UploadResult[];
 };
 
 type OfficeType = 'consultation' | 'customer' | 'site' | 'sale' | 'inventory' | 'vendor' | 'project';
@@ -219,55 +207,6 @@ type Vendor = {
   status?: string;
   memo?: string;
   createdAt?: string;
-};
-
-type CategoryOption = {
-  _id: string;
-  title: string;
-  slug?: string;
-};
-
-type ManagedProjectImage = {
-  assetId?: string;
-  url?: string;
-  alt?: string;
-  caption?: string;
-  roomType?: string;
-};
-
-type ManagedProjectGalleryGroup = {
-  roomType?: string;
-  title?: string;
-  images?: ManagedProjectImage[];
-};
-
-type ManagedProject = {
-  _id: string;
-  title?: string;
-  description?: string;
-  location?: string;
-  siteType?: string;
-  area?: number;
-  year?: string;
-  materials?: string;
-  blogUrl?: string;
-  displayOrder?: number;
-  mainImage?: string;
-  mainImageAssetId?: string;
-  mainImageAlt?: string;
-  mainImagePosition?: string;
-  mainImagePositionX?: number;
-  mainImagePositionY?: number;
-  featured?: boolean;
-  isVisible?: boolean;
-  categoryId?: string;
-  categoryTitle?: string;
-  galleryGroups?: ManagedProjectGalleryGroup[];
-  gallery?: ManagedProjectImage[];
-};
-
-type ProjectImageOption = ManagedProjectImage & {
-  label: string;
 };
 
 type OfficeData = {
@@ -499,13 +438,6 @@ const parseSurveyConfig = (value?: string): SurveyConfig => {
   }
 };
 
-const UPLOAD_PRESETS = [
-  { maxWidth: 1920, quality: 0.82 },
-  { maxWidth: 1680, quality: 0.78 },
-  { maxWidth: 1440, quality: 0.74 },
-  { maxWidth: 1280, quality: 0.7 },
-];
-const MAX_UPLOAD_BYTES = 3.8 * 1024 * 1024;
 const CONSULTATION_STATUSES = ['신규', '상담중', '견적', '계약', '완료'];
 
 const tabs: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
@@ -576,15 +508,6 @@ export default function ManagerPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('dashboard');
   const [selectedDashboardSiteId, setSelectedDashboardSiteId] = useState('');
   const [homepageTab, setHomepageTab] = useState<HomepageTabKey>('basic');
-  const [category, setCategory] = useState('');
-  const [newCategory, setNewCategory] = useState('');
-  const [uploadSiteType, setUploadSiteType] = useState('아파트');
-  const [uploadLocation, setUploadLocation] = useState('');
-  const [uploadArea, setUploadArea] = useState('');
-  const [uploadDescription, setUploadDescription] = useState('');
-  const [featured, setFeatured] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [uploadInputKey, setUploadInputKey] = useState(0);
   const [consultationEmail, setConsultationEmail] = useState('');
   const [homepageSettings, setHomepageSettings] = useState({
     consultationEmail: '',
@@ -655,28 +578,9 @@ export default function ManagerPage() {
     popupImage: '',
     popups: [] as PopupItemDraft[],
   });
-  const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [projectFilterCategoryId, setProjectFilterCategoryId] = useState('');
-  const [projectTitle, setProjectTitle] = useState('');
-  const [projectDescription, setProjectDescription] = useState('');
-  const [projectCategoryId, setProjectCategoryId] = useState('');
-  const [projectNewCategory, setProjectNewCategory] = useState('');
-  const [projectSiteType, setProjectSiteType] = useState('아파트');
-  const [projectLocation, setProjectLocation] = useState('');
-  const [projectArea, setProjectArea] = useState('');
-  const [projectYear, setProjectYear] = useState('');
-  const [projectMaterials, setProjectMaterials] = useState('');
-  const [projectBlogUrl, setProjectBlogUrl] = useState('');
-  const [projectDisplayOrder, setProjectDisplayOrder] = useState('');
-  const [projectMainImagePosition, setProjectMainImagePosition] = useState('center');
-  const [projectMainImagePositionX, setProjectMainImagePositionX] = useState('50');
-  const [projectMainImagePositionY, setProjectMainImagePositionY] = useState('50');
-  const [projectFeatured, setProjectFeatured] = useState(false);
-  const [projectVisible, setProjectVisible] = useState(true);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
-  const [uploadingMainImage, setUploadingMainImage] = useState(false);
   const [savingEmail, setSavingEmail] = useState(false);
   const [kakaoSyncStatus, setKakaoSyncStatus] = useState<KakaoSyncStatus | null>(null);
   const [loadingOffice, setLoadingOffice] = useState(false);
@@ -687,7 +591,6 @@ export default function ManagerPage() {
   const [trashFilter, setTrashFilter] = useState<TrashType | 'all'>('all');
   const [visitStats, setVisitStats] = useState<VisitStats | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState('');
-  const [results, setResults] = useState<UploadResult[]>([]);
   const [selectedConsultation, setSelectedConsultation] = useState<Consultation | null>(null);
   const [completionConsultation, setCompletionConsultation] = useState<Consultation | null>(null);
   const [alimtalkSite, setAlimtalkSite] = useState<Site | null>(null);
@@ -787,16 +690,6 @@ export default function ManagerPage() {
       .sort((a, b) => String(b.deletedAt || '').localeCompare(String(a.deletedAt || '')));
   }, [trashData]);
 
-  const previews = useMemo(() => buildPreview(files), [files]);
-  const filteredProjectsForEdit = useMemo(() => {
-    if (!projectFilterCategoryId) return officeData.projects;
-    return officeData.projects.filter((project) => project.categoryId === projectFilterCategoryId);
-  }, [officeData.projects, projectFilterCategoryId]);
-  const selectedProjectForEdit = useMemo(
-    () => officeData.projects.find((project) => project._id === selectedProjectId),
-    [officeData.projects, selectedProjectId],
-  );
-  const selectedProjectImageOptions = useMemo(() => getProjectImageOptions(selectedProjectForEdit), [selectedProjectForEdit]);
   const latestEstimateBySite = useMemo(() => buildLatestEstimateBySite(officeData.estimates), [officeData.estimates]);
   const dashboardSite = useMemo(
     () => officeData.sites.find((site) => site._id === selectedDashboardSiteId) || officeData.sites[0],
@@ -1235,7 +1128,6 @@ export default function ManagerPage() {
       });
       setSurveyDraft(parsedSurveyConfig);
       setConsultationEmail(settings.consultationEmail || '');
-      if (!category && data.categories?.[0]?._id) setCategory(data.categories[0]._id);
       setPassword(managerPassword);
       setIsUnlocked(true);
       setLastRefreshedAt(formatTime(new Date()));
@@ -1672,28 +1564,6 @@ export default function ManagerPage() {
     scrollToForm(vendorFormRef);
   };
 
-  const handleFolderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setError('');
-    setStatus('');
-    setResults([]);
-    setFiles(Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/')));
-  };
-
-  const handleFolderDrop = async (event: React.DragEvent<HTMLLabelElement>) => {
-    event.preventDefault();
-    setError('');
-    setStatus('');
-    setResults([]);
-
-    try {
-      const droppedFiles = await filesFromDrop(event.dataTransfer);
-      setFiles(droppedFiles.filter((file) => file.type.startsWith('image/')));
-      setStatus('업로드할 현장 폴더를 불러왔습니다.');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '드래그한 폴더를 읽지 못했습니다.');
-    }
-  };
-
   const saveEmail = async () => {
     setError('');
     setStatus('');
@@ -1911,237 +1781,9 @@ export default function ManagerPage() {
     }
   };
 
-  const uploadProjects = async () => {
-    setError('');
-    setStatus('');
-    setResults([]);
-
-    if (!requirePassword()) return;
-
-    if (files.length === 0) {
-      setError('업로드할 현장 폴더를 선택해 주세요.');
-      return;
-    }
-
-    const selectedCategory = officeData.categories.find((item) => item._id === category);
-    const categoryTitle = newCategory.trim() || selectedCategory?.title || '';
-
-    if (!categoryTitle) {
-      setError('Project 분류를 선택하거나 새 카테고리를 입력해 주세요.');
-      return;
-    }
-
-    setUploading(true);
-
-    try {
-      setStatus('사진을 웹용으로 압축하고 있습니다...');
-      const preparedFiles = await prepareUploadFiles(files);
-      const totalBytes = preparedFiles.reduce((total, item) => total + item.file.size, 0);
-
-      if (totalBytes > MAX_UPLOAD_BYTES) {
-        throw new Error('사진 용량이 아직 큽니다. 한 번에 올릴 사진 수를 줄이거나 원본 사진을 조금 더 작게 저장한 뒤 다시 시도해 주세요.');
-      }
-
-      const formData = new FormData();
-
-      preparedFiles.forEach((item) => {
-        formData.append('files', item.file);
-      });
-
-      formData.append('paths', JSON.stringify(preparedFiles.map((item) => item.path)));
-      if (!newCategory.trim() && selectedCategory?._id) {
-        formData.append('categoryId', selectedCategory._id);
-      }
-      formData.append('category', categoryTitle);
-      formData.append('siteType', uploadSiteType);
-      formData.append('location', uploadLocation);
-      formData.append('description', uploadDescription);
-      formData.append('area', uploadArea);
-      formData.append('featured', String(featured));
-      setStatus('Sanity로 업로드하고 있습니다...');
-
-      const response = await fetch('/api/manager/bulk-upload', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      });
-      const data = await readJsonResponse<ManagerApiResponse>(response);
-
-      if (!response.ok) throw new Error(data.error || '업로드에 실패했습니다.');
-      setResults(data.results || []);
-      setFiles([]);
-      setUploadInputKey((key) => key + 1);
-      setCategory(officeData.categories[0]?._id || '');
-      setNewCategory('');
-      setUploadSiteType('아파트');
-      setUploadLocation('');
-      setUploadArea('');
-      setUploadDescription('');
-      setFeatured(false);
-      setStatus('현장 사진 업로드가 완료되었습니다.');
-      // The periodic refresh skips the portfolio, so load the new project here.
-      void loadOfficeData(password, { silent: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '업로드 중 오류가 발생했습니다.');
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const selectProjectForEdit = (projectId: string) => {
-    const project = officeData.projects.find((item) => item._id === projectId);
-    setSelectedProjectId(projectId);
-    setProjectTitle(project?.title || '');
-    setProjectDescription(project?.description || '');
-    setProjectCategoryId(project?.categoryId || '');
-    setProjectNewCategory('');
-    setProjectSiteType(project?.siteType || '아파트');
-    setProjectLocation(project?.location || '');
-    setProjectArea(project?.area ? String(project.area) : '');
-    setProjectYear(project?.year || '');
-    setProjectMaterials(project?.materials || '');
-    setProjectBlogUrl(project?.blogUrl || '');
-    setProjectDisplayOrder(project?.displayOrder ? String(project.displayOrder) : '');
-    setProjectMainImagePosition(project?.mainImagePosition || 'center');
-    setProjectMainImagePositionX(String(project?.mainImagePositionX ?? 50));
-    setProjectMainImagePositionY(String(project?.mainImagePositionY ?? 50));
-    setProjectFeatured(Boolean(project?.featured));
-    setProjectVisible(project?.isVisible !== false);
-  };
-
-  const updateProjectImageFocus = (event: React.PointerEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100));
-    const y = Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100));
-
-    setProjectMainImagePosition('custom');
-    setProjectMainImagePositionX(String(Math.round(x)));
-    setProjectMainImagePositionY(String(Math.round(y)));
-  };
-
-  const saveProjectMainImage = async ({ file, option }: { file?: File; option?: ProjectImageOption }) => {
-    setError('');
-    setStatus('');
-    if (!requirePassword()) return;
-
-    const project = officeData.projects.find((item) => item._id === selectedProjectId);
-    if (!project) {
-      setError('대표사진을 등록할 Project를 먼저 선택해 주세요.');
-      return;
-    }
-
-    if (!file && !option?.assetId) {
-      setError('대표사진으로 사용할 이미지를 선택해 주세요.');
-      return;
-    }
-
-    setUploadingMainImage(true);
-    try {
-      const formData = new FormData();
-      formData.append('projectId', project._id);
-      formData.append('alt', `${projectTitle || project.title || 'Project'} 대표 사진`);
-      if (file) formData.append('file', file);
-      if (option?.assetId) formData.append('assetId', option.assetId);
-      if (option?.url) formData.append('assetUrl', option.url);
-
-      const response = await fetch('/api/manager/project-main-image', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: formData,
-      });
-      const data = await readJsonResponse<{ assetId?: string; assetUrl?: string; error?: string }>(response);
-      if (!response.ok) throw new Error(data.error || '대표사진을 저장하지 못했습니다.');
-
-      const nextImage = data.assetUrl || option?.url || project.mainImage;
-      setOfficeData((previous) => ({
-        ...previous,
-        projects: previous.projects.map((item) =>
-          item._id === project._id
-            ? {
-                ...item,
-                mainImage: nextImage,
-                mainImageAssetId: data.assetId || option?.assetId || item.mainImageAssetId,
-                mainImageAlt: `${projectTitle || project.title || 'Project'} 대표 사진`,
-              }
-            : item,
-        ),
-      }));
-      setProjectMainImagePosition('custom');
-      setStatus('대표사진을 저장했습니다. 16:9 미리보기에서 보이는 위치를 맞춘 뒤 Project 정보를 저장해 주세요.');
-      await loadOfficeData(password, { silent: true });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '대표사진 저장 중 오류가 발생했습니다.');
-    } finally {
-      setUploadingMainImage(false);
-    }
-  };
-
-  const saveProjectClassification = async () => {
-    setError('');
-    setStatus('');
-    if (!requirePassword()) return;
-
-    const project = officeData.projects.find((item) => item._id === selectedProjectId);
-    if (!project) {
-      setError('분류를 변경할 Project를 선택해 주세요.');
-      return;
-    }
-
-    const selectedCategory = officeData.categories.find((item) => item._id === projectCategoryId);
-    const categoryTitle = projectNewCategory.trim() || selectedCategory?.title || '';
-    if (!categoryTitle) {
-      setError('카테고리를 선택하거나 새 카테고리를 입력해 주세요.');
-      return;
-    }
-
-    setSavingOffice(true);
-    try {
-      let categoryRef = projectCategoryId;
-
-      if (projectNewCategory.trim()) {
-        const response = await fetch('/api/manager/office', {
-          method: 'POST',
-          headers: {
-            ...authHeaders(),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            type: 'category',
-            data: { title: projectNewCategory.trim() },
-          }),
-        });
-        const data = await readJsonResponse<{ record?: { _id?: string }; error?: string }>(response);
-        if (!response.ok || !data.record?._id) throw new Error(data.error || '새 카테고리를 만들지 못했습니다.');
-        categoryRef = data.record._id;
-      }
-
-      await saveOfficeRecord(
-        'project',
-        {
-          category: { _type: 'reference', _ref: categoryRef },
-          title: projectTitle,
-          description: projectDescription,
-          siteType: projectSiteType,
-          location: projectLocation,
-          area: Number(projectArea || 0),
-          year: projectYear,
-          materials: projectMaterials,
-          blogUrl: projectBlogUrl,
-          displayOrder: Number(projectDisplayOrder || 0),
-          mainImagePosition: projectMainImagePosition,
-          mainImagePositionX: Number(projectMainImagePositionX || 50),
-          mainImagePositionY: Number(projectMainImagePositionY || 50),
-          featured: projectFeatured,
-          isVisible: projectVisible,
-        },
-        project._id,
-      );
-      setProjectNewCategory('');
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Project 분류 저장 중 오류가 발생했습니다.');
-    } finally {
-      setSavingOffice(false);
-    }
+  // The 시공 사례 screen reloads the office data quietly after a save, a publish or an upload.
+  const reloadProjects = async () => {
+    await loadOfficeData(password, { silent: true });
   };
 
   const previewFocus = (key: keyof typeof homepagePreviewTargets) => ({
@@ -2959,7 +2601,7 @@ export default function ManagerPage() {
                 { key: 'sections', label: '섹션 문구' },
                 { key: 'contact', label: '상담/위치' },
                 { key: 'popup', label: '팝업 관리' },
-                { key: 'projects', label: 'Project 관리' },
+                { key: 'projects', label: '시공 사례' },
                 { key: 'survey', label: '상담 설문' },
               ].map((item) => (
                 <button
@@ -2974,8 +2616,9 @@ export default function ManagerPage() {
                 </button>
               ))}
             </div>
+            {homepageTab !== 'projects' && (
             <Panel title="홈페이지 관리">
-                <div className={`grid gap-5 ${homepageTab === 'popup' || homepageTab === 'projects' ? '' : '2xl:grid-cols-[minmax(0,1fr)_460px]'}`}>
+                <div className={`grid gap-5 ${homepageTab === 'popup' ? '' : '2xl:grid-cols-[minmax(0,1fr)_460px]'}`}>
                   <div className="grid gap-5">
                     {homepageTab === 'basic' && (
                       <section className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
@@ -3082,7 +2725,7 @@ export default function ManagerPage() {
                       </section>
                     )}
                   </div>
-                  {homepageTab !== 'popup' && homepageTab !== 'projects' && <HomepageLivePreview activeTarget={activePreviewTarget} />}
+                  {homepageTab !== 'popup' && <HomepageLivePreview activeTarget={activePreviewTarget} />}
                 </div>
                 <button
                   onClick={saveHomepageSettings}
@@ -3093,323 +2736,39 @@ export default function ManagerPage() {
                   홈페이지 설정 저장
                 </button>
               </Panel>
+            )}
 
             {homepageTab === 'projects' && (
-            <div className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
-              <Panel title="현장 폴더 한번에 업로드">
-                <p className="mb-4 leading-7 text-[#60717d]">
-                  현장명 폴더 안에 `대표.jpg`, `거실1.jpg`, `거실2.jpg`, `주방1.jpg`처럼 정리한 뒤 폴더를 선택하면 Project와 공간별 사진 묶음으로 자동 등록됩니다.
-                </p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    Project 분류
-                    <select
-                      value={category}
-                      onChange={(event) => {
-                        setCategory(event.target.value);
-                        setNewCategory('');
-                      }}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="">카테고리 선택</option>
-                      {officeData.categories.map((item) => (
-                        <option key={item._id} value={item._id}>
-                          {item.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <SettingInput label="새 카테고리 추가" value={newCategory} onChange={setNewCategory} placeholder="카테고리에 없으면 입력" />
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    주거 형태
-                    <select
-                      value={uploadSiteType}
-                      onChange={(event) => setUploadSiteType(event.target.value)}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      {['아파트', '주택', '상가', '오피스', '기타'].map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <SettingInput label="지역" value={uploadLocation} onChange={setUploadLocation} placeholder="예: 수도권, 분당, 강남" />
-                  <SettingInput label="평수" value={uploadArea} onChange={(value) => setUploadArea(onlyNumber(value))} placeholder="예: 32" />
-                  <SettingInput label="Project 설명" value={uploadDescription} onChange={setUploadDescription} placeholder="홈페이지 Project 상세 화면에 표시될 설명을 입력하세요." textarea />
-                  <label className="flex items-center gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 text-sm font-semibold text-[#4d5d66]">
-                    <input type="checkbox" checked={featured} onChange={(event) => setFeatured(event.target.checked)} />
-                    메인 Project에도 표시
-                  </label>
-                </div>
-
-                <label
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={handleFolderDrop}
-                  className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-[#9db6c1] bg-[#f7fafb] px-5 py-10 text-center transition hover:bg-[#eef9fb]"
-                >
-                  <UploadCloud className="mb-3 text-[#38a9bd]" size={34} />
-                  <span className="font-semibold">현장 폴더 선택 또는 드래그</span>
-                  <span className="mt-2 text-sm text-[#60717d]">폴더를 이 영역에 끌어오거나 클릭해서 선택할 수 있습니다.</span>
-                  <input key={uploadInputKey} type="file" multiple accept="image/*" className="hidden" onChange={handleFolderChange} {...{ webkitdirectory: '', directory: '' }} />
-                </label>
-
-                {previews.length > 0 && (
-                  <div className="mt-5 rounded-lg bg-[#edf2f5] p-4">
-                    <p className="font-semibold">업로드 미리보기</p>
-                    <div className="mt-3 grid gap-3">
-                      {previews.map((project) => (
-                        <div key={project.title} className="rounded-md bg-white p-3 text-sm">
-                          <p className="font-semibold">
-                            {project.title} · 사진 {project.count}장
-                          </p>
-                          <p className="mt-1 text-[#60717d]">{project.rooms.join(', ') || '상세 사진 없음'}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+              <ProjectWorkspace
+                projects={officeData.projects}
+                categories={officeData.categories}
+                authHeaders={() => authHeaders()}
+                reload={reloadProjects}
+                setStatus={setStatus}
+                setError={setError}
+                renderUpload={(request, close) => (
+                  <ProjectUploadPanel
+                    request={request}
+                    projects={officeData.projects}
+                    categories={officeData.categories}
+                    authHeaders={() => authHeaders()}
+                    reload={reloadProjects}
+                    onClose={close}
+                    setStatus={setStatus}
+                    setError={setError}
+                  />
                 )}
-
-                <button
-                  onClick={uploadProjects}
-                  disabled={uploading}
-                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#171512] px-5 py-4 font-semibold text-white disabled:opacity-60"
-                >
-                  {uploading ? <Loader2 className="animate-spin" size={18} /> : <UploadCloud size={18} />}
-                  Project 업로드
-                </button>
-              </Panel>
-
-              <Panel title="Project 분류 관리">
-                <div className="grid gap-3">
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    분류로 Project 찾기
-                    <select
-                      value={projectFilterCategoryId}
-                      onChange={(event) => {
-                        setProjectFilterCategoryId(event.target.value);
-                        selectProjectForEdit('');
-                      }}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="">전체 Project</option>
-                      {officeData.categories.map((item) => (
-                        <option key={item._id} value={item._id}>
-                          {item.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    Project 선택
-                    <select
-                      value={selectedProjectId}
-                      onChange={(event) => selectProjectForEdit(event.target.value)}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="">Project 선택</option>
-                      {filteredProjectsForEdit.map((project) => (
-                        <option key={project._id} value={project._id}>
-                          {project.title || '이름 없는 Project'} · {project.categoryTitle || '분류 없음'}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {selectedProjectForEdit && (
-                    <div className="rounded-lg border border-[#d5dde2] bg-white p-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-[#26343b]">대표사진 등록/지정</p>
-                          <p className="mt-1 text-xs text-[#60717d]">홈페이지 Project 카드와 상세 상단에 사용할 대표사진을 선택합니다.</p>
-                        </div>
-                        <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-md bg-[#24323a] px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-[#11181d]">
-                          {uploadingMainImage ? <Loader2 className="animate-spin" size={16} /> : <UploadCloud size={16} />}
-                          대표사진 업로드
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="sr-only"
-                            disabled={uploadingMainImage}
-                            onChange={(event) => {
-                              const file = event.currentTarget.files?.[0];
-                              event.currentTarget.value = '';
-                              if (file) void saveProjectMainImage({ file });
-                            }}
-                          />
-                        </label>
-                      </div>
-                      {selectedProjectImageOptions.length > 0 ? (
-                        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                          {selectedProjectImageOptions.map((image, index) => {
-                            const isCurrent = Boolean(image.assetId && image.assetId === selectedProjectForEdit.mainImageAssetId);
-
-                            return (
-                              <button
-                                key={`${image.assetId || image.url}-${index}`}
-                                type="button"
-                                disabled={uploadingMainImage || !image.assetId}
-                                onClick={() => void saveProjectMainImage({ option: image })}
-                                className={`group overflow-hidden rounded-md border bg-[#f7fafb] text-left transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 ${
-                                  isCurrent ? 'border-[#38bcd4] ring-2 ring-[#38bcd4]/25' : 'border-[#d5dde2]'
-                                }`}
-                              >
-                                {image.url ? (
-                                  <img src={image.url} alt={image.alt || image.label} className="aspect-video w-full object-cover" loading="lazy" />
-                                ) : (
-                                  <div className="flex aspect-video items-center justify-center text-[#8a98a1]">
-                                    <ImageIcon size={24} />
-                                  </div>
-                                )}
-                                <span className="flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-[#4d5d66]">
-                                  <span className="min-w-0 truncate">{image.label}</span>
-                                  {isCurrent ? <Check size={14} className="shrink-0 text-[#1492a8]" /> : <ImageIcon size={14} className="shrink-0 text-[#8a98a1]" />}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="mt-4 rounded-md bg-[#f7fafb] px-3 py-2 text-xs font-semibold text-[#60717d]">
-                          아직 상세사진이 없습니다. 새 대표사진을 직접 업로드할 수 있습니다.
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {selectedProjectForEdit?.mainImage && (
-                    <div className="rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                      <div className="mb-3 flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-[#4d5d66]">대표사진 16:9 미리보기</p>
-                          <p className="mt-1 text-xs text-[#60717d]">사진 위를 클릭하거나 드래그해서 16:9 영역에 보일 중심을 정합니다.</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onPointerDown={updateProjectImageFocus}
-                          onPointerMove={(event) => {
-                            if (event.buttons === 1) updateProjectImageFocus(event);
-                          }}
-                          className="relative w-full max-w-[360px] cursor-crosshair overflow-hidden rounded-md bg-[#d8d1c5]"
-                        >
-                          <img
-                            src={selectedProjectForEdit.mainImage}
-                            alt={selectedProjectForEdit.mainImageAlt || selectedProjectForEdit.title || 'Project preview'}
-                            className="aspect-video w-full object-cover"
-                            style={{ objectPosition: imageObjectPosition(projectMainImagePosition, Number(projectMainImagePositionX), Number(projectMainImagePositionY)) }}
-                            draggable={false}
-                          />
-                          <span
-                            className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#38bcd4] shadow"
-                            style={{ left: `${Number(projectMainImagePositionX || 50)}%`, top: `${Number(projectMainImagePositionY || 50)}%` }}
-                          />
-                        </div>
-                        <div className="grid flex-1 gap-3">
-                          <SettingInput label="가로 중심" value={projectMainImagePositionX} onChange={(value) => setProjectMainImagePositionX(onlyNumber(value).slice(0, 3))} placeholder="0-100" />
-                          <SettingInput label="세로 중심" value={projectMainImagePositionY} onChange={(value) => setProjectMainImagePositionY(onlyNumber(value).slice(0, 3))} placeholder="0-100" />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  <SettingInput label="Project 이름" value={projectTitle} onChange={setProjectTitle} />
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    카테고리 선택
-                    <select
-                      value={projectCategoryId}
-                      onChange={(event) => {
-                        setProjectCategoryId(event.target.value);
-                        setProjectNewCategory('');
-                      }}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="">카테고리 선택</option>
-                      {officeData.categories.map((item) => (
-                        <option key={item._id} value={item._id}>
-                          {item.title}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <SettingInput label="새 카테고리 추가" value={projectNewCategory} onChange={setProjectNewCategory} placeholder="카테고리에 없으면 입력" />
-                  <SettingInput label="Project 설명" value={projectDescription} onChange={setProjectDescription} textarea />
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    주거 형태
-                    <select
-                      value={projectSiteType}
-                      onChange={(event) => setProjectSiteType(event.target.value)}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      {['아파트', '주택', '상가', '오피스', '기타'].map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <SettingInput label="지역" value={projectLocation} onChange={setProjectLocation} />
-                  <SettingInput label="평수" value={projectArea} onChange={(value) => setProjectArea(onlyNumber(value))} />
-                  <SettingInput label="시공 연도" value={projectYear} onChange={setProjectYear} placeholder="예: 2026" />
-                  <SettingInput label="사용 자재" value={projectMaterials} onChange={setProjectMaterials} placeholder="예: 포세린 타일, 무몰딩, 제작가구" />
-                  <SettingInput label="블로그 링크" value={projectBlogUrl} onChange={setProjectBlogUrl} placeholder="예: https://blog.naver.com/..." />
-                  <SettingInput label="노출 순서" value={projectDisplayOrder} onChange={(value) => setProjectDisplayOrder(onlyNumber(value))} placeholder="숫자가 작을수록 먼저 표시" />
-                  <label className="grid gap-1 text-sm font-semibold text-[#4d5d66]">
-                    대표 사진 표시 위치
-                    <select
-                      value={projectMainImagePosition}
-                      onChange={(event) => setProjectMainImagePosition(event.target.value)}
-                      className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-3 font-normal outline-none focus:border-[#38a9bd]"
-                    >
-                      <option value="center">가운데</option>
-                      <option value="custom">직접 조정</option>
-                      <option value="top">위쪽</option>
-                      <option value="bottom">아래쪽</option>
-                      <option value="left">왼쪽</option>
-                      <option value="right">오른쪽</option>
-                    </select>
-                  </label>
-                  <div className="grid gap-2 rounded-md border border-[#d5dde2] bg-[#f7fafb] p-3 text-sm font-semibold text-[#4d5d66]">
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={projectFeatured} onChange={(event) => setProjectFeatured(event.target.checked)} />
-                      메인 Project에도 표시
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input type="checkbox" checked={projectVisible} onChange={(event) => setProjectVisible(event.target.checked)} />
-                      홈페이지 Project 목록에 표시
-                    </label>
-                  </div>
-                  <button
-                    onClick={saveProjectClassification}
-                    disabled={savingOffice}
-                    className="mt-2 inline-flex items-center justify-center gap-2 rounded-md bg-[#38bcd4] px-5 py-3 font-semibold text-white disabled:opacity-60"
-                  >
-                    {savingOffice ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
-                    Project 정보 저장
-                  </button>
-                </div>
-              </Panel>
-            </div>
+              />
             )}
           </div>
         )}
 
           </div>
 
-        {(status || error || results.length > 0) && (
+        {(status || error) && (
           <section className="mt-5 rounded-lg border border-[#d9cdbb] bg-white p-5 shadow-sm">
             {status && <p className="font-semibold text-[#2f7d45]">{status}</p>}
             {error && <p className="font-semibold text-red-600">{error}</p>}
-            {results.length > 0 && (
-              <div className="mt-4 grid gap-2">
-                {results.map((result) => (
-                  <div key={result.projectTitle} className="rounded-md bg-[#fffdf8] px-4 py-3 text-sm">
-                    <strong>{result.projectTitle}</strong> · {result.status}
-                    {result.imageCount ? ` · 사진 ${result.imageCount}장 · 공간 ${result.groupCount}개` : ''}
-                    {result.reason ? ` · ${result.reason}` : ''}
-                  </div>
-                ))}
-              </div>
-            )}
           </section>
         )}
         {isSurveyEditorOpen && (
@@ -6047,158 +5406,6 @@ function OfficeForm({
   );
 }
 
-function buildPreview(files: File[]): PreviewProject[] {
-  const map = new Map<string, { count: number; rooms: Set<string> }>();
-
-  files.forEach((file) => {
-    const path = file.webkitRelativePath || file.name;
-    const parts = path.split(/[\\/]+/).filter(Boolean);
-    const fileName = parts[parts.length - 1] || file.name;
-    const projectTitle = parts.length > 1 ? parts[parts.length - 2] : fileName.replace(/\.[^.]+$/, '');
-    const room = roomNameFromFile(fileName);
-    const current = map.get(projectTitle) || { count: 0, rooms: new Set<string>() };
-    current.count += 1;
-    if (room) current.rooms.add(room);
-    map.set(projectTitle, current);
-  });
-
-  return Array.from(map.entries()).map(([title, value]) => ({
-    title,
-    count: value.count,
-    rooms: Array.from(value.rooms),
-  }));
-}
-
-type DropFileEntry = {
-  isFile: boolean;
-  isDirectory: boolean;
-  name: string;
-  file?: (success: (file: File) => void, error?: (error: Error) => void) => void;
-  createReader?: () => { readEntries: (success: (entries: DropFileEntry[]) => void, error?: (error: Error) => void) => void };
-};
-
-type DropItemWithEntry = DataTransferItem & {
-  webkitGetAsEntry?: () => DropFileEntry | null;
-};
-
-async function filesFromDrop(dataTransfer: DataTransfer) {
-  const entries = Array.from(dataTransfer.items || [])
-    .map((item): DropFileEntry | null => ((item as DropItemWithEntry).webkitGetAsEntry?.() as unknown as DropFileEntry | null) || null)
-    .filter((entry): entry is DropFileEntry => Boolean(entry));
-
-  if (entries.length === 0) return Array.from(dataTransfer.files || []);
-
-  const nested = await Promise.all(entries.map((entry) => readDropEntry(entry)));
-  return nested.flat();
-}
-
-async function readDropEntry(entry: DropFileEntry, parentPath = ''): Promise<File[]> {
-  const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
-
-  if (entry.isFile && entry.file) {
-    const file = await new Promise<File>((resolve, reject) => entry.file?.(resolve, reject));
-    return [fileWithRelativePath(file, relativePath)];
-  }
-
-  if (entry.isDirectory && entry.createReader) {
-    const reader = entry.createReader();
-    const children: DropFileEntry[] = [];
-
-    while (true) {
-      const batch = await new Promise<DropFileEntry[]>((resolve, reject) => reader.readEntries(resolve, reject));
-      if (batch.length === 0) break;
-      children.push(...batch);
-    }
-
-    const nested = await Promise.all(children.map((child) => readDropEntry(child, relativePath)));
-    return nested.flat();
-  }
-
-  return [];
-}
-
-function fileWithRelativePath(file: File, relativePath: string) {
-  try {
-    Object.defineProperty(file, 'webkitRelativePath', {
-      configurable: true,
-      value: relativePath,
-    });
-  } catch {
-    return new File([file], relativePath, { type: file.type, lastModified: file.lastModified });
-  }
-
-  return file;
-}
-
-function roomNameFromFile(fileName: string) {
-  const baseName = fileName.replace(/\.[^.]+$/, '').trim();
-  const normalized = baseName.toLowerCase().replace(/\s+/g, '');
-
-  if (/^(대표|메인|썸네일|커버|cover|main|thumbnail|thumb)$/i.test(normalized)) return '';
-  if (/^(시공전|공사전|before|비포)$/i.test(normalized)) return '시공 전';
-
-  const match = baseName.match(/^(.*?)[\s_-]*(\d+)$/);
-  return (match ? match[1] : baseName).trim();
-}
-
-async function prepareUploadFiles(files: File[]) {
-  let prepared = await compressFiles(files, UPLOAD_PRESETS[0]);
-
-  for (const preset of UPLOAD_PRESETS.slice(1)) {
-    const totalBytes = prepared.reduce((total, item) => total + item.file.size, 0);
-    if (totalBytes <= MAX_UPLOAD_BYTES) break;
-    prepared = await compressFiles(files, preset);
-  }
-
-  return prepared;
-}
-
-async function compressFiles(files: File[], preset: { maxWidth: number; quality: number }) {
-  return Promise.all(
-    files.map(async (file) => ({
-      file: await compressImage(file, preset),
-      path: file.webkitRelativePath || file.name,
-    })),
-  );
-}
-
-async function compressImage(file: File, preset: { maxWidth: number; quality: number }) {
-  if (!file.type.startsWith('image/')) return file;
-
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, preset.maxWidth / bitmap.width);
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement('canvas');
-
-  canvas.width = width;
-  canvas.height = height;
-  canvas.getContext('2d')?.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (result) => {
-        if (result) resolve(result);
-        else reject(new Error('이미지 압축에 실패했습니다.'));
-      },
-      'image/jpeg',
-      preset.quality,
-    );
-  });
-
-  if (blob.size >= file.size) return file;
-
-  return new File([blob], toJpegFileName(file.name), {
-    type: 'image/jpeg',
-    lastModified: file.lastModified,
-  });
-}
-
-function toJpegFileName(fileName: string) {
-  return fileName.replace(/\.[^.]+$/, '') + '.jpg';
-}
-
 function formatMoney(value: number) {
   return `${Math.round(value).toLocaleString('ko-KR')}원`;
 }
@@ -6896,54 +6103,4 @@ function buildLatestEstimateBySite(estimates: EstimateSummary[]) {
     }
   });
   return map;
-}
-
-function imageObjectPosition(value?: string, x?: number, y?: number) {
-  if (typeof x === 'number' || typeof y === 'number') {
-    return `${Math.min(100, Math.max(0, Math.round(x ?? 50)))}% ${Math.min(100, Math.max(0, Math.round(y ?? 50)))}%`;
-  }
-
-  const positions: Record<string, string> = {
-    top: 'center top',
-    bottom: 'center bottom',
-    left: 'left center',
-    right: 'right center',
-    center: 'center center',
-  };
-
-  return positions[value || 'center'] || positions.center;
-}
-
-function getProjectImageOptions(project?: ManagedProject): ProjectImageOption[] {
-  if (!project) return [];
-
-  const options: ProjectImageOption[] = [];
-
-  project.galleryGroups?.forEach((group, groupIndex) => {
-    const groupLabel = group.title || group.roomType || `상세사진 ${groupIndex + 1}`;
-    group.images?.forEach((image, imageIndex) => {
-      if (!image.assetId || !image.url) return;
-      options.push({
-        ...image,
-        roomType: image.roomType || group.roomType,
-        label: image.caption || `${groupLabel} ${imageIndex + 1}`,
-      });
-    });
-  });
-
-  project.gallery?.forEach((image, imageIndex) => {
-    if (!image.assetId || !image.url) return;
-    options.push({
-      ...image,
-      label: image.caption || image.roomType || `상세사진 ${imageIndex + 1}`,
-    });
-  });
-
-  const seen = new Set<string>();
-  return options.filter((option) => {
-    const key = option.assetId || option.url || '';
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
 }

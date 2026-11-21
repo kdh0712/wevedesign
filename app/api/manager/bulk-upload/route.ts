@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { getOrCreateCategory, hashId, managerClient } from '../_utils';
+import { newProjectFields, newProjectId, parseUploadTargets, replacePhotoPatch, type UploadResult } from '../../../lib/project-upload-rules';
+import { getOrCreateCategory, hashId, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
 
 export const runtime = 'nodejs';
@@ -29,17 +31,16 @@ export async function POST(request: Request) {
   }
 }
 
+// Each folder is one 시공 사례. The screen says per folder (targets) whether it makes a new project, which starts hidden with a
+// random id, or replaces one project's photos, which keeps everything else of that project. A folder without a target is
+// skipped; a folder that fails is reported and the others still go through.
 async function handleBulkUpload(request: Request) {
   const formData = await request.formData();
   const files = formData.getAll('files').filter((value): value is File => value instanceof File);
   const paths = safeJsonArray(formData.get('paths'));
+  const targets = parseUploadTargets(formData.get('targets'));
   const categoryId = String(formData.get('categoryId') || '').trim();
-  const categoryTitle = String(formData.get('category') || '주택').trim() || '주택';
-  const siteType = String(formData.get('siteType') || '').trim();
-  const location = String(formData.get('location') || '').trim();
-  const description = String(formData.get('description') || '').trim();
-  const area = Number(String(formData.get('area') || '').replace(/[^\d.]/g, ''));
-  const featured = formData.get('featured') === 'true';
+  const categoryTitle = String(formData.get('category') || '').trim();
 
   if (files.length === 0) {
     return NextResponse.json({ error: '업로드할 이미지 파일이 없습니다.' }, { status: 400 });
@@ -53,95 +54,111 @@ async function handleBulkUpload(request: Request) {
     return NextResponse.json({ error: '지원되는 이미지 파일을 찾지 못했습니다.' }, { status: 400 });
   }
 
-  const category = categoryId ? { _id: categoryId } : await getOrCreateCategory(categoryTitle);
+  let categoryRef = categoryId;
   const projects = groupBy(parsedImages, (image) => image.projectTitle);
-  const results = [];
+  const results: UploadResult[] = [];
 
   for (const [projectTitle, images] of projects) {
-    const cover = images.find((image) => image.kind === 'cover') || images.find((image) => image.kind === 'detail');
-    const before = images.find((image) => image.kind === 'before');
-    const details = images.filter((image) => image.kind === 'detail');
+    const target = targets.get(projectTitle);
+    if (!target) {
+      results.push({ projectTitle, status: 'skipped', reason: '올릴 방법이 정해지지 않았습니다.' });
+      continue;
+    }
 
+    const cover = images.find((image) => image.kind === 'cover') || images.find((image) => image.kind === 'detail');
     if (!cover) {
       results.push({ projectTitle, status: 'skipped', reason: '대표 이미지가 없습니다.' });
       continue;
     }
 
-    const existing = await managerClient.fetch('*[_type == "project" && title == $title][0]{_id}', { title: projectTitle });
-    const projectId = existing?._id || `project-${hashId(projectTitle)}`;
-    const [mainAsset, beforeAsset] = await Promise.all([
-      uploadImage(cover.file, `${projectTitle} 대표`),
-      before ? uploadImage(before.file, `${projectTitle} 시공 전`) : Promise.resolve(null),
-    ]);
-    const galleryGroups = [];
-    const roomGroups = groupBy(details, (image) => image.roomType);
+    try {
+      let existingTitle = projectTitle;
+      if (target.mode === 'replace') {
+        const projectId = target.projectId.replace(/^drafts\./, '');
+        if (!(await isSanityIdWritable(projectId, 'project'))) {
+          results.push({ projectTitle, status: 'failed', reason: '바꿀 시공 사례를 찾을 수 없습니다.' });
+          continue;
+        }
+        const stored = await managerClient.fetch<{ title?: string } | null>('*[_id == $id][0]{title}', { id: projectId });
+        existingTitle = stored?.title || projectTitle;
+      } else if (!categoryRef) {
+        if (!categoryTitle) {
+          results.push({ projectTitle, status: 'skipped', reason: '공간 분류가 필요합니다.' });
+          continue;
+        }
+        categoryRef = (await getOrCreateCategory(categoryTitle))._id;
+      }
 
-    for (const [groupIndex, [roomType, groupImages]] of Array.from(roomGroups.entries()).entries()) {
-      const sortedImages = [...groupImages].sort((a, b) => a.order - b.order || collator.compare(a.path, b.path));
-      const uploadedImages = await Promise.all(
-        sortedImages.map(async (image, imageIndex) => {
+      const before = images.find((image) => image.kind === 'before');
+      const details = images.filter((image) => image.kind === 'detail');
+      const [mainAsset, beforeAsset] = await Promise.all([
+        uploadImage(cover.file, `${existingTitle} 대표`),
+        before ? uploadImage(before.file, `${existingTitle} 시공 전`) : Promise.resolve(null),
+      ]);
+      const galleryGroups = await buildGalleryGroups(existingTitle, details);
+
+      if (target.mode === 'replace') {
+        const projectId = target.projectId.replace(/^drafts\./, '');
+        const patch = replacePhotoPatch({ title: existingTitle, mainAssetId: mainAsset._id, beforeAssetId: beforeAsset?._id || null, galleryGroups });
+        const updates = { ...patch.set, updatedAt: new Date().toISOString() };
+        await managerClient.patch(projectId).set(updates).unset(patch.unset).commit();
+        const draftId = `drafts.${projectId}`;
+        const draft = await managerClient.fetch<{ _id?: string } | null>('*[_id == $draftId][0]{_id}', { draftId });
+        if (draft?._id) await managerClient.patch(draftId).set(updates).unset(patch.unset).commit();
+        results.push({ projectTitle, status: 'replaced', projectId, imageCount: images.length, groupCount: galleryGroups.length });
+      } else {
+        const projectId = newProjectId(randomBytes(12).toString('hex'));
+        const now = new Date().toISOString();
+        await managerClient.create({
+          _id: projectId,
+          _type: 'project',
+          ...newProjectFields({ title: projectTitle, categoryRef, mainAssetId: mainAsset._id, beforeAssetId: beforeAsset?._id || null, galleryGroups }),
+          createdAt: now,
+          updatedAt: now,
+        });
+        results.push({ projectTitle, status: 'created', projectId, imageCount: images.length, groupCount: galleryGroups.length });
+      }
+    } catch (error) {
+      console.error(`Manager bulk upload failed for a folder:`, error);
+      results.push({ projectTitle, status: 'failed', reason: getUploadErrorMessage(error) });
+    }
+  }
+
+  return NextResponse.json({ results });
+}
+
+// Detail photos grouped by room (거실1, 거실2 → 거실), each group in file-number order, as Sanity objects.
+async function buildGalleryGroups(projectTitle: string, details: ParsedImage[]) {
+  const galleryGroups = [];
+  const roomGroups = groupBy(details, (image) => image.roomType);
+
+  for (const [groupIndex, [roomType, groupImages]] of Array.from(roomGroups.entries()).entries()) {
+    const sortedImages = [...groupImages].sort((a, b) => a.order - b.order || collator.compare(a.path, b.path));
+    const uploadedImages = await Promise.all(
+      sortedImages.map(async (image, imageIndex) => {
         const asset = await uploadImage(image.file, `${projectTitle} ${roomType} ${imageIndex + 1}`);
         return {
           _type: 'image',
-          _key: `image-${hashId(`${image.path}-${imageIndex}`)}`,
+          _key: `image-${hashId(`${image.path}-${imageIndex}-${asset._id}`)}`,
           asset: { _type: 'reference', _ref: asset._id },
           caption: stripExtension(lastPathSegment(image.path)),
           displayOrder: image.order || imageIndex + 1,
           alt: `${projectTitle} ${roomType}`,
         };
-        }),
-      );
+      }),
+    );
 
-      galleryGroups.push({
-        _type: 'object',
-        _key: `group-${hashId(`${projectTitle}-${roomType}`)}`,
-        roomType,
-        title: roomType,
-        displayOrder: groupIndex + 1,
-        images: uploadedImages,
-      });
-    }
-
-    const projectFields: Record<string, unknown> = {
-      isVisible: true,
-      featured,
-      title: projectTitle,
-      category: { _type: 'reference', _ref: category._id },
-      ...(siteType ? { siteType } : {}),
-      ...(location ? { location } : {}),
-      ...(description ? { description } : {}),
-      ...(Number.isFinite(area) && area > 0 ? { area } : {}),
-      mainImage: {
-        _type: 'image',
-        asset: { _type: 'reference', _ref: mainAsset._id },
-        alt: `${projectTitle} 대표 사진`,
-      },
-      galleryGroups,
-    };
-
-    if (beforeAsset) {
-      projectFields.beforeImage = {
-        _type: 'image',
-        asset: { _type: 'reference', _ref: beforeAsset._id },
-        alt: `${projectTitle} 시공 전 사진`,
-      };
-    }
-
-    if (existing?._id) {
-      await managerClient.patch(projectId).set(projectFields).commit();
-    } else {
-      await managerClient.create({ _id: projectId, _type: 'project', ...projectFields });
-    }
-
-    results.push({
-      projectTitle,
-      status: existing?._id ? 'updated' : 'created',
-      imageCount: images.length,
-      groupCount: galleryGroups.length,
+    galleryGroups.push({
+      _type: 'object',
+      _key: `group-${hashId(`${projectTitle}-${roomType}-${groupIndex}`)}`,
+      roomType,
+      title: roomType,
+      displayOrder: groupIndex + 1,
+      images: uploadedImages,
     });
   }
 
-  return NextResponse.json({ results });
+  return galleryGroups;
 }
 
 function getUploadErrorMessage(error: unknown) {

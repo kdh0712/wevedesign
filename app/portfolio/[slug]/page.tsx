@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import WeveDesignLanding from '@/app/page';
 import { getProjectBySlug, getProjects } from '@/app/lib/portfolio-data';
-import { absoluteUrl, projectDetailText, projectPath, projectSlug, siteUrl } from '@/app/lib/seo-utils';
+import { absoluteUrl, canonicalRedirectPath, findProjectByOldSlug, projectDetailText, projectPath, projectSlug, siteUrl } from '@/app/lib/seo-utils';
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -58,7 +58,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 export default async function PortfolioDetailPage({ params }: PageProps) {
   const { slug } = await params;
   const project = await getProjectBySlug(decodeSlug(slug));
-  if (!project) notFound();
+  if (!project) {
+    // A renamed or re-categorised project keeps the end of its address: send the old address on to the canonical one.
+    const moved = findProjectByOldSlug(decodeSlug(slug), (await getProjects()) || []);
+    if (moved) permanentRedirect(canonicalRedirectPath(moved));
+    notFound();
+  }
 
   const url = absoluteUrl(projectPath(project));
   const images = [
@@ -85,7 +90,7 @@ export default async function PortfolioDetailPage({ params }: PageProps) {
     image: images,
     datePublished: project.createdAt,
     dateModified: project.updatedAt,
-    about: [project.categoryTitle, project.location, project.area && `${project.area}평`].filter(Boolean),
+    about: [project.categoryTitle, project.location, Number(project.area) > 0 && `${project.area}평`].filter(Boolean),
     provider: {
       '@type': ['Organization', 'LocalBusiness', 'HomeAndConstructionBusiness'],
       '@id': `${siteUrl}/#organization`,

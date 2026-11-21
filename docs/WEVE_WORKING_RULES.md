@@ -148,6 +148,12 @@ This file records durable product and implementation decisions. Review it before
 - Use arrows and centered dots for multi-image navigation. Do not show filenames, numeric counters, or an original-image viewer.
 - Keep representative-image selection and 16:9 crop-position controls available in project create/edit workflows.
 - Preserve entered line breaks in project descriptions.
+- 시공 사례 are created and edited on one manager screen, 홈페이지 > 시공 사례 (spec `docs/superpowers/specs/2026-11-21-portfolio-project-editor-design.md`, `app/manager-weve-7519/project-workspace.tsx`). The form rules live in `app/lib/project-form.ts`, the upload rules in `app/lib/project-upload-rules.ts`; the CLI `scripts/upload-project-folders.mjs` uses the same upload rules.
+  - A folder upload makes a new project hidden (`isVisible: false`, `featured: false`) with a random id (`project-` + 24 hex), never an id made from the title. When a project with the folder's name exists, staff choose before uploading whether to replace that project's photos or make a new one; nothing is matched by name on its own (the CLI, which cannot ask, replaces only when exactly one project has the name and skips when several do).
+  - Replacing photos changes only the photos (groups, representative photo, the 시공 전 사진 when the folder has one) and removes the old `gallery`; the name, visibility, main-page flag, category and every typed field stay. A new representative photo starts at focus 50/50.
+  - A blank number is removed (`unset`), never saved as 0; a stored 0 order is shown and kept. A blog link is saved only as an http(s) address (https:// added when missing). 'Publish' needs a name, a category and a representative photo, and the server checks the stored project.
+  - One photo (a new representative or 시공 전 사진) is uploaded through `/api/manager/project-asset`, which only stores the Sanity asset; it is attached to the project when staff press [저장].
+  - A project address that no longer matches (renamed or re-categorised) is sent on to the canonical address with a 308 when exactly one project's id ends with the address suffix.
 
 ## SEO
 

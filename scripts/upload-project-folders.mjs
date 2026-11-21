@@ -1,7 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+// The same rules as the manager's folder upload (Node 24 loads the .ts module as it is).
+import { newProjectFields, newProjectId, replacePhotoPatch, sameTitleProjects } from '../app/lib/project-upload-rules.ts';
 
 const PROJECT_ID = process.env.SANITY_PROJECT_ID || 'q2qjj1se';
 const DATASET = process.env.SANITY_DATASET || 'production';
@@ -48,7 +50,8 @@ function parseArgs(argv) {
   const result = {
     path: '',
     category: '주택',
-    visible: true,
+    // New projects start hidden, like the manager screen; --visible publishes them at once.
+    visible: false,
     featured: false,
     dryRun: false,
   };
@@ -61,7 +64,10 @@ function parseArgs(argv) {
       index += 1;
     } else if (value === '--featured') {
       result.featured = true;
+    } else if (value === '--visible') {
+      result.visible = true;
     } else if (value === '--hidden') {
+      // Hidden is the default now; the old flag is still accepted.
       result.visible = false;
     } else if (value === '--dry-run') {
       result.dryRun = true;
@@ -97,6 +103,12 @@ function printHelp() {
   Project: 의왕 32평 리모델링
   대표 사진: 대표.jpg
   상세 사진: 거실, 주방, 침실로 묶이고 숫자 순서대로 표시
+
+옵션:
+  --visible   새 시공 사례를 바로 공개합니다(기본은 숨김, 관리 화면에서 정보를 채운 뒤 공개).
+  --featured  새 시공 사례를 메인에도 보입니다.
+  같은 이름의 시공 사례가 하나 있으면 사진만 바꿉니다(공개 여부·이름·입력한 정보는 그대로).
+  같은 이름이 여럿이면 건너뜁니다.
 `);
 }
 
@@ -167,8 +179,17 @@ async function importProjectFolder(folder, categoryRef) {
     return;
   }
 
-  const existingProject = await sanityQuery('*[_type == "project" && title == $title][0]{_id}', { title: projectTitle });
-  const projectId = existingProject?._id || `project-${hash(projectTitle)}`;
+  // One project with the folder's name: replace its photos only. None: a new, hidden project with a random id. Several: skip
+  // (the manager screen asks which one; this script cannot).
+  const sameTitle = sameTitleProjects(
+    projectTitle,
+    (await sanityQuery('*[_type == "project" && !(_id in path("drafts.**")) && title == $title]{_id, title}', { title: projectTitle })) || [],
+  );
+  if (sameTitle.length > 1) {
+    console.warn(`같은 이름의 시공 사례가 여러 개라 건너뜁니다: ${projectTitle}`);
+    return;
+  }
+  const existingProject = sameTitle[0];
   const mainImage = await uploadImage(cover.filePath, `${projectTitle} 대표 사진`);
   const beforeImage = before ? await uploadImage(before.filePath, `${projectTitle} 시공 전 사진`) : null;
   const galleryGroups = [];
@@ -198,31 +219,27 @@ async function importProjectFolder(folder, categoryRef) {
     });
   }
 
-  const projectFields = {
-    isVisible: args.visible,
-    featured: args.featured,
-    title: projectTitle,
-    category: { _type: 'reference', _ref: categoryRef._id },
-    mainImage: {
-      _type: 'image',
-      asset: { _type: 'reference', _ref: mainImage._id },
-      alt: `${projectTitle} 대표 사진`,
-    },
-    galleryGroups,
-  };
+  const now = new Date().toISOString();
+  const photos = { mainAssetId: mainImage._id, beforeAssetId: beforeImage?._id || null, galleryGroups };
 
-  if (beforeImage) {
-    projectFields.beforeImage = {
-      _type: 'image',
-      asset: { _type: 'reference', _ref: beforeImage._id },
-      alt: `${projectTitle} 시공 전 사진`,
-    };
-  }
-
-  if (existingProject?._id) {
-    await sanityMutate([{ patch: { id: projectId, set: projectFields } }]);
+  if (existingProject) {
+    const patch = replacePhotoPatch({ title: existingProject.title || projectTitle, ...photos });
+    await sanityMutate([{ patch: { id: existingProject._id, set: { ...patch.set, updatedAt: now }, unset: patch.unset } }]);
   } else {
-    await sanityMutate([{ create: { _id: projectId, _type: 'project', ...projectFields } }]);
+    const fields = newProjectFields({ title: projectTitle, categoryRef: categoryRef._id, ...photos });
+    await sanityMutate([
+      {
+        create: {
+          _id: newProjectId(randomBytes(12).toString('hex')),
+          _type: 'project',
+          ...fields,
+          isVisible: args.visible,
+          featured: args.featured,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    ]);
   }
 
   console.log(`- Sanity 반영 완료: ${projectTitle}`);
@@ -270,7 +287,8 @@ async function getOrCreateCategory(title) {
     _type: 'category',
     isVisible: true,
     title,
-    slug: { _type: 'slug', current: hash(title).slice(0, 12) },
+    // The same slug rule as the manager screen (slugValue in app/api/manager/_utils.ts).
+    slug: { _type: 'slug', current: slugValue(title) },
     displayOrder: 999,
   };
 
@@ -354,4 +372,14 @@ function stripExtension(fileName) {
 
 function hash(value) {
   return createHash('sha1').update(value).digest('hex').slice(0, 16);
+}
+
+function slugValue(value) {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized || `category-${hash(value).slice(0, 8)}`;
 }
