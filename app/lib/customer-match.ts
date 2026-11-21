@@ -155,6 +155,35 @@ export function pickSitesToSync<S extends MatchSite>(sites: readonly S[], custom
   });
 }
 
+// The customer to offer a site that has no loaded customer: the one customer with the site's own number. A site without a
+// number, or several customers with it, gets no suggestion; a customer who only shares the name is never offered (linking
+// a namesake would hand the site, and its progress page and alimtalk, that person's number).
+export function suggestLinkForUnlinkedSite<C extends MatchCustomer>(site: MatchSite, customers: readonly C[]): C | undefined {
+  const matches = findSamePhoneCustomers(site.customerPhone, customers);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export type SiteSelection = { mode: 'new'; key: number } | { mode: 'edit'; siteId: string };
+
+// Moving the tab's form to another site or a new one. Reopening the site already open changes nothing (asking would wrongly
+// promise to discard the edits, and answering yes would hide that they are still unsaved); otherwise a dirty form asks.
+export function selectionChange(current: SiteSelection, next: SiteSelection, dirty: boolean): 'stay' | 'confirm' | 'go' {
+  if (current.mode === 'edit' && next.mode === 'edit' && current.siteId === next.siteId) return 'stay';
+  return dirty ? 'confirm' : 'go';
+}
+
+// Whether a site keeps its own number after another customer is picked for it: never for a new customer (customerPhone
+// null), whose number the site takes over; for an existing one, when the site's number is its own (isSeparatePhone).
+export function separatePhoneAfterPick(sitePhone: unknown, customerPhone: string | null): boolean {
+  return customerPhone === null ? false : isSeparatePhone(sitePhone, customerPhone);
+}
+
+// A customer edit also rewrites the open site's copy only when that site is saved with this customer, not while another
+// customer is picked but not saved yet.
+export function customerEditTouchesOpenSite(savedCustomerId: string, editedCustomerId: string): boolean {
+  return savedCustomerId !== '' && savedCustomerId === editedCustomerId;
+}
+
 export function customerDeleteBlockedMessage(total: number, trashed: number): string | null {
   if (total <= 0) return null;
   const trashNote = trashed > 0 ? `(휴지통 ${trashed}곳 포함)` : '';

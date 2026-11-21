@@ -3,8 +3,14 @@
 // The left side of the 고객·현장 tab: a new site, or one site being edited. A site is saved with the customer it is linked to;
 // saving never looks the customer up again by name or number (spec 2026-11-21-customer-site-merge-design.md §4.2–4.3).
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { isSeparatePhone, isSiteFormDirty, type SiteFormValues } from '../lib/customer-match';
-import { findSiteCustomer } from '../lib/site-customer';
+import {
+  customerEditTouchesOpenSite,
+  isSeparatePhone,
+  isSiteFormDirty,
+  separatePhoneAfterPick,
+  suggestLinkForUnlinkedSite,
+  type SiteFormValues,
+} from '../lib/customer-match';
 import { CustomerPicker, unconfirmedSamePhone, type PickedCustomer } from './customer-picker';
 import type { Customer, Site } from './office-types';
 import { SITE_STATUSES, SITE_TYPES, formatPhoneNumber, shortDate, statusBadgeClass } from './office-ui';
@@ -74,7 +80,12 @@ export function CustomerSiteForm({
     mode === 'edit' ? (linkedAtOpen ? { kind: 'existing', customer: linkedAtOpen } : null) : prefill?.picked ?? null,
   );
   const [fields, setFields] = useState<SiteFields>(() => ({ ...initialFields(site, linkedAtOpen), ...(mode === 'new' ? prefill?.fields : {}) }));
-  const [baseline, setBaseline] = useState<SiteFormValues>(() => ({ ...initialFields(site, linkedAtOpen), customerId: linkedAtOpen?._id || '' }));
+  // What the form started from, to tell whether anything changed: the site as saved, or a new form with its prefill.
+  const [baseline, setBaseline] = useState<SiteFormValues>(() =>
+    mode === 'edit'
+      ? { ...initialFields(site, linkedAtOpen), customerId: linkedAtOpen?._id || '' }
+      : { ...initialFields(undefined, undefined), ...prefill?.fields, customerId: customerIdOf(prefill?.picked ?? null) },
+  );
   const [choosingCustomer, setChoosingCustomer] = useState(false);
   const separateAtOpen = useRef(Boolean(site && linkedAtOpen && isSeparatePhone(site.customerPhone, linkedAtOpen.phone)));
   const savingRef = useRef(false);
@@ -93,7 +104,8 @@ export function CustomerSiteForm({
   // The picked customer as it is now (a customer edit reloads the list).
   const customer = picked?.kind === 'existing' ? customers.find((item) => item._id === picked.customer._id) ?? picked.customer : undefined;
   const current: SiteFormValues = { ...fields, customerId: customerIdOf(picked) };
-  const dirty = mode === 'new' ? current.title.trim() !== '' || picked !== null : isSiteFormDirty(baseline, current);
+  // A form opened from a consultation holds an unsaved registration even before anything is typed.
+  const dirty = isSiteFormDirty(baseline, current) || (mode === 'new' && Boolean(prefill?.consultationId));
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
 
   const otherSites = useMemo(
@@ -101,16 +113,19 @@ export function CustomerSiteForm({
     () => (customer && site ? sites.filter((item) => item.customerId === customer._id && item._id !== site._id) : []),
     [customer, site, sites],
   );
-  const suggestion = mode === 'edit' && site && !picked ? findSiteCustomer(site, customers) : undefined;
+  const suggestion = mode === 'edit' && site && !picked ? suggestLinkForUnlinkedSite(site, customers) : undefined;
 
   const set = (patch: Partial<SiteFields>) => setFields((value) => ({ ...value, ...patch }));
 
   const pick = (value: PickedCustomer | null) => {
     setPicked(value);
-    if (value?.kind === 'existing') {
-      setChoosingCustomer(false);
-      // A site keeps its own number only when it has one and it is not the new customer's.
-      if (site) set({ separatePhone: isSeparatePhone(site.customerPhone, value.customer.phone), sitePhone: site.customerPhone || '' });
+    if (value?.kind === 'existing') setChoosingCustomer(false);
+    // A site keeps its own number only when it has one and it is not the picked customer's; a new customer takes it over.
+    if (site && value) {
+      set({
+        separatePhone: separatePhoneAfterPick(site.customerPhone, value.kind === 'existing' ? value.customer.phone || '' : null),
+        sitePhone: site.customerPhone || '',
+      });
     }
   };
 
@@ -210,7 +225,18 @@ export function CustomerSiteForm({
                     채팅방
                   </a>
                 )}
-                <button type="button" onClick={() => site && onEditCustomer(customer, { site, separatePhone: fields.separatePhone })} disabled={busy} className={secondaryButton}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onEditCustomer(
+                      customer,
+                      // The open site follows only when it is saved with this customer (not a customer picked but unsaved).
+                      site && customerEditTouchesOpenSite(baseline.customerId, customer._id) ? { site, separatePhone: fields.separatePhone } : undefined,
+                    )
+                  }
+                  disabled={busy}
+                  className={secondaryButton}
+                >
                   고객 정보 고치기
                 </button>
               </span>

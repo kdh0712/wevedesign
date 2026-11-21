@@ -11,6 +11,10 @@ import {
   pickSitesToSync,
   customerDeleteBlockedMessage,
   isSiteFormDirty,
+  suggestLinkForUnlinkedSite,
+  selectionChange,
+  separatePhoneAfterPick,
+  customerEditTouchesOpenSite,
 } from '../app/lib/customer-match.ts';
 
 // The rules behind the merged 고객·현장 tab: finding a customer, grouping sites, which sites follow a customer edit.
@@ -128,4 +132,30 @@ test('isSiteFormDirty ignores surrounding spaces only', () => {
   assert.equal(isSiteFormDirty(base, { ...base, memo: '메모' }), true);
   assert.equal(isSiteFormDirty(base, { ...base, customerId: 'c-soon' }), true);
   assert.equal(isSiteFormDirty(base, { ...base, separatePhone: true }), true);
+});
+
+test('suggestLinkForUnlinkedSite offers only the one customer with the site number, never a namesake', () => {
+  assert.equal(suggestLinkForUnlinkedSite({ _id: 's', customerName: '홍길동', customerPhone: '' }, [hong]), undefined, 'a site without a number gets no suggestion');
+  assert.equal(suggestLinkForUnlinkedSite({ _id: 's', customerName: '홍길동', customerPhone: '+82 10 1234 5678' }, [hongSoon, hong])?._id, 'c-hong');
+  const twin = { _id: 'c-twin', name: '홍', phone: '01012345678' };
+  assert.equal(suggestLinkForUnlinkedSite({ _id: 's', customerPhone: '010-1234-5678' }, [hong, twin]), undefined, 'two customers with the number are not guessed between');
+});
+
+test('selectionChange: reopening the open site changes nothing, leaving a dirty form asks', () => {
+  assert.equal(selectionChange({ mode: 'edit', siteId: 'a' }, { mode: 'edit', siteId: 'a' }, true), 'stay');
+  assert.equal(selectionChange({ mode: 'edit', siteId: 'a' }, { mode: 'edit', siteId: 'b' }, true), 'confirm');
+  assert.equal(selectionChange({ mode: 'edit', siteId: 'a' }, { mode: 'edit', siteId: 'b' }, false), 'go');
+  assert.equal(selectionChange({ mode: 'new', key: 1 }, { mode: 'new', key: 2 }, true), 'confirm', 'a new blank form over a dirty one asks');
+});
+
+test('separatePhoneAfterPick: a new customer takes over the site number', () => {
+  assert.equal(separatePhoneAfterPick('010-5555-1111', null), false);
+  assert.equal(separatePhoneAfterPick('010-5555-1111', '010-1234-5678'), true);
+  assert.equal(separatePhoneAfterPick('', '010-1234-5678'), false);
+});
+
+test('customerEditTouchesOpenSite only for the customer the site is saved with', () => {
+  assert.equal(customerEditTouchesOpenSite('c-hong', 'c-hong'), true);
+  assert.equal(customerEditTouchesOpenSite('c-hong', 'c-soon'), false, 'a customer picked but not saved yet');
+  assert.equal(customerEditTouchesOpenSite('', 'c-soon'), false);
 });

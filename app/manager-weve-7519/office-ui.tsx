@@ -29,33 +29,5 @@ export function statusBadgeClass(status: string) {
   return 'bg-[#eef6ff] text-[#286da8]';
 }
 
-export function formatPhoneNumber(value: string) {
-  const rawDigits = value.replace(/\D/g, '');
-  const maxLength = rawDigits.startsWith('050') ? 12 : 11;
-  const digits = rawDigits.slice(0, maxLength);
-
-  if (digits.startsWith('02')) {
-    if (digits.length <= 2) return digits;
-    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-    if (digits.length <= 10) return `${digits.slice(0, 2)}-${digits.slice(2, digits.length - 4)}-${digits.slice(-4)}`;
-  }
-
-  if (digits.startsWith('050')) {
-    if (digits.length <= 4) return digits;
-    if (digits.length <= 8) return `${digits.slice(0, 4)}-${digits.slice(4)}`;
-    return `${digits.slice(0, 4)}-${digits.slice(4, 8)}-${digits.slice(8)}`;
-  }
-
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  if (digits.length === 10) return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-}
-
-// "11/2" for an ISO time, '' when there is none.
-export function shortDate(value?: string) {
-  if (!value) return '';
-  const time = new Date(value);
-  if (Number.isNaN(time.getTime())) return '';
-  return new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', month: 'numeric', day: 'numeric' }).format(time).replace(/\.\s?/g, '/').replace(/\/$/, '');
-}
+// Shared with Node tests (app/lib/office-format.ts).
+export { formatPhoneNumber, shortDate } from '../lib/office-format';

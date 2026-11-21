@@ -37,6 +37,7 @@ import { salesTotals, shouldAutoSyncKakao } from '../lib/dashboard-rules';
 import { findSiteCustomer } from '../lib/site-customer';
 import type { Customer, Site } from './office-types';
 import { Panel, SITE_STATUSES, formatPhoneNumber, shortDate, statusBadgeClass } from './office-ui';
+import { contractSendConfirmText } from '../lib/office-format';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
 import { AlertPhonesPanel } from './alert-phones-panel';
 import { MobileDevicesPanel } from './mobile-devices-panel';
@@ -1499,9 +1500,9 @@ export default function ManagerPage() {
     setActiveTab('sites');
   };
 
-  const finishRegisteredConsultation = async (consultationId: string) => {
-    await saveOfficeRecord('consultation', { status: '완료' }, consultationId);
-  };
+  // true when the consultation was marked 완료 (the tab says so, or that it still needs doing).
+  const finishRegisteredConsultation = async (consultationId: string) =>
+    (await saveOfficeRecord('consultation', { status: '완료' }, consultationId)) !== null;
 
   const scrollToForm = (ref: React.RefObject<HTMLDivElement | null>) => {
     window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
@@ -4912,12 +4913,11 @@ function AlimtalkActionModal({
   const contractSentAt = site.contractAlimtalkSentAt || '';
   const legacySentAt = !contractSentAt ? customer?.contractAlimtalkSentAt || '' : '';
 
+  // A resend, or a send over an old per-customer record, asks first; neither is blocked.
   const sendContract = () => {
-    if (!contractSentAt) {
-      onSendContract(false);
-      return;
-    }
-    if (window.confirm('이미 계약 완료 알림톡을 보낸 현장입니다. 고객에게 다시 보낼까요?')) onSendContract(true);
+    const question = contractSendConfirmText(contractSentAt, legacySentAt);
+    if (question && !window.confirm(question)) return;
+    onSendContract(Boolean(contractSentAt));
   };
 
   return (

@@ -10,8 +10,11 @@ import {
   findSamePhoneCustomers,
   groupSitesByCustomer,
   pickSitesToSync,
+  selectionChange,
   siteMatchesQuery,
+  type SiteSelection,
 } from '../lib/customer-match';
+import { registrationNotice } from '../lib/office-format';
 import { CustomerEditDialog } from './customer-edit-dialog';
 import { emptyNewCustomer, type NewCustomerFields } from './customer-picker';
 import { CustomerSiteForm, type SaveOfficeRecord, type SiteFormPrefill } from './customer-site-form';
@@ -20,7 +23,7 @@ import { Panel, SITE_STATUSES, formatPhoneNumber, statusBadgeClass } from './off
 
 export type ConsultationDraft = { consultationId: string; name: string; phone: string; siteType: string; address: string; memo: string };
 
-type Selection = { mode: 'new'; key: number } | { mode: 'edit'; siteId: string };
+type Selection = SiteSelection;
 type ListView = 'sites' | 'customers';
 
 const VIEW_STORAGE_KEY = 'weve-customer-site-view';
@@ -76,7 +79,8 @@ export function CustomerSiteTab({
   onOpenEstimate?: (siteId: string) => void;
   consultationDraft: ConsultationDraft | null;
   onConsultationDraftUsed: () => void;
-  onConsultationRegistered: (consultationId: string) => Promise<void>;
+  // Marks the consultation 완료; false when that could not be saved.
+  onConsultationRegistered: (consultationId: string) => Promise<boolean>;
   setStatus: (text: string) => void;
   setError: (text: string) => void;
 }) {
@@ -115,7 +119,9 @@ export function CustomerSiteTab({
   const selectedSite = selection.mode === 'edit' ? sites.find((site) => site._id === selection.siteId) : undefined;
 
   const requestSelect = (next: Selection) => {
-    if (dirtyRef.current && !window.confirm(LEAVE_CONFIRM)) return false;
+    const change = selectionChange(selection, next, dirtyRef.current);
+    if (change === 'stay') return false;
+    if (change === 'confirm' && !window.confirm(LEAVE_CONFIRM)) return false;
     dirtyRef.current = false;
     setSelection(next);
     setLastSaved(null);
@@ -145,8 +151,9 @@ export function CustomerSiteTab({
   const onSaved = async (saved: { siteId: string; title: string; mode: 'new' | 'edit'; consultationId?: string }) => {
     dirtyRef.current = false;
     if (saved.consultationId) {
-      await onConsultationRegistered(saved.consultationId);
-      setStatus('고객과 현장을 등록하고 상담을 완료했습니다.');
+      const notice = registrationNotice(await onConsultationRegistered(saved.consultationId));
+      if (notice.tone === 'error') setError(notice.text);
+      else setStatus(notice.text);
     } else {
       setStatus(saved.mode === 'new' ? '현장을 저장했습니다.' : '현장 정보를 저장했습니다.');
     }
