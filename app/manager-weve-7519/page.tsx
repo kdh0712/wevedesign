@@ -47,6 +47,7 @@ import { AcquisitionPanel } from './acquisition-panel';
 import { AcquisitionTab } from './acquisition-tab';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
+import { CustomerSiteTab } from './customer-site-tab';
 
 type UploadResult = {
   projectTitle: string;
@@ -698,18 +699,14 @@ export default function ManagerPage() {
   const [surveyEditorTab, setSurveyEditorTab] = useState(0);
   const [surveyDraft, setSurveyDraft] = useState<SurveyConfig>(defaultSurveyConfig);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
-  const [siteForm, setSiteForm] = useState({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
   const [saleForm, setSaleForm] = useState({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
   const [inventoryForm, setInventoryForm] = useState({ itemName: '', category: '', quantity: '', unit: '개', minQuantity: '', vendor: '', memo: '' });
   const [vendorForm, setVendorForm] = useState({ name: '', manager: '', phone: '', service: '', status: '거래중', memo: '' });
   const [editingCustomerId, setEditingCustomerId] = useState('');
-  const [editingSiteId, setEditingSiteId] = useState('');
-  const [siteCustomerConfirm, setSiteCustomerConfirm] = useState<{ existing: Customer | null } | null>(null);
   const [editingSaleId, setEditingSaleId] = useState('');
   const [editingInventoryId, setEditingInventoryId] = useState('');
   const [editingVendorId, setEditingVendorId] = useState('');
   const customerFormRef = useRef<HTMLDivElement | null>(null);
-  const siteFormRef = useRef<HTMLDivElement | null>(null);
   const saleFormRef = useRef<HTMLDivElement | null>(null);
   const inventoryFormRef = useRef<HTMLDivElement | null>(null);
   const vendorFormRef = useRef<HTMLDivElement | null>(null);
@@ -1504,74 +1501,6 @@ export default function ManagerPage() {
     setCustomerForm({ name: '', phone: '', chatRoomUrl: '', siteType: '아파트', address: '', status: '상담중', memo: '', siteTitle: '', siteStatus: '상담중', siteMemo: '' });
   };
 
-  const resetSiteForm = () => {
-    setEditingSiteId('');
-    setSiteForm({ title: '', customerName: '', customerPhone: '', siteType: '아파트', address: '', status: '상담중', memo: '' });
-  };
-
-  const onlyDigits = (value: string) => value.replace(/\D/g, '');
-
-  const findMatchingCustomer = (name: string, phone: string) => {
-    const phoneDigits = onlyDigits(phone);
-    if (phoneDigits.length >= 9) {
-      const byPhone = officeData.customers.find((item) => onlyDigits(item.phone || '') === phoneDigits);
-      if (byPhone) return byPhone;
-    }
-    const cleanName = name.trim();
-    if (!cleanName) return null;
-    return officeData.customers.find((item) => (item.name || '').trim() === cleanName) || null;
-  };
-
-  const siteCustomerName = () => siteForm.customerName.trim() || siteForm.title.trim() || '이름 미입력';
-
-  const openSiteCustomerConfirm = () => {
-    setError('');
-    setStatus('');
-    if (!siteForm.title.trim()) {
-      setError('현장명을 입력해 주세요.');
-      return;
-    }
-    setSiteCustomerConfirm({ existing: findMatchingCustomer(siteCustomerName(), siteForm.customerPhone) });
-  };
-
-  const submitSiteWithCustomer = async () => {
-    const customerName = siteCustomerName();
-    const existing = findMatchingCustomer(customerName, siteForm.customerPhone);
-
-    const linkedCustomer =
-      existing ||
-      (await saveOfficeRecord('customer', {
-        name: customerName,
-        phone: siteForm.customerPhone,
-        siteType: siteForm.siteType,
-        address: siteForm.address,
-        status: siteForm.status,
-        memo: siteForm.memo,
-      }));
-    if (!linkedCustomer) return;
-
-    const wasEditing = Boolean(editingSiteId);
-    const savedSite = await saveOfficeRecord(
-      'site',
-      { ...siteForm, customerName, customerId: linkedCustomer._id },
-      editingSiteId || undefined,
-    );
-
-    setSiteCustomerConfirm(null);
-    if (!savedSite) return;
-    resetSiteForm();
-
-    setStatus(
-      existing
-        ? `현장을 저장하고 기존 고객 ${customerName}님과 연결했습니다.`
-        : `현장과 고객 ${customerName}님을 함께 등록했습니다.`,
-    );
-
-    if (!wasEditing && savedSite._id && hasAnyPermission(currentUser, ['estimates'])) {
-      window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(savedSite._id)}`;
-    }
-  };
-
   const resetSaleForm = () => {
     setEditingSaleId('');
     setSaleForm({ siteId: '', estimateId: '', customerName: '', projectTitle: '', amount: '', cost: '', status: '견적', paymentDate: '', memo: '' });
@@ -1650,20 +1579,51 @@ export default function ManagerPage() {
     scrollToForm(customerFormRef);
   };
 
-  const editSite = (site: Site) => {
-    setEditingSiteId(site._id);
-    setSiteForm({
-      title: site.title || '',
-      customerName: site.customerName || '',
-      customerPhone: site.customerPhone || '',
-      siteType: site.siteType || '아파트',
-      address: site.address || '',
-      status: site.status || '상담중',
-      memo: site.memo || '',
-    });
-    setActiveTab('sites');
-    scrollToForm(siteFormRef);
+  // After a customer edit in the 고객·현장 tab: the server copies the new name and number to the customer's other sites
+  // that carried the old number or none. Returns how many sites changed, or null when it failed (the error is shown).
+  const syncCustomerToSites = async (customerId: string, previousPhone: string) => {
+    setError('');
+    if (!requirePassword()) return null;
+    setSavingOffice(true);
+    try {
+      const response = await fetch('/api/manager/office', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'syncCustomerToSites', customerId, previousPhone }),
+      });
+      const result = await readJsonResponse<{ updated?: number; error?: string }>(response);
+      if (!response.ok) throw new Error(result.error || '다른 현장에 반영하지 못했습니다.');
+      await loadOfficeData();
+      return result.updated ?? 0;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '다른 현장에 반영하지 못했습니다.');
+      return null;
+    } finally {
+      setSavingOffice(false);
+    }
   };
+
+  // The panels under an open site in the 고객·현장 tab (sites permission): customer progress link, 유입 경로, staff notes.
+  const renderSiteExtras = (siteId: string) => (
+    <div className="grid gap-5">
+      <ProgressLinkPanel key={siteId} siteId={siteId} authHeaders={() => authHeaders()} />
+      <AcquisitionPanel
+        site={officeData.sites.find((site) => site._id === siteId) || { _id: siteId }}
+        authHeaders={() => authHeaders()}
+        onChange={(acquisition) =>
+          setOfficeData((current) => ({
+            ...current,
+            sites: current.sites.map((site) => (site._id === siteId ? { ...site, acquisition } : site)),
+          }))
+        }
+      />
+      {currentUser && (
+        <section aria-label="직원 할 일과 현장 기록">
+          <SiteNotesSection key={`notes-${siteId}`} siteId={siteId} api={createSiteNotesApi(fetchWithHeaders(() => authHeaders()))} viewer={currentUser} />
+        </section>
+      )}
+    </div>
+  );
 
   const editSale = (sale: Sale) => {
     setEditingSaleId(sale._id);
@@ -2483,89 +2443,29 @@ export default function ManagerPage() {
         )}
 
         {activeTab === 'sites' && (
-          <div className="grid gap-5 xl:grid-cols-[0.8fr_1.2fr] xl:items-start">
-            <Panel title={editingSiteId ? '현장 수정' : '현장 등록'}>
-              <div ref={siteFormRef}>
-                <OfficeForm
-                  fields={[
-                    { label: '현장명', value: siteForm.title, onChange: (value) => setSiteForm({ ...siteForm, title: value }) },
-                    { label: '고객명', value: siteForm.customerName, onChange: (value) => setSiteForm({ ...siteForm, customerName: value }) },
-                    { label: '연락처', value: siteForm.customerPhone, onChange: (value) => setSiteForm({ ...siteForm, customerPhone: formatPhoneNumber(value) }) },
-                    {
-                      label: '현장 종류',
-                      value: siteForm.siteType,
-                      onChange: (value) => setSiteForm({ ...siteForm, siteType: value }),
-                      options: ['아파트', '주택', '상가', '오피스', '기타'],
-                    },
-                    { label: '주소', value: siteForm.address, onChange: (value) => setSiteForm({ ...siteForm, address: value }) },
-                    {
-                      label: '상태',
-                      value: siteForm.status,
-                      onChange: (value) => setSiteForm({ ...siteForm, status: value }),
-                      options: SITE_STATUSES,
-                    },
-                    { label: '메모', value: siteForm.memo, onChange: (value) => setSiteForm({ ...siteForm, memo: value }), textarea: true },
-                  ]}
-                  buttonLabel={editingSiteId ? '현장 수정 저장' : '현장 저장'}
-                  disabled={savingOffice}
-                  onSubmit={() => openSiteCustomerConfirm()}
-                  secondaryLabel={editingSiteId ? '수정 취소' : undefined}
-                  onSecondary={resetSiteForm}
-                />
-              </div>
-              {editingSiteId && hasAnyPermission(currentUser, ['sites']) && <ProgressLinkPanel key={editingSiteId} siteId={editingSiteId} authHeaders={() => authHeaders()} />}
-              {editingSiteId && hasAnyPermission(currentUser, ['sites']) && (
-                <AcquisitionPanel
-                  site={officeData.sites.find((site) => site._id === editingSiteId) || { _id: editingSiteId }}
-                  authHeaders={() => authHeaders()}
-                  onChange={(acquisition) =>
-                    setOfficeData((current) => ({
-                      ...current,
-                      sites: current.sites.map((site) => (site._id === editingSiteId ? { ...site, acquisition } : site)),
-                    }))
+          <CustomerSiteTab
+            customers={officeData.customers}
+            sites={officeData.sites}
+            canSeeSiteExtras={hasAnyPermission(currentUser, ['sites'])}
+            saving={savingOffice}
+            saveOfficeRecord={(type, data, id) => saveOfficeRecord(type, data, id)}
+            deleteOfficeRecord={(id, type) => deleteOfficeRecord(id, type)}
+            syncCustomerToSites={syncCustomerToSites}
+            renderSiteExtras={renderSiteExtras}
+            onOpenContractAlimtalk={(site) => setAlimtalkSite(site)}
+            onOpenEstimate={
+              hasAnyPermission(currentUser, ['estimates'])
+                ? (siteId) => {
+                    window.location.href = `/manager-weve-7519/estimate?siteId=${encodeURIComponent(siteId)}`;
                   }
-                />
-              )}
-              {hasAnyPermission(currentUser, ['sites']) && currentUser && (
-                <section className="mt-5" aria-label="직원 할 일과 현장 기록">
-                  {editingSiteId ? (
-                    <SiteNotesSection
-                      key={`notes-${editingSiteId}`}
-                      siteId={editingSiteId}
-                      api={createSiteNotesApi(fetchWithHeaders(() => authHeaders()))}
-                      viewer={currentUser}
-                    />
-                  ) : (
-                    <p className="text-sm text-[#60717d]">저장한 뒤에 할 일과 현장 기록을 쓸 수 있어요.</p>
-                  )}
-                </section>
-              )}
-            </Panel>
-            <Panel title="현장 목록">
-              <RecordList
-                empty="등록된 현장이 없습니다."
-                items={officeData.sites.map((item) => ({
-                  key: item._id,
-                  title: `${item.title || '현장명 없음'} · ${item.customerName || '고객명 없음'}`,
-                  meta: `${item.siteType || '현장 종류 없음'} · ${item.address || '주소 없음'} · ${item.status || '상태 없음'}`,
-                  body: item.memo,
-                  action: (
-                    <div className="flex flex-wrap items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-                      <span className={`inline-flex min-w-20 justify-center rounded-full px-3 py-1 text-xs font-bold ${statusBadgeClass(item.status || '상담중')}`}>
-                        {item.status || '상담중'}
-                      </span>
-                      <button onClick={() => editSite(item)} className="rounded-md border border-[#d8d1c5] px-3 py-1 text-xs font-semibold">
-                        수정
-                      </button>
-                      <button onClick={() => deleteOfficeRecord(item._id, 'site')} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                        삭제
-                      </button>
-                    </div>
-                  ),
-                }))}
-              />
-            </Panel>
-          </div>
+                : undefined
+            }
+            consultationDraft={null}
+            onConsultationDraftUsed={() => undefined}
+            onConsultationRegistered={async () => undefined}
+            setStatus={setStatus}
+            setError={setError}
+          />
         )}
 
         {activeTab === 'estimates' && (
@@ -3601,20 +3501,6 @@ export default function ManagerPage() {
               }
               setStatus('카카오 채팅방 이동은 홈페이지·채널 설정에서 카카오 채널 관리 링크를 입력한 뒤 사용할 수 있습니다.');
             }}
-          />
-        )}
-        {siteCustomerConfirm && (
-          <SiteCustomerConfirmModal
-            siteTitle={siteForm.title}
-            customerName={siteCustomerName()}
-            customerPhone={siteForm.customerPhone}
-            siteType={siteForm.siteType}
-            address={siteForm.address}
-            status={siteForm.status}
-            existing={siteCustomerConfirm.existing}
-            saving={savingOffice}
-            onConfirm={() => void submitSiteWithCustomer()}
-            onClose={() => setSiteCustomerConfirm(null)}
           />
         )}
         </section>
@@ -5034,68 +4920,7 @@ function ConsultationCompleteModal({
   );
 }
 
-function SiteCustomerConfirmModal({
-  siteTitle,
-  customerName,
-  customerPhone,
-  siteType,
-  address,
-  status,
-  existing,
-  saving,
-  onConfirm,
-  onClose,
-}: {
-  siteTitle: string;
-  customerName: string;
-  customerPhone: string;
-  siteType: string;
-  address: string;
-  status: string;
-  existing: Customer | null;
-  saving: boolean;
-  onConfirm: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-[#17212b]/55 px-4 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#38a9bd]">SITE + CUSTOMER</p>
-        <h2 className="mt-2 text-2xl font-semibold">현장과 고객을 함께 등록합니다</h2>
-        <p className="mt-2 text-sm leading-6 text-[#60717d]">
-          {existing
-            ? `이미 등록된 고객 ${existing.name || '이름 없음'}님과 이 현장을 연결합니다. 고객 정보는 그대로 유지됩니다.`
-            : '아래 정보로 고객이 새로 등록되고, 이 현장과 연결됩니다.'}
-        </p>
-        <div className="mt-5 grid gap-2 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4 text-sm">
-          <InfoLine label="현장명" value={siteTitle || '-'} />
-          <InfoLine label="고객명" value={customerName || '-'} />
-          <InfoLine label="연락처" value={customerPhone || '-'} />
-          <InfoLine label="현장 종류" value={siteType || '-'} />
-          <InfoLine label="주소" value={address || '-'} />
-          <InfoLine label="상태" value={status || '-'} />
-        </div>
-        <div className="mt-6 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onClose} disabled={saving} className="rounded-md border border-[#d8d1c5] px-5 py-2.5 text-sm font-semibold disabled:opacity-50">
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={saving}
-            className="inline-flex items-center gap-2 rounded-md bg-[#171512] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : null}
-            {existing ? '연결하고 현장 저장' : '고객 등록하고 현장 저장'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-// The 계약 완료 안내 alimtalk and the customer's chat room for one site. The contract message is recorded per site; an old
-// per-customer record only shows as a grey note and never blocks sending.
 function AlimtalkActionModal({
   site,
   customer,
