@@ -24,6 +24,7 @@ export const LOGIN_ID_TAKEN_MESSAGE = '이미 사용 중인 아이디입니다.'
 
 const LOGIN_ID_FORMAT_MESSAGE = '아이디는 영문 소문자·숫자와 . _ - 로 4~20자입니다.';
 const LOGIN_ID_RESERVED_MESSAGE = '쓸 수 없는 아이디입니다.';
+const LOGIN_ID_EMAIL_MESSAGE = '아이디에는 이메일을 쓸 수 없습니다.';
 const PASSWORD_MESSAGE = '비밀번호는 8자 이상 72자 이하로 입력해 주세요.';
 const NAME_EMPTY_MESSAGE = '이름을 입력해 주세요.';
 const NAME_LONG_MESSAGE = '이름은 30자까지 입력할 수 있습니다.';
@@ -35,8 +36,17 @@ export function normalizeLoginId(raw: unknown): string {
   return text(raw).trim().toLowerCase();
 }
 
-// Checks an id that has already been through normalizeLoginId. '@' is outside the pattern, so an id never looks like an email login.
+// Checks an id that has already been through normalizeLoginId. '@' is outside the pattern, so an id never looks like an email login
+// (the login sends anything with '@' to Firebase). Many people type their email here, so that case gets its own wording, with the
+// part before '@' as an example when that part would itself be accepted.
 export function loginIdError(loginId: string): string | null {
+  const at = loginId.indexOf('@');
+  if (at >= 0) {
+    const local = loginId.slice(0, at);
+    return loginIdError(local) === null
+      ? `${LOGIN_ID_EMAIL_MESSAGE} @ 앞부분만 써 주세요 (예: ${local}).`
+      : `${LOGIN_ID_EMAIL_MESSAGE} 영문 소문자·숫자로 정해 주세요.`;
+  }
   if (!LOGIN_ID_PATTERN.test(loginId)) return LOGIN_ID_FORMAT_MESSAGE;
   if (RESERVED_LOGIN_IDS.includes(loginId)) return LOGIN_ID_RESERVED_MESSAGE;
   return null;
@@ -55,22 +65,26 @@ function nameError(name: string): string | null {
 }
 
 export type SignupInput = { name: string; phone: string; loginId: string; password: string };
+export type SignupField = keyof SignupInput;
 
-export function validateSignupInput(raw: Record<string, unknown>): { ok: true; value: SignupInput } | { ok: false; error: string } {
+// The failure names its field, so the join page can show an id problem under the id box instead of a second time below.
+export function validateSignupInput(
+  raw: Record<string, unknown>,
+): { ok: true; value: SignupInput } | { ok: false; field: SignupField; error: string } {
   const name = text(raw.name).trim();
   const nameProblem = nameError(name);
-  if (nameProblem) return { ok: false, error: nameProblem };
+  if (nameProblem) return { ok: false, field: 'name', error: nameProblem };
 
   const phone = normalizeKoreanMobile(text(raw.phone));
-  if (!phone) return { ok: false, error: PHONE_MESSAGE };
+  if (!phone) return { ok: false, field: 'phone', error: PHONE_MESSAGE };
 
   const loginId = normalizeLoginId(raw.loginId);
   const loginIdProblem = loginIdError(loginId);
-  if (loginIdProblem) return { ok: false, error: loginIdProblem };
+  if (loginIdProblem) return { ok: false, field: 'loginId', error: loginIdProblem };
 
   const password = text(raw.password).trim();
   const passwordProblem = passwordError(password);
-  if (passwordProblem) return { ok: false, error: passwordProblem };
+  if (passwordProblem) return { ok: false, field: 'password', error: passwordProblem };
 
   return { ok: true, value: { name, phone, loginId, password } };
 }

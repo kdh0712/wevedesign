@@ -48,9 +48,17 @@ test('loginIdError accepts 4-20 lowercase letters, digits and . _ -', () => {
   assert.equal(loginIdError('a'.repeat(20)), null);
   assert.equal(loginIdError('abc'), FORMAT_ERROR);
   assert.equal(loginIdError('a'.repeat(21)), FORMAT_ERROR);
-  assert.equal(loginIdError('park@x.kr'), FORMAT_ERROR);
   assert.equal(loginIdError('Park01'), FORMAT_ERROR);
   assert.equal(loginIdError(''), FORMAT_ERROR);
+});
+
+test('loginIdError says an email cannot be an id, and suggests the part before @ when that part would work', () => {
+  assert.equal(loginIdError('park01@x.kr'), '아이디에는 이메일을 쓸 수 없습니다. @ 앞부분만 써 주세요 (예: park01).');
+  assert.equal(loginIdError('a.b-c_d@gmail.com'), '아이디에는 이메일을 쓸 수 없습니다. @ 앞부분만 써 주세요 (예: a.b-c_d).');
+  // No suggestion when the part before @ would itself be refused: too short, reserved, or empty.
+  assert.equal(loginIdError('ab@x.kr'), '아이디에는 이메일을 쓸 수 없습니다. 영문 소문자·숫자로 정해 주세요.');
+  assert.equal(loginIdError('admin@x.kr'), '아이디에는 이메일을 쓸 수 없습니다. 영문 소문자·숫자로 정해 주세요.');
+  assert.equal(loginIdError('@x.kr'), '아이디에는 이메일을 쓸 수 없습니다. 영문 소문자·숫자로 정해 주세요.');
 });
 
 test('loginIdError refuses the reserved master ids', () => {
@@ -71,15 +79,20 @@ test('validateSignupInput returns the trimmed, normalized values', () => {
   assert.deepEqual(result, { ok: true, value: { name: '박영희', phone: '01012345678', loginId: 'park01', password: 'pass1234' } });
 });
 
-test('validateSignupInput explains the first problem', () => {
+test('validateSignupInput explains the first problem and names its field, so the page can show it under that field', () => {
   const base = { name: '박영희', phone: '010-1234-5678', loginId: 'park01', password: 'pass1234' };
-  assert.deepEqual(validateSignupInput({ ...base, name: '  ' }), { ok: false, error: '이름을 입력해 주세요.' });
-  assert.deepEqual(validateSignupInput({ ...base, name: '가'.repeat(31) }), { ok: false, error: '이름은 30자까지 입력할 수 있습니다.' });
-  assert.deepEqual(validateSignupInput({ ...base, phone: '02-381-0489' }), { ok: false, error: '휴대폰 번호를 확인해 주세요.' });
-  assert.deepEqual(validateSignupInput({ ...base, loginId: 'ab' }), { ok: false, error: FORMAT_ERROR });
-  assert.deepEqual(validateSignupInput({ ...base, loginId: 'Admin' }), { ok: false, error: '쓸 수 없는 아이디입니다.' });
-  assert.deepEqual(validateSignupInput({ ...base, password: 'short' }), { ok: false, error: PASSWORD_ERROR });
-  assert.deepEqual(validateSignupInput({ ...base, password: 12345678 }), { ok: false, error: PASSWORD_ERROR });
+  assert.deepEqual(validateSignupInput({ ...base, name: '  ' }), { ok: false, field: 'name', error: '이름을 입력해 주세요.' });
+  assert.deepEqual(validateSignupInput({ ...base, name: '가'.repeat(31) }), { ok: false, field: 'name', error: '이름은 30자까지 입력할 수 있습니다.' });
+  assert.deepEqual(validateSignupInput({ ...base, phone: '02-381-0489' }), { ok: false, field: 'phone', error: '휴대폰 번호를 확인해 주세요.' });
+  assert.deepEqual(validateSignupInput({ ...base, loginId: 'ab' }), { ok: false, field: 'loginId', error: FORMAT_ERROR });
+  assert.deepEqual(validateSignupInput({ ...base, loginId: 'Admin' }), { ok: false, field: 'loginId', error: '쓸 수 없는 아이디입니다.' });
+  assert.deepEqual(validateSignupInput({ ...base, loginId: 'Park01@X.kr' }), {
+    ok: false,
+    field: 'loginId',
+    error: '아이디에는 이메일을 쓸 수 없습니다. @ 앞부분만 써 주세요 (예: park01).',
+  });
+  assert.deepEqual(validateSignupInput({ ...base, password: 'short' }), { ok: false, field: 'password', error: PASSWORD_ERROR });
+  assert.deepEqual(validateSignupInput({ ...base, password: 12345678 }), { ok: false, field: 'password', error: PASSWORD_ERROR });
 });
 
 test('isLinkUsable is true only for an open link that has not expired', () => {
