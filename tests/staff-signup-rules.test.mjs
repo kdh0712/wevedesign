@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_LINK_DAYS,
+  ID_ACCOUNT_STILL_ON_MESSAGE,
   LINK_DAYS,
   LOGIN_ID_TAKEN_MESSAGE,
   PERMISSION_PRESETS,
@@ -9,8 +10,10 @@ import {
   RESERVED_LOGIN_IDS,
   UNUSABLE_LINK_MESSAGE,
   approvalError,
+  canDeleteIdAccount,
   formStartedAt,
   idAccountUpdate,
+  isIdAccountId,
   isLinkUsable,
   isRequestExpired,
   linkExpiresAt,
@@ -197,4 +200,21 @@ test('formStartedAt turns the time the form was open into a server start time', 
   assert.equal(formStartedAt('45000', now), undefined);
   assert.equal(formStartedAt(Number.NaN, now), undefined);
   assert.equal(formStartedAt(undefined, now), undefined);
+});
+
+test('only a turned-off ID account can be deleted; an account without isActive counts as on, as at login', () => {
+  assert.equal(canDeleteIdAccount({ isActive: false }), true);
+  assert.equal(canDeleteIdAccount({ isActive: true }), false);
+  assert.equal(canDeleteIdAccount({}), false);
+  assert.equal(canDeleteIdAccount({ isActive: 'false' }), false);
+  assert.equal(ID_ACCOUNT_STILL_ON_MESSAGE, '켜져 있는 계정은 삭제할 수 없습니다. 먼저 끈 뒤에 삭제해 주세요.');
+});
+
+test('isIdAccountId accepts only the document ids accountDocId makes', () => {
+  assert.equal(isIdAccountId(`acct-${'0a'.repeat(12)}`), true);
+  assert.equal(isIdAccountId(`acct-${'0A'.repeat(12)}`), false);
+  assert.equal(isIdAccountId(`acct-${'0'.repeat(23)}`), false);
+  assert.equal(isIdAccountId(`acct-${'0'.repeat(24)}/x`), false);
+  assert.equal(isIdAccountId('managerAccount-1'), false);
+  assert.equal(isIdAccountId(undefined), false);
 });

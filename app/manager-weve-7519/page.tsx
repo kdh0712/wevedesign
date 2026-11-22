@@ -1023,10 +1023,15 @@ export default function ManagerPage() {
     const account = visibleAccounts.find((item) => item._id === id);
     const accountName = account?.name || account?.loginId || '';
     const selfWarning = id === currentUser?.id ? '\n지금 로그인한 본인 계정입니다.' : '';
-    const turnOff = account?.kind === 'id';
+    // An ID account goes in two steps: turn it off, then delete it for good (which frees its id).
+    const turnOff = account?.kind === 'id' && account.isActive !== false;
+    const deleteForGood = account?.kind === 'id' && account.isActive === false;
+    const named = accountName ? `'${accountName}'` : '선택한';
     const question = turnOff
-      ? `${accountName ? `'${accountName}'` : '선택한'} 계정을 끌까요?\n끈 계정으로는 로그인할 수 없고, 휴대폰 번호는 지워집니다. 나중에 다시 켤 수 있습니다.${selfWarning}`
-      : `${accountName ? `'${accountName}'` : '선택한'} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`;
+      ? `${named} 계정을 끌까요?\n끈 계정으로는 로그인할 수 없고, 휴대폰 번호는 지워집니다. 나중에 다시 켤 수 있습니다.${selfWarning}`
+      : deleteForGood
+        ? `${named} 계정을 완전히 삭제할까요?\n되돌릴 수 없고, 같은 아이디(${account?.loginId || ''})로 다시 가입할 수 있게 됩니다.${selfWarning}`
+        : `${named} 계정을 삭제할까요?\n삭제한 계정으로는 더 이상 로그인할 수 없습니다.${selfWarning}`;
     if (!window.confirm(question)) return;
     setSavingOffice(true);
     try {
@@ -1036,7 +1041,7 @@ export default function ManagerPage() {
           ...authHeaders(),
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ id, kind: account?.kind }),
+        body: JSON.stringify(deleteForGood ? { id, kind: 'id', permanent: true } : { id, kind: account?.kind }),
       });
       const data = await readJsonResponse<AccountApiResponse>(response);
       if (!response.ok) throw new Error(data.error || '계정을 삭제하지 못했습니다.');
@@ -2491,7 +2496,7 @@ export default function ManagerPage() {
                         수정
                       </button>
                       <button onClick={() => deleteAccount(account._id)} className="rounded-md border border-red-200 px-3 py-1 text-xs font-semibold text-red-600">
-                        {account.kind === 'id' ? '끄기' : '삭제'}
+                        {account.kind === 'id' && account.isActive !== false ? '끄기' : '삭제'}
                       </button>
                     </div>
                   ),

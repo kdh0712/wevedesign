@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { isRequestExpired, isLinkUsable } from '../../lib/staff-signup-rules';
+import { canDeleteIdAccount, isRequestExpired, isLinkUsable } from '../../lib/staff-signup-rules';
 import type { ManagerRole } from '../../lib/manager-permissions';
 import type { LinkRecord, RequestRecord, SignupStore } from './_signup-flow';
 import { hashPassword, isPasswordHash } from './_password';
@@ -68,6 +68,22 @@ export async function createIdAccount(loginId: string, fields: Record<string, un
 // Writes only these fields of an existing account; FirestoreConflictError when it no longer exists.
 export async function updateIdAccount(id: string, fields: Record<string, unknown>) {
   return patchFirestoreFields<IdAccount>(ID_ACCOUNTS_COLLECTION, id, fields, { precondition: { exists: true } });
+}
+
+// Deletes an account only while it is off. The delete lands only on the version that was read, so an account turned back on
+// in between is kept ('changed'). Its phone devices need no clean-up: a phone refresh finds no account and signs out, and a
+// new account with the same id has a new password hash, which the device's credential stamp does not match.
+export async function deleteTurnedOffIdAccount(id: string): Promise<'deleted' | 'missing' | 'on' | 'changed'> {
+  const found = await getFirestoreDocumentWithVersion<IdAccount>(ID_ACCOUNTS_COLLECTION, id);
+  if (!found) return 'missing';
+  if (!canDeleteIdAccount(found.record)) return 'on';
+  try {
+    await deleteFirestoreDocument(ID_ACCOUNTS_COLLECTION, id, undefined, { precondition: { updateTime: found.updateTime } });
+  } catch (error) {
+    if (isFirestoreConflictError(error)) return 'changed';
+    throw error;
+  }
+  return 'deleted';
 }
 
 // Sanity managerAccount ids are compared ignoring case, so 'Park01' there holds 'park01' here.

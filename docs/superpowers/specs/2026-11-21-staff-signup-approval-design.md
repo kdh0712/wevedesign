@@ -138,6 +138,7 @@ A를 고른 이유: 요청하신 '아이디' 로그인과 맞고, 비밀번호 �
 - 문서 id: `acct-` + 정규화한 loginId의 SHA-256 앞 24자. 같은 아이디는 같은 문서 id라서 두 요청을 동시에 승인해도 `exists:false` 조건으로 하나만 만들어진다.
 - 필드: `name`, `phone`, `loginId`, `passwordHash`, `role`(`admin` | `staff`), `permissions`, `isActive`, `createdAt`, `updatedAt`, `approvedBy?`, `approvedAt?`, `origin`(`signup` | `admin`).
 - 지우지 않고 `isActive:false`로 끈다(Firebase 계정과 같은 동작). **끌 때 `phone`도 지운다**(A안). 다시 켤 때 휴대폰은 빈칸이고, 총괄이 다시 넣을 수 있다. 이름·아이디·해시는 다시 켤 수 있도록 남긴다.
+- (2026-11-22 추가) 끈 계정은 총괄이 **삭제**할 수 있다. 끄기 → 삭제 두 단계라서 쓰고 있는 계정을 한 번에 지우지 않는다. 삭제하면 문서가 없어지고 그 아이디는 다시 가입에 쓸 수 있다. 서버는 읽은 순간 꺼져 있던 판(`updateTime` 조건)만 지운다. 같은 아이디로 새 계정이 생겨도 예전 휴대폰은 비밀번호 해시가 달라 로그인되지 않는다.
 
 ### 4.4 규칙 (순수 모듈 `app/lib/staff-signup-rules.ts`, import 없음)
 
@@ -198,7 +199,7 @@ A를 고른 이유: 요청하신 '아이디' 로그인과 맞고, 비밀번호 �
 - `GET`: 지금 목록(Firebase 모드면 Firebase 계정, 아니면 Sanity 계정)에 **`managerAccounts`를 더해** 돌려준다. 각 항목에 `kind`(`firebase` | `sanity` | `id`)와 `phone`(아이디 계정)을 붙인다.
 - `POST`: `kind:'id'`이면 `managerAccounts`를 고친다(이름·휴대폰·역할·권한·사용 여부, 비밀번호를 넣으면 새 해시). 권한 정규화 규칙은 그대로(`normalizePermissions`, 총괄은 전부).
 - 총괄이 직접 계정을 만들 때(내 판단): 아이디에 `@`가 있고 Firebase 모드면 지금처럼 Firebase 이메일 계정, `@`가 없으면 **아이디 계정**(`origin:'admin'`)으로 만든다. 아이디·비밀번호 규칙은 4.4와 같다.
-- `DELETE`: `kind:'id'`는 `isActive:false`와 함께 `phone`을 지운다. `POST`로 사용 여부를 끌 때도 같다(4.3).
+- `DELETE`: `kind:'id'`는 `isActive:false`와 함께 `phone`을 지운다. `POST`로 사용 여부를 끌 때도 같다(4.3). `permanent: true`를 더하면 이미 끈 계정만 문서를 지운다(켜져 있으면 409).
 
 ## 6. 관리 화면
 

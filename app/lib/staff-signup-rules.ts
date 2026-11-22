@@ -141,6 +141,19 @@ export function signupLinkUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, '')}/manager-weve-7519/join#${token}`;
 }
 
+// An admin deletes an ID account in two steps: turn it off, then delete it. Deleting frees its id for a new sign-up. Missing
+// isActive counts as on, as at login (usableIdAccount).
+export const ID_ACCOUNT_STILL_ON_MESSAGE = '켜져 있는 계정은 삭제할 수 없습니다. 먼저 끈 뒤에 삭제해 주세요.';
+
+export function canDeleteIdAccount(account: { isActive?: unknown }): boolean {
+  return account.isActive === false;
+}
+
+// The document ids accountDocId makes ('acct-' + 24 lowercase hex).
+export function isIdAccountId(id: unknown): boolean {
+  return typeof id === 'string' && /^acct-[0-9a-f]{24}$/.test(id);
+}
+
 // The fields an admin saves on an ID account. Turning an account off also deletes its phone number (spec §4.3, A안).
 export function idAccountUpdate(input: {
   name: string;
