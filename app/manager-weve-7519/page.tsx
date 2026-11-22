@@ -2469,12 +2469,6 @@ export default function ManagerPage() {
               </div>
             </Panel>
             <Panel title="계정 목록">
-              {!firebaseToken && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-                  현재 기존 관리자 비밀번호 세션입니다. Firebase 사용자 목록을 보려면 로그아웃 후 Firebase 이메일 계정으로 다시 로그인하세요.
-                  Firebase 계정의 UID는 Realtime Database의 launcher_admins에도 true로 등록되어 있어야 합니다.
-                </div>
-              )}
               <RecordList
                 empty="등록된 실무 계정이 없습니다."
                 items={visibleAccounts.map((account) => ({
