@@ -1,6 +1,14 @@
 import { NextResponse } from 'next/server';
 import { MANAGER_PERMISSIONS, normalizePermissions } from '../../../lib/manager-permissions';
-import { LOGIN_ID_TAKEN_MESSAGE, idAccountUpdate, loginIdError, normalizeLoginId, passwordError } from '../../../lib/staff-signup-rules';
+import {
+  ID_ACCOUNT_STILL_ON_MESSAGE,
+  LOGIN_ID_TAKEN_MESSAGE,
+  idAccountUpdate,
+  isIdAccountId,
+  loginIdError,
+  normalizeLoginId,
+  passwordError,
+} from '../../../lib/staff-signup-rules';
 import { checkSanityDocumentType, hashId, managerClient } from '../_utils';
 import { hashPassword } from '../_password';
 import { requireManager } from '../_session';
@@ -8,6 +16,7 @@ import { isLoginIdTaken } from '../_signup-flow';
 import {
   accountDocId,
   createIdAccount,
+  deleteTurnedOffIdAccount,
   firestoreSignupStore,
   getIdAccount,
   isStaffAccountStoreReady,
@@ -30,6 +39,7 @@ export const runtime = 'nodejs';
 const FIREBASE_ADMIN_REQUIRED = 'Firebase 계정 관리에는 서비스 계정 설정이 필요합니다.';
 const ID_STORE_MISSING = '아이디 계정 관리에는 Firestore 서비스 계정 설정이 필요합니다.';
 const ID_ACCOUNT_MISSING = '계정을 찾을 수 없습니다.';
+const ID_ACCOUNT_CHANGED = '그사이 계정이 바뀌었습니다. 목록을 새로 고친 뒤 다시 시도해 주세요.';
 
 // Account management runs only for admin sessions. Firebase profiles are written with admin access
 // (service account, or the signed-in Firebase admin's token), never with the edited user's own token.
@@ -249,9 +259,18 @@ export async function DELETE(request: Request) {
     const id = String(body?.id || '').trim();
     if (!id) return NextResponse.json({ error: '삭제할 계정을 선택해 주세요.' }, { status: 400 });
 
-    // An ID account is turned off, never deleted (its id stays taken), and its phone number is deleted (spec §4.3).
+    // An ID account is deleted in two steps (spec §4.3). First it is turned off, which keeps its id taken and deletes its
+    // phone number. Then, with permanent: true, an account that is already off is deleted for good and its id is free again.
     if (body?.kind === 'id') {
       if (!isStaffAccountStoreReady()) return NextResponse.json({ error: ID_STORE_MISSING }, { status: 503 });
+      if (body?.permanent === true) {
+        if (!isIdAccountId(id)) return NextResponse.json({ error: ID_ACCOUNT_MISSING }, { status: 400 });
+        const outcome = await deleteTurnedOffIdAccount(id);
+        if (outcome === 'missing') return NextResponse.json({ error: ID_ACCOUNT_MISSING }, { status: 404 });
+        if (outcome === 'on') return NextResponse.json({ error: ID_ACCOUNT_STILL_ON_MESSAGE }, { status: 409 });
+        if (outcome === 'changed') return NextResponse.json({ error: ID_ACCOUNT_CHANGED }, { status: 409 });
+        return NextResponse.json({ ok: true });
+      }
       try {
         await updateIdAccount(id, { isActive: false, phone: '', updatedAt: new Date().toISOString() });
       } catch (error) {

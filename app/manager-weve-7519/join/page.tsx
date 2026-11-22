@@ -5,7 +5,7 @@
 // Spec: docs/superpowers/specs/2026-11-21-staff-signup-approval-design.md §3.2, §5.2
 import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { UNUSABLE_LINK_MESSAGE, loginIdError, normalizeLoginId, validateSignupInput } from '../../lib/staff-signup-rules';
+import { LOGIN_ID_TAKEN_MESSAGE, UNUSABLE_LINK_MESSAGE, loginIdError, normalizeLoginId, validateSignupInput } from '../../lib/staff-signup-rules';
 
 type Phase = { kind: 'checking' } | { kind: 'unusable' } | { kind: 'problem'; text: string } | { kind: 'form' } | { kind: 'done' };
 type Answer = { ok?: boolean; error?: string };
@@ -55,6 +55,14 @@ export default function StaffJoinPage() {
   const [loginIdNote, setLoginIdNote] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const loginIdRef = useRef<HTMLInputElement>(null);
+
+  // An id problem is shown once, under the id box, and the box takes focus so it is in view on a phone.
+  const showLoginIdProblem = (text: string) => {
+    setError('');
+    setLoginIdNote(text);
+    loginIdRef.current?.focus();
+  };
 
   useEffect(() => {
     const token = window.location.hash.replace(/^#/, '');
@@ -100,7 +108,8 @@ export default function StaffJoinPage() {
     if (busy) return;
     const checked = validateSignupInput({ name, phone, loginId, password });
     if (!checked.ok) {
-      setError(checked.error);
+      if (checked.field === 'loginId') showLoginIdProblem(checked.error);
+      else setError(checked.error);
       return;
     }
     if (password.trim() !== confirm.trim()) {
@@ -124,10 +133,8 @@ export default function StaffJoinPage() {
       });
       if (status === 200 && data.ok) setPhase({ kind: 'done' });
       else if (status === 404) setPhase({ kind: 'unusable' });
-      else {
-        if (status === 409) setLoginIdNote(data.error || '');
-        setError(data.error || '가입 요청을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.');
-      }
+      else if (status === 409) showLoginIdProblem(data.error || LOGIN_ID_TAKEN_MESSAGE);
+      else setError(data.error || '가입 요청을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.');
     } catch {
       setError('연결이 불안정합니다. 잠시 후 다시 시도해 주세요.');
     } finally {
@@ -188,6 +195,8 @@ export default function StaffJoinPage() {
               setLoginIdNote('');
             }}
             onBlur={() => void checkLoginId()}
+            ref={loginIdRef}
+            aria-invalid={loginIdNote ? true : undefined}
             autoComplete="username"
             autoCapitalize="none"
             autoCorrect="off"
@@ -196,7 +205,7 @@ export default function StaffJoinPage() {
             className={field}
           />
           <span className={`mt-1 block text-xs ${loginIdNote ? 'text-[#b42318]' : 'text-[#60717d]'}`}>
-            {loginIdNote || '영문 소문자·숫자와 . _ - 로 4~20자'}
+            {loginIdNote || '영문 소문자·숫자와 . _ - 로 4~20자 · 이메일은 쓸 수 없음'}
           </span>
         </label>
         <label className="block">
