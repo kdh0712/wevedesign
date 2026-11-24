@@ -37,7 +37,7 @@ import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
-import { DEFAULT_OVERHEAD_RATE, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
+import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -1066,7 +1066,8 @@ export default function EstimateWorkspacePage() {
     setSelectedLegacyWorkSiteId(nextLegacyWorkSites[0]?.id || '');
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setConstructionStartDate(estimate?.constructionStartDate || '');
-    setOverheadRate(normalizeOverheadRate(estimate?.overheadRate));
+    // No estimate yet (a site's first one) opens at 3%; this effect runs after the reset, so it must set it too.
+    setOverheadRate(initialOverheadRate(estimate));
     setCalendarView(estimate?.constructionStartDate ? 'startWeek' : 'month');
     setCalendarWeekOffset(0);
     setSelectedLineId('');

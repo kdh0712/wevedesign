@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_OVERHEAD_RATE, normalizeOverheadRate, overheadAmount, overheadLabel } from '../app/lib/estimate-overhead.ts';
+import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../app/lib/estimate-overhead.ts';
 
 test('a new estimate starts at 3%', () => {
   assert.equal(DEFAULT_OVERHEAD_RATE, 3);
@@ -29,4 +29,11 @@ test('overheadAmount is the construction total times the rate, rounded to the wo
 test('overheadLabel shows the rate without trailing zeros', () => {
   assert.equal(overheadLabel(3), '공과잡비 (3%)');
   assert.equal(overheadLabel(2.5), '공과잡비 (2.5%)');
+});
+
+test('initialOverheadRate: no estimate yet starts at 3%, a saved one keeps its rate, an old one without a rate is 0', () => {
+  assert.equal(initialOverheadRate(undefined), 3, 'a site with no estimate opens a blank new estimate at 3%');
+  assert.equal(initialOverheadRate(null), 3);
+  assert.equal(initialOverheadRate({ overheadRate: 2.5 }), 2.5);
+  assert.equal(initialOverheadRate({}), 0, 'saved before 공과잡비 existed');
 });

@@ -24,3 +24,9 @@ export function overheadAmount(constructionTotal: number, rate: number): number 
 export function overheadLabel(rate: number): string {
   return `공과잡비 (${rate}%)`;
 }
+
+// The rate the editor opens with: the saved estimate's own (0 if it predates 공과잡비), or 3% when the site has no
+// estimate yet and a blank new one opens.
+export function initialOverheadRate(estimate: { overheadRate?: unknown } | null | undefined): number {
+  return estimate ? normalizeOverheadRate(estimate.overheadRate) : DEFAULT_OVERHEAD_RATE;
+}
