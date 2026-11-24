@@ -78,6 +78,20 @@ test('groupSitesByCustomer: linked groups by newest site, then customers without
   assert.deepEqual(byName.map((g) => g.customer?._id ?? null), ['c-kim'], 'a customer without sites shows when its name matches');
 });
 
+test('groupSitesByCustomer: include (a 현장 폴더) filters like a status and hides customers without such a site', () => {
+  const sites = [
+    { _id: 's-old', customerId: 'c-hong', title: '평촌', status: '완료', createdAt: '2026-01-05' },
+    { _id: 's-new', customerId: 'c-soon', title: '산본', status: '시공중', createdAt: '2026-04-01' },
+    { _id: 's-none', title: '연결 없음', status: '계약', createdAt: '2026-02-01' },
+  ];
+  const active = (site) => site.status === '계약' || site.status === '시공중';
+  const groups = groupSitesByCustomer({ customers: [hong, hongSoon, kim], sites, query: '', include: active });
+  assert.deepEqual(groups.map((g) => g.customer?._id ?? null), ['c-soon', null]);
+  assert.deepEqual(groups.at(-1).sites.map((s) => s._id), ['s-none']);
+  const byName = groupSitesByCustomer({ customers: [hong, hongSoon, kim], sites, query: '홍길동', include: active });
+  assert.deepEqual(byName.map((g) => g.customer?._id ?? null), [], 'a matching customer with no site in the folder is hidden');
+});
+
 test('groupSitesByCustomer: a matching customer keeps all its sites, a site match keeps only that site', () => {
   const sites = [
     { _id: 'a', customerId: 'c-hong', title: '평촌', status: '완료', createdAt: '2026-01-05' },
