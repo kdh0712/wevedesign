@@ -1,7 +1,9 @@
 // 견적 보기 on the phone (spec docs/superpowers/specs/2026-10-21-staff-app-notes-schedule-estimate-design.md §4): the
 // customer's figures only, grouped like the PC customer estimate print (category, else process, else 기타 공사; lines
 // without a name left out). Execution prices, costs, margins, work lines, purchase orders and the estimate memo are never
-// copied, so the phone cannot receive them.
+// copied, so the phone cannot receive them. The estimate's 공과잡비 is added to the total like on the PC documents.
+
+import { normalizeOverheadRate, overheadAmount } from './estimate-overhead.ts';
 
 export type CustomerEstimateLine = { name: string; spec: string; unit: string; quantity: number; unitPrice: number; amount: number; note: string };
 export type CustomerEstimateGroup = { category: string; subtotal: number; lines: CustomerEstimateLine[] };
@@ -10,6 +12,9 @@ export type CustomerEstimateView = {
   versionType: string;
   updatedAt: string;
   total: number;
+  // 공과잡비: the rate in % (0 = none) and its amount, already counted in total.
+  overheadRate: number;
+  overhead: number;
   vatNote: '부가세 별도';
   groups: CustomerEstimateGroup[];
 };
@@ -59,11 +64,16 @@ export function toCustomerEstimateView(estimate: Record<string, unknown>): Custo
     groups.set(category, group);
   }
   const list = [...groups.values()];
+  const construction = won(list.reduce((sum, group) => sum + group.exact, 0));
+  const overheadRate = normalizeOverheadRate(estimate.overheadRate);
+  const overhead = overheadAmount(construction, overheadRate);
   return {
     versionLabel: text(estimate.versionLabel),
     versionType: text(estimate.versionType),
     updatedAt: text(estimate.updatedAt) || text(estimate.createdAt),
-    total: won(list.reduce((sum, group) => sum + group.exact, 0)),
+    total: construction + overhead,
+    overheadRate,
+    overhead,
     vatNote: '부가세 별도',
     groups: list.map((group) => ({ category: group.category, subtotal: won(group.exact), lines: group.lines })),
   };
