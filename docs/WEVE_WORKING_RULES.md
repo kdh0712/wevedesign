@@ -125,6 +125,7 @@ This file records durable product and implementation decisions. Review it before
 
 - A printed 세부내역서 page is one box of 277 x 188 mm (A4 landscape inside the 10 mm / 8 mm print margins, with 6 mm spare), on screen and in print alike: the screen preview draws that box and scales it down to fit (CSS zoom), and print shows it unscaled. What the preview shows is what prints.
 - Its page breaks go by printed height, not by a row count (`app/lib/estimate-detail-pages.ts`): each row is one line high plus a line for every wrap of its 품명, 규격 or 공사 name, and a 공사 starts on a new page unless its first four rows fit. The heights in `DETAIL_LAYOUT` (estimate page) were measured with the print styles; change them together with the classes of `DetailEstimatePrintPage` and `renderDetailPrintRow`, and measure again.
+- 공과잡비: each estimate version stores `overheadRate` (%, 0-20, one decimal; `app/lib/estimate-overhead.ts`). A blank new estimate starts at 3, a copied version keeps its source's rate, and an estimate saved before the field existed reads as 0, so its amount never changes on reopening. 공과잡비 = round(construction total × rate / 100) and `customerEstimateTotal` (saved, shown, and used for margins, sales and the dashboard) includes it. It is one line on the 갑지 (before 합계), on the 세부내역서's last page (just above 총합계, kept on the same page) and on the phone estimate view; a 0% rate shows no line.
 
 ## Schedule Calendar
 

@@ -80,3 +80,11 @@ test('broken or missing lines JSON gives an empty estimate', () => {
     assert.deepEqual([view.groups, view.total], [[], 0], String(linesJson));
   }
 });
+
+test('the phone view adds the estimate 공과잡비 to the total and says the rate', () => {
+  const linesJson = JSON.stringify([{ name: '타일', category: '타일', quantity: 10, customerUnitPrice: 100000 }]);
+  const withRate = toCustomerEstimateView({ linesJson, overheadRate: 3 });
+  assert.deepEqual([withRate.overheadRate, withRate.overhead, withRate.total], [3, 30000, 1030000]);
+  const saved = toCustomerEstimateView({ linesJson });
+  assert.deepEqual([saved.overheadRate, saved.overhead, saved.total], [0, 0, 1000000], 'an estimate saved before 공과잡비 keeps its total');
+});

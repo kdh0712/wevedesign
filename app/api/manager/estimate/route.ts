@@ -28,6 +28,7 @@ import {
   writeEstimateMaterialSettingsIfUnchanged,
 } from '../firestore';
 import { commonOptionsForSave, sanitizeCommonOptions } from '../../../lib/estimate-common-options';
+import { normalizeOverheadRate, overheadAmount } from '../../../lib/estimate-overhead';
 import {
   applyMaterialSettingsOp,
   changeMaterialSettingsSafely,
@@ -188,7 +189,7 @@ const sitesGroq = `*[_type == "officeSite" && !defined(deletedAt)] | order(creat
     _id, title, customerName, customerPhone, customerId, consultationId, siteType, address, status, memo, createdAt
   }`;
 const estimateProjection = `{
-    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson, constructionStartDate,
+    _id, siteId, siteTitle, customerName, versionType, versionLabel, linesJson, workLinesJson, scheduleJson, holidaysJson, constructionStartDate, overheadRate,
     purchaseOrdersJson, purchaseOrderTemplatesJson, extraItemsJson, legacyWorkbooksJson, legacyWorkbooksCompressedJson,
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate,
     estimateExecutionCostTotal, estimatedMarginAmount, estimatedMarginRate,
@@ -409,7 +410,8 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const legacyWorkbookFields = encodeLegacyWorkbooks(legacyWorkSites);
   const holidays = Array.isArray(body.holidays) ? normalizeHolidays(body.holidays) : [];
   const constructionStartDate = normalizeHolidays([body.constructionStartDate])[0] || '';
-  const totals = calculateTotals(lines, workLines, extraItems);
+  const overheadRate = normalizeOverheadRate(body.overheadRate);
+  const totals = calculateTotals(lines, workLines, extraItems, overheadRate);
   const now = new Date().toISOString();
   const existingId = typeof body.id === 'string' ? body.id.trim() : '';
   const versionType = normalizeVersionType(body.versionType);
@@ -429,6 +431,7 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
     scheduleJson: JSON.stringify(schedule),
     holidaysJson: JSON.stringify(holidays),
     constructionStartDate,
+    overheadRate,
     purchaseOrdersJson: JSON.stringify(purchaseOrders),
     purchaseOrderTemplatesJson: JSON.stringify(purchaseOrderTemplatePresets),
     extraItemsJson: JSON.stringify(extraItems),
@@ -1030,8 +1033,11 @@ function calculateTotals(
   lines: ReturnType<typeof normalizeLines>,
   workLines: ReturnType<typeof normalizeWorkLines>,
   extraItems: ReturnType<typeof normalizeExtraItems> = [],
+  overheadRate = 0,
 ) {
-  const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
+  // The customer's estimate is the construction total plus its 공과잡비 (app/lib/estimate-overhead.ts), as on the PC.
+  const constructionTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
+  const customerEstimateTotal = constructionTotal + overheadAmount(constructionTotal, overheadRate);
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
   const hasWorkLines = workLines.length > 0;
   const actualExecutionCostTotal = hasWorkLines
