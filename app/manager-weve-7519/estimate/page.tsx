@@ -37,7 +37,7 @@ import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
-import { DEFAULT_OVERHEAD_RATE, normalizeOverheadRate, overheadAmount } from '../../lib/estimate-overhead';
+import { DEFAULT_OVERHEAD_RATE, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -304,6 +304,7 @@ type DetailPrintRow =
   | { type: 'line'; key: string; line: EstimateLine }
   | { type: 'nameSubtotal'; key: string; amount: number }
   | { type: 'subtotal'; key: string; amount: number; hasNameSubtotals: boolean }
+  | { type: 'overhead'; key: string; amount: number; rate: number }
   | { type: 'total'; key: string; amount: number };
 
 const SESSION_EXPIRED_MESSAGE = '로그인이 만료되었습니다. 다시 로그인해 주세요.';
@@ -744,7 +745,7 @@ export default function EstimateWorkspacePage() {
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
-  const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal), [lines, totals.customerEstimateTotal]);
+  const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals), [lines, totals]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
     ? purchaseOrders.find((order) => order.id === documentView.slice('purchase:'.length)) || null
     : null;
@@ -3005,7 +3006,7 @@ export default function EstimateWorkspacePage() {
 
             {isEstimatePreviewOpen ? (
               <aside className={`min-w-0 rounded-lg border border-[#d5dde2] bg-[#eef2f4] p-4 2xl:sticky 2xl:top-4 ${isDbPanelOpen ? 'xl:col-span-2 2xl:col-span-1' : ''}`}>
-                <TemplateDocumentPreview title={selectedSite?.title || '현장'} subtitle={versionLabel} lines={lines} onCollapse={() => setIsEstimatePreviewOpen(false)} />
+                <TemplateDocumentPreview title={selectedSite?.title || '현장'} subtitle={versionLabel} lines={lines} overheadRate={overheadRate} onCollapse={() => setIsEstimatePreviewOpen(false)} />
               </aside>
             ) : null}
           </section>
@@ -6372,7 +6373,7 @@ function LandscapeEstimateDocumentPreview({
 }) {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
-  const detailPages = buildEstimateDetailPrintPages(lines, totals.customerEstimateTotal);
+  const detailPages = buildEstimateDetailPrintPages(lines, totals);
   const safeDetailPreviewPageIndex = Math.min(Math.max(0, detailPreviewPageIndex), Math.max(0, detailPages.length - 1));
   const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
   const customerAddress = site?.address || site?.title || '';
@@ -6487,7 +6488,7 @@ function LandscapeEstimateDocumentPreview({
                   <td className="border border-[#111] px-3 py-1.5"></td>
                 </tr>
               ))}
-              {Array.from({ length: Math.max(0, 13 - grouped.length) }).map((_, index) => (
+              {Array.from({ length: Math.max(0, 13 - grouped.length - (totals.overheadAmount !== 0 ? 1 : 0)) }).map((_, index) => (
                 <tr key={`summary-blank-${index}`}>
                   <td className="border border-[#111] px-3 py-1.5">&nbsp;</td>
                   <td className="border border-[#111] px-3 py-1.5"></td>
@@ -6497,6 +6498,16 @@ function LandscapeEstimateDocumentPreview({
                   <td className="border border-[#111] px-3 py-1.5"></td>
                 </tr>
               ))}
+              {totals.overheadAmount !== 0 && (
+                <tr className="font-semibold">
+                  <td className="border border-[#111] px-3 py-1.5">{overheadLabel(totals.overheadRate)}</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
+                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(totals.overheadAmount)}</td>
+                  <td className="border border-[#111] px-3 py-1.5"></td>
+                </tr>
+              )}
               <tr className="bg-[#f8e8da] text-lg font-semibold">
                 <td className="border border-[#111] px-3 py-2 text-center" colSpan={4}>합계 (부가세 별도)</td>
                 <td className="border border-[#111] px-3 py-2 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
@@ -6701,7 +6712,9 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   const label = isTotal ? '총합계' : row.type === 'subtotal' && row.hasNameSubtotals ? '합계' : '소계';
   return (
     <tr key={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
-      <td className="border border-[#111] px-3 py-1 text-center"><span className="pl-[0.8em] tracking-[0.8em]">{label}</span></td>
+      <td className="border border-[#111] px-3 py-1 text-center">
+        {row.type === 'overhead' ? overheadLabel(row.rate) : <span className="pl-[0.8em] tracking-[0.8em]">{label}</span>}
+      </td>
       <td className="border border-[#111] px-3 py-1"></td>
       <td className="border border-[#111] px-3 py-1"></td>
       <td className="border border-[#111] px-3 py-1"></td>
@@ -7722,7 +7735,11 @@ function clusterLinesByName(lines: EstimateLine[]) {
   }, []);
 }
 
-function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: number): DetailPrintRow[][] {
+// The closing rows are the 공과잡비 (when there is one) and the 총합계, which includes it.
+function buildEstimateDetailPrintPages(
+  lines: EstimateLine[],
+  totals: Pick<ReturnType<typeof calculateTotals>, 'customerEstimateTotal' | 'overheadAmount' | 'overheadRate'>,
+): DetailPrintRow[][] {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
   // Pages are filled by printed height (detailRowHeight), so wrapped 품명 or 규격 never push a row off the sheet.
@@ -7755,7 +7772,11 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
     return groupRows;
   });
 
-  return paginateByHeight(groups, [{ type: 'total', key: 'detail-total', amount: totalAmount }], detailRowHeight, DETAIL_PAGE_CAPACITY_PX);
+  const tail: DetailPrintRow[] = [
+    ...(totals.overheadAmount !== 0 ? [{ type: 'overhead' as const, key: 'detail-overhead', amount: totals.overheadAmount, rate: totals.overheadRate }] : []),
+    { type: 'total', key: 'detail-total', amount: totals.customerEstimateTotal },
+  ];
+  return paginateByHeight(groups, tail, detailRowHeight, DETAIL_PAGE_CAPACITY_PX);
 }
 
 // customerEstimateTotal is what the customer pays: the construction total (the lines) plus its 공과잡비.

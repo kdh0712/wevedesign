@@ -47,3 +47,8 @@ test('estimateTextLines counts wrapped lines from the text width at a font size'
   assert.equal(estimateTextLines('a'.repeat(40), 200, 14), 2);
   assert.equal(estimateTextLines('text', 0, 14), 1, 'a cell with no width never divides by zero');
 });
+
+test('the closing rows (공과잡비 and 총합계) stay together on one page', () => {
+  assert.deepEqual(paginateByHeight([['g', 'a', 'b', 'c']], ['o', 't'], ten, 50), [['g', 'a', 'b', 'c'], ['o', 't']]);
+  assert.deepEqual(paginateByHeight([['g', 'a', 'b']], ['o', 't'], ten, 50), [['g', 'a', 'b', 'o', 't']]);
+});

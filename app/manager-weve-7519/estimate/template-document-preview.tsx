@@ -11,6 +11,7 @@ import {
   type TemplateGroup,
   type TemplateLine,
 } from '../../lib/estimate-templates';
+import { overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 
 // The live 세부내역서 beside the template editor and the site estimate: grouped by 공사 like the estimate documents, lines
 // without a 품명 left out as there. 공사 colors match the editor's (screen only; printing stays grey). 실행 금액 보기
@@ -20,9 +21,10 @@ const won = (value: number) => Math.round(value).toLocaleString('ko-KR');
 const marginText = (customer: number, execution: number) =>
   `마진 ${won(customer - execution)}원${customer ? ` (${(((customer - execution) / customer) * 100).toFixed(1)}%)` : ''}`;
 
-type PreviewProps = { title: string; subtitle?: string; lines: TemplateLine[]; onCollapse: () => void };
+// overheadRate: the site estimate's 공과잡비 (%); templates have none.
+type PreviewProps = { title: string; subtitle?: string; lines: TemplateLine[]; overheadRate?: number; onCollapse: () => void };
 
-export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: PreviewProps) {
+export function TemplateDocumentPreview({ title, subtitle, lines, overheadRate = 0, onCollapse }: PreviewProps) {
   const [showExecution, setShowExecution] = useState(false);
   const [isLarge, setIsLarge] = useState(false);
 
@@ -44,7 +46,7 @@ export function TemplateDocumentPreview({ title, subtitle, lines, onCollapse }: 
     </button>
   );
   const body = (large: boolean) => (
-    <DocumentBody title={title} subtitle={subtitle} groups={groups} colorIndex={colorIndex} showExecution={showExecution} large={large} />
+    <DocumentBody title={title} subtitle={subtitle} groups={groups} colorIndex={colorIndex} showExecution={showExecution} large={large} overheadRate={overheadRate} />
   );
 
   return (
@@ -94,6 +96,7 @@ function DocumentBody({
   colorIndex,
   showExecution,
   large,
+  overheadRate,
 }: {
   title: string;
   subtitle?: string;
@@ -101,8 +104,12 @@ function DocumentBody({
   colorIndex: Map<string, number>;
   showExecution: boolean;
   large: boolean;
+  overheadRate: number;
 }) {
-  const customerTotal = groups.reduce((sum, group) => sum + group.customerTotal, 0);
+  const constructionTotal = groups.reduce((sum, group) => sum + group.customerTotal, 0);
+  // The site estimate's 공과잡비 is added to the 합계, as on the printed documents.
+  const overhead = overheadAmount(constructionTotal, overheadRate);
+  const customerTotal = constructionTotal + overhead;
   const executionTotal = groups.reduce((sum, group) => sum + group.executionTotal, 0);
   const cell = large ? 'border border-[#333] px-2.5 py-1.5' : 'border border-[#333] px-1.5 py-1';
   const heading = [title.trim() || '이름 없는 템플릿', subtitle?.trim(), '부가세 별도'].filter(Boolean).join(' · ');
@@ -130,6 +137,13 @@ function DocumentBody({
             {groups.map((group) => (
               <GroupRows key={group.label} group={group} color={groupColor(colorIndex.get(group.label) ?? 0)} showExecution={showExecution} cell={cell} />
             ))}
+            {overhead !== 0 && (
+              <tr className="font-semibold">
+                <td className={cell} colSpan={5}>{overheadLabel(overheadRate)}</td>
+                <td className={`${cell} text-right`}>{won(overhead)}</td>
+                {showExecution && <td className={cell}></td>}
+              </tr>
+            )}
             <tr className={`bg-[#d9d9d9] font-semibold ${large ? 'text-[15px]' : 'text-[13px]'}`}>
               <td className={cell} colSpan={5}>합계 (부가세 별도)</td>
               <td className={`${cell} text-right`}>{won(customerTotal)}</td>
