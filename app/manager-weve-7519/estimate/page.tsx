@@ -39,6 +39,10 @@ import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, sc
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
+import { normalizeReceiptId } from '../../lib/site-receipts';
+import { createReceiptApi } from '../receipt-api';
+import { fetchWithHeaders } from '../site-notes-api';
+import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -87,6 +91,8 @@ type EstimateLine = {
 type WorkLine = {
   id: string;
   sourceLineId?: string;
+  // The 현장 영수증함 receipt this line was made from (spec 2026-11-24-site-receipts).
+  receiptId?: string;
   date: string;
   space: string;
   category: string;
@@ -721,6 +727,14 @@ export default function EstimateWorkspacePage() {
     () => selectedSiteEstimates.find((estimate) => estimate._id === selectedEstimateId),
     [selectedEstimateId, selectedSiteEstimates],
   );
+  // The site's other saved versions, for the receipt panel's "초안에 있음" hint.
+  const otherVersionWorkLines = useMemo(
+    () =>
+      selectedSiteEstimates
+        .filter((estimate) => estimate._id !== selectedEstimateId)
+        .map((estimate) => ({ label: estimate.versionLabel || '다른 버전', workLinesJson: estimate.workLinesJson })),
+    [selectedEstimateId, selectedSiteEstimates],
+  );
   const selectedPurchaseOrder = useMemo(
     () => purchaseOrders.find((order) => order.id === selectedPurchaseOrderId) || purchaseOrders[0],
     [purchaseOrders, selectedPurchaseOrderId],
@@ -1109,6 +1123,10 @@ export default function EstimateWorkspacePage() {
     Authorization: `Bearer ${nextPassword}`,
     ...(nextFirebaseToken ? { 'x-firebase-token': nextFirebaseToken } : {}),
   });
+  // The receipt panel's requests always carry the current session.
+  const authHeadersRef = useRef(authHeaders);
+  authHeadersRef.current = authHeaders;
+  const receiptApi = useMemo(() => createReceiptApi(fetchWithHeaders(() => authHeadersRef.current())), []);
 
   // 401: the session expired or was rejected, so show the login form. 403: the account lacks the estimates permission.
   const handleAuthFailure = (response: Response) => {
@@ -1933,6 +1951,14 @@ export default function EstimateWorkspacePage() {
     );
     resetWorkLineDraft();
     setError('');
+  };
+
+  // [실행 항목으로] on a receipt: its date, amount (지출) and memo (비고) go into the 실행 항목 입력 row with its receiptId;
+  // staff pick the 공종 and press 항목 추가.
+  const fillWorkLineFromReceipt = (draft: ReceiptLineDraft) => {
+    setWorkLineDraft({ ...emptyWorkLine(), date: draft.date || todayKey(), expense: draft.expense, note: draft.note, receiptId: draft.receiptId });
+    setEditingWorkLineId('');
+    setStatus('영수증 내용을 실행 항목 입력 줄에 넣었어요. 공종을 고르고 항목 추가를 눌러 주세요.');
   };
 
   const deleteWorkLine = (id: string) => {
@@ -3048,6 +3074,18 @@ export default function EstimateWorkspacePage() {
               <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
             </div>
 
+            {selectedSiteId && (
+              <ReceiptPanel
+                siteId={selectedSiteId}
+                api={receiptApi}
+                openLines={workLines}
+                openSavedJson={selectedEstimate?.workLinesJson}
+                otherVersions={otherVersionWorkLines}
+                sites={sites}
+                onUseReceipt={fillWorkLineFromReceipt}
+              />
+            )}
+
             <div className="sticky top-0 z-20 mb-4 rounded-lg border border-[#cfd9df] bg-white p-3 shadow-sm">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -3123,7 +3161,14 @@ export default function EstimateWorkspacePage() {
                       .map((line) => (
                         <tr key={line.id} onDoubleClick={() => editWorkLine(line)} className="cursor-pointer border-t border-[#edf2f5] hover:bg-[#fff8e8]">
                           <td className="px-3 py-2">{line.date || '-'}</td>
-                          <td className="truncate px-3 py-2 font-semibold">{line.process || '-'}</td>
+                          <td className="truncate px-3 py-2 font-semibold">
+                            {line.receiptId && (
+                              <span className="mr-1" title="영수증에서 옮김" aria-label="영수증에서 옮김">
+                                🧾
+                              </span>
+                            )}
+                            {line.process || '-'}
+                          </td>
                           <td className="px-3 py-2 text-right">{formatMoney(line.income || 0)}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(line))}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(line.payment || 0)}</td>
@@ -7582,6 +7627,7 @@ function hydrateWorkLines(lines: Partial<WorkLine>[]) {
   return lines.map((line, index) => ({
     id: String(line.id || `work-${Date.now()}-${index}`),
     sourceLineId: String(line.sourceLineId || ''),
+    ...(normalizeReceiptId(line.receiptId) ? { receiptId: normalizeReceiptId(line.receiptId) } : {}),
     date: String(line.date || todayKey()),
     space: String(line.space || ''),
     category: String(line.category || ''),

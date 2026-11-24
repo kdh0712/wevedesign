@@ -29,3 +29,10 @@ export const uploadProgressPhoto = store.upload;
 export const signProgressPhotoUrls = store.sign;
 export const signProgressUpdatePhotos = store.signUpdates;
 export const deleteProgressPhotos = store.remove;
+
+// 현장 영수증함 photos: the same bucket, under receipts/.
+const receiptStore = createProgressPhotoStore({ bucket: progressPhotoBucket, folder: 'receipts' });
+
+export const uploadReceiptPhoto = receiptStore.upload;
+export const signReceiptPhotos = receiptStore.sign;
+export const deleteReceiptPhotos = receiptStore.remove;
