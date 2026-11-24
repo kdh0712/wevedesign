@@ -244,11 +244,11 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
                     <div className="flex flex-wrap items-end gap-3 text-xs font-semibold text-[#4d5d66]">
                       <label className="grid gap-1">
                         기준 평형
-                        <input value={baseAreaText} onChange={(event) => changeScale(() => setBaseAreaText(event.target.value))} inputMode="decimal" aria-label="기준 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+                        <input value={baseAreaText} onChange={(event) => changeScale(() => setBaseAreaText(event.target.value))} aria-label="기준 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
                       </label>
                       <label className="grid gap-1">
                         이 현장 평형
-                        <input value={siteAreaText} onChange={(event) => changeScale(() => setSiteAreaText(event.target.value))} inputMode="decimal" aria-label="이 현장 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+                        <input value={siteAreaText} onChange={(event) => changeScale(() => setSiteAreaText(event.target.value))} aria-label="이 현장 평형" className="w-24 rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
                       </label>
                       <p className="pb-1.5 text-sm font-normal text-[#171512]">
                         {Number.isFinite(ratio) ? `${siteArea} ÷ ${baseArea} = ${Math.round(ratio * 1000) / 1000}배` : '두 평형을 넣으면 비율이 나와요.'}

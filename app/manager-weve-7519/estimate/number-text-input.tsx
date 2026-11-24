@@ -32,7 +32,6 @@ export function NumberTextInput({
   return (
     <input
       type="text"
-      inputMode="decimal"
       aria-label={ariaLabel}
       data-line={dataLine}
       data-gcol={dataCol}
