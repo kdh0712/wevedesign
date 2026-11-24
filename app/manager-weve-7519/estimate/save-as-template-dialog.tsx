@@ -171,7 +171,7 @@ export function SaveAsTemplateDialog({ api, post, lines, isBase, newLineId, onCl
                   </label>
                   <label className="grid w-28 gap-1 text-xs font-semibold text-[#4d5d66]">
                     기준 평형
-                    <input value={baseArea} onChange={(event) => setBaseArea(event.target.value)} inputMode="decimal" placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
+                    <input value={baseArea} onChange={(event) => setBaseArea(event.target.value)} placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
                   </label>
                 </div>
               ) : (

@@ -384,7 +384,7 @@ export function TemplateManager({ api, post, materials, sites, spaceOptions, cat
               </label>
               <label className="grid w-28 gap-1 text-xs font-semibold text-[#4d5d66]">
                 기준 평형
-                <input value={draft.baseArea} onChange={(event) => setDraft({ ...draft, baseArea: event.target.value })} inputMode="decimal" placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
+                <input value={draft.baseArea} onChange={(event) => setDraft({ ...draft, baseArea: event.target.value })} placeholder="예: 30" aria-label="기준 평형" className={inputClass} />
               </label>
               <button type="button" onClick={addFromDb} className={primaryClass}>＋ DB에서 추가</button>
               <button type="button" onClick={() => setCopyPanel(copyPanel ? null : { siteId: '', estimates: [], estimateId: '' })} className={buttonClass}>기존 견적에서 복사</button>

@@ -4768,7 +4768,6 @@ export default function EstimateWorkspacePage() {
                           <label className="grid gap-1 text-[11px] font-bold text-[#60717d]">
                             너비
                             <input
-                              inputMode="decimal"
                               value={purchaseOrderColumnWidth(selectedPurchaseOrder, column)}
                               onChange={(event) => updatePurchaseOrderColumnWidth(selectedPurchaseOrder.id, column, event.target.value)}
                               className="min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-xs text-[#171512] outline-none focus:border-[#38a9bd]"
@@ -6287,7 +6286,6 @@ function NumberTextInput({ value, onChange, className = '' }: { value: number; o
   return (
     <input
       type="text"
-      inputMode="decimal"
       value={displayValue}
       onFocus={() => setIsEditing(true)}
       onBlur={() => {
