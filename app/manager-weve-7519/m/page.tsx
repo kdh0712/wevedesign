@@ -1,12 +1,12 @@
 'use client';
 
-import { Camera, LogOut, RefreshCw } from 'lucide-react';
+import { ClipboardPlus, LogOut, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
 import type { CustomerEstimateView } from '../../lib/mobile-estimate';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
-import { createReceiptApi } from '../receipt-api';
+import { createPhoneWorkLineApi, createReceiptApi } from '../receipt-api';
 import { createSiteNotesApi } from '../site-notes-api';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
@@ -30,7 +30,7 @@ import {
 } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { PushPanel, SERVICE_WORKER_SCOPE, SERVICE_WORKER_URL } from './push-panel';
-import { LEAVE_RECEIPT_CONFIRM, ReceiptSheet } from './receipt-sheet';
+import { LEAVE_RECEIPT_CONFIRM, WorkLineSheet } from './work-line-sheet';
 import { ReportTab } from './report-tab';
 import { ScheduleTab } from './schedule-tab';
 import { SitesTab, type SiteView } from './sites-tab';
@@ -90,7 +90,7 @@ export default function StaffAppPage() {
   const [reportBusy, setReportBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
-  // 현장 영수증함 (spec 2026-11-24-site-receipts): a sheet over every tab, opened by the 영수증 button.
+  // 실행내역서 등록 (specs 2026-11-24-site-receipts, 2026-11-24-phone-work-lines): a sheet over every tab, opened by its button.
   const [receiptOpen, setReceiptOpen] = useState(false);
   const receiptStateRef = useRef({ dirty: false, busy: false });
   const [pull, setPull] = useState(0);
@@ -369,6 +369,7 @@ export default function StaffAppPage() {
   // 할 일·현장 기록 go through authedFetch, so they get the same refresh and one retry on 401.
   const notesApi = useMemo(() => createSiteNotesApi(authedFetch), [authedFetch]);
   const receiptApi = useMemo(() => createReceiptApi(authedFetch), [authedFetch]);
+  const workLineApi = useMemo(() => createPhoneWorkLineApi(authedFetch), [authedFetch]);
   const onReceiptDirty = useCallback((dirty: boolean) => {
     receiptStateRef.current.dirty = dirty;
   }, []);
@@ -560,11 +561,18 @@ export default function StaffAppPage() {
           className="fixed right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-[#171512] px-5 text-sm font-bold text-[#f1c76a] shadow-lg active:scale-95"
           style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}
         >
-          <Camera className="h-5 w-5" aria-hidden="true" /> 영수증
+          <ClipboardPlus className="h-5 w-5" aria-hidden="true" /> 실행내역서 등록
         </button>
       )}
       {receiptOpen && overview && (
-        <ReceiptSheet sites={overview.sites} api={receiptApi} onClose={() => setReceiptOpen(false)} onDirtyChange={onReceiptDirty} onBusyChange={onReceiptBusy} />
+        <WorkLineSheet
+          sites={overview.sites}
+          receiptApi={receiptApi}
+          workLineApi={workLineApi}
+          onClose={() => setReceiptOpen(false)}
+          onDirtyChange={onReceiptDirty}
+          onBusyChange={onReceiptBusy}
+        />
       )}
 
       {tabs.length > 0 && <TabBar tabs={tabs} active={tab} onChange={changeTab} badges={{ consultations: newCount }} />}

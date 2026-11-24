@@ -65,8 +65,21 @@ test('parseReceiptAmount: blank is no amount; digits with commas, spaces or 원 
 
 test('parseReceiptAction: create rebuilds photos and checks site, photos, amount and memo', () => {
   const body = { action: 'create', siteId: 'site-1', photos: [photo(1), photo(2)], amount: '32,000', memo: '  타일 본드 2통 ' };
-  assert.deepEqual(parseReceiptAction(body), { ok: true, action: 'create', siteId: 'site-1', photos: [photo(1), photo(2)], amount: 32000, memo: '타일 본드 2통' });
-  assert.deepEqual(parseReceiptAction({ ...body, amount: '', memo: '' }), { ok: true, action: 'create', siteId: 'site-1', photos: [photo(1), photo(2)], amount: null, memo: '' });
+  const blank = { process: '', note: '', receiptDate: '' };
+  assert.deepEqual(parseReceiptAction(body), { ok: true, action: 'create', siteId: 'site-1', photos: [photo(1), photo(2)], amount: 32000, memo: '타일 본드 2통', ...blank });
+  assert.deepEqual(parseReceiptAction({ ...body, amount: '', memo: '' }), { ok: true, action: 'create', siteId: 'site-1', photos: [photo(1), photo(2)], amount: null, memo: '', ...blank });
+  // 공종 · 비고 · 날짜 (spec 2026-11-24-phone-work-lines) are optional and checked.
+  assert.deepEqual(parseReceiptAction({ ...body, process: ' 타일 ', note: ' 본드 ', receiptDate: '2026-11-20' }), {
+    ok: true,
+    action: 'create',
+    siteId: 'site-1',
+    photos: [photo(1), photo(2)],
+    amount: 32000,
+    memo: '타일 본드 2통',
+    process: '타일',
+    note: '본드',
+    receiptDate: '2026-11-20',
+  });
   // Extra fields on a photo are dropped, not stored.
   assert.deepEqual(parseReceiptAction({ ...body, photos: [{ ...photo(1), extra: 'x' }] }).photos, [photo(1)]);
 
@@ -84,17 +97,23 @@ test('parseReceiptAction: create rebuilds photos and checks site, photos, amount
   assert.match(refused({ photos: [{ ...photo(1), width: 0 }] }), /사진/);
   assert.match(refused({ amount: '3.2만' }), /금액/);
   assert.match(refused({ memo: '가'.repeat(101) }), /100자/);
+  assert.match(refused({ process: '가'.repeat(41) }), /40자/);
+  assert.match(refused({ note: '가'.repeat(101) }), /100자/);
+  assert.match(refused({ receiptDate: '2026-02-30' }), /날짜/);
   assert.equal(parseReceiptAction({ ...body, memo: '가'.repeat(100) }).ok, true);
 });
 
 test('parseReceiptAction: update, setSkipped and delete need a receipt id', () => {
-  assert.deepEqual(parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '5000', memo: '철물' }), {
+  assert.deepEqual(parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '5000', memo: '철물', process: '목공', note: '', receiptDate: '' }), {
     ok: true,
     action: 'update',
     id: RECEIPT_ID,
     siteId: 'site-2',
     amount: 5000,
     memo: '철물',
+    process: '목공',
+    note: '',
+    receiptDate: '',
   });
   assert.deepEqual(parseReceiptAction({ action: 'setSkipped', id: RECEIPT_ID, skipped: true }), { ok: true, action: 'setSkipped', id: RECEIPT_ID, skipped: true });
   assert.deepEqual(parseReceiptAction({ action: 'delete', id: RECEIPT_ID }), { ok: true, action: 'delete', id: RECEIPT_ID });
@@ -112,13 +131,15 @@ test('parseReceiptAction: update, setSkipped and delete need a receipt id', () =
 });
 
 test('newReceiptRecord and toReceiptView: the writer comes from the session and a browser never sees login ids', () => {
-  const record = newReceiptRecord({ id: RECEIPT_ID, siteId: 'site-1', photos: [photo(1)], amount: 32000, memo: '본드' }, uploader, '2026-11-24T01:00:00.000Z', '2026-11-24');
+  const record = newReceiptRecord({ id: RECEIPT_ID, siteId: 'site-1', photos: [photo(1)], amount: 32000, memo: '본드', process: '타일', note: '거실' }, uploader, '2026-11-24T01:00:00.000Z', '2026-11-24');
   assert.deepEqual(record, {
     _id: RECEIPT_ID,
     siteId: 'site-1',
     photos: [photo(1)],
     amount: 32000,
     memo: '본드',
+    process: '타일',
+    note: '거실',
     receiptDate: '2026-11-24',
     createdAt: '2026-11-24T01:00:00.000Z',
     createdBy: 'kim',
@@ -133,6 +154,8 @@ test('newReceiptRecord and toReceiptView: the writer comes from the session and 
     photos: [photo(1)],
     amount: 32000,
     memo: '본드',
+    process: '타일',
+    note: '거실',
     receiptDate: '2026-11-24',
     createdAt: '2026-11-24T01:00:00.000Z',
     createdByName: '김가영',
@@ -205,17 +228,27 @@ test('canChangeReceipt: locked receipts are frozen; the uploader edits until 정
   assert.equal(canChangeReceipt(plain(false), otherStaff, 'edit').status, 403);
 });
 
-test('receiptWorkLineDraft: date, 지출 and 비고 for the 실행 항목 입력 row', () => {
-  assert.deepEqual(receiptWorkLineDraft({ id: RECEIPT_ID, receiptDate: '2026-11-24', amount: 32000, memo: '타일 본드' }), {
+test('receiptWorkLineDraft: date, 공종, 지출 and 비고 for the 실행 항목 입력 row', () => {
+  // A receipt without 공종·비고 (saved before they existed, or skipped): 비고 falls back to the memo, then '영수증'.
+  assert.deepEqual(receiptWorkLineDraft({ id: RECEIPT_ID, receiptDate: '2026-11-24', amount: 32000, memo: '타일 본드', process: '', note: '' }), {
     date: '2026-11-24',
+    process: '',
     expense: 32000,
     note: '타일 본드',
     receiptId: RECEIPT_ID,
   });
-  assert.deepEqual(receiptWorkLineDraft({ id: RECEIPT_ID, receiptDate: '2026-11-24', amount: null, memo: '' }), {
+  assert.deepEqual(receiptWorkLineDraft({ id: RECEIPT_ID, receiptDate: '2026-11-24', amount: null, memo: '', process: '', note: '' }), {
     date: '2026-11-24',
+    process: '',
     expense: 0,
     note: '영수증',
+    receiptId: RECEIPT_ID,
+  });
+  assert.deepEqual(receiptWorkLineDraft({ id: RECEIPT_ID, receiptDate: '2026-11-20', amount: 8000, memo: '사무실 참고', process: '철물', note: '나사' }), {
+    date: '2026-11-20',
+    process: '철물',
+    expense: 8000,
+    note: '나사',
     receiptId: RECEIPT_ID,
   });
 });
@@ -273,4 +306,16 @@ test('receiptPhoneLabel: what the phone shows for one of my receipts', () => {
   assert.equal(receiptPhoneLabel({ locked: true, skipped: { at: 'x', byName: 'y' } }), '정리됨');
   assert.equal(receiptPhoneLabel({ locked: false, skipped: { at: 'x', byName: 'y' } }), '정리 안 해도 됨');
   assert.equal(receiptPhoneLabel({ locked: false, skipped: null }), '정리 전');
+});
+
+test('parseReceiptAction update: 공종 and 비고 left out by an older screen are not cleared', () => {
+  const result = parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '5000', memo: '철물' });
+  assert.equal(result.ok, true);
+  assert.equal('process' in result, false);
+  assert.equal('note' in result, false);
+  assert.equal(result.receiptDate, '');
+  // Sent empty, they are cleared on purpose.
+  const cleared = parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '', memo: '', process: '', note: '' });
+  assert.equal(cleared.process, '');
+  assert.equal(cleared.note, '');
 });

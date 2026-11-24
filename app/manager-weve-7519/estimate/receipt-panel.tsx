@@ -5,12 +5,12 @@
 // receipt counts as 정리됨 for this version once that line is there (saved: locked for everyone).
 import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RECEIPT_MEMO_MAX, parseReceiptAmount, receiptVersionStatus, receiptWorkLineDraft, type SiteReceiptView } from '../../lib/site-receipts';
+import { RECEIPT_MEMO_MAX, RECEIPT_NOTE_MAX, RECEIPT_PROCESS_MAX, parseReceiptAmount, receiptVersionStatus, receiptWorkLineDraft, type SiteReceiptView } from '../../lib/site-receipts';
 import { CommaTextInput } from '../comma-text-input';
 import type { ReceiptApi } from '../receipt-api';
 
 export type ReceiptLineDraft = ReturnType<typeof receiptWorkLineDraft>;
-type Editing = { id: string; siteId: string; amount: string; memo: string };
+type Editing = { id: string; siteId: string; amount: string; memo: string; process: string; note: string; receiptDate: string };
 
 const won = (amount: number | null) => (amount === null ? '금액 없음' : `${amount.toLocaleString('ko-KR')}원`);
 const smallButton = 'rounded-md border border-[#d5dde2] bg-white px-2.5 py-1 text-xs font-semibold text-[#273541] hover:bg-[#f7fafb] disabled:opacity-50';
@@ -131,8 +131,9 @@ export function ReceiptPanel({
           </button>
           <div className="min-w-0 flex-1 text-sm">
             <p className="truncate">
+              {receipt.process && <span className="mr-1 rounded bg-[#eef4f6] px-1.5 py-0.5 text-xs font-semibold text-[#273541]">{receipt.process}</span>}
               <span className="font-semibold text-[#171512]">{won(receipt.amount)}</span>
-              <span className="text-[#60717d]"> · {receipt.memo || '메모 없음'}</span>
+              <span className="text-[#60717d]"> · {[receipt.note, receipt.memo].filter(Boolean).join(' / ') || '메모 없음'}</span>
             </p>
             <p className="truncate text-xs text-[#60717d]">
               {receipt.receiptDate} · {receipt.createdByName || '올린 사람 없음'}
@@ -161,7 +162,17 @@ export function ReceiptPanel({
             {!receipt.locked && !isEditing && (
               <button
                 type="button"
-                onClick={() => setEditing({ id: receipt.id, siteId: receipt.siteId, amount: receipt.amount === null ? '' : String(receipt.amount), memo: receipt.memo })}
+                onClick={() =>
+                  setEditing({
+                    id: receipt.id,
+                    siteId: receipt.siteId,
+                    amount: receipt.amount === null ? '' : String(receipt.amount),
+                    memo: receipt.memo,
+                    process: receipt.process,
+                    note: receipt.note,
+                    receiptDate: receipt.receiptDate,
+                  })
+                }
                 disabled={busy}
                 className={smallButton}
               >
@@ -171,7 +182,7 @@ export function ReceiptPanel({
           </span>
         </div>
         {isEditing && editing && (
-          <div className="mt-2 grid gap-2 border-t border-[#edf2f5] pt-2 md:grid-cols-[1fr_140px_1.4fr_auto]">
+          <div className="mt-2 grid gap-2 border-t border-[#edf2f5] pt-2 md:grid-cols-[1fr_130px_110px_120px] lg:grid-cols-[1fr_130px_110px_120px_1fr_1fr_auto]">
             <select value={editing.siteId} onChange={(event) => setEditing({ ...editing, siteId: event.target.value })} aria-label="현장 옮기기" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm">
               {sites.map((site) => (
                 <option key={site._id} value={site._id}>
@@ -179,7 +190,10 @@ export function ReceiptPanel({
                 </option>
               ))}
             </select>
+            <input type="date" value={editing.receiptDate} onChange={(event) => setEditing({ ...editing, receiptDate: event.target.value })} aria-label="날짜" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+            <input value={editing.process} onChange={(event) => setEditing({ ...editing, process: event.target.value })} maxLength={RECEIPT_PROCESS_MAX} placeholder="공종" aria-label="공종" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
             <CommaTextInput value={editing.amount} onChange={(text) => setEditing({ ...editing, amount: text })} placeholder="금액" aria-label="금액" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-right text-sm" />
+            <input value={editing.note} onChange={(event) => setEditing({ ...editing, note: event.target.value })} maxLength={RECEIPT_NOTE_MAX} placeholder="비고" aria-label="비고" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
             <input value={editing.memo} onChange={(event) => setEditing({ ...editing, memo: event.target.value })} maxLength={RECEIPT_MEMO_MAX} placeholder="메모" aria-label="메모" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
             <span className="flex gap-1.5">
               <button type="button" onClick={saveEdit} disabled={busy} className="rounded-md bg-[#273541] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">

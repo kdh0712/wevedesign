@@ -41,6 +41,7 @@ import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, over
 import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
+import { appendMissingLines } from '../../lib/estimate-work-lines';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
@@ -95,6 +96,10 @@ type WorkLine = {
   sourceLineId?: string;
   // The 현장 영수증함 receipt this line was made from (spec 2026-11-24-site-receipts).
   receiptId?: string;
+  // A line added from the phone (spec 2026-11-24-phone-work-lines): who added it and when.
+  addedFrom?: 'phone';
+  addedBy?: string;
+  addedAt?: string;
   date: string;
   space: string;
   category: string;
@@ -1342,6 +1347,11 @@ export default function EstimateWorkspacePage() {
     const saveLabel = asNewVersion ? defaultVersionLabel(versionType, selectedSiteEstimates) : versionLabel;
     // The version the editor was loaded from; the server refuses the save if it changed elsewhere since.
     const baseUpdatedAt = saveId ? estimates.find((estimate) => estimate._id === saveId)?.updatedAt : undefined;
+    // The 실행 lines this editor has seen in that version: a phone line added since is kept by the server, one seen and
+    // removed here stays removed (spec 2026-11-24-phone-work-lines).
+    const seenWorkLineIds = saveId
+      ? parseJson<Array<{ id?: unknown }>>(estimates.find((estimate) => estimate._id === saveId)?.workLinesJson, []).flatMap((line) => (typeof line?.id === 'string' ? [line.id] : []))
+      : [];
     // What this save sends. It becomes the saved state, so anything typed while the request runs still counts as unsaved.
     // A new version is saved under saveLabel, which the editor takes on after the save, so the snapshot uses it too
     // (parsing and re-serializing keeps the key order of editorSnapshot).
@@ -1362,6 +1372,7 @@ export default function EstimateWorkspacePage() {
           action: 'saveEstimate',
           id: saveId,
           baseUpdatedAt,
+          seenWorkLineIds,
           siteId: selectedSite._id,
           siteTitle: selectedSite.title,
           customerName: selectedSite.customerName,
@@ -1398,9 +1409,21 @@ export default function EstimateWorkspacePage() {
       setIsManualNewEstimateVersion(false);
       setSelectedEstimateId(savedRecord._id);
       if (asNewVersion) setVersionLabel(saveLabel);
-      setSavedSnapshot(sentSnapshot);
+      // Phone lines the server kept (added while this page was open) join the editor and its saved state.
+      const sentIds = new Set(workLines.map((line) => line.id));
+      const phoneLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(savedRecord.workLinesJson, [])).filter((line) => line.addedFrom === 'phone' && !sentIds.has(line.id));
+      if (phoneLines.length > 0) {
+        // Onto the lines as they are now, so 실행 edits typed while the save ran stay; the saved state is what was sent
+        // plus the phone lines.
+        setWorkLines((current) => appendMissingLines(current, phoneLines));
+        setSavedSnapshot({ ...sentSnapshot, editor: JSON.stringify({ ...JSON.parse(sentSnapshot.editor), workLines: [...workLines, ...phoneLines] }) });
+      } else {
+        setSavedSnapshot(sentSnapshot);
+      }
       setSaveConflict(null);
-      setStatus(`${saveLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.`);
+      setStatus(
+        `${saveLabel || estimateVersionLabel(versionType)} 버전이 저장되었습니다.${phoneLines.length > 0 ? ` 폰에서 들어온 실행 항목 ${phoneLines.length}건도 함께 있어요.` : ''}`,
+      );
       return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '견적 저장 중 오류가 발생했습니다.');
@@ -1958,9 +1981,13 @@ export default function EstimateWorkspacePage() {
   // [실행 항목으로] on a receipt: its date, amount (지출) and memo (비고) go into the 실행 항목 입력 row with its receiptId;
   // staff pick the 공종 and press 항목 추가.
   const fillWorkLineFromReceipt = (draft: ReceiptLineDraft) => {
-    setWorkLineDraft({ ...emptyWorkLine(), date: draft.date || todayKey(), expense: draft.expense, note: draft.note, receiptId: draft.receiptId });
+    setWorkLineDraft({ ...emptyWorkLine(), date: draft.date || todayKey(), process: draft.process, expense: draft.expense, note: draft.note, receiptId: draft.receiptId });
     setEditingWorkLineId('');
-    setStatus('영수증 내용을 실행 항목 입력 줄에 넣었어요. 공종을 고르고 항목 추가를 눌러 주세요.');
+    setStatus(
+      draft.process
+        ? '영수증 내용을 실행 항목 입력 줄에 넣었어요. 확인하고 항목 추가를 눌러 주세요.'
+        : '영수증 내용을 실행 항목 입력 줄에 넣었어요. 공종을 고르고 항목 추가를 눌러 주세요.',
+    );
   };
 
   const deleteWorkLine = (id: string) => {
@@ -3168,6 +3195,11 @@ export default function EstimateWorkspacePage() {
                             {line.receiptId && (
                               <span className="mr-1" title="영수증에서 옮김" aria-label="영수증에서 옮김">
                                 🧾
+                              </span>
+                            )}
+                            {line.addedFrom === 'phone' && (
+                              <span className="mr-1 text-xs font-normal text-[#60717d]" title={`폰에서 ${line.addedBy || '직원'}님이 등록`}>
+                                📱{line.addedBy}
                               </span>
                             )}
                             {line.process || '-'}
@@ -7633,6 +7665,7 @@ function hydrateWorkLines(lines: Partial<WorkLine>[]) {
     id: String(line.id || `work-${Date.now()}-${index}`),
     sourceLineId: String(line.sourceLineId || ''),
     ...(normalizeReceiptId(line.receiptId) ? { receiptId: normalizeReceiptId(line.receiptId) } : {}),
+    ...(line.addedFrom === 'phone' ? { addedFrom: 'phone' as const, addedBy: String(line.addedBy || ''), addedAt: String(line.addedAt || '') } : {}),
     date: String(line.date || todayKey()),
     space: String(line.space || ''),
     category: String(line.category || ''),
