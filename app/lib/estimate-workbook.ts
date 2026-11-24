@@ -24,6 +24,9 @@ export type EstimateWorkbookInput = {
   dateText: string;
   versionLabel: string;
   rows: readonly WorkbookDetailRow[];
+  // Priced lines with no 품명: the documents leave them out but the total counts them (the editor warns about them). The
+  // workbook gives them a row of their own so its totals, once Excel recalculates, match the printed ones.
+  unnamedAmount?: number;
 };
 
 const MONEY_FORMAT = '#,##0';
@@ -70,11 +73,24 @@ export function estimateWorkbook(input: EstimateWorkbookInput): { fileName: stri
   const groupTotals: Array<{ label: string; row: number; amount: number }> = [];
   let groupLabel = '';
   let groupLineRows: number[] = [];
+  // The lines of the 품명 being read (a 품명 소계 sums only them): a new 품명 starts a new run.
   let nameLineRows: number[] = [];
+  let lineName: string | null = null;
+  let unnamedRow = 0;
   let overhead: { row: number; amount: number; rate: number } | null = null;
   let totalRow = 0;
   let totalAmount = 0;
-  const constructionSum = () => (groupTotals.length > 0 ? `SUM(${groupTotals.map((group) => `F${group.row}`).join(',')})` : '0');
+  const constructionCells = () => [...groupTotals.map((group) => group.row), ...(unnamedRow ? [unnamedRow] : [])];
+  const constructionSum = () => {
+    const cells = constructionCells();
+    return cells.length > 0 ? `SUM(${cells.map((row) => `F${row}`).join(',')})` : '0';
+  };
+  // The 품명 없는 항목 row, once, after the last 공사 and before the closing rows.
+  const addUnnamedRow = () => {
+    if (unnamedRow || !input.unnamedAmount) return;
+    unnamedRow = detailRows.length + 1;
+    detailRows.push(['품명 없는 항목', '', '', '', '', money(input.unnamedAmount), '']);
+  };
 
   for (const row of input.rows) {
     // The 1-based sheet row this row lands on.
@@ -83,9 +99,12 @@ export function estimateWorkbook(input: EstimateWorkbookInput): { fileName: stri
       groupLabel = `${row.groupIndex + 1}. ${row.category}`;
       groupLineRows = [];
       nameLineRows = [];
+      lineName = null;
       detailRows.push([groupLabel]);
     } else if (row.type === 'line') {
       const { line } = row;
+      if (line.name.trim() !== lineName) nameLineRows = [];
+      lineName = line.name.trim();
       groupLineRows.push(rowNumber);
       nameLineRows.push(rowNumber);
       detailRows.push([
@@ -98,20 +117,24 @@ export function estimateWorkbook(input: EstimateWorkbookInput): { fileName: stri
         line.note || '',
       ]);
     } else if (row.type === 'nameSubtotal') {
-      detailRows.push(['소계', '', '', '', '', money(row.amount, `SUM(${amountRanges(nameLineRows)})`), '']);
+      detailRows.push(['소계', '', '', '', '', money(row.amount, nameLineRows.length > 0 ? `SUM(${amountRanges(nameLineRows)})` : undefined), '']);
       nameLineRows = [];
+      lineName = null;
     } else if (row.type === 'subtotal') {
       const formula = groupLineRows.length > 0 ? `SUM(${amountRanges(groupLineRows)})` : undefined;
       detailRows.push([row.hasNameSubtotals ? '합계' : '소계', '', '', '', '', money(row.amount, formula), '']);
       groupTotals.push({ label: groupLabel, row: rowNumber, amount: row.amount });
       nameLineRows = [];
+      lineName = null;
     } else if (row.type === 'overhead') {
+      addUnnamedRow();
+      overhead = { row: detailRows.length + 1, amount: row.amount, rate: row.rate };
       detailRows.push([overheadLabel(row.rate), '', '', '', '', money(row.amount, `ROUND(ROUND(${constructionSum()},0)*${row.rate}/100,0)`), '']);
-      overhead = { row: rowNumber, amount: row.amount, rate: row.rate };
     } else {
+      addUnnamedRow();
+      totalRow = detailRows.length + 1;
       const formula = `ROUND(${constructionSum()},0)${overhead ? `+F${overhead.row}` : ''}`;
       detailRows.push(['총합계', '', '', '', '', money(row.amount, formula), '']);
-      totalRow = rowNumber;
       totalAmount = row.amount;
     }
   }
@@ -127,6 +150,7 @@ export function estimateWorkbook(input: EstimateWorkbookInput): { fileName: stri
     [],
     SUMMARY_HEADER,
     ...groupTotals.map((group): WorkbookCell[] => [group.label, '', 1, '식', money(group.amount, fromDetail(group.row)), '']),
+    ...(unnamedRow ? [['품명 없는 항목', '', 1, '식', money(input.unnamedAmount || 0, fromDetail(unnamedRow)), ''] as WorkbookCell[]] : []),
     ...(overhead ? [[overheadLabel(overhead.rate), '', 1, '식', money(overhead.amount, fromDetail(overhead.row)), ''] as WorkbookCell[]] : []),
   ];
   summaryRows.push(['합계 (부가세 별도)', '', '', '', totalCell(), '']);

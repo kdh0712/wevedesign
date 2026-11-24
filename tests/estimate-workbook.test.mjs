@@ -102,3 +102,43 @@ test('estimateWorkbookFileName keeps the name safe to save on Windows and phones
   assert.equal(estimateWorkbookFileName('  ', '2차안'), '견적서_2차안.xlsx');
   assert.equal(estimateWorkbookFileName('가'.repeat(100), '').length <= 90, true);
 });
+
+test('a 품명 소계 sums only its own 품명, not a one-line 품명 before it in the same 공사', () => {
+  const book2 = estimateWorkbook({
+    siteTitle: '현장',
+    customerName: '',
+    dateText: '',
+    versionLabel: '',
+    rows: [
+      { type: 'group', groupIndex: 0, category: '욕실 공사' },
+      line('철거', '', '식', 1, 100),
+      line('거실 욕실', '벽', '식', 1, 1000),
+      line('거실 욕실', '바닥', '식', 1, 2000),
+      { type: 'nameSubtotal', amount: 3000 },
+      { type: 'subtotal', amount: 3100, hasNameSubtotals: true },
+      { type: 'total', amount: 3100 },
+    ],
+  });
+  const sheet = book2.sheets[1];
+  // Row 9 sums the two 거실 욕실 lines (rows 7-8); the old code took 철거 (row 6) in as well.
+  assert.deepEqual(sheet.rows[8][5], { t: 'n', v: 3000, z: '#,##0', f: 'SUM(F7:F8)' });
+  assert.deepEqual(sheet.rows[9][5], { t: 'n', v: 3100, z: '#,##0', f: 'SUM(F6:F8)' });
+});
+
+test('priced lines with no 품명 (left off the documents, counted in the total) get a row of their own, so Excel totals match the printed ones', () => {
+  const book3 = estimateWorkbook({
+    siteTitle: '현장',
+    customerName: '',
+    dateText: '',
+    versionLabel: '',
+    unnamedAmount: 50000,
+    rows: [...rows.slice(0, 4), { type: 'overhead', amount: 45000, rate: 3 }, { type: 'total', amount: 1545000 }],
+  });
+  const [sheetSummary, sheetDetail] = book3.sheets;
+  assert.deepEqual(sheetDetail.rows[8], ['품명 없는 항목', '', '', '', '', { t: 'n', v: 50000, z: '#,##0' }, '']);
+  assert.deepEqual(sheetDetail.rows[9][5], { t: 'n', v: 45000, z: '#,##0', f: 'ROUND(ROUND(SUM(F8,F9),0)*3/100,0)' });
+  assert.deepEqual(sheetDetail.rows[10][5], { t: 'n', v: 1545000, z: '#,##0', f: 'ROUND(SUM(F8,F9),0)+F10' });
+  assert.deepEqual(sheetSummary.rows[9].slice(0, 5), ['품명 없는 항목', '', 1, '식', { t: 'n', v: 50000, z: '#,##0', f: "'세부내역서'!F9" }]);
+  // Without any, no such row.
+  assert.equal(detail.rows.some((cells) => cells[0] === '품명 없는 항목'), false);
+});

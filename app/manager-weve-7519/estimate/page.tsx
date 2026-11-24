@@ -2035,6 +2035,7 @@ export default function EstimateWorkspacePage() {
         dateText: new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date()),
         versionLabel,
         rows: [...detail.groups.flat(), ...detail.tail],
+        unnamedAmount: lines.filter((line) => !line.name).reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0),
       });
       const book = XLSX.utils.book_new();
       workbook.sheets.forEach((sheet) => {
@@ -6722,8 +6723,11 @@ function useDetailPrintPages(
 }
 
 // Every 세부내역서 row in one table as wide as the printed one, off screen (and never printed), measured after each change
-// and again once web fonts have loaded. A 품명 shared by several lines is merged as on the page, so its rows measure as
-// they print (a page break inside such a run may differ slightly; the page keeps 6mm spare for that).
+// and again once web fonts have loaded. Each line shows its own 품명 here, unmerged: the page merges a 품명 shared by
+// several lines only within a page, so a run split by a page break shows the name again on each side, and a wrapped name
+// then needs its full height on a single row. Measured unmerged, a row is never shorter than it can print (a merged run
+// prints the same or shorter). The table is 1% narrower than on paper, so text that only just fits on screen is counted
+// as wrapping in case print lays it out a hair wider.
 function DetailRowMeasurer({
   rows,
   onMeasure,
@@ -6754,7 +6758,6 @@ function DetailRowMeasurer({
     };
   }, [allRows, host, onMeasure]);
   if (!host) return null;
-  const nameSpans = detailNameRowSpans(allRows);
   return createPortal(
     <div
       aria-hidden
@@ -6765,7 +6768,7 @@ function DetailRowMeasurer({
         top: 0,
         visibility: 'hidden',
         pointerEvents: 'none',
-        width: `calc(${DETAIL_PAGE_WIDTH_MM}mm - ${DETAIL_LAYOUT.paddingX * 2}px)`,
+        width: `calc((${DETAIL_PAGE_WIDTH_MM}mm - ${DETAIL_LAYOUT.paddingX * 2}px) * 0.99)`,
       }}
     >
       <table className="print-detail-table w-full table-fixed border-collapse text-sm text-[#111]">
@@ -6774,7 +6777,7 @@ function DetailRowMeasurer({
             <col key={index} style={{ width: `${percent}%` }} />
           ))}
         </colgroup>
-        <tbody ref={bodyRef}>{allRows.map((row, index) => renderDetailPrintRow(row, nameSpans[index]))}</tbody>
+        <tbody ref={bodyRef}>{allRows.map((row) => renderDetailPrintRow(row, 1))}</tbody>
       </table>
     </div>,
     host,
