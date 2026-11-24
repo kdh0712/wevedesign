@@ -1,6 +1,7 @@
 // 일정 tab (spec docs/superpowers/specs/2026-10-21-staff-app-notes-schedule-estimate-design.md §3): every listed site's
 // schedule tasks, one week (Monday to Sunday) by day. Built from the overview the phone already has; no extra reads.
 import type { MobileSite } from './mobile-overview.ts';
+import { monthWeekStarts } from './schedule-calendar.ts';
 
 export type ScheduleEntry = {
   siteId: string;
@@ -90,4 +91,31 @@ export function buildWeekSchedule(sites: MobileSite[], weekStart: string, today:
       entries: entries.map(({ startMs: _startMs, ...entry }) => entry),
     };
   });
+}
+
+// The month view of 일정 (the phone's 달력, the default; 목록 is the week list above): the Monday-to-Sunday weeks that
+// cover the month, each day with the same entries as the week list. A day shows a bar per site with work that day, in
+// the overview's site order (so a site keeps its place, and its colour, from day to day), at most maxBars, the rest
+// counted in more. Days from the months around it are shown (inMonth false) with their own work.
+export type MonthDay = ScheduleDay & { inMonth: boolean; bars: string[]; more: number };
+
+export function buildMonthSchedule(sites: MobileSite[], month: string, today: string, maxBars = 3): MonthDay[][] {
+  const order = new Map(sites.map((site, index) => [site.id, index]));
+  return monthWeekStarts(month).map((weekStart) =>
+    buildWeekSchedule(sites, weekStart, today).map((day) => {
+      const siteIds = [...new Set(day.entries.map((entry) => entry.siteId))].sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+      return { ...day, inMonth: day.date.startsWith(`${month}-`), bars: siteIds.slice(0, maxBars), more: Math.max(0, siteIds.length - maxBars) };
+    }),
+  );
+}
+
+// "2026-11" from "2026-11-24" ('' for anything else).
+export function monthOf(date: string): string {
+  return ISO_DATE.test(date) ? date.slice(0, 7) : '';
+}
+
+// "2026년 11월".
+export function monthLabel(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return year && monthNumber ? `${year}년 ${monthNumber}월` : '';
 }

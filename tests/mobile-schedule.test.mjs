@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, buildWeekSchedule, mondayOf, weekLabel } from '../app/lib/mobile-schedule.ts';
+import { addDays, buildMonthSchedule, buildWeekSchedule, monthLabel, monthOf, mondayOf, weekLabel } from '../app/lib/mobile-schedule.ts';
 
 const task = (id, name, startDate, endDate, extra = {}) => ({ id, name, state: 'upcoming', percent: 0, startDate, endDate, ...extra });
 const site = (id, title, tasks) => ({ id, title, address: '', status: '시공중', customerName: '', schedule: { percent: 0, startDate: '', endDate: '', tasks } });
@@ -77,4 +77,51 @@ test('today is marked and weekdays are Korean', () => {
 test('sites without a schedule are skipped', () => {
   const noSchedule = { ...site('s1', 'A', []), schedule: null };
   assert.equal(buildWeekSchedule([noSchedule], '2026-10-19', '2026-10-21').flatMap((item) => item.entries).length, 0);
+});
+
+// 일정 달력 (the phone's month view): the same entries as the week list, laid out as a month of Monday-first weeks.
+
+test('month calendar: Monday-first weeks covering the whole month, the days around it marked', () => {
+  const weeks = buildMonthSchedule([], '2026-11', '2026-11-24');
+  // 1 November 2026 is a Sunday and the 30th a Monday: six weeks, 26 October to 6 December.
+  assert.equal(weeks.length, 6);
+  assert.ok(weeks.every((week) => week.length === 7));
+  assert.deepEqual([weeks[0][0].date, weeks[0][0].inMonth, weeks[0][0].weekday], ['2026-10-26', false, '월']);
+  assert.deepEqual([weeks[0][6].date, weeks[0][6].inMonth], ['2026-11-01', true]);
+  assert.deepEqual([weeks[5][0].date, weeks[5][0].inMonth], ['2026-11-30', true]);
+  assert.deepEqual([weeks[5][6].date, weeks[5][6].inMonth], ['2026-12-06', false]);
+  assert.deepEqual(weeks.flat().filter((item) => item.isToday).map((item) => item.date), ['2026-11-24']);
+});
+
+test('month calendar: one bar per site a day, in the overview order, three at most and the rest as +N', () => {
+  const sites = [
+    site('a', '가 현장', [task('t1', '목공', '2026-11-09', '2026-11-11'), task('t2', '전기', '2026-11-10', '2026-11-10')]),
+    site('b', '나 현장', [task('t3', '타일', '2026-11-10', '2026-11-10')]),
+    site('c', '다 현장', [task('t4', '도장', '2026-11-10', '2026-11-12', { state: 'delayed' })]),
+    site('d', '라 현장', [task('t5', '도배', '2026-11-10', '2026-11-10')]),
+    site('e', '마 현장', [task('t6', '청소', '2026-11-10', '2026-11-10')]),
+  ];
+  const days = buildMonthSchedule(sites, '2026-11', '2026-11-24').flat();
+  const tenth = day(days, '2026-11-10');
+  assert.deepEqual(tenth.bars, ['a', 'b', 'c']);
+  assert.equal(tenth.more, 2);
+  // The day's list keeps every task, as the week list orders them (delays first).
+  assert.equal(tenth.entries.length, 6);
+  assert.equal(tenth.entries[0].taskId, 't4');
+  assert.deepEqual([day(days, '2026-11-11').bars, day(days, '2026-11-11').more], [['a', 'c'], 0]);
+  assert.deepEqual(day(days, '2026-11-13').bars, []);
+});
+
+test('month calendar: tasks reach into the days shown from the months around it', () => {
+  const sites = [site('a', '가 현장', [task('t1', '철거', '2026-10-27', '2026-11-02')])];
+  const days = buildMonthSchedule(sites, '2026-11', '2026-11-24').flat();
+  assert.deepEqual(day(days, '2026-10-27').bars, ['a']);
+  assert.deepEqual(day(days, '2026-11-02').bars, ['a']);
+});
+
+test('month keys and labels', () => {
+  assert.equal(monthOf('2026-11-24'), '2026-11');
+  assert.equal(monthOf('bad'), '');
+  assert.equal(monthLabel('2026-11'), '2026년 11월');
+  assert.equal(monthLabel('2027-01'), '2027년 1월');
 });
