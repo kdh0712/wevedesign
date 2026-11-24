@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { estimateTextLines, paginateByHeight } from '../app/lib/estimate-detail-pages.ts';
+import { estimateTextLines, measuredHeightOr, paginateByHeight, sameRowHeights } from '../app/lib/estimate-detail-pages.ts';
 
 const ten = () => 10;
 
@@ -69,4 +69,33 @@ test('summaryLayout: blank rows fill to 13, density tightens past 13 and 15 rows
   assert.deepEqual(summaryLayout(16, false), { blankRows: 0, density: 'tightest' });
   assert.deepEqual(summaryLayout(17, false), { blankRows: 0, density: 'tightest' });
   assert.deepEqual(summaryLayout(0, false), { blankRows: 13, density: 'normal' });
+});
+
+test('measuredHeightOr: measured print heights replace the estimate, so a 공사 fills the gap the estimate left', () => {
+  // The first 공사 has 13 lines; the estimate thinks four of them wrap (49px), on paper each is one line (29px).
+  const row = (key, estimate) => ({ key, estimate });
+  const first = [row('g1', 29), ...Array.from({ length: 13 }, (_, i) => row(`l${i}`, i < 4 ? 49 : 29)), row('s1', 29)];
+  const painting = [row('g2', 29), row('p1', 29), row('p2', 29), row('s2', 29)];
+  const measured = new Map([...first, ...painting].map((r) => [r.key, 29]));
+  const estimate = (r) => r.estimate;
+  assert.equal(paginateByHeight([first, painting], [], estimate, 570).length, 2);
+  const pages = paginateByHeight([first, painting], [], measuredHeightOr(measured, estimate), 570);
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages[0].slice(-4).map((r) => r.key), ['g2', 'p1', 'p2', 's2']);
+});
+
+test('measuredHeightOr falls back to the estimate for rows not measured (yet) or measured as nothing', () => {
+  const heightOf = measuredHeightOr(new Map([['a', 31.5], ['zero', 0], ['nan', Number.NaN]]), () => 29);
+  assert.equal(heightOf({ key: 'a' }), 31.5);
+  assert.equal(heightOf({ key: 'new' }), 29);
+  assert.equal(heightOf({ key: 'zero' }), 29);
+  assert.equal(heightOf({ key: 'nan' }), 29);
+});
+
+test('sameRowHeights: a new measurement only counts when a row changed by half a pixel or more', () => {
+  const a = new Map([['x', 29], ['y', 49]]);
+  assert.equal(sameRowHeights(a, new Map([['x', 29.2], ['y', 49]])), true);
+  assert.equal(sameRowHeights(a, new Map([['x', 29], ['y', 69]])), false);
+  assert.equal(sameRowHeights(a, new Map([['x', 29]])), false);
+  assert.equal(sameRowHeights(a, new Map([['x', 29], ['z', 49]])), false);
 });
