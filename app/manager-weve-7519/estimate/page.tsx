@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, ClipboardList, Copy, Download, FileSpreadsheet, GripVertical, Loader2, Plus, Printer, Save, Search, Trash2, UploadCloud, X } from 'lucide-react';
 import { hasAnyPermission } from '../../lib/manager-permissions';
 import { clearStoredSession, readStoredSession, saveStoredSession, type StoredManagerUser } from '../../lib/manager-session-storage';
 import { ManagerLoadingScreen } from '@/app/lib/manager-loading-screen';
@@ -36,7 +37,19 @@ import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
-import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight, summaryLayout, type SummaryDensity } from '../../lib/estimate-detail-pages';
+import {
+  DETAIL_PAGE_HEIGHT_MM,
+  DETAIL_PAGE_WIDTH_MM,
+  PX_PER_MM,
+  estimateTextLines,
+  measuredHeightOr,
+  paginateByHeight,
+  sameRowHeights,
+  summaryLayout,
+  type SummaryDensity,
+} from '../../lib/estimate-detail-pages';
+import { estimateWorkbook } from '../../lib/estimate-workbook';
+import { COLLAPSED_CATEGORY_CHIPS, visibleCategoryChips } from '../../lib/category-chips';
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
@@ -702,6 +715,9 @@ export default function EstimateWorkspacePage() {
   const [lineSpaceFilter, setLineSpaceFilter] = useState('');
   const [isDbPanelOpen, setIsDbPanelOpen] = useState(true);
   const [isEstimatePreviewOpen, setIsEstimatePreviewOpen] = useState(true);
+  const [isDbCategoryChipsOpen, setIsDbCategoryChipsOpen] = useState(readDbCategoryChipsOpen);
+  // The 세부내역서 page count the preview reports once it has split the pages (by measured row heights).
+  const [detailPageCount, setDetailPageCount] = useState(1);
   const [pendingDbSaveOpen, setPendingDbSaveOpen] = useState(false);
   // The line the 'DB에 저장' panel was opened for; the panel follows its later edits and closes if it is deleted.
   const [dbSaveLineId, setDbSaveLineId] = useState('');
@@ -766,7 +782,6 @@ export default function EstimateWorkspacePage() {
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
-  const detailPreviewPages = useMemo(() => buildEstimateDetailPrintPages(lines, totals), [lines, totals]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
     ? purchaseOrders.find((order) => order.id === documentView.slice('purchase:'.length)) || null
     : null;
@@ -828,6 +843,10 @@ export default function EstimateWorkspacePage() {
   }, [estimateItems, estimateMaterials]);
   const materialCategories = useMemo(() => uniqueInOrder(orderedMaterials.map((item) => item.category || '미분류')), [orderedMaterials]);
   const dbLibraryCategories = dbLibrary === 'estimate' ? estimateCategories : materialCategories;
+  const dbCategoryChips = useMemo(
+    () => visibleCategoryChips(dbLibraryCategories, lineDbCategory, isDbCategoryChipsOpen),
+    [dbLibraryCategories, isDbCategoryChipsOpen, lineDbCategory],
+  );
   const materialProcesses = useMemo(() => Array.from(new Set(materials.map((item) => item.process || item.category || '').filter(Boolean))).sort(), [materials]);
   const materialProcessNames = useMemo(() => uniqueInOrder(orderedMaterials.map(materialProcessOf)), [orderedMaterials]);
   const materialNames = useMemo(() => Array.from(new Set(materials.map((item) => item.name || '').filter(Boolean))).sort(), [materials]);
@@ -889,8 +908,8 @@ export default function EstimateWorkspacePage() {
   }, [legacyWorkSearch, legacyWorkSites]);
 
   useEffect(() => {
-    setDocumentDetailPageIndex((current) => Math.min(current, Math.max(0, detailPreviewPages.length - 1)));
-  }, [detailPreviewPages.length]);
+    setDocumentDetailPageIndex((current) => Math.min(current, Math.max(0, detailPageCount - 1)));
+  }, [detailPageCount]);
 
   // Unsaved-change tracking: the load effects bump snapshotRequest after filling the editor from a saved version,
   // and the snapshot taken on that render becomes the "saved" state to compare against.
@@ -956,11 +975,14 @@ export default function EstimateWorkspacePage() {
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(ESTIMATE_PANELS_STORAGE_KEY, JSON.stringify({ db: isDbPanelOpen, preview: isEstimatePreviewOpen }));
+      window.localStorage.setItem(
+        ESTIMATE_PANELS_STORAGE_KEY,
+        JSON.stringify({ db: isDbPanelOpen, preview: isEstimatePreviewOpen, dbCategories: isDbCategoryChipsOpen }),
+      );
     } catch {
       // Not remembered this time.
     }
-  }, [isDbPanelOpen, isEstimatePreviewOpen]);
+  }, [isDbCategoryChipsOpen, isDbPanelOpen, isEstimatePreviewOpen]);
 
   useEffect(() => {
     if (lineSpaceFilter && !lineSpaceOptions.includes(lineSpaceFilter)) setLineSpaceFilter('');
@@ -2030,6 +2052,32 @@ export default function EstimateWorkspacePage() {
     XLSX.writeFile(book, `weve-work-ledger-${todayKey()}.xlsx`);
   };
 
+  // 서류 출력 → 엑셀로 받기: the 갑지 and 세부내역서 of the estimate on screen (unsaved edits included, as when printing).
+  const exportEstimateWorkbook = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const detail = buildEstimateDetailRows(lines, totals);
+      const workbook = estimateWorkbook({
+        siteTitle: selectedSite?.title || '',
+        customerName: selectedSite?.customerName || '',
+        dateText: new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date()),
+        versionLabel,
+        rows: [...detail.groups.flat(), ...detail.tail],
+        unnamedAmount: lines.filter((line) => !line.name).reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0),
+      });
+      const book = XLSX.utils.book_new();
+      workbook.sheets.forEach((sheet) => {
+        const worksheet = XLSX.utils.aoa_to_sheet(sheet.rows);
+        worksheet['!cols'] = sheet.cols.map((wch) => ({ wch }));
+        worksheet['!merges'] = sheet.merges.map((range) => XLSX.utils.decode_range(range));
+        XLSX.utils.book_append_sheet(book, worksheet, sheet.name);
+      });
+      XLSX.writeFile(book, workbook.fileName);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '견적서 엑셀을 만들지 못했습니다.');
+    }
+  };
+
   const addPurchaseOrder = () => {
     const nextOrder = emptyPurchaseOrder(`발주서 ${purchaseOrders.length + 1}`);
     setPurchaseOrders((current) => [...current, nextOrder]);
@@ -2875,7 +2923,7 @@ export default function EstimateWorkspacePage() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {dbLibraryCategories.map((category) => (
+                {dbCategoryChips.shown.map((category) => (
                   <button
                     key={category}
                     type="button"
@@ -2885,6 +2933,25 @@ export default function EstimateWorkspacePage() {
                     {category}
                   </button>
                 ))}
+                {dbCategoryChips.hiddenCount > 0 ? (
+                  <button
+                    type="button"
+                    aria-expanded={false}
+                    onClick={() => setIsDbCategoryChipsOpen(true)}
+                    className="rounded-full border border-dashed border-[#9fb4bf] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#267d8c]"
+                  >
+                    카테고리 펼치기 +{dbCategoryChips.hiddenCount}
+                  </button>
+                ) : isDbCategoryChipsOpen && dbLibraryCategories.length > COLLAPSED_CATEGORY_CHIPS + 1 ? (
+                  <button
+                    type="button"
+                    aria-expanded
+                    onClick={() => setIsDbCategoryChipsOpen(false)}
+                    className="rounded-full border border-dashed border-[#9fb4bf] bg-[#f7fafb] px-3 py-1 text-xs font-semibold text-[#267d8c]"
+                  >
+                    접기
+                  </button>
+                ) : null}
               </div>
 
               <div className="mt-4 max-h-[60vh] min-h-[360px] overflow-y-auto rounded-lg border border-[#edf2f5] bg-white p-2 pr-1">
@@ -4313,6 +4380,16 @@ export default function EstimateWorkspacePage() {
                 <FileSpreadsheet size={17} />
                 여러 서류 선택 출력
               </button>
+              <button
+                type="button"
+                onClick={() => void exportEstimateWorkbook()}
+                title="갑지와 세부내역서를 엑셀 한 파일로 받아요. 금액은 수식으로 들어가요."
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-md border border-[#d5dde2] bg-white px-5 py-3 font-semibold text-[#4d5d66] hover:border-[#38a9bd]"
+              >
+                <Download size={17} />
+                엑셀로 받기
+              </button>
+              <p className="mt-1.5 text-center text-xs text-[#8a979f]">갑지·세부내역서, 금액은 수식으로</p>
             </div>
             {!isDocumentBatchOpen && (
               <div className="min-w-0">
@@ -4322,9 +4399,17 @@ export default function EstimateWorkspacePage() {
                       <PurchaseOrderPrintPage order={documentPurchaseOrder} site={selectedSite} />
                     </article>
                   ) : (
-                    <LandscapeEstimateDocumentPreview site={selectedSite} lines={lines} totals={totals} versionLabel={versionLabel} view={estimateDocumentView} detailPreviewPageIndex={documentDetailPageIndex} />
+                    <LandscapeEstimateDocumentPreview
+                      site={selectedSite}
+                      lines={lines}
+                      totals={totals}
+                      versionLabel={versionLabel}
+                      view={estimateDocumentView}
+                      detailPreviewPageIndex={documentDetailPageIndex}
+                      onDetailPageCount={setDetailPageCount}
+                    />
                   )}
-                  {documentView === 'detail' && detailPreviewPages.length > 1 && (
+                  {documentView === 'detail' && detailPageCount > 1 && (
                     <div className="no-print pointer-events-none absolute inset-0 flex items-center justify-between px-4">
                       <button
                         type="button"
@@ -4337,8 +4422,8 @@ export default function EstimateWorkspacePage() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setDocumentDetailPageIndex((current) => Math.min(detailPreviewPages.length - 1, current + 1))}
-                        disabled={documentDetailPageIndex >= detailPreviewPages.length - 1}
+                        onClick={() => setDocumentDetailPageIndex((current) => Math.min(detailPageCount - 1, current + 1))}
+                        disabled={documentDetailPageIndex >= detailPageCount - 1}
                         aria-label="다음 세부내역서 페이지"
                         className="pointer-events-auto inline-flex h-12 w-12 items-center justify-center rounded-full border border-[#d5dde2] bg-white/95 text-[#171512] shadow-lg transition hover:border-[#38a9bd] hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                       >
@@ -6414,6 +6499,7 @@ function LandscapeEstimateDocumentPreview({
   view,
   detailPreviewPageIndex = 0,
   unwrap = false,
+  onDetailPageCount,
 }: {
   site?: Site;
   lines: EstimateLine[];
@@ -6422,13 +6508,17 @@ function LandscapeEstimateDocumentPreview({
   view: 'cover' | 'summary' | 'detail';
   detailPreviewPageIndex?: number;
   unwrap?: boolean;
+  onDetailPageCount?: (count: number) => void;
 }) {
+  const { pages: detailPages, measurer: detailMeasurer } = useDetailPrintPages(lines, totals, view === 'detail');
+  useEffect(() => {
+    if (view === 'detail') onDetailPageCount?.(detailPages.length);
+  }, [detailPages.length, onDetailPageCount, view]);
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
   // The 갑지 keeps to one A4 page: blank rows fill to 13 and more 공정 draw tighter rows (summaryLayout).
   const summary = summaryLayout(grouped.length, totals.overheadAmount !== 0);
   const summaryCell = SUMMARY_CELL[summary.density];
-  const detailPages = buildEstimateDetailPrintPages(lines, totals);
   const safeDetailPreviewPageIndex = Math.min(Math.max(0, detailPreviewPageIndex), Math.max(0, detailPages.length - 1));
   const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
   const customerAddress = site?.address || site?.title || '';
@@ -6587,6 +6677,7 @@ function LandscapeEstimateDocumentPreview({
           />
         ))
       )}
+      {detailMeasurer}
     </>
   );
 
@@ -6636,6 +6727,87 @@ function detailRowHeight(row: DetailPrintRow): number {
   // 비고 is 11px text (leading-tight) with py-1.
   const noteHeight = line.note ? estimateTextLines(line.note, detailCellTextWidth(6, 16), 11) * 13.75 + 9 : 0;
   return Math.max(DETAIL_LAYOUT.row + (lines - 1) * DETAIL_LAYOUT.line, noteHeight);
+}
+
+type DetailRows = { groups: DetailPrintRow[][]; tail: DetailPrintRow[] };
+
+// The 세부내역서 pages, split by each row's printed height: measured on an unseen copy of the rows laid out at print size
+// (DetailRowMeasurer, only while measure is on), estimated (detailRowHeight) for rows not measured yet. The estimate
+// overshoots wrapped text, which left gaps at the foot of pages; the measurement is what the paper gets.
+function useDetailPrintPages(
+  lines: EstimateLine[],
+  totals: Pick<ReturnType<typeof calculateTotals>, 'customerEstimateTotal' | 'overheadAmount' | 'overheadRate'>,
+  measure: boolean,
+) {
+  const detail = useMemo(() => buildEstimateDetailRows(lines, totals), [lines, totals]);
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const pages = useMemo(
+    () => paginateByHeight(detail.groups, detail.tail, measuredHeightOr(heights, detailRowHeight), DETAIL_PAGE_CAPACITY_PX),
+    [detail, heights],
+  );
+  return { pages, measurer: measure ? <DetailRowMeasurer rows={detail} onMeasure={setHeights} /> : null };
+}
+
+// Every 세부내역서 row in one table as wide as the printed one, off screen (and never printed), measured after each change
+// and again once web fonts have loaded. Each line shows its own 품명 here, unmerged: the page merges a 품명 shared by
+// several lines only within a page, so a run split by a page break shows the name again on each side, and a wrapped name
+// then needs its full height on a single row. Measured unmerged, a row is never shorter than it can print (a merged run
+// prints the same or shorter). The table is 1% narrower than on paper, so text that only just fits on screen is counted
+// as wrapping in case print lays it out a hair wider.
+function DetailRowMeasurer({
+  rows,
+  onMeasure,
+}: {
+  rows: DetailRows;
+  onMeasure: (update: (current: ReadonlyMap<string, number>) => ReadonlyMap<string, number>) => void;
+}) {
+  const bodyRef = useRef<HTMLTableSectionElement | null>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  const allRows = useMemo(() => [...rows.groups.flat(), ...rows.tail], [rows]);
+  useEffect(() => setHost(document.body), []);
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    let cancelled = false;
+    const measure = () => {
+      if (cancelled) return;
+      const next = new Map<string, number>();
+      body.querySelectorAll<HTMLTableRowElement>('tr[data-detail-row]').forEach((row) => {
+        next.set(row.dataset.detailRow || '', row.getBoundingClientRect().height);
+      });
+      onMeasure((current) => (sameRowHeights(current, next) ? current : next));
+    };
+    measure();
+    void document.fonts?.ready.then(measure);
+    return () => {
+      cancelled = true;
+    };
+  }, [allRows, host, onMeasure]);
+  if (!host) return null;
+  return createPortal(
+    <div
+      aria-hidden
+      className="no-print"
+      style={{
+        position: 'fixed',
+        left: -10000,
+        top: 0,
+        visibility: 'hidden',
+        pointerEvents: 'none',
+        width: `calc((${DETAIL_PAGE_WIDTH_MM}mm - ${DETAIL_LAYOUT.paddingX * 2}px) * 0.99)`,
+      }}
+    >
+      <table className="print-detail-table w-full table-fixed border-collapse text-sm text-[#111]">
+        <colgroup>
+          {DETAIL_COLUMN_PERCENT.map((percent, index) => (
+            <col key={index} style={{ width: `${percent}%` }} />
+          ))}
+        </colgroup>
+        <tbody ref={bodyRef}>{allRows.map((row) => renderDetailPrintRow(row, 1))}</tbody>
+      </table>
+    </div>,
+    host,
+  );
 }
 
 // One printed page of the 세부내역서, at its printed size (277 x 188 mm) on screen as well, so the preview shows exactly what
@@ -6757,7 +6929,7 @@ function detailNameRowSpans(rows: DetailPrintRow[]) {
 function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   if (row.type === 'group') {
     return (
-      <tr key={row.key} className="font-semibold">
+      <tr key={row.key} data-detail-row={row.key} className="font-semibold">
         <td className="border border-[#111] px-3 py-1">{row.groupIndex + 1}. {row.category}</td>
         <td className="border border-[#111] px-3 py-1"></td>
         <td className="border border-[#111] px-3 py-1"></td>
@@ -6772,7 +6944,7 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   if (row.type === 'line') {
     const { line } = row;
     return (
-      <tr key={row.key}>
+      <tr key={row.key} data-detail-row={row.key}>
         {nameRowSpan > 1 ? (
           <td rowSpan={nameRowSpan} className="border border-[#111] px-3 py-1 text-center align-middle">{line.name}</td>
         ) : nameRowSpan === 1 ? (
@@ -6792,7 +6964,7 @@ function renderDetailPrintRow(row: DetailPrintRow, nameRowSpan = 1) {
   // A category split into 품명 소계 rows (e.g. 거실 욕실 / 안방 욕실) closes with 합계, so the grand total reads 총합계.
   const label = isTotal ? '총합계' : row.type === 'subtotal' && row.hasNameSubtotals ? '합계' : '소계';
   return (
-    <tr key={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
+    <tr key={row.key} data-detail-row={row.key} className={isTotal ? 'bg-[#dff1f4] text-lg font-semibold' : 'bg-[#f5f3ed] font-semibold'}>
       <td className="border border-[#111] px-3 py-1 text-center">
         {row.type === 'overhead' ? overheadLabel(row.rate) : <span className="pl-[0.8em] tracking-[0.8em]">{label}</span>}
       </td>
@@ -7818,14 +7990,15 @@ function clusterLinesByName(lines: EstimateLine[]) {
   }, []);
 }
 
-// The closing rows are the 공과잡비 (when there is one) and the 총합계, which includes it.
-function buildEstimateDetailPrintPages(
+// The 세부내역서 rows: a block per 공사 (its title, lines, 품명 소계 and 소계), then the closing rows, the 공과잡비 (when there
+// is one) and the 총합계, which includes it. Printing splits them into pages by height (useDetailPrintPages); the Excel
+// export takes them as they are.
+function buildEstimateDetailRows(
   lines: EstimateLine[],
   totals: Pick<ReturnType<typeof calculateTotals>, 'customerEstimateTotal' | 'overheadAmount' | 'overheadRate'>,
-): DetailPrintRow[][] {
+): DetailRows {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
-  // Pages are filled by printed height (detailRowHeight), so wrapped 품명 or 규격 never push a row off the sheet.
   const groups = grouped.map((group, groupIndex) => {
     const nameClusters = clusterLinesByName(group.lines);
     // A 품명 with several lines (e.g. 거실 욕실, 안방 욕실) gets its own 소계 when the category holds more than one 품명.
@@ -7859,7 +8032,18 @@ function buildEstimateDetailPrintPages(
     ...(totals.overheadAmount !== 0 ? [{ type: 'overhead' as const, key: 'detail-overhead', amount: totals.overheadAmount, rate: totals.overheadRate }] : []),
     { type: 'total', key: 'detail-total', amount: totals.customerEstimateTotal },
   ];
-  return paginateByHeight(groups, tail, detailRowHeight, DETAIL_PAGE_CAPACITY_PX);
+  return { groups, tail };
+}
+
+// Whether the DB panel's category buttons were left unfolded (remembered with the panels, ESTIMATE_PANELS_STORAGE_KEY).
+function readDbCategoryChipsOpen(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(ESTIMATE_PANELS_STORAGE_KEY) || '{}') as { dbCategories?: unknown };
+    return saved.dbCategories === true;
+  } catch {
+    return false;
+  }
 }
 
 // customerEstimateTotal is what the customer pays: the construction total (the lines) plus its 공과잡비.

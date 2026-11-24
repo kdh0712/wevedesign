@@ -65,6 +65,27 @@ export function paginateByHeight<T>(groups: T[][], tail: T[], heightOf: (row: T)
   return pages;
 }
 
+// The height to plan a row with: its printed height as measured on the page (the estimate page lays an unseen copy of the
+// rows out at print size) when there is one, else the estimate. The estimate counts a Hangul character as a full em, about
+// a fifth wider than the fonts really draw it, so it saw wraps that do not happen and left gaps a whole 공사 would fit in.
+export function measuredHeightOr<T extends { key: string }>(measured: ReadonlyMap<string, number>, estimate: (row: T) => number): (row: T) => number {
+  return (row) => {
+    const height = measured.get(row.key);
+    return height !== undefined && Number.isFinite(height) && height > 0 ? height : estimate(row);
+  };
+}
+
+// Whether a new measurement changes anything (to half a pixel), so measuring again after every edit re-splits the pages
+// only when a row really grew or shrank.
+export function sameRowHeights(a: ReadonlyMap<string, number>, b: ReadonlyMap<string, number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, height] of a) {
+    const other = b.get(key);
+    if (other === undefined || Math.abs(other - height) >= 0.5) return false;
+  }
+  return true;
+}
+
 // The 견적 갑지 on one A4 landscape page (the same DETAIL_PAGE_WIDTH_MM × DETAIL_PAGE_HEIGHT_MM box as the 세부내역서).
 // Its table always shows at least SUMMARY_MIN_ROWS rows (blank rows fill it, as in the old workbook). Rows are the 공정
 // plus the 공과잡비 row; past 13 they are drawn tighter, and past 15 tighter still, so the sheet keeps to one page (measured:
