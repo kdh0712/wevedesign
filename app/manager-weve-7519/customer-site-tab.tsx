@@ -15,11 +15,12 @@ import {
   type SiteSelection,
 } from '../lib/customer-match';
 import { registrationNotice } from '../lib/office-format';
+import { SITE_STAGES, countSiteFolders, regionFolder, resolveSiteFolder, siteInFolder, type SiteFolder, type SiteFolderCounts } from '../lib/site-folders';
 import { CustomerEditDialog } from './customer-edit-dialog';
 import { emptyNewCustomer, type NewCustomerFields } from './customer-picker';
 import { CustomerSiteForm, type SaveOfficeRecord, type SiteFormPrefill } from './customer-site-form';
 import type { Customer, Site } from './office-types';
-import { Panel, SITE_STATUSES, formatPhoneNumber, statusBadgeClass } from './office-ui';
+import { Panel, formatPhoneNumber, statusBadgeClass } from './office-ui';
 
 export type ConsultationDraft = { consultationId: string; name: string; phone: string; siteType: string; address: string; memo: string };
 
@@ -29,9 +30,81 @@ type ListView = 'sites' | 'customers';
 const VIEW_STORAGE_KEY = 'weve-customer-site-view';
 const LEAVE_CONFIRM = '저장하지 않은 변경이 있습니다. 버리고 넘어갈까요?';
 
-const chip = (active: boolean) =>
-  `rounded-full border px-3 py-1 text-xs font-semibold ${active ? 'border-[#273541] bg-[#273541] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66] hover:bg-[#f7fafb]'}`;
+type StoredView = { view: ListView; folder: SiteFolder; regionsOpen: boolean };
+
+// The list view, the folder and whether 지역별 is open are remembered per browser; the page works the same without them.
+// Read while the tab first renders (it only opens after login, in the browser), so a remembered folder shows at once and
+// is never overwritten by the defaults. A status chip remembered before the folders is ignored.
+function readStoredView(): StoredView {
+  const fallback: StoredView = { view: 'sites', folder: '', regionsOpen: true };
+  try {
+    if (typeof window === 'undefined') return fallback;
+    const stored = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) || '{}') as { view?: unknown; folder?: unknown; regionsOpen?: unknown };
+    return {
+      view: stored.view === 'customers' ? 'customers' : 'sites',
+      folder: typeof stored.folder === 'string' ? stored.folder : '',
+      regionsOpen: typeof stored.regionsOpen === 'boolean' ? stored.regionsOpen : true,
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 const secondaryButton = 'rounded-md border border-[#d5dde2] bg-white px-3 py-1 text-xs font-semibold text-[#273541] hover:bg-[#f7fafb] disabled:opacity-50';
+
+// The 현장 폴더 (spec 2026-11-24-site-folders): 전체, 진행중 · 미체결 · 완료, then 지역별. A column beside the list on wider
+// screens, a row of buttons above it on narrow ones. A chosen region stays in view while 지역별 is folded.
+function SiteFolderNav({
+  counts,
+  folder,
+  onChange,
+  regionsOpen,
+  onToggleRegions,
+}: {
+  counts: SiteFolderCounts;
+  folder: SiteFolder;
+  onChange: (folder: SiteFolder) => void;
+  regionsOpen: boolean;
+  onToggleRegions: () => void;
+}) {
+  const item = (value: SiteFolder, label: string, count: number, nested = false) => {
+    const active = folder === value;
+    return (
+      <button
+        key={value || 'all'}
+        type="button"
+        onClick={() => onChange(value)}
+        aria-pressed={active}
+        className={`flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm md:border-transparent ${nested ? 'md:pl-5' : ''} ${
+          active ? 'border-[#273541] bg-[#273541] font-semibold text-white md:border-[#273541]' : 'border-[#d5dde2] bg-white text-[#273541] hover:bg-[#f7fafb]'
+        }`}
+      >
+        <span className="truncate">{label}</span>
+        <span className={`text-xs tabular-nums ${active ? 'text-white/80' : 'text-[#87949c]'}`}>{count}</span>
+      </button>
+    );
+  };
+  const regions = regionsOpen ? counts.regions : counts.regions.filter((region) => regionFolder(region.name) === folder);
+  return (
+    <nav aria-label="현장 폴더" className="flex flex-wrap gap-1 md:flex-col md:flex-nowrap md:rounded-lg md:border md:border-[#e3e8eb] md:bg-[#fbfcfc] md:p-1.5">
+      {item('', '전체', counts.all)}
+      {SITE_STAGES.map((stage) => item(stage, stage, counts.stages[stage]))}
+      {counts.regions.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={onToggleRegions}
+            aria-expanded={regionsOpen}
+            className="flex items-center gap-1 rounded-md px-2.5 py-1.5 text-left text-xs font-semibold text-[#60717d] hover:bg-[#f7fafb] md:mt-1 md:border-t md:border-[#e3e8eb] md:pt-2"
+          >
+            지역별 <span aria-hidden="true">{regionsOpen ? '▾' : '▸'}</span>
+          </button>
+          {regions.map((region) => item(regionFolder(region.name), region.name, region.count, true))}
+        </>
+      )}
+    </nav>
+  );
+}
 
 function RowMenu({ open, onToggle, onDelete, label }: { open: boolean; onToggle: () => void; onDelete: () => void; label: string }) {
   return (
@@ -84,8 +157,10 @@ export function CustomerSiteTab({
   setStatus: (text: string) => void;
   setError: (text: string) => void;
 }) {
-  const [view, setView] = useState<ListView>('sites');
-  const [status, setStatusFilter] = useState('');
+  const [storedView] = useState(readStoredView);
+  const [view, setView] = useState<ListView>(storedView.view);
+  const [folder, setFolder] = useState<SiteFolder>(storedView.folder);
+  const [regionsOpen, setRegionsOpen] = useState(storedView.regionsOpen);
   const [query, setQuery] = useState('');
   const [selection, setSelection] = useState<Selection>({ mode: 'new', key: 0 });
   const [prefill, setPrefill] = useState<SiteFormPrefill | null>(null);
@@ -97,23 +172,17 @@ export function CustomerSiteTab({
     dirtyRef.current = dirty;
   }, []);
 
-  // The list view and the status chip are remembered per browser; the page works the same without them.
+  // A remembered folder holds only while it still means something (a region with no sites left goes back to 전체).
+  const folderCounts = useMemo(() => countSiteFolders(sites), [sites]);
+  const activeFolder = resolveSiteFolder(folder, folderCounts, sites.length > 0);
+
   useEffect(() => {
     try {
-      const stored = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) || '{}') as { view?: unknown; status?: unknown };
-      if (stored.view === 'sites' || stored.view === 'customers') setView(stored.view);
-      if (typeof stored.status === 'string' && (stored.status === '' || SITE_STATUSES.includes(stored.status))) setStatusFilter(stored.status);
-    } catch {
-      // No stored view.
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ view, status }));
+      window.localStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify({ view, folder: activeFolder, regionsOpen }));
     } catch {
       // Storage may be blocked; the choice just is not remembered.
     }
-  }, [view, status]);
+  }, [view, activeFolder, regionsOpen]);
 
   const siteCounts = useMemo(() => countSitesByCustomer(sites), [sites]);
   const selectedSite = selection.mode === 'edit' ? sites.find((site) => site._id === selection.siteId) : undefined;
@@ -199,8 +268,11 @@ export function CustomerSiteTab({
     void deleteOfficeRecord(site._id, 'site');
   };
 
-  const filteredSites = useMemo(() => sites.filter((site) => (!status || site.status === status) && siteMatchesQuery(site, query)), [sites, status, query]);
-  const groups = useMemo(() => groupSitesByCustomer({ customers, sites, query, status }), [customers, sites, query, status]);
+  const filteredSites = useMemo(() => sites.filter((site) => siteInFolder(site, activeFolder) && siteMatchesQuery(site, query)), [sites, activeFolder, query]);
+  const groups = useMemo(
+    () => groupSitesByCustomer({ customers, sites, query, include: activeFolder ? (site) => siteInFolder(site, activeFolder) : undefined }),
+    [customers, sites, query, activeFolder],
+  );
 
   const siteRow = (site: Site, showCustomer: boolean) => {
     const selected = selection.mode === 'edit' && selection.siteId === site._id;
@@ -290,62 +362,59 @@ export function CustomerSiteTab({
               + 새 현장
             </button>
           </div>
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label="상태">
-            {['', ...SITE_STATUSES].map((value) => (
-              <button key={value || 'all'} type="button" onClick={() => setStatusFilter(value)} aria-pressed={status === value} className={chip(status === value)}>
-                {value || '전체'}
-              </button>
-            ))}
+          <div className="grid gap-3 md:grid-cols-[150px_minmax(0,1fr)] md:items-start">
+            <SiteFolderNav counts={folderCounts} folder={activeFolder} onChange={setFolder} regionsOpen={regionsOpen} onToggleRegions={() => setRegionsOpen(!regionsOpen)} />
+            <div className="min-w-0">
+              {view === 'sites' ? (
+                filteredSites.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">
+                    {sites.length === 0 ? '등록된 현장이 없습니다.' : '조건에 맞는 현장이 없습니다.'}
+                  </p>
+                ) : (
+                  <ul className="grid gap-2">{filteredSites.map((site) => siteRow(site, true))}</ul>
+                )
+              ) : groups.length === 0 ? (
+                <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">조건에 맞는 고객이 없습니다.</p>
+              ) : (
+                <ul className="grid gap-3">
+                  {groups.map((group) => (
+                    <li key={group.customer?._id || 'unlinked'} className="grid gap-2 rounded-lg border border-[#d5dde2] p-3">
+                      {group.customer ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-sm">
+                            <span className="font-semibold text-[#171512]">{group.customer.name || '이름 없음'}</span>
+                            <span className="text-[#60717d]">
+                              {' '}
+                              · {group.customer.phone || '연락처 없음'} · {(siteCounts.get(group.customer._id) || 0) > 0 ? `현장 ${siteCounts.get(group.customer._id)}곳` : '현장 없음'}
+                            </span>
+                          </span>
+                          <span className="flex items-center gap-2">
+                            {group.customer.chatRoomUrl && (
+                              <a href={group.customer.chatRoomUrl} target="_blank" rel="noreferrer" className={secondaryButton}>
+                                채팅방
+                              </a>
+                            )}
+                            <button type="button" onClick={() => group.customer && setEditingCustomer({ customer: group.customer })} className={secondaryButton}>
+                              고객 정보 고치기
+                            </button>
+                            <RowMenu
+                              label={group.customer.name || '고객'}
+                              open={openMenu === `customer-${group.customer._id}`}
+                              onToggle={() => setOpenMenu(openMenu === `customer-${group.customer?._id}` ? '' : `customer-${group.customer?._id}`)}
+                              onDelete={() => group.customer && deleteCustomer(group.customer)}
+                            />
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-sm font-semibold text-[#4d5d66]">고객 연결 없음</p>
+                      )}
+                      {group.sites.length > 0 && <ul className="grid gap-2">{group.sites.map((site) => siteRow(site, false))}</ul>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
-
-          {view === 'sites' ? (
-            filteredSites.length === 0 ? (
-              <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">
-                {sites.length === 0 ? '등록된 현장이 없습니다.' : '조건에 맞는 현장이 없습니다.'}
-              </p>
-            ) : (
-              <ul className="grid gap-2">{filteredSites.map((site) => siteRow(site, true))}</ul>
-            )
-          ) : groups.length === 0 ? (
-            <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">조건에 맞는 고객이 없습니다.</p>
-          ) : (
-            <ul className="grid gap-3">
-              {groups.map((group) => (
-                <li key={group.customer?._id || 'unlinked'} className="grid gap-2 rounded-lg border border-[#d5dde2] p-3">
-                  {group.customer ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm">
-                        <span className="font-semibold text-[#171512]">{group.customer.name || '이름 없음'}</span>
-                        <span className="text-[#60717d]">
-                          {' '}
-                          · {group.customer.phone || '연락처 없음'} · {(siteCounts.get(group.customer._id) || 0) > 0 ? `현장 ${siteCounts.get(group.customer._id)}곳` : '현장 없음'}
-                        </span>
-                      </span>
-                      <span className="flex items-center gap-2">
-                        {group.customer.chatRoomUrl && (
-                          <a href={group.customer.chatRoomUrl} target="_blank" rel="noreferrer" className={secondaryButton}>
-                            채팅방
-                          </a>
-                        )}
-                        <button type="button" onClick={() => group.customer && setEditingCustomer({ customer: group.customer })} className={secondaryButton}>
-                          고객 정보 고치기
-                        </button>
-                        <RowMenu
-                          label={group.customer.name || '고객'}
-                          open={openMenu === `customer-${group.customer._id}`}
-                          onToggle={() => setOpenMenu(openMenu === `customer-${group.customer?._id}` ? '' : `customer-${group.customer?._id}`)}
-                          onDelete={() => group.customer && deleteCustomer(group.customer)}
-                        />
-                      </span>
-                    </div>
-                  ) : (
-                    <p className="text-sm font-semibold text-[#4d5d66]">고객 연결 없음</p>
-                  )}
-                  {group.sites.length > 0 && <ul className="grid gap-2">{group.sites.map((site) => siteRow(site, false))}</ul>}
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </Panel>
 

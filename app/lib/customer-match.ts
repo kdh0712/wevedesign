@@ -103,18 +103,21 @@ const newestFirst = (a: { createdAt?: string }, b: { createdAt?: string }) => te
 
 // The 고객별 보기 list. Customers with sites come first, by their newest site; customers without sites follow, by when they
 // were registered; sites whose customer is not loaded (no link, or a link to a missing or trashed customer) come last.
-// status '' means every status. A customer that matches the query keeps all its sites (status still applies); otherwise
-// only its sites that match the query stay. With a status, a group without such a site is hidden.
+// status '' (or none) means every status; include (a 현장 폴더) narrows the sites the same way. A customer that matches the
+// query keeps all its sites (status and include still apply); otherwise only its sites that match the query stay. With a
+// status or an include, a group without such a site is hidden.
 export function groupSitesByCustomer<C extends MatchCustomer, S extends MatchSite>(input: {
   customers: readonly C[];
   sites: readonly S[];
   query: string;
-  status: string;
+  status?: string;
+  include?: (site: S) => boolean;
 }): CustomerGroup<C, S>[] {
-  const { customers, query, status } = input;
+  const { customers, query, status, include } = input;
   const live = input.sites.filter((site) => !isTrashed(site));
   const known = new Set(customers.map((customer) => customer._id));
-  const statusOk = (site: S) => !status || site.status === status;
+  const narrowed = Boolean(status) || Boolean(include);
+  const statusOk = (site: S) => (!status || site.status === status) && (!include || include(site));
 
   const withSites: CustomerGroup<C, S>[] = [];
   const withoutSites: CustomerGroup<C, S>[] = [];
@@ -123,7 +126,7 @@ export function groupSitesByCustomer<C extends MatchCustomer, S extends MatchSit
     const customerHit = customerMatchesQuery(customer, query);
     const shown = own.filter((site) => statusOk(site) && (customerHit || siteMatchesQuery(site, query))).sort(newestFirst);
     if (!customerHit && shown.length === 0) continue;
-    if (status && shown.length === 0) continue;
+    if (narrowed && shown.length === 0) continue;
     (shown.length > 0 ? withSites : withoutSites).push({ customer, sites: shown });
   }
 
