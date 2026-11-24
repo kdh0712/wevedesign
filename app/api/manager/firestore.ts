@@ -885,24 +885,28 @@ export async function readEstimateDataFromFirestore(
 // Saves an estimate version only if it is still the stored version the check accepts, in one conditional write:
 // an existing document must keep the updateTime just read, a new one must still be missing. conflictOf decides from the
 // stored document (null when missing) whether the save may go ahead; a write that loses the race counts as 'changed'.
-export async function saveEstimateIfUnchangedInFirestore<C extends string>(
-  record: Record<string, unknown>,
+// prepare(stored) may change the record from what is stored right now (the estimate save puts back phone lines); the
+// write is conditional on that same stored copy, so nothing lands on a newer one. `written` is what was saved.
+export async function saveEstimateIfUnchangedInFirestore<C extends string, R extends Record<string, unknown>>(
+  record: R,
   request: Request,
   conflictOf: (stored: Record<string, unknown> | null) => C | '',
-): Promise<{ conflict: C | 'changed' | '' }> {
+  prepare: (stored: Record<string, unknown> | null) => R = () => record,
+): Promise<{ conflict: C | 'changed' | ''; written: R }> {
   const idToken = requestIdToken(request);
   const id = String(record._id || '');
   const current = await getFirestoreDocumentWithVersion<Record<string, unknown>>('siteEstimates', id, idToken);
   const conflict = conflictOf(current?.record ?? null);
-  if (conflict) return { conflict };
+  if (conflict) return { conflict, written: record };
+  const written = prepare(current?.record ?? null);
   try {
-    await patchFirestoreFields('siteEstimates', id, record, {
+    await patchFirestoreFields('siteEstimates', id, written, {
       idToken,
       precondition: current ? { updateTime: current.updateTime } : { exists: false },
     });
-    return { conflict: '' };
+    return { conflict: '', written };
   } catch (error) {
-    if (isFirestoreConflictError(error)) return { conflict: 'changed' };
+    if (isFirestoreConflictError(error)) return { conflict: 'changed', written: record };
     throw error;
   }
 }

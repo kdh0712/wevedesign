@@ -41,7 +41,7 @@ import {
   type MaterialSettings,
   type MaterialSettingsChange,
 } from '../../../lib/estimate-save-safety';
-import { normalizeReceiptId } from '../../../lib/site-receipts';
+import { normalizeWorkLines, unseenPhoneLines, workLineTotals } from '../../../lib/estimate-work-lines';
 
 export const runtime = 'nodejs';
 
@@ -460,9 +460,21 @@ async function saveEstimate(body: Record<string, unknown>, request: Request) {
   const record = decodeLegacyWorkbooksRecord(doc);
 
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
-    const { conflict } = await saveEstimateIfUnchangedInFirestore(doc, request, conflictOf);
+    // Phone lines (spec 2026-11-24-phone-work-lines) that arrived while this editor was open are put back, with the
+    // totals they change; the answer carries them so the editor shows them too.
+    const seenIds = Array.isArray(body.seenWorkLineIds)
+      ? new Set((body.seenWorkLineIds as unknown[]).filter((value): value is string => typeof value === 'string'))
+      : null;
+    const prepare = (stored: Record<string, unknown> | null) => {
+      if (!stored || !existingId) return doc;
+      const back = unseenPhoneLines(stored.workLinesJson, new Set(workLines.map((line) => line.id)), seenIds);
+      if (back.length === 0) return doc;
+      const merged = [...workLines, ...back];
+      return { ...doc, workLinesJson: JSON.stringify(merged), ...workLineTotals(merged, totals) };
+    };
+    const { conflict, written } = await saveEstimateIfUnchangedInFirestore(doc, request, conflictOf, prepare);
     if (conflict) return estimateConflictResponse(conflict);
-    return NextResponse.json({ record });
+    return NextResponse.json({ record: written === doc ? record : decodeLegacyWorkbooksRecord(written) });
   }
 
   if (existingId && !(await isSanityIdWritable(existingId, 'siteEstimate', { allowNew: true }))) {
@@ -788,39 +800,6 @@ function normalizeLines(lines: EstimateLine[]) {
     .filter((line) => line.name || line.space || line.category || line.process || line.note);
 }
 
-function normalizeWorkLines(lines: WorkLine[]) {
-  return lines
-    .map((line, index) => {
-      const quantity = toNumber(line.quantity);
-      const executionUnitPrice = toNumber(line.executionUnitPrice);
-      const fallbackExpense = Math.round(quantity * executionUnitPrice);
-      const expense = toNumber(line.expense) || fallbackExpense;
-      const receiptId = normalizeReceiptId(line.receiptId);
-      return {
-        id: line.id || `work-${Date.now()}-${index}`,
-        ...(receiptId ? { receiptId } : {}),
-        sourceLineId: String(line.sourceLineId || '').trim(),
-        date: String(line.date || '').trim(),
-        space: String(line.space || '').trim(),
-        category: String(line.category || '').trim(),
-        process: String(line.process || '').trim(),
-        name: String(line.name || '').trim(),
-        spec: String(line.spec || '').trim(),
-        unit: String(line.unit || '').trim(),
-        quantity,
-        executionUnitPrice,
-        income: toNumber(line.income),
-        expense,
-        payment: toNumber(line.payment),
-        executionAmount: expense,
-        vendor: String(line.vendor || '').trim(),
-        status: String(line.status || '예정').trim(),
-        note: String(line.note || '').trim(),
-      };
-    })
-    .filter((line) => line.name || line.space || line.category || line.process || line.date || line.income || line.expense || line.payment || line.note);
-}
-
 function normalizeSchedule(schedule: ScheduleTask[]) {
   return schedule
     .map((task, index) => ({
@@ -1039,30 +1018,23 @@ function calculateTotals(
   const constructionTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.customerAmount || 0), 0));
   const customerEstimateTotal = constructionTotal + overheadAmount(constructionTotal, overheadRate);
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.executionAmount || 0), 0));
-  const hasWorkLines = workLines.length > 0;
-  const actualExecutionCostTotal = hasWorkLines
-    ? Math.round(workLines.reduce((sum, line) => sum + Number(line.expense || line.executionAmount || 0), 0))
-    : 0;
   const additionalCostTotal = Math.round(extraItems.reduce((sum, item) => sum + Number(item.amount || 0), 0));
   const estimatedMarginAmount = customerEstimateTotal - estimateExecutionCostTotal;
-  const actualMarginAmount = hasWorkLines ? customerEstimateTotal - actualExecutionCostTotal - additionalCostTotal : 0;
   const estimatedMarginRate = customerEstimateTotal > 0 ? Math.round((estimatedMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
-  const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
-  const executionCostTotal = actualExecutionCostTotal;
-  const marginAmount = actualMarginAmount;
-  const marginRate = actualMarginRate;
+  // The 실행 part is shared with the phone's direct entry (app/lib/estimate-work-lines.ts).
+  const actual = workLineTotals(workLines, { customerEstimateTotal, additionalCostTotal });
 
   return {
     customerEstimateTotal,
-    executionCostTotal,
-    marginAmount,
-    marginRate,
+    executionCostTotal: actual.executionCostTotal,
+    marginAmount: actual.marginAmount,
+    marginRate: actual.marginRate,
     estimateExecutionCostTotal,
     estimatedMarginAmount,
     estimatedMarginRate,
-    actualExecutionCostTotal,
-    actualMarginAmount,
-    actualMarginRate,
+    actualExecutionCostTotal: actual.actualExecutionCostTotal,
+    actualMarginAmount: actual.actualMarginAmount,
+    actualMarginRate: actual.actualMarginRate,
     additionalCostTotal,
   };
 }
