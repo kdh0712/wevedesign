@@ -14,12 +14,10 @@ type FolderSite = { status?: unknown; address?: unknown; deletedAt?: unknown };
 const REGION_PREFIX = 'region:';
 // Only the first few words name the region; a 시 further on is a building or a road, not a city.
 const REGION_WORDS = 4;
-const METROPOLITAN: [RegExp, (match: RegExpExecArray) => string][] = [
-  [/^(서울|부산|대구|인천|대전|울산)(?:특별시|광역시|시)?$/, (match) => match[1]],
-  // 광주시 is 경기 광주시, so only 광주 and 광주광역시 are the 광역시.
-  [/^광주(?:광역시)?$/, () => '광주'],
-  [/^세종(?:특별자치시|시)?$/, () => '세종'],
-];
+// 특별시·광역시 with their suffix, anywhere in those words. 광주시 is 경기 광주시, so it is left to CITY_OR_COUNTY.
+const METROPOLITAN_FULL = /^(서울|부산|대구|인천|광주|대전|울산|세종)(?:특별시|광역시|특별자치시)$|^(서울|부산|대구|인천|대전|울산|세종)시$/;
+// A bare 서울 or 세종 names the city only as the first word: '산본 세종 6단지' is an apartment in 군포, '경기 광주' is 경기 광주시.
+const METROPOLITAN_SHORT = ['서울', '부산', '대구', '인천', '광주', '대전', '울산', '세종'];
 const CITY_OR_COUNTY = /^[가-힣]{1,6}[시군]$/;
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -31,17 +29,23 @@ export function siteStage(status: unknown): SiteStage {
 }
 
 // The first 시·군 among the address's first words (after a postcode or a 도), 특별시·광역시 by their short name.
+// Anything else (no address, '의왕 내손동' without 시, a 신도시) is 지역 미정.
 export function siteRegion(address: unknown): string {
   const words = text(address)
     .split(/[\s,()[\]]+/)
     .filter(Boolean)
     .slice(0, REGION_WORDS);
-  for (const word of words) {
-    for (const [pattern, name] of METROPOLITAN) {
-      const match = pattern.exec(word);
-      if (match) return name(match);
-    }
-    if (CITY_OR_COUNTY.test(word)) return word;
+  let firstWord = true;
+  for (const written of words) {
+    // 수원특례시 is 수원시.
+    const word = written.replace(/특례시$/, '시');
+    const metropolitan = METROPOLITAN_FULL.exec(word);
+    if (metropolitan) return metropolitan[1] || metropolitan[2];
+    if (firstWord && METROPOLITAN_SHORT.includes(word)) return word;
+    // A postcode before the address does not count as its first word.
+    if (/[가-힣]/.test(word)) firstWord = false;
+    // 평촌신도시, 산본신도시: a 신도시 is a neighbourhood, not a city.
+    if (CITY_OR_COUNTY.test(word) && !word.endsWith('도시')) return word;
   }
   return NO_REGION;
 }

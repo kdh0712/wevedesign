@@ -56,6 +56,29 @@ test('siteRegion: no address, or no 시·군 near the start, is 지역 미정', 
   assert.equal(siteRegion('내손동 래미안 101동 1203호 에버시'), NO_REGION);
 });
 
+test('siteRegion: 신도시 is a neighbourhood, not a city', () => {
+  assert.equal(siteRegion('평촌신도시 꿈마을 현대'), NO_REGION);
+  assert.equal(siteRegion('안양 평촌신도시 꿈마을'), NO_REGION);
+  assert.equal(siteRegion('산본신도시 세종주공'), NO_REGION);
+  assert.equal(siteRegion('내손동 신도시'), NO_REGION);
+  assert.equal(siteRegion('경기도 안양시 평촌신도시'), '안양시');
+});
+
+test('siteRegion: a 특례시 is the same folder as its 시', () => {
+  assert.equal(siteRegion('경기도 수원특례시 영통구'), '수원시');
+  assert.equal(siteRegion('용인특례시 수지구'), '용인시');
+  assert.equal(siteRegion('경기 화성특례시 동탄'), '화성시');
+});
+
+test('siteRegion: a bare 서울·세종·광주 counts only as the first word', () => {
+  // 산본 세종주공 6단지 is an apartment in 군포, and 경기 광주 is 경기 광주시, not 광주광역시.
+  assert.equal(siteRegion('산본 세종 6단지'), NO_REGION);
+  assert.equal(siteRegion('경기 광주 오포읍'), NO_REGION);
+  assert.equal(siteRegion('(06000) 서울 강남구'), '서울');
+  assert.equal(siteRegion('경기도 광주시 오포읍'), '광주시');
+  assert.equal(siteRegion('세종 한솔동'), '세종');
+});
+
 test('siteInFolder: 전체, a stage, or a region', () => {
   const site = { status: '시공중', address: '경기도 의왕시 내손동' };
   assert.equal(siteInFolder(site, ''), true);
