@@ -38,12 +38,12 @@ import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
+import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
-import { EstimateSitePicker } from './site-picker';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
