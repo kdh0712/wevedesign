@@ -15,6 +15,7 @@ import {
   parseReceiptAction,
   parseReceiptAmount,
   receiptIdsOfWorkLines,
+  receiptPhoneLabel,
   receiptPickerGroups,
   receiptVersionStatus,
   receiptWorkLineDraft,
@@ -259,4 +260,11 @@ test('receiptPickerGroups: the last site first, then 진행중, then 미체결; 
   // A remembered site that is gone, or 완료, is not offered on top.
   assert.equal(receiptPickerGroups(sites, 'gone').recent, null);
   assert.equal(receiptPickerGroups(sites, 's4').recent, null);
+});
+
+test('receiptPhoneLabel: what the phone shows for one of my receipts', () => {
+  assert.equal(receiptPhoneLabel({ locked: true, skipped: null }), '정리됨');
+  assert.equal(receiptPhoneLabel({ locked: true, skipped: { at: 'x', byName: 'y' } }), '정리됨');
+  assert.equal(receiptPhoneLabel({ locked: false, skipped: { at: 'x', byName: 'y' } }), '정리 안 해도 됨');
+  assert.equal(receiptPhoneLabel({ locked: false, skipped: null }), '정리 전');
 });

@@ -278,3 +278,10 @@ export function receiptPickerGroups<S extends { id: string; status: string }>(
     open: rest.filter((site) => siteStage(site.status) === '미체결'),
   };
 }
+
+// The phone's word for one of my receipts: 정리됨 once it is in a saved 실행내역서 (any version), 정리 안 해도 됨 when the
+// office marked it so, otherwise 정리 전 (still mine to fix or delete).
+export function receiptPhoneLabel(receipt: Pick<SiteReceipt, 'locked' | 'skipped'>): '정리됨' | '정리 안 해도 됨' | '정리 전' {
+  if (receipt.locked) return '정리됨';
+  return receipt.skipped ? '정리 안 해도 됨' : '정리 전';
+}

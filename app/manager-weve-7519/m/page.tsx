@@ -1,11 +1,12 @@
 'use client';
 
-import { LogOut, RefreshCw } from 'lucide-react';
+import { Camera, LogOut, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { visibleMobileTabs, type MobileConsultation, type MobileOverview, type MobileTab } from '../../lib/mobile-overview';
 import type { CustomerEstimateView } from '../../lib/mobile-estimate';
 import type { ProgressUpdateView } from '../../lib/site-progress';
 import { createProgressApi } from '../progress-manager';
+import { createReceiptApi } from '../receipt-api';
 import { createSiteNotesApi } from '../site-notes-api';
 import { ConsultationsTab, type ConsultationChange } from './consultations-tab';
 import { LoginScreen } from './login-screen';
@@ -29,6 +30,7 @@ import {
 } from './mobile-session';
 import { Notice, TabBar } from './mobile-ui';
 import { PushPanel, SERVICE_WORKER_SCOPE, SERVICE_WORKER_URL } from './push-panel';
+import { LEAVE_RECEIPT_CONFIRM, ReceiptSheet } from './receipt-sheet';
 import { ReportTab } from './report-tab';
 import { ScheduleTab } from './schedule-tab';
 import { SitesTab, type SiteView } from './sites-tab';
@@ -88,6 +90,9 @@ export default function StaffAppPage() {
   const [reportBusy, setReportBusy] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [menuOpen, setMenuOpen] = useState(false);
+  // 현장 영수증함 (spec 2026-11-24-site-receipts): a sheet over every tab, opened by the 영수증 button.
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const receiptStateRef = useRef({ dirty: false, busy: false });
   const [pull, setPull] = useState(0);
   const loadedAtRef = useRef(0);
   // The tab a site detail was opened from (오늘 or 일정), where the back button returns.
@@ -108,6 +113,7 @@ export default function StaffAppPage() {
     setReportBusy(false);
     siteOriginRef.current = null;
     setMenuOpen(false);
+    setReceiptOpen(false);
     setLoginNotice(notice);
     setPhase('login');
   }, []);
@@ -264,13 +270,28 @@ export default function StaffAppPage() {
   // The Android back button closes the top level (estimate, then site detail) instead of the app (see createBackGuard). A
   // detail opened from 오늘 or 일정 goes back to that tab; the on-screen "현장 목록" button still goes to the site list.
   const detailOpen = phase === 'ready' && tab === 'sites' && Boolean(siteId && overview?.sites.some((site) => site.id === siteId));
-  const backDepth = detailOpen ? (siteView === 'estimate' && overview?.canViewEstimates ? 2 : 1) : 0;
+  // The receipt sheet sits on top of everything, so it is the first level back closes.
+  const backDepth = (detailOpen ? (siteView === 'estimate' && overview?.canViewEstimates ? 2 : 1) : 0) + (receiptOpen ? 1 : 0);
+  const receiptOpenRef = useRef(receiptOpen);
+  receiptOpenRef.current = receiptOpen;
+  const backDepthRef = useRef(backDepth);
+  backDepthRef.current = backDepth;
   const backGuardRef = useRef<ReturnType<typeof createBackGuard> | null>(null);
   useEffect(() => {
     const guard = createBackGuard(window.history);
     backGuardRef.current = guard;
     const onPopState = () => {
       if (!guard.onPopState()) return;
+      if (receiptOpenRef.current) {
+        // While photos go up the sheet stays; with unsaved input it asks first. Staying takes the history entry back.
+        const { busy, dirty } = receiptStateRef.current;
+        if (busy || (dirty && !window.confirm(LEAVE_RECEIPT_CONFIRM))) {
+          guard.sync(backDepthRef.current);
+          return;
+        }
+        setReceiptOpen(false);
+        return;
+      }
       if (siteViewRef.current === 'estimate') {
         setSiteView('detail');
         return;
@@ -347,6 +368,13 @@ export default function StaffAppPage() {
 
   // 할 일·현장 기록 go through authedFetch, so they get the same refresh and one retry on 401.
   const notesApi = useMemo(() => createSiteNotesApi(authedFetch), [authedFetch]);
+  const receiptApi = useMemo(() => createReceiptApi(authedFetch), [authedFetch]);
+  const onReceiptDirty = useCallback((dirty: boolean) => {
+    receiptStateRef.current.dirty = dirty;
+  }, []);
+  const onReceiptBusy = useCallback((busy: boolean) => {
+    receiptStateRef.current.busy = busy;
+  }, []);
   const loadEstimate = useCallback(
     async (id: string) =>
       ((await authedFetch(`/api/manager/mobile/estimate?siteId=${encodeURIComponent(id)}`)).estimate as CustomerEstimateView | null) ?? null,
@@ -423,6 +451,8 @@ export default function StaffAppPage() {
   }
 
   const newCount = (overview?.consultations || []).filter((item) => item.status === '신규').length;
+  // Anyone who sees sites may leave a receipt; the button waits for the site list.
+  const showReceiptButton = phase === 'ready' && tabs.includes('sites') && Boolean(overview);
 
   return (
     <div onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd} className="min-h-[100dvh]">
@@ -457,7 +487,7 @@ export default function StaffAppPage() {
         </div>
       )}
 
-      <main className="mx-auto max-w-md space-y-3 px-4 pt-3" style={{ paddingBottom: 'calc(88px + env(safe-area-inset-bottom))' }}>
+      <main className="mx-auto max-w-md space-y-3 px-4 pt-3" style={{ paddingBottom: `calc(${showReceiptButton ? 152 : 88}px + env(safe-area-inset-bottom))` }}>
         {loadError && (
           <Notice onRetry={() => void loadOverview()}>
             <p>{loadError === NETWORK_ERROR ? NETWORK_ERROR : loadError}</p>
@@ -522,6 +552,20 @@ export default function StaffAppPage() {
           </>
         )}
       </main>
+
+      {showReceiptButton && !receiptOpen && (
+        <button
+          type="button"
+          onClick={() => setReceiptOpen(true)}
+          className="fixed right-4 z-20 flex h-14 items-center gap-2 rounded-full bg-[#171512] px-5 text-sm font-bold text-[#f1c76a] shadow-lg active:scale-95"
+          style={{ bottom: 'calc(68px + env(safe-area-inset-bottom))' }}
+        >
+          <Camera className="h-5 w-5" aria-hidden="true" /> 영수증
+        </button>
+      )}
+      {receiptOpen && overview && (
+        <ReceiptSheet sites={overview.sites} api={receiptApi} onClose={() => setReceiptOpen(false)} onDirtyChange={onReceiptDirty} onBusyChange={onReceiptBusy} />
+      )}
 
       {tabs.length > 0 && <TabBar tabs={tabs} active={tab} onChange={changeTab} badges={{ consultations: newCount }} />}
     </div>
