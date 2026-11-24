@@ -307,3 +307,15 @@ test('receiptPhoneLabel: what the phone shows for one of my receipts', () => {
   assert.equal(receiptPhoneLabel({ locked: false, skipped: { at: 'x', byName: 'y' } }), '정리 안 해도 됨');
   assert.equal(receiptPhoneLabel({ locked: false, skipped: null }), '정리 전');
 });
+
+test('parseReceiptAction update: 공종 and 비고 left out by an older screen are not cleared', () => {
+  const result = parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '5000', memo: '철물' });
+  assert.equal(result.ok, true);
+  assert.equal('process' in result, false);
+  assert.equal('note' in result, false);
+  assert.equal(result.receiptDate, '');
+  // Sent empty, they are cleared on purpose.
+  const cleared = parseReceiptAction({ action: 'update', id: RECEIPT_ID, siteId: 'site-2', amount: '', memo: '', process: '', note: '' });
+  assert.equal(cleared.process, '');
+  assert.equal(cleared.note, '');
+});

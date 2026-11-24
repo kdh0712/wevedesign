@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  appendMissingLines,
   newPhoneWorkLine,
   normalizeWorkLines,
   parsePhoneWorkLine,
@@ -132,4 +133,20 @@ test('unseenPhoneLines: phone lines the office never saw come back; ones it saw 
   // Without seen ids (an editor opened before this deploy), every missing phone line comes back.
   assert.deepEqual(unseenPhoneLines(stored, new Set(['w-office']), null).map((line) => line.id), ['p-old', 'p-new', 'p-kept']);
   assert.deepEqual(unseenPhoneLines('broken', new Set(), new Set()), []);
+});
+
+test('appendMissingLines: lines the editor lacks are added after what it has now', () => {
+  const current = [{ id: 'a', note: 'typed during the save' }, { id: 'b' }];
+  const merged = appendMissingLines(current, [{ id: 'b', note: 'server copy' }, { id: 'p' }]);
+  assert.deepEqual(merged.map((line) => line.id), ['a', 'b', 'p']);
+  assert.equal(merged[0].note, 'typed during the save');
+  assert.equal(merged[1], current[1]);
+  assert.equal(appendMissingLines(current, []), current);
+});
+
+test('normalizeWorkLines reads empty text cells as before: 0 or false in a text column is blank', () => {
+  // Legacy workbook rows (normalizeLegacyWorkSites) can carry numbers or booleans in text columns.
+  const [line] = normalizeWorkLines([{ id: 'w', name: '목공', space: 0, vendor: false, note: null, status: '' }]);
+  assert.deepEqual([line.space, line.vendor, line.note, line.status], ['', '', '', '예정']);
+  assert.equal(normalizeWorkLines([{ id: 'w', space: 0, vendor: false }]).length, 0);
 });

@@ -14,6 +14,7 @@ import {
   type OfficeVersions,
 } from '../../lib/office-changes';
 import { hashId } from './_utils';
+import { saveIfUnchanged } from '../../lib/conditional-save';
 import { PROTECTED_SITE_FIELDS, SERVER_OWNED_SITE_FIELDS, dropBrowserSiteFields, stripServerOwnedSiteFields } from './_site-fields';
 import {
   FirestoreConflictError,
@@ -887,6 +888,8 @@ export async function readEstimateDataFromFirestore(
 // stored document (null when missing) whether the save may go ahead; a write that loses the race counts as 'changed'.
 // prepare(stored) may change the record from what is stored right now (the estimate save puts back phone lines); the
 // write is conditional on that same stored copy, so nothing lands on a newer one. `written` is what was saved.
+// A write that loses to a phone line (which leaves updatedAt alone) is read again and saved with it (saveIfUnchanged);
+// a real save elsewhere moves updatedAt, so conflictOf still reports it.
 export async function saveEstimateIfUnchangedInFirestore<C extends string, R extends Record<string, unknown>>(
   record: R,
   request: Request,
@@ -895,20 +898,22 @@ export async function saveEstimateIfUnchangedInFirestore<C extends string, R ext
 ): Promise<{ conflict: C | 'changed' | ''; written: R }> {
   const idToken = requestIdToken(request);
   const id = String(record._id || '');
-  const current = await getFirestoreDocumentWithVersion<Record<string, unknown>>('siteEstimates', id, idToken);
-  const conflict = conflictOf(current?.record ?? null);
-  if (conflict) return { conflict, written: record };
-  const written = prepare(current?.record ?? null);
-  try {
-    await patchFirestoreFields('siteEstimates', id, written, {
-      idToken,
-      precondition: current ? { updateTime: current.updateTime } : { exists: false },
-    });
-    return { conflict: '', written };
-  } catch (error) {
-    if (isFirestoreConflictError(error)) return { conflict: 'changed', written: record };
-    throw error;
-  }
+  const result = await saveIfUnchanged({
+    read: async () => {
+      const current = await getFirestoreDocumentWithVersion<Record<string, unknown>>('siteEstimates', id, idToken);
+      return { stored: current?.record ?? null, version: current?.updateTime ?? null };
+    },
+    write: async (written: R, version) => {
+      await patchFirestoreFields('siteEstimates', id, written, {
+        idToken,
+        precondition: version ? { updateTime: version } : { exists: false },
+      });
+    },
+    conflictOf,
+    prepare,
+    isConflict: isFirestoreConflictError,
+  });
+  return { conflict: result.conflict, written: result.written ?? record };
 }
 
 export async function deleteEstimateFromFirestore(request: Request, id: string) {

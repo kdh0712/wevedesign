@@ -32,7 +32,8 @@ export type WorkLineInput = {
 export const PHONE_PROCESS_MAX = 40;
 export const PHONE_NOTE_MAX = 100;
 
-const text = (value: unknown) => (typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value));
+// A text cell as the estimate save always read it (String(value || '')): 0, false, null or undefined are blank.
+const text = (value: unknown) => (value ? String(value) : '');
 
 export function toNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -78,6 +79,15 @@ export function normalizeWorkLines(lines: readonly WorkLineInput[]) {
 }
 
 export type NormalizedWorkLine = ReturnType<typeof normalizeWorkLines>[number];
+
+// The lines in extra that current lacks (by id), added after what current holds now. The estimate page uses it with the
+// phone lines a save answer brought back, on the lines as they are when the answer arrives (edits typed during the
+// save stay).
+export function appendMissingLines<T extends { id: string }>(current: T[], extra: readonly T[]): T[] {
+  const known = new Set(current.map((line) => line.id));
+  const missing = extra.filter((line) => !known.has(line.id));
+  return missing.length > 0 ? [...current, ...missing] : current;
+}
 
 // The 실행 part of an estimate's stored totals, as the estimate save computes it.
 export function workLineTotals(

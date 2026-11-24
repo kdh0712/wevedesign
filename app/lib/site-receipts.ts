@@ -77,8 +77,10 @@ const isCalendarDate = (value: string) => {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 };
 
-// receiptDate '' means "not given": a new receipt takes today, an edit keeps the stored date.
+// receiptDate '' means "not given": a new receipt takes today, an edit keeps the stored date. An edit from a screen that
+// does not send 공종 or 비고 (one opened before they existed) leaves them out, so they are not cleared.
 type Fields = { amount: number | null; memo: string; process: string; note: string; receiptDate: string };
+type EditFields = Omit<Fields, 'process' | 'note'> & { process?: string; note?: string };
 function parseFields(input: Record<string, unknown>): { ok: true; value: Fields } | { ok: false; error: string } {
   const amount = parseReceiptAmount(input.amount);
   if (!amount.ok) return amount;
@@ -95,7 +97,7 @@ function parseFields(input: Record<string, unknown>): { ok: true; value: Fields 
 
 export type ReceiptAction =
   | ({ ok: true; action: 'create'; siteId: string; photos: StoredProgressPhoto[] } & Fields)
-  | ({ ok: true; action: 'update'; id: string; siteId: string } & Fields)
+  | ({ ok: true; action: 'update'; id: string; siteId: string } & EditFields)
   | { ok: true; action: 'setSkipped'; id: string; skipped: boolean }
   | { ok: true; action: 'delete'; id: string }
   | { ok: false; error: string };
@@ -109,7 +111,18 @@ export function parseReceiptAction(body: unknown): ReceiptAction {
     if (!isOfficeRecordId(input.siteId)) return { ok: false, error: '현장을 골라 주세요.' };
     const fields = parseFields(input);
     if (!fields.ok) return fields;
-    if (input.action === 'update') return { ok: true, action: 'update', id: input.id as string, siteId: input.siteId, ...fields.value };
+    if (input.action === 'update') {
+      const { process, note, ...rest } = fields.value;
+      return {
+        ok: true,
+        action: 'update',
+        id: input.id as string,
+        siteId: input.siteId,
+        ...rest,
+        ...('process' in input ? { process } : {}),
+        ...('note' in input ? { note } : {}),
+      };
+    }
 
     const rawPhotos = Array.isArray(input.photos) ? input.photos : [];
     if (rawPhotos.length === 0) return { ok: false, error: '영수증 사진을 찍어 주세요.' };

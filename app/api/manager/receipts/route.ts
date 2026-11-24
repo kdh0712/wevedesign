@@ -186,8 +186,8 @@ export async function POST(request: Request) {
         siteId: parsed.siteId,
         amount: parsed.amount,
         memo: parsed.memo,
-        process: parsed.process,
-        note: parsed.note,
+        ...(parsed.process !== undefined ? { process: parsed.process } : {}),
+        ...(parsed.note !== undefined ? { note: parsed.note } : {}),
         ...(parsed.receiptDate ? { receiptDate: parsed.receiptDate } : {}),
         updatedAt: nowIso,
       });

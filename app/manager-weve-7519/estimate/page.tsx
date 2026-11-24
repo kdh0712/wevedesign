@@ -40,6 +40,7 @@ import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLin
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
+import { appendMissingLines } from '../../lib/estimate-work-lines';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
@@ -1411,9 +1412,10 @@ export default function EstimateWorkspacePage() {
       const sentIds = new Set(workLines.map((line) => line.id));
       const phoneLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(savedRecord.workLinesJson, [])).filter((line) => line.addedFrom === 'phone' && !sentIds.has(line.id));
       if (phoneLines.length > 0) {
-        const merged = [...workLines, ...phoneLines];
-        setWorkLines(merged);
-        setSavedSnapshot({ ...sentSnapshot, editor: JSON.stringify({ ...JSON.parse(sentSnapshot.editor), workLines: merged }) });
+        // Onto the lines as they are now, so 실행 edits typed while the save ran stay; the saved state is what was sent
+        // plus the phone lines.
+        setWorkLines((current) => appendMissingLines(current, phoneLines));
+        setSavedSnapshot({ ...sentSnapshot, editor: JSON.stringify({ ...JSON.parse(sentSnapshot.editor), workLines: [...workLines, ...phoneLines] }) });
       } else {
         setSavedSnapshot(sentSnapshot);
       }
