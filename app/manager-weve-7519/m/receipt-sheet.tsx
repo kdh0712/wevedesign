@@ -15,6 +15,7 @@ import {
   receiptPickerGroups,
   type SiteReceiptView,
 } from '../../lib/site-receipts';
+import { CommaTextInput } from '../comma-text-input';
 import { errorText, photoProgressLabel, shrinkAndUploadPhotos } from '../progress-manager';
 import type { ReceiptApi, ReceiptSiteSummary } from '../receipt-api';
 import { Notice } from './mobile-ui';
@@ -353,7 +354,7 @@ export function ReceiptSheet({
           <label className="col-span-2 text-sm font-semibold text-[#514c43]" htmlFor="receipt-amount">
             금액 <span className="font-normal text-[#8b8276]">(비워도 돼요)</span>
           </label>
-          <input id="receipt-amount" value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="numeric" placeholder="예: 32000" className={inputClass} />
+          <CommaTextInput id="receipt-amount" value={amount} onChange={setAmount} inputMode="numeric" placeholder="예: 32,000" className={inputClass} />
           <span className="text-sm text-[#514c43]">원</span>
           <label className="col-span-2 mt-1 text-sm font-semibold text-[#514c43]" htmlFor="receipt-memo">
             메모 <span className="font-normal text-[#8b8276]">(비워도 돼요)</span>
@@ -433,7 +434,7 @@ export function ReceiptSheet({
                         </option>
                       ))}
                     </select>
-                    <input value={editing.amount} onChange={(event) => setEditing({ ...editing, amount: event.target.value })} inputMode="numeric" placeholder="금액 (비워도 돼요)" aria-label="금액" className={inputClass} />
+                    <CommaTextInput value={editing.amount} onChange={(text) => setEditing({ ...editing, amount: text })} inputMode="numeric" placeholder="금액 (비워도 돼요)" aria-label="금액" className={inputClass} />
                     <input value={editing.memo} onChange={(event) => setEditing({ ...editing, memo: event.target.value })} maxLength={RECEIPT_MEMO_MAX} placeholder="메모" aria-label="메모" className={inputClass} />
                     {editError && <p className="text-xs text-[#8a1f17]">{editError}</p>}
                     <div className="flex gap-2">

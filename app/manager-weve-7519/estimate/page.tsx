@@ -43,6 +43,7 @@ import { normalizeReceiptId } from '../../lib/site-receipts';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
+import { NumberTextInput } from './number-text-input';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -6371,33 +6372,6 @@ function OverheadRateInput({ value, onChange }: { value: number; onChange: (valu
   );
 }
 
-function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
-  const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
-  const [isEditing, setIsEditing] = useState(false);
-
-  useEffect(() => {
-    if (!isEditing) setDisplayValue(formatNumberInput(value));
-  }, [isEditing, value]);
-
-  return (
-    <input
-      type="text"
-      value={displayValue}
-      onFocus={() => setIsEditing(true)}
-      onBlur={() => {
-        setIsEditing(false);
-        setDisplayValue(formatNumberInput(value));
-      }}
-      onChange={(event) => {
-        const nextValue = normalizeNumberInputText(event.target.value);
-        setDisplayValue(nextValue);
-        onChange(parseNumberInput(nextValue));
-      }}
-      className={`${className} rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]`}
-    />
-  );
-}
-
 function LandscapeEstimateDocumentPreview({
   site,
   lines,
@@ -8035,26 +8009,6 @@ function softenColor(color: string) {
 
 function formatNumber(value: number) {
   return Number(value || 0).toLocaleString('ko-KR');
-}
-
-function formatNumberInput(value: number) {
-  if (value === undefined || value === null || Number.isNaN(Number(value))) return '';
-  return Number(value).toLocaleString('ko-KR');
-}
-
-function normalizeNumberInputText(value: string) {
-  const cleaned = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
-  const sign = cleaned.startsWith('-') ? '-' : '';
-  const unsigned = cleaned.replace(/-/g, '');
-  const [integer = '', ...decimalParts] = unsigned.split('.');
-  if (cleaned.includes('.')) return `${sign}${integer}.${decimalParts.join('')}`;
-  return `${sign}${integer}`;
-}
-
-function parseNumberInput(value: string) {
-  const normalized = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseJson<T>(value: string | undefined, fallback: T): T {
