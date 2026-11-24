@@ -30,8 +30,9 @@ export const normalizeReceiptId = (value: unknown): string => (isReceiptId(value
 const str = (value: unknown) => (typeof value === 'string' ? value : '');
 const isPhotoEdge = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= MAX_PHOTO_EDGE;
 
-// Who acts, always from the signed session.
-export type ReceiptAuthor = { loginId: string; name: string; role: string; permissions: readonly string[] };
+// Who acts, always from the signed session. id is the account (the session's sub): a Firebase account's loginId can change
+// between its login (auth email) and the phone's hourly session trade (profile email or uid), its id does not.
+export type ReceiptAuthor = { id: string; loginId: string; name: string; role: string; permissions: readonly string[] };
 
 const authorName = (author: ReceiptAuthor) => (author.name || author.loginId).slice(0, 80);
 const canEstimate = (author: ReceiptAuthor) => hasAnyPermission({ role: author.role, permissions: author.permissions } as ManagerIdentity, ['estimates']);
@@ -116,7 +117,7 @@ export function parseReceiptAction(body: unknown): ReceiptAction {
   return { ok: false, error: UNKNOWN_REQUEST };
 }
 
-// createdBy (the login id) is a top-level string so "my receipts" is one equality query.
+// createdById (the account) is a top-level string so "my receipts" is one equality query; createdBy keeps the login id.
 export function newReceiptRecord(
   input: { id: string; siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string },
   author: ReceiptAuthor,
@@ -132,6 +133,7 @@ export function newReceiptRecord(
     receiptDate,
     createdAt: nowIso,
     createdBy: author.loginId,
+    createdById: author.id,
     createdByName: authorName(author),
   };
 }
@@ -170,7 +172,7 @@ export function toReceiptView(record: Record<string, unknown>, viewer: ReceiptAu
     return [{ id: str(photo.id), pathname: photo.pathname, width: Number(photo.width) || 0, height: Number(photo.height) || 0 }];
   });
   const amount = typeof record.amount === 'number' && Number.isFinite(record.amount) ? record.amount : null;
-  const createdBy = str(record.createdBy);
+  const createdById = str(record.createdById);
   const skippedAt = str(record.skippedAt);
   return {
     id: record._id,
@@ -181,7 +183,7 @@ export function toReceiptView(record: Record<string, unknown>, viewer: ReceiptAu
     receiptDate: str(record.receiptDate),
     createdAt: str(record.createdAt),
     createdByName: str(record.createdByName),
-    mine: createdBy !== '' && createdBy === viewer.loginId,
+    mine: createdById !== '' && createdById === viewer.id,
     skipped: skippedAt ? { at: skippedAt, byName: str(record.skippedByName) } : null,
     locked: lockedIds.has(record._id),
   };

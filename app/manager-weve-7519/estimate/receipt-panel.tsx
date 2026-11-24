@@ -4,7 +4,7 @@
 // judged against the version on screen. [실행 항목으로] fills the 실행 항목 입력 row; staff pick the 공종 and add it, and the
 // receipt counts as 정리됨 for this version once that line is there (saved: locked for everyone).
 import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RECEIPT_MEMO_MAX, parseReceiptAmount, receiptVersionStatus, receiptWorkLineDraft, type SiteReceiptView } from '../../lib/site-receipts';
 import type { ReceiptApi } from '../receipt-api';
 
@@ -40,14 +40,20 @@ export function ReceiptPanel({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [viewing, setViewing] = useState<{ photos: SiteReceiptView['photos']; index: number } | null>(null);
 
+  // Only the latest load may fill the list: an answer for a site staff already left (or an older reload) is dropped, so
+  // one site's receipts never show, and get filed, under another site.
+  const loadRequestRef = useRef(0);
   const load = useCallback(async () => {
     if (!siteId) return;
+    const request = ++loadRequestRef.current;
     setError('');
     try {
       const data = await api.ofSite(siteId);
+      if (request !== loadRequestRef.current) return;
       setReceipts(data.receipts);
       setPhotosUnavailable(data.photosUnavailable);
     } catch (caught) {
+      if (request !== loadRequestRef.current) return;
       setError(errorText(caught, '영수증을 불러오지 못했어요.'));
     }
   }, [api, siteId]);

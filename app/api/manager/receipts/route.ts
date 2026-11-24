@@ -50,6 +50,7 @@ const fail = (error: string, status: number) => json({ error }, status);
 const str = (value: unknown) => (typeof value === 'string' ? value : '');
 
 const authorOf = (session: ManagerSession): ReceiptAuthor => ({
+  id: session.sub,
   loginId: session.loginId,
   name: session.name,
   role: session.role,
@@ -109,7 +110,7 @@ export async function GET(request: Request) {
 
     if (params.get('mine') === '1') {
       if (!hasAnyPermission(session, ['sites'])) return fail(NEEDS_SITES, 403);
-      const [records, locked, sites] = await Promise.all([listReceiptRecordsByCreator(session.loginId), readLockedReceiptIds(), readSiteSummaries()]);
+      const [records, locked, sites] = await Promise.all([listReceiptRecordsByCreator(session.sub), readLockedReceiptIds(), readSiteSummaries()]);
       const mine = records
         .flatMap((record) => toReceiptView(record, author, locked) ?? [])
         .sort(newestFirst)

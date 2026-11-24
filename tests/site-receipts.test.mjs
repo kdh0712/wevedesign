@@ -28,10 +28,10 @@ import {
 const RECEIPT_ID = `rc-${'a'.repeat(24)}`;
 const OTHER_ID = `rc-${'b'.repeat(24)}`;
 const photo = (n = 1) => ({ id: String(n).repeat(16).slice(0, 16).replace(/[^0-9a-f]/g, 'a'), pathname: `receipts/${String(n).repeat(24).slice(0, 24)}.jpg`, width: 1200, height: 1600 });
-const uploader = { loginId: 'kim', name: '김가영', role: 'staff', permissions: ['sites'] };
-const otherStaff = { loginId: 'lee', name: '이나래', role: 'staff', permissions: ['sites'] };
-const estimator = { loginId: 'park', name: '박다솜', role: 'staff', permissions: ['estimates'] };
-const admin = { loginId: 'boss', name: '대표', role: 'admin', permissions: [] };
+const uploader = { id: 'uid-kim', loginId: 'kim', name: '김가영', role: 'staff', permissions: ['sites'] };
+const otherStaff = { id: 'uid-lee', loginId: 'lee', name: '이나래', role: 'staff', permissions: ['sites'] };
+const estimator = { id: 'uid-park', loginId: 'park', name: '박다솜', role: 'staff', permissions: ['estimates'] };
+const admin = { id: 'uid-boss', loginId: 'boss', name: '대표', role: 'admin', permissions: [] };
 
 test('constants and ids', () => {
   assert.equal(SITE_RECEIPTS_COLLECTION, 'siteReceipts');
@@ -122,6 +122,7 @@ test('newReceiptRecord and toReceiptView: the writer comes from the session and 
     receiptDate: '2026-11-24',
     createdAt: '2026-11-24T01:00:00.000Z',
     createdBy: 'kim',
+    createdById: 'uid-kim',
     createdByName: '김가영',
   });
 
@@ -140,6 +141,11 @@ test('newReceiptRecord and toReceiptView: the writer comes from the session and 
     locked: false,
   });
   assert.equal('createdBy' in mine, false);
+  assert.equal('createdById' in mine, false);
+  // "Mine" follows the account, not the login id: a Firebase account's login id can be its auth email at login and its
+  // profile email (or uid) after the phone's hourly session trade.
+  assert.equal(toReceiptView(record, { ...uploader, loginId: 'kim@other-mail' }, new Set()).mine, true);
+  assert.equal(toReceiptView(record, { ...otherStaff, loginId: 'kim' }, new Set()).mine, false);
   assert.equal(toReceiptView(record, otherStaff, new Set()).mine, false);
   assert.equal(toReceiptView(record, otherStaff, new Set([RECEIPT_ID])).locked, true);
 

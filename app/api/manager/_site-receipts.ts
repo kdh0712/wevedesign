@@ -48,8 +48,9 @@ export async function listReceiptRecordsOfSite(siteId: string): Promise<Row[]> {
   return queryFirestoreCollectionByField<Row>(SITE_RECEIPTS_COLLECTION, 'siteId', siteId);
 }
 
-export async function listReceiptRecordsByCreator(loginId: string): Promise<Row[]> {
-  return queryFirestoreCollectionByField<Row>(SITE_RECEIPTS_COLLECTION, 'createdBy', loginId);
+// The account's receipts (createdById is the session's sub).
+export async function listReceiptRecordsByCreator(accountId: string): Promise<Row[]> {
+  return queryFirestoreCollectionByField<Row>(SITE_RECEIPTS_COLLECTION, 'createdById', accountId);
 }
 
 // The receipts made into a work line of a saved, live estimate version: of one site, or of every site.
