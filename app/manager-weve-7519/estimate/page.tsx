@@ -37,6 +37,7 @@ import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
+import { DEFAULT_OVERHEAD_RATE, normalizeOverheadRate, overheadAmount } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
@@ -217,6 +218,8 @@ type SiteEstimate = {
   scheduleJson?: string;
   holidaysJson?: string;
   constructionStartDate?: string;
+  // 공과잡비 rate in %; missing on estimates saved before it existed (read as 0).
+  overheadRate?: number;
   purchaseOrdersJson?: string;
   purchaseOrderTemplatesJson?: string;
   extraItemsJson?: string;
@@ -636,6 +639,8 @@ export default function EstimateWorkspacePage() {
   const [holidays, setHolidays] = useState<string[]>([]);
   const [holidayDate, setHolidayDate] = useState(() => todayKey());
   const [constructionStartDate, setConstructionStartDate] = useState('');
+  // 공과잡비 rate of this version (spec 2026-11-24): 3 for a blank new estimate, 0 for one saved before it existed.
+  const [overheadRate, setOverheadRate] = useState(DEFAULT_OVERHEAD_RATE);
   const [calendarView, setCalendarView] = useState<'month' | 'startWeek'>('month');
   const [calendarWeekOffset, setCalendarWeekOffset] = useState(0);
   const [materialSettings, setMaterialSettings] = useState<MaterialSettings>(emptyMaterialSettings);
@@ -735,7 +740,7 @@ export default function EstimateWorkspacePage() {
     () => purchaseOrders.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + Number(item.quantity || 0) * Number(item.unitPrice || 0), 0), 0),
     [purchaseOrders],
   );
-  const totals = useMemo(() => calculateTotals(lines, workLines, extraItems), [extraItems, lines, workLines]);
+  const totals = useMemo(() => calculateTotals(lines, workLines, extraItems, overheadRate), [extraItems, lines, overheadRate, workLines]);
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
@@ -868,8 +873,8 @@ export default function EstimateWorkspacePage() {
   // Unsaved-change tracking: the load effects bump snapshotRequest after filling the editor from a saved version,
   // and the snapshot taken on that render becomes the "saved" state to compare against.
   const editorSnapshot = useMemo(
-    () => JSON.stringify({ versionType, versionLabel, memo, lines, workLines, schedule, purchaseOrders, purchaseOrderTemplatePresets, extraItems, holidays, constructionStartDate }),
-    [constructionStartDate, extraItems, holidays, lines, memo, purchaseOrderTemplatePresets, purchaseOrders, schedule, versionLabel, versionType, workLines],
+    () => JSON.stringify({ versionType, versionLabel, memo, lines, workLines, schedule, purchaseOrders, purchaseOrderTemplatePresets, extraItems, holidays, constructionStartDate, overheadRate }),
+    [constructionStartDate, extraItems, holidays, lines, memo, overheadRate, purchaseOrderTemplatePresets, purchaseOrders, schedule, versionLabel, versionType, workLines],
   );
   const legacySnapshot = useMemo(() => JSON.stringify(legacyWorkSites), [legacyWorkSites]);
   const hasUnsavedChanges = Boolean(savedSnapshot && (savedSnapshot.editor !== editorSnapshot || savedSnapshot.legacy !== legacySnapshot));
@@ -1001,6 +1006,7 @@ export default function EstimateWorkspacePage() {
       setSelectedLegacyWorkSiteId('');
       setHolidays([]);
       setConstructionStartDate('');
+      setOverheadRate(DEFAULT_OVERHEAD_RATE);
       setCalendarView('month');
       setCalendarWeekOffset(0);
       setSelectedLineId('');
@@ -1059,6 +1065,7 @@ export default function EstimateWorkspacePage() {
     setSelectedLegacyWorkSiteId(nextLegacyWorkSites[0]?.id || '');
     setHolidays(parseJson<string[]>(estimate?.holidaysJson, []));
     setConstructionStartDate(estimate?.constructionStartDate || '');
+    setOverheadRate(normalizeOverheadRate(estimate?.overheadRate));
     setCalendarView(estimate?.constructionStartDate ? 'startWeek' : 'month');
     setCalendarWeekOffset(0);
     setSelectedLineId('');
@@ -1347,6 +1354,7 @@ export default function EstimateWorkspacePage() {
           legacyWorkSites,
           holidays,
           constructionStartDate,
+          overheadRate,
           memo,
           createdAt: asNewVersion ? undefined : selectedEstimate?.createdAt,
         }),
@@ -1856,6 +1864,8 @@ export default function EstimateWorkspacePage() {
     setEditingExtraItemId('');
     setHolidays(copyCurrent ? [...holidays] : []);
     setConstructionStartDate(copyCurrent ? constructionStartDate : '');
+    // A copy keeps the rate the customer's earlier estimate had; a blank estimate starts at 3%.
+    setOverheadRate(copyCurrent ? overheadRate : DEFAULT_OVERHEAD_RATE);
     setCalendarWeekOffset(0);
     setSelectedLineId('');
     setStatus(`${nextLabel} 새 버전을 작성 중입니다. 저장하면 현장별 버전 목록에 추가됩니다.`);
@@ -2646,10 +2656,20 @@ export default function EstimateWorkspacePage() {
               />
             </div>
             <div className="grid gap-2 md:grid-cols-2">
-              <CompactMetric title="견적 금액" value={formatMoney(totals.customerEstimateTotal)} />
+              <CompactMetric
+                title="견적 금액"
+                value={formatMoney(totals.customerEstimateTotal)}
+                sub={totals.overheadAmount !== 0 ? `공과잡비 ${formatMoney(totals.overheadAmount)} 포함` : undefined}
+              />
               <CompactMetric title="예상 마진" value={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
               <CompactMetric title="견적 예상원가" value={formatMoney(totals.estimateExecutionCostTotal)} />
               <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm md:col-span-2">
+                <span className="font-semibold">공과잡비</span>
+                <OverheadRateInput value={overheadRate} onChange={setOverheadRate} />
+                <span className="text-[#4d5d66]">% · {formatMoney(totals.overheadAmount)}</span>
+                <span className="text-xs text-[#87949c]">공사비의 비율로 견적 금액에 더해져 서류에 한 줄로 나와요. 0%면 빠져요.</span>
+              </div>
             </div>
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#edf2f5] pt-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
@@ -2797,7 +2817,7 @@ export default function EstimateWorkspacePage() {
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2">
-                {dbLibraryCategories.slice(0, 10).map((category) => (
+                {dbLibraryCategories.map((category) => (
                   <button
                     key={category}
                     type="button"
@@ -6276,6 +6296,35 @@ function CellNumber({ value, onChange }: { value: number; onChange: (value: numb
   return <NumberTextInput value={value} onChange={onChange} className="w-full min-w-0" />;
 }
 
+// The 공과잡비 rate (%): typed freely, read with normalizeOverheadRate (0-20, one decimal) and tidied on blur.
+function OverheadRateInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [isEditing, setIsEditing] = useState(false);
+
+  useEffect(() => {
+    if (!isEditing) setText(String(value));
+  }, [isEditing, value]);
+
+  return (
+    <input
+      type="text"
+      value={text}
+      aria-label="공과잡비 비율(%)"
+      onFocus={() => setIsEditing(true)}
+      onChange={(event) => {
+        const next = event.target.value.replace(/[^0-9.]/g, '').slice(0, 4);
+        setText(next);
+        onChange(normalizeOverheadRate(next));
+      }}
+      onBlur={() => {
+        setIsEditing(false);
+        setText(String(normalizeOverheadRate(text)));
+      }}
+      className="w-14 rounded-md border border-[#d5dde2] px-2 py-1 text-right outline-none focus:border-[#38a9bd]"
+    />
+  );
+}
+
 function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
   const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
   const [isEditing, setIsEditing] = useState(false);
@@ -7709,8 +7758,11 @@ function buildEstimateDetailPrintPages(lines: EstimateLine[], totalAmount: numbe
   return paginateByHeight(groups, [{ type: 'total', key: 'detail-total', amount: totalAmount }], detailRowHeight, DETAIL_PAGE_CAPACITY_PX);
 }
 
-function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = []) {
-  const customerEstimateTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0));
+// customerEstimateTotal is what the customer pays: the construction total (the lines) plus its 공과잡비.
+function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extraItems: ExtraItem[] = [], overheadRate = 0) {
+  const constructionTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.customerUnitPrice || 0), 0));
+  const overhead = overheadAmount(constructionTotal, overheadRate);
+  const customerEstimateTotal = constructionTotal + overhead;
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
   const hasWorkLines = workLines.some(isMeaningfulWorkLine);
   const actualExecutionCostTotal = hasWorkLines
@@ -7723,6 +7775,9 @@ function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extr
   const actualMarginRate = customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / customerEstimateTotal) * 1000) / 10 : 0;
   return {
     customerEstimateTotal,
+    constructionTotal,
+    overheadRate,
+    overheadAmount: overhead,
     estimateExecutionCostTotal,
     actualExecutionCostTotal,
     executionCostTotal: actualExecutionCostTotal,
