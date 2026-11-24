@@ -40,6 +40,7 @@ import {
   type MaterialSettings,
   type MaterialSettingsChange,
 } from '../../../lib/estimate-save-safety';
+import { normalizeReceiptId } from '../../../lib/site-receipts';
 
 export const runtime = 'nodejs';
 
@@ -62,6 +63,8 @@ type EstimateLine = {
 type WorkLine = {
   id?: string;
   sourceLineId?: string;
+  // The 현장 영수증함 receipt the line was made from (spec 2026-11-24-site-receipts); kept only when it is a receipt id.
+  receiptId?: string;
   date?: string;
   space?: string;
   category?: string;
@@ -789,8 +792,10 @@ function normalizeWorkLines(lines: WorkLine[]) {
       const executionUnitPrice = toNumber(line.executionUnitPrice);
       const fallbackExpense = Math.round(quantity * executionUnitPrice);
       const expense = toNumber(line.expense) || fallbackExpense;
+      const receiptId = normalizeReceiptId(line.receiptId);
       return {
         id: line.id || `work-${Date.now()}-${index}`,
+        ...(receiptId ? { receiptId } : {}),
         sourceLineId: String(line.sourceLineId || '').trim(),
         date: String(line.date || '').trim(),
         space: String(line.space || '').trim(),

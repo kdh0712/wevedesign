@@ -214,6 +214,27 @@ const sameIdOtherIp = await login('admin', localEnv.MANAGER_PASSWORD, testIp());
 record('login limit: same ID from another address still logs in', sameIdOtherIp.status === 200, `status ${sameIdOtherIp.status}`);
 
 for (const { name, pass, detail } of results) console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}  ${detail}`);
+// 현장 영수증함 (spec 2026-11-24-site-receipts): the phone needs sites, a site's full list needs estimates.
+for (const who of ['missing', 'forged']) await expectStatus('GET', '/api/manager/receipts?mine=1', who, 401);
+await expectStatus('GET', '/api/manager/receipts?mine=1', 'consult', 403);
+await expectStatus('GET', '/api/manager/receipts?mine=1', 'sites', 200);
+await expectStatus('GET', '/api/manager/receipts?sites=1', 'estimates', 403);
+await expectStatus('GET', '/api/manager/receipts?sites=1', 'sites', 200);
+await expectStatus('GET', `/api/manager/receipts?siteId=${firstSiteId}`, 'sites', 403);
+await expectStatus('GET', `/api/manager/receipts?siteId=${firstSiteId}`, 'estimates', 200);
+const matrixReceipt = {
+  action: 'create',
+  siteId: 'matrix-missing-site',
+  photos: [{ id: '0'.repeat(16), pathname: `receipts/${'0'.repeat(24)}.jpg`, width: 1, height: 1 }],
+  amount: '',
+  memo: '',
+};
+await expectStatus('POST', '/api/manager/receipts', 'estimates', 403, matrixReceipt);
+// A site that does not exist: nothing is written.
+await expectStatus('POST', '/api/manager/receipts', 'sites', 404, matrixReceipt);
+await expectStatus('POST', '/api/manager/receipts', 'sites', 400, { ...matrixReceipt, photos: [] });
+await expectStatus('POST', '/api/manager/receipts', 'sites', 403, { action: 'setSkipped', id: `rc-${'0'.repeat(24)}`, skipped: true });
+
 const failed = results.filter((result) => !result.pass).length;
 console.log(`\n${results.length - failed}/${results.length} passed`);
 process.exit(failed ? 1 : 0);
