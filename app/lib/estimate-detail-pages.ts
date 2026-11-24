@@ -26,8 +26,8 @@ export function estimateTextLines(text: string, widthPx: number, fontPx: number)
 }
 
 // Packs rows onto pages of the given height. Each group (a 공사: its header row, lines and 소계) starts on a new page unless
-// its first rows (up to keepTogether) fit together, so a page never ends on a lone 공사 title. tail (the 총합계) follows
-// the last group. A row taller than a whole page still gets a page of its own.
+// its first rows (up to keepTogether) fit together, so a page never ends on a lone 공사 title. tail (공과잡비 and 총합계)
+// follows the last group and stays on one page. A row taller than a whole page still gets a page of its own.
 export function paginateByHeight<T>(groups: T[][], tail: T[], heightOf: (row: T) => number, capacity: number, keepTogether = 4): T[][] {
   const pages: T[][] = [];
   let page: T[] = [];
@@ -52,6 +52,13 @@ export function paginateByHeight<T>(groups: T[][], tail: T[], heightOf: (row: T)
       used = 0;
     }
     group.forEach(place);
+  }
+  // The closing rows (공과잡비, 총합계) go together: if they do not all fit, they start a new page.
+  const tailHeight = tail.reduce((sum, row) => sum + heightOf(row), 0);
+  if (page.length > 0 && tail.length > 0 && used + tailHeight > capacity) {
+    pages.push(page);
+    page = [];
+    used = 0;
   }
   tail.forEach(place);
   if (page.length > 0) pages.push(page);
