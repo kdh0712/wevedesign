@@ -318,3 +318,23 @@ test('@google-cloud/storage signs the V4 read URL locally and gives the same URL
     else process.env.STORAGE_EMULATOR_HOST = savedEmulatorHost;
   }
 });
+
+// 현장 영수증함 (spec 2026-11-24-site-receipts): receipt photos share the private bucket under their own receipts/ folder.
+test('a receipts store uploads under receipts/<24 hex>.<ext> and never deletes a progress photo', async () => {
+  const fake = fakeBucket();
+  const store = createProgressPhotoStore({ bucket: () => fake.bucket, folder: 'receipts', log: () => {} });
+  const uploaded = await store.upload(Buffer.from('jpeg bytes'), 'image/jpeg');
+  assert.match(uploaded.pathname, /^receipts\/[0-9a-f]{24}\.jpg$/);
+  assert.equal(fake.calls.save[0].pathname, uploaded.pathname);
+
+  const receiptPath = `receipts/${'b'.repeat(24)}.jpg`;
+  await store.remove([receiptPath, stored(1).pathname, '']);
+  assert.deepEqual(fake.calls.delete, [{ pathname: receiptPath, options: { ignoreNotFound: true } }]);
+});
+
+test('a progress store never deletes a receipt photo', async () => {
+  const fake = fakeBucket();
+  const { store } = storeWith(fake);
+  await store.remove([`receipts/${'b'.repeat(24)}.jpg`, stored(1).pathname]);
+  assert.deepEqual(fake.calls.delete, [{ pathname: stored(1).pathname, options: { ignoreNotFound: true } }]);
+});

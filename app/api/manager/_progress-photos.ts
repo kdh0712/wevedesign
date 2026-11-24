@@ -8,7 +8,8 @@
 import { randomBytes } from 'node:crypto';
 import type { Bucket } from '@google-cloud/storage';
 import type { ProgressPhotoView, ProgressUpdate, ProgressUpdateView, StoredProgressPhoto } from '../../lib/site-progress.ts';
-import { isProgressPhotoPathname, progressPhotoPathname } from './_progress-request.ts';
+import { isReceiptPhotoPathname } from '../../lib/site-receipts.ts';
+import { isProgressPhotoPathname, progressPhotoPathname, receiptPhotoPathname } from './_progress-request.ts';
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -69,20 +70,29 @@ export function photoUrlWindow(nowMs: number): { accessibleAt: number; expires: 
 
 export type ProgressPhotoBucket = Pick<Bucket, 'file'>;
 
+// folder: 'progress' (customer progress photos, the default) or 'receipts' (현장 영수증함). A store writes only under its own
+// folder and deletes only pathnames of its own folder.
+const FOLDERS = {
+  progress: { pathname: progressPhotoPathname, owns: isProgressPhotoPathname },
+  receipts: { pathname: receiptPhotoPathname, owns: isReceiptPhotoPathname },
+} as const;
+
 export function createProgressPhotoStore(options: {
   // Called per operation; throws when storage is not configured.
   bucket: () => ProgressPhotoBucket;
+  folder?: keyof typeof FOLDERS;
   now?: () => number;
   log?: (message: string, error: unknown) => void;
 }) {
   const { bucket } = options;
+  const folder = FOLDERS[options.folder ?? 'progress'];
   const now = options.now ?? Date.now;
   const log = options.log ?? ((message: string, error: unknown) => console.error(message, storageErrorSummary(error)));
 
   // Stores the photo under a new pathname. It never overwrites (the object must not exist yet), and nothing from the site
   // or the file goes into the name.
   async function upload(bytes: Buffer, contentType: string): Promise<{ id: string; pathname: string }> {
-    const pathname = progressPhotoPathname(contentType, randomBytes(12).toString('hex'));
+    const pathname = folder.pathname(contentType, randomBytes(12).toString('hex'));
     await bucket()
       .file(pathname)
       .save(bytes, {
@@ -126,7 +136,7 @@ export function createProgressPhotoStore(options: {
   // Deletes the objects, each pathname once; one that is already gone counts as deleted. A failure is logged and never
   // reaches the caller: the record is already gone, and the object stays behind as an orphan.
   async function remove(pathnames: readonly string[]): Promise<void> {
-    const targets = [...new Set(pathnames.filter(isProgressPhotoPathname))];
+    const targets = [...new Set(pathnames.filter((pathname) => folder.owns(pathname)))];
     if (targets.length === 0) return;
     let target: ProgressPhotoBucket;
     try {

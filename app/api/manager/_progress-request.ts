@@ -114,6 +114,11 @@ export function progressPhotoPathname(contentType: string, randomHex: string): s
   return `progress/${randomHex}.${extension}`;
 }
 
+// A 현장 영수증함 photo (spec 2026-11-24-site-receipts): the same rule under receipts/, so the two folders never mix.
+export function receiptPhotoPathname(contentType: string, randomHex: string): string {
+  return progressPhotoPathname(contentType, randomHex).replace(/^progress\//, 'receipts/');
+}
+
 export function checkPhotoUpload(type: string, size: number): { ok: true } | { ok: false; status: 400 | 413; error: string } {
   if (!PHOTO_TYPES.has(type)) return { ok: false, status: 400, error: 'JPG, PNG, WEBP 사진만 올릴 수 있습니다.' };
   if (!(size > 0)) return { ok: false, status: 400, error: '사진 파일이 비어 있습니다.' };
