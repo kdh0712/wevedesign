@@ -156,8 +156,9 @@ export async function POST(request: Request) {
     if (parsed.action === 'create') {
       if (!hasAnyPermission(session, ['sites'])) return fail(NEEDS_SITES, 403);
       if (!(await liveSite(parsed.siteId))) return fail(SITE_NOT_FOUND, 404);
-      const { siteId, photos, amount, memo } = parsed;
-      const saved = await createReceiptRecord({ siteId, photos, amount, memo }, author, nowIso, todayInSeoul(nowMs));
+      const { siteId, photos, amount, memo, process, note, receiptDate } = parsed;
+      // The receipt's date is the day it was saved unless the uploader picked another (a receipt from earlier).
+      const saved = await createReceiptRecord({ siteId, photos, amount, memo, process, note }, author, nowIso, receiptDate || todayInSeoul(nowMs));
       const receipt = toReceiptView(saved, author, new Set());
       if (!receipt) throw new Error('Saved receipt could not be read back.');
       const signed = await signReceipts([receipt]);
@@ -181,7 +182,15 @@ export async function POST(request: Request) {
       const allowed = canChangeReceipt(receipt, author, 'edit');
       if (!allowed.ok) return fail(allowed.error, allowed.status);
       if (parsed.siteId !== receipt.siteId && !(await liveSite(parsed.siteId))) return fail(SITE_NOT_FOUND, 404);
-      const saved = await updateReceiptRecord(receipt.id, { siteId: parsed.siteId, amount: parsed.amount, memo: parsed.memo, updatedAt: nowIso });
+      const saved = await updateReceiptRecord(receipt.id, {
+        siteId: parsed.siteId,
+        amount: parsed.amount,
+        memo: parsed.memo,
+        process: parsed.process,
+        note: parsed.note,
+        ...(parsed.receiptDate ? { receiptDate: parsed.receiptDate } : {}),
+        updatedAt: nowIso,
+      });
       const view = toReceiptView(saved, author, new Set());
       if (!view) return fail(RECEIPT_NOT_FOUND, 404);
       return json({ receipt: (await signReceipts([view])).receipts[0] });

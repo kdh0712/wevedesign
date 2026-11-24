@@ -42,10 +42,11 @@ export function createReceiptApi(request: SiteNotesRequest) {
       if (!data.photo) throw new Error('사진 정보를 받지 못했어요.');
       return data.photo as StoredProgressPhoto;
     },
-    async create(input: { siteId: string; photos: StoredProgressPhoto[]; amount: string; memo: string }): Promise<SiteReceiptView> {
+    // process (공종), note (비고) and receiptDate ('' = today) are optional (spec 2026-11-24-phone-work-lines).
+    async create(input: { siteId: string; photos: StoredProgressPhoto[]; amount: string; memo: string; process: string; note: string; receiptDate: string }): Promise<SiteReceiptView> {
       return (await post({ action: 'create', ...input })).receipt as SiteReceiptView;
     },
-    async update(input: { id: string; siteId: string; amount: string; memo: string }): Promise<SiteReceiptView> {
+    async update(input: { id: string; siteId: string; amount: string; memo: string; process: string; note: string; receiptDate: string }): Promise<SiteReceiptView> {
       return (await post({ action: 'update', ...input })).receipt as SiteReceiptView;
     },
     async setSkipped(id: string, skipped: boolean): Promise<SiteReceiptView> {
@@ -58,3 +59,24 @@ export function createReceiptApi(request: SiteNotesRequest) {
 }
 
 export type ReceiptApi = ReturnType<typeof createReceiptApi>;
+
+// 폰 실행내역서 직접 등록 (spec 2026-11-24-phone-work-lines): the version a line goes into with its 공종 names, and adding one.
+export type WorkLineTarget = { target: { id: string; label: string } | null; processes: string[] };
+
+export function createPhoneWorkLineApi(request: SiteNotesRequest) {
+  const URL = '/api/manager/mobile/work-line';
+  return {
+    async target(siteId: string): Promise<WorkLineTarget> {
+      const data = await request(`${URL}?siteId=${encodeURIComponent(siteId)}`);
+      const target = data.target && typeof data.target === 'object' ? (data.target as { id: string; label: string }) : null;
+      return { target, processes: Array.isArray(data.processes) ? (data.processes as string[]) : [] };
+    },
+    async add(input: { siteId: string; date: string; process: string; expense: string; note: string }): Promise<{ label: string }> {
+      const data = await request(URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
+      const target = data.target && typeof data.target === 'object' ? (data.target as { label?: string }) : {};
+      return { label: String(target.label || '실행내역서') };
+    },
+  };
+}
+
+export type PhoneWorkLineApi = ReturnType<typeof createPhoneWorkLineApi>;

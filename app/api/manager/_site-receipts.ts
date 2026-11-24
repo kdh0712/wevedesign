@@ -21,7 +21,7 @@ type Row = Record<string, unknown>;
 
 // exists:false: a (practically impossible) id collision fails instead of replacing another receipt.
 export async function createReceiptRecord(
-  input: { siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string },
+  input: { siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string; process: string; note: string },
   author: ReceiptAuthor,
   nowIso: string,
   receiptDate: string,

@@ -11,6 +11,9 @@ export const RECEIPT_MAX_PHOTOS = 3;
 export const RECEIPT_MEMO_MAX = 100;
 export const RECEIPT_AMOUNT_MAX = 100_000_000;
 export const MY_RECEIPTS_LIMIT = 50;
+// 공종 and 비고 the uploader may add for the 실행 line (spec 2026-11-24-phone-work-lines).
+export const RECEIPT_PROCESS_MAX = 40;
+export const RECEIPT_NOTE_MAX = 100;
 
 export const LOCKED_RECEIPT_ERROR = '실행내역서에 들어간 영수증은 바꿀 수 없어요. 실행내역서의 줄을 고쳐 주세요.';
 const UNKNOWN_REQUEST = '알 수 없는 요청입니다.';
@@ -68,18 +71,31 @@ function parseReceiptPhoto(value: unknown): StoredProgressPhoto | null {
   return { id: item.id, pathname: item.pathname, width: item.width as number, height: item.height as number };
 }
 
-type Fields = { amount: number | null; memo: string };
+const isCalendarDate = (value: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
+// receiptDate '' means "not given": a new receipt takes today, an edit keeps the stored date.
+type Fields = { amount: number | null; memo: string; process: string; note: string; receiptDate: string };
 function parseFields(input: Record<string, unknown>): { ok: true; value: Fields } | { ok: false; error: string } {
   const amount = parseReceiptAmount(input.amount);
   if (!amount.ok) return amount;
   const memo = str(input.memo).trim();
   if (memo.length > RECEIPT_MEMO_MAX) return { ok: false, error: `메모는 ${RECEIPT_MEMO_MAX}자까지 쓸 수 있어요.` };
-  return { ok: true, value: { amount: amount.amount, memo } };
+  const process = str(input.process).trim();
+  if (process.length > RECEIPT_PROCESS_MAX) return { ok: false, error: `공종은 ${RECEIPT_PROCESS_MAX}자까지 쓸 수 있어요.` };
+  const note = str(input.note).trim();
+  if (note.length > RECEIPT_NOTE_MAX) return { ok: false, error: `비고는 ${RECEIPT_NOTE_MAX}자까지 쓸 수 있어요.` };
+  const receiptDate = str(input.receiptDate).trim();
+  if (receiptDate && !isCalendarDate(receiptDate)) return { ok: false, error: '날짜를 확인해 주세요.' };
+  return { ok: true, value: { amount: amount.amount, memo, process, note, receiptDate } };
 }
 
 export type ReceiptAction =
-  | { ok: true; action: 'create'; siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string }
-  | { ok: true; action: 'update'; id: string; siteId: string; amount: number | null; memo: string }
+  | ({ ok: true; action: 'create'; siteId: string; photos: StoredProgressPhoto[] } & Fields)
+  | ({ ok: true; action: 'update'; id: string; siteId: string } & Fields)
   | { ok: true; action: 'setSkipped'; id: string; skipped: boolean }
   | { ok: true; action: 'delete'; id: string }
   | { ok: false; error: string };
@@ -119,7 +135,7 @@ export function parseReceiptAction(body: unknown): ReceiptAction {
 
 // createdById (the account) is a top-level string so "my receipts" is one equality query; createdBy keeps the login id.
 export function newReceiptRecord(
-  input: { id: string; siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string },
+  input: { id: string; siteId: string; photos: StoredProgressPhoto[]; amount: number | null; memo: string; process: string; note: string },
   author: ReceiptAuthor,
   nowIso: string,
   receiptDate: string,
@@ -130,6 +146,8 @@ export function newReceiptRecord(
     photos: input.photos,
     amount: input.amount,
     memo: input.memo,
+    process: input.process,
+    note: input.note,
     receiptDate,
     createdAt: nowIso,
     createdBy: author.loginId,
@@ -151,6 +169,8 @@ export type SiteReceipt = {
   photos: StoredProgressPhoto[];
   amount: number | null;
   memo: string;
+  process: string;
+  note: string;
   receiptDate: string;
   createdAt: string;
   createdByName: string;
@@ -180,6 +200,8 @@ export function toReceiptView(record: Record<string, unknown>, viewer: ReceiptAu
     photos,
     amount,
     memo: str(record.memo),
+    process: str(record.process),
+    note: str(record.note),
     receiptDate: str(record.receiptDate),
     createdAt: str(record.createdAt),
     createdByName: str(record.createdByName),
@@ -234,14 +256,21 @@ export function canChangeReceipt(
   };
 }
 
-// The 실행 항목 입력 row a receipt fills: its date, its amount as 지출 and its memo as 비고. 공종 is left to staff.
-export function receiptWorkLineDraft(receipt: Pick<SiteReceipt, 'id' | 'receiptDate' | 'amount' | 'memo'>): {
+// The 실행 항목 입력 row a receipt fills: its date, 공종, amount as 지출, and 비고 (else the memo, else '영수증').
+export function receiptWorkLineDraft(receipt: Pick<SiteReceipt, 'id' | 'receiptDate' | 'amount' | 'memo' | 'process' | 'note'>): {
   date: string;
+  process: string;
   expense: number;
   note: string;
   receiptId: string;
 } {
-  return { date: receipt.receiptDate, expense: receipt.amount ?? 0, note: receipt.memo || '영수증', receiptId: receipt.id };
+  return {
+    date: receipt.receiptDate,
+    process: receipt.process || '',
+    expense: receipt.amount ?? 0,
+    note: receipt.note || receipt.memo || '영수증',
+    receiptId: receipt.id,
+  };
 }
 
 // The PC status of a receipt for the open estimate version: done when the version on screen has a line made from it
