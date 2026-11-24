@@ -52,3 +52,21 @@ test('the closing rows (공과잡비 and 총합계) stay together on one page', 
   assert.deepEqual(paginateByHeight([['g', 'a', 'b', 'c']], ['o', 't'], ten, 50), [['g', 'a', 'b', 'c'], ['o', 't']]);
   assert.deepEqual(paginateByHeight([['g', 'a', 'b']], ['o', 't'], ten, 50), [['g', 'a', 'b', 'o', 't']]);
 });
+
+// 갑지 (summary) on one A4 landscape page: at least 13 rows (blank rows fill), and the rows get tighter when a site has
+// more 공정 than that, so the 갑지 never spills onto a second page.
+test('summaryLayout: blank rows fill to 13, density tightens past 13 and 15 rows', async () => {
+  const { SUMMARY_MIN_ROWS, summaryLayout } = await import('../app/lib/estimate-detail-pages.ts');
+  assert.equal(SUMMARY_MIN_ROWS, 13);
+  assert.deepEqual(summaryLayout(8, false), { blankRows: 5, density: 'normal' });
+  assert.deepEqual(summaryLayout(8, true), { blankRows: 4, density: 'normal' });
+  assert.deepEqual(summaryLayout(13, false), { blankRows: 0, density: 'normal' });
+  assert.deepEqual(summaryLayout(12, true), { blankRows: 0, density: 'normal' });
+  assert.deepEqual(summaryLayout(13, true), { blankRows: 0, density: 'tight' });
+  assert.deepEqual(summaryLayout(14, true), { blankRows: 0, density: 'tight' });
+  // Measured: 16 rows at the tight spacing come to 192mm, past the 188mm page.
+  assert.deepEqual(summaryLayout(15, true), { blankRows: 0, density: 'tightest' });
+  assert.deepEqual(summaryLayout(16, false), { blankRows: 0, density: 'tightest' });
+  assert.deepEqual(summaryLayout(17, false), { blankRows: 0, density: 'tightest' });
+  assert.deepEqual(summaryLayout(0, false), { blankRows: 13, density: 'normal' });
+});

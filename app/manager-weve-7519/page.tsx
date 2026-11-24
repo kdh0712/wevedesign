@@ -50,6 +50,7 @@ import { AcquisitionPanel } from './acquisition-panel';
 import { AcquisitionTab } from './acquisition-tab';
 import { createSiteNotesApi, fetchWithHeaders } from './site-notes-api';
 import { SiteNotesSection } from './site-notes-section';
+import { CommaTextInput } from './comma-text-input';
 import { CustomerSiteTab, type ConsultationDraft } from './customer-site-tab';
 import type { CategoryOption, ManagedProject, ManagedProjectImage } from './project-types';
 import { ProjectUploadPanel } from './project-upload';
@@ -2194,8 +2195,8 @@ export default function ManagerPage() {
                     fields={[
                       { label: '고객명', value: saleForm.customerName, onChange: (value) => setSaleForm({ ...saleForm, customerName: value }) },
                       { label: '현장명', value: saleForm.projectTitle, onChange: (value) => setSaleForm({ ...saleForm, projectTitle: value }) },
-                      { label: '매출액', value: saleForm.amount ? Number(saleForm.amount).toLocaleString('ko-KR') : '', onChange: (value) => setSaleForm({ ...saleForm, amount: onlyNumber(value) }) },
-                      { label: '원가', value: saleForm.cost ? Number(saleForm.cost).toLocaleString('ko-KR') : '', onChange: (value) => setSaleForm({ ...saleForm, cost: onlyNumber(value) }) },
+                      { label: '매출액', value: saleForm.amount, amount: true, onChange: (value) => setSaleForm({ ...saleForm, amount: onlyNumber(value) }) },
+                      { label: '원가', value: saleForm.cost, amount: true, onChange: (value) => setSaleForm({ ...saleForm, cost: onlyNumber(value) }) },
                       { label: '상태', value: saleForm.status, onChange: (value) => setSaleForm({ ...saleForm, status: value }), options: ['견적', '계약', '입금 예정', '부분 입금', '입금 완료', '취소'] },
                       { label: '입금일', value: saleForm.paymentDate, onChange: (value) => setSaleForm({ ...saleForm, paymentDate: value }) },
                       { label: '메모', value: saleForm.memo, onChange: (value) => setSaleForm({ ...saleForm, memo: value }), textarea: true },
@@ -5420,6 +5421,8 @@ function OfficeForm({
     label: string;
     value: string;
     textarea?: boolean;
+    // A money field: thousands commas while typing (10,000); onChange gets the formatted text.
+    amount?: boolean;
     options?: string[];
     placeholder?: string;
     required?: boolean;
@@ -5466,6 +5469,14 @@ function OfficeForm({
                 onChange={(event) => field.onChange(event.target.value)}
                 rows={4}
                 className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 font-normal outline-none focus:border-[#8f6f43]"
+              />
+            ) : field.amount ? (
+              <CommaTextInput
+                value={field.value}
+                required={field.required}
+                placeholder={field.placeholder}
+                onChange={field.onChange}
+                className="rounded-md border border-[#d8d1c5] bg-[#fffdf8] px-3 py-2 text-right font-normal outline-none focus:border-[#8f6f43]"
               />
             ) : (
               <input

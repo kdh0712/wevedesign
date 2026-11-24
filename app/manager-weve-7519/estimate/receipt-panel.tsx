@@ -6,6 +6,7 @@
 import { ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RECEIPT_MEMO_MAX, parseReceiptAmount, receiptVersionStatus, receiptWorkLineDraft, type SiteReceiptView } from '../../lib/site-receipts';
+import { CommaTextInput } from '../comma-text-input';
 import type { ReceiptApi } from '../receipt-api';
 
 export type ReceiptLineDraft = ReturnType<typeof receiptWorkLineDraft>;
@@ -178,7 +179,7 @@ export function ReceiptPanel({
                 </option>
               ))}
             </select>
-            <input value={editing.amount} onChange={(event) => setEditing({ ...editing, amount: event.target.value })} placeholder="금액" aria-label="금액" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
+            <CommaTextInput value={editing.amount} onChange={(text) => setEditing({ ...editing, amount: text })} placeholder="금액" aria-label="금액" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-right text-sm" />
             <input value={editing.memo} onChange={(event) => setEditing({ ...editing, memo: event.target.value })} maxLength={RECEIPT_MEMO_MAX} placeholder="메모" aria-label="메모" className="rounded-md border border-[#d5dde2] px-2 py-1.5 text-sm" />
             <span className="flex gap-1.5">
               <button type="button" onClick={saveEdit} disabled={busy} className="rounded-md bg-[#273541] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">

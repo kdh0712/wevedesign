@@ -36,13 +36,14 @@ import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
-import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight } from '../../lib/estimate-detail-pages';
+import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight, summaryLayout, type SummaryDensity } from '../../lib/estimate-detail-pages';
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
+import { NumberTextInput } from './number-text-input';
 import { CommonOptionPicker, CommonOptionsField } from './common-options';
 
 type Site = {
@@ -2546,6 +2547,14 @@ export default function EstimateWorkspacePage() {
             overflow: visible !important;
           }
           #estimate-print > section.print-landscape.print-detail {
+            width: ${DETAIL_PAGE_WIDTH_MM}mm !important;
+            height: ${DETAIL_PAGE_HEIGHT_MM}mm !important;
+            min-height: 0 !important;
+            zoom: 1 !important;
+            break-inside: avoid-page !important;
+            page-break-inside: avoid !important;
+          }
+          #estimate-print > section.print-landscape.print-sheet {
             width: ${DETAIL_PAGE_WIDTH_MM}mm !important;
             height: ${DETAIL_PAGE_HEIGHT_MM}mm !important;
             min-height: 0 !important;
@@ -6371,33 +6380,6 @@ function OverheadRateInput({ value, onChange }: { value: number; onChange: (valu
   );
 }
 
-function NumberTextInput({ value, onChange, className = '' }: { value: number; onChange: (value: number) => void; className?: string }) {
-  const [displayValue, setDisplayValue] = useState(formatNumberInput(value));
-  const [isEditing, setIsEditing] = useState(false);
-
-  useEffect(() => {
-    if (!isEditing) setDisplayValue(formatNumberInput(value));
-  }, [isEditing, value]);
-
-  return (
-    <input
-      type="text"
-      value={displayValue}
-      onFocus={() => setIsEditing(true)}
-      onBlur={() => {
-        setIsEditing(false);
-        setDisplayValue(formatNumberInput(value));
-      }}
-      onChange={(event) => {
-        const nextValue = normalizeNumberInputText(event.target.value);
-        setDisplayValue(nextValue);
-        onChange(parseNumberInput(nextValue));
-      }}
-      className={`${className} rounded-md border border-[#d5dde2] px-2 py-2 text-right outline-none focus:border-[#38a9bd]`}
-    />
-  );
-}
-
 function LandscapeEstimateDocumentPreview({
   site,
   lines,
@@ -6417,6 +6399,9 @@ function LandscapeEstimateDocumentPreview({
 }) {
   const visibleLines = lines.filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
+  // The 갑지 keeps to one A4 page: blank rows fill to 13 and more 공정 draw tighter rows (summaryLayout).
+  const summary = summaryLayout(grouped.length, totals.overheadAmount !== 0);
+  const summaryCell = SUMMARY_CELL[summary.density];
   const detailPages = buildEstimateDetailPrintPages(lines, totals);
   const safeDetailPreviewPageIndex = Math.min(Math.max(0, detailPreviewPageIndex), Math.max(0, detailPages.length - 1));
   const today = new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
@@ -6476,20 +6461,20 @@ function LandscapeEstimateDocumentPreview({
       )}
 
       {view === 'summary' && (
-        <section className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] border border-[#111] bg-white px-8 py-7 text-[#111] print:max-w-none print:border print:px-7 print:py-6">
-          <h1 className="mx-auto w-[340px] border-2 border-[#93bd5b] py-2 text-center text-3xl font-semibold tracking-[0.5em]">견 적 서</h1>
-          <header className="mt-4 grid grid-cols-[1fr_360px] gap-10 text-sm leading-6">
+        <FixedLandscapePage className="print-sheet border border-[#111] bg-white px-7 py-5 text-[#111]">
+          <h1 className="mx-auto w-[300px] border-2 border-[#93bd5b] py-1 text-center text-2xl font-semibold tracking-[0.5em]">견 적 서</h1>
+          <header className="mt-3 grid grid-cols-[1fr_340px] gap-8 text-sm leading-[22px]">
             <div>
-              <div className="grid grid-cols-[145px_1fr] gap-x-4 text-base leading-7">
+              <div className="grid grid-cols-[145px_1fr] gap-x-4 text-sm leading-[22px]">
                 <span>{today}</span>
                 <span>{customerAddress}</span>
                 <span>{site?.siteType ? `${site.siteType}` : ''}</span>
                 <span>{customerName} 님 귀하</span>
               </div>
-              <div className="mt-2 grid grid-cols-[145px_1fr] border-t border-[#111] pt-2 text-base">
-                <div className="text-center text-lg font-semibold leading-7">
+              <div className="mt-2 grid grid-cols-[145px_1fr] border-t border-[#111] pt-2 text-sm">
+                <div className="text-center text-base font-semibold leading-6">
                   <p>합계금액</p>
-                  <p className="text-base font-normal">(부가세 별도)</p>
+                  <p className="text-sm font-normal">(부가세 별도)</p>
                 </div>
                 <div className="flex items-end justify-between gap-4 font-semibold">
                   <span>일금&nbsp;&nbsp; {estimateAmountText} 원정</span>
@@ -6497,7 +6482,7 @@ function LandscapeEstimateDocumentPreview({
                 </div>
               </div>
             </div>
-            <div className="pt-8 text-base leading-7">
+            <div className="pt-4 text-sm leading-[22px]">
               <p>등록 번호 <span className="float-right">{company.businessNumber}</span></p>
               <p>{company.address}</p>
               <p>{company.name}</p>
@@ -6505,7 +6490,7 @@ function LandscapeEstimateDocumentPreview({
               <p>T-{company.phone} <span className="float-right">FAX-{company.fax}</span></p>
             </div>
           </header>
-          <table className="mt-2 w-full table-fixed border-collapse text-base">
+          <table className="mt-2 w-full table-fixed border-collapse text-sm">
             <colgroup>
               <col className="w-[30%]" />
               <col className="w-[20%]" />
@@ -6517,50 +6502,50 @@ function LandscapeEstimateDocumentPreview({
             <thead>
               <tr className="bg-[#f3f1ec]">
                 {['공정', '규격', '산식', '단위', '금액', '세액'].map((header) => (
-                  <th key={header} className="border border-[#111] px-3 py-1.5 text-center text-lg font-semibold tracking-[0.25em]">{header}</th>
+                  <th key={header} className="border border-[#111] px-3 py-1 text-center text-base font-semibold tracking-[0.25em]">{header}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {grouped.map((group, index) => (
                 <tr key={group.category}>
-                  <td className="border border-[#111] px-3 py-1.5">{index + 1}. {group.category}</td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
-                  <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
-                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(group.customerAmount)}</td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className={summaryCell}>{index + 1}. {group.category}</td>
+                  <td className={summaryCell}></td>
+                  <td className={`${summaryCell} text-center`}>1</td>
+                  <td className={`${summaryCell} text-center`}>식</td>
+                  <td className={`${summaryCell} text-right`}>{formatPlainNumber(group.customerAmount)}</td>
+                  <td className={summaryCell}></td>
                 </tr>
               ))}
-              {Array.from({ length: Math.max(0, 13 - grouped.length - (totals.overheadAmount !== 0 ? 1 : 0)) }).map((_, index) => (
+              {Array.from({ length: summary.blankRows }).map((_, index) => (
                 <tr key={`summary-blank-${index}`}>
-                  <td className="border border-[#111] px-3 py-1.5">&nbsp;</td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className={summaryCell}>&nbsp;</td>
+                  <td className={summaryCell}></td>
+                  <td className={summaryCell}></td>
+                  <td className={summaryCell}></td>
+                  <td className={summaryCell}></td>
+                  <td className={summaryCell}></td>
                 </tr>
               ))}
               {totals.overheadAmount !== 0 && (
                 <tr className="font-semibold">
-                  <td className="border border-[#111] px-3 py-1.5">{overheadLabel(totals.overheadRate)}</td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
-                  <td className="border border-[#111] px-3 py-1.5 text-center">1</td>
-                  <td className="border border-[#111] px-3 py-1.5 text-center">식</td>
-                  <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(totals.overheadAmount)}</td>
-                  <td className="border border-[#111] px-3 py-1.5"></td>
+                  <td className={summaryCell}>{overheadLabel(totals.overheadRate)}</td>
+                  <td className={summaryCell}></td>
+                  <td className={`${summaryCell} text-center`}>1</td>
+                  <td className={`${summaryCell} text-center`}>식</td>
+                  <td className={`${summaryCell} text-right`}>{formatPlainNumber(totals.overheadAmount)}</td>
+                  <td className={summaryCell}></td>
                 </tr>
               )}
-              <tr className="bg-[#f8e8da] text-lg font-semibold">
-                <td className="border border-[#111] px-3 py-2 text-center" colSpan={4}>합계 (부가세 별도)</td>
-                <td className="border border-[#111] px-3 py-2 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
-                <td className="border border-[#111] px-3 py-2"></td>
+              <tr className="bg-[#f8e8da] text-base font-semibold">
+                <td className="border border-[#111] px-3 py-1.5 text-center" colSpan={4}>합계 (부가세 별도)</td>
+                <td className="border border-[#111] px-3 py-1.5 text-right">{formatPlainNumber(totals.customerEstimateTotal)}</td>
+                <td className="border border-[#111] px-3 py-1.5"></td>
               </tr>
             </tbody>
           </table>
           <p className="mt-1 text-sm">※ 비고 및 특이사항</p>
-        </section>
+        </FixedLandscapePage>
       )}
 
       {view === 'detail' && (
@@ -6629,23 +6614,17 @@ function detailRowHeight(row: DetailPrintRow): number {
 
 // One printed page of the 세부내역서, at its printed size (277 x 188 mm) on screen as well, so the preview shows exactly what
 // prints. On screen it is scaled down (CSS zoom) to the space it has; print resets the zoom.
-function DetailEstimatePrintPage({
-  rows,
-  pageNumber,
-  pageTotal,
-  companyName,
-  documentTitle,
-  hiddenOnScreen = false,
-}: {
-  rows: DetailPrintRow[];
-  pageNumber: number;
-  pageTotal: number;
-  companyName: string;
-  documentTitle: string;
-  hiddenOnScreen?: boolean;
-}) {
-  const pageRef = useRef<HTMLElement | null>(null);
+// The 갑지 row spacing per density (estimate-detail-pages summaryLayout).
+const SUMMARY_CELL: Record<SummaryDensity, string> = {
+  normal: 'border border-[#111] px-3 py-1 leading-5',
+  tight: 'border border-[#111] px-3 py-0.5 leading-5',
+  tightest: 'border border-[#111] px-3 py-0 text-[12px] leading-4',
+};
 
+// A fixed A4 landscape page (DETAIL_PAGE_WIDTH_MM × DETAIL_PAGE_HEIGHT_MM) shrunk on screen to fit its column, so the
+// screen shows exactly what prints. Printing resets the zoom (#estimate-print > section.print-landscape rules).
+function useFitPageZoom() {
+  const pageRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const page = pageRef.current;
     const parent = page?.parentElement;
@@ -6661,6 +6640,38 @@ function DetailEstimatePrintPage({
     observer.observe(parent);
     return () => observer.disconnect();
   }, []);
+  return pageRef;
+}
+
+function FixedLandscapePage({ className, children }: { className: string; children: ReactNode }) {
+  const pageRef = useFitPageZoom();
+  return (
+    <section
+      ref={pageRef}
+      style={{ width: `${DETAIL_PAGE_WIDTH_MM}mm`, height: `${DETAIL_PAGE_HEIGHT_MM}mm` }}
+      className={`print-landscape mx-auto box-border shrink-0 ${className}`}
+    >
+      {children}
+    </section>
+  );
+}
+
+function DetailEstimatePrintPage({
+  rows,
+  pageNumber,
+  pageTotal,
+  companyName,
+  documentTitle,
+  hiddenOnScreen = false,
+}: {
+  rows: DetailPrintRow[];
+  pageNumber: number;
+  pageTotal: number;
+  companyName: string;
+  documentTitle: string;
+  hiddenOnScreen?: boolean;
+}) {
+  const pageRef = useFitPageZoom();
 
   return (
     <section
@@ -8035,26 +8046,6 @@ function softenColor(color: string) {
 
 function formatNumber(value: number) {
   return Number(value || 0).toLocaleString('ko-KR');
-}
-
-function formatNumberInput(value: number) {
-  if (value === undefined || value === null || Number.isNaN(Number(value))) return '';
-  return Number(value).toLocaleString('ko-KR');
-}
-
-function normalizeNumberInputText(value: string) {
-  const cleaned = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
-  const sign = cleaned.startsWith('-') ? '-' : '';
-  const unsigned = cleaned.replace(/-/g, '');
-  const [integer = '', ...decimalParts] = unsigned.split('.');
-  if (cleaned.includes('.')) return `${sign}${integer}.${decimalParts.join('')}`;
-  return `${sign}${integer}`;
-}
-
-function parseNumberInput(value: string) {
-  const normalized = value.replace(/,/g, '').replace(/[^0-9.-]/g, '');
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function parseJson<T>(value: string | undefined, fallback: T): T {

@@ -64,3 +64,18 @@ export function paginateByHeight<T>(groups: T[][], tail: T[], heightOf: (row: T)
   if (page.length > 0) pages.push(page);
   return pages;
 }
+
+// The 견적 갑지 on one A4 landscape page (the same DETAIL_PAGE_WIDTH_MM × DETAIL_PAGE_HEIGHT_MM box as the 세부내역서).
+// Its table always shows at least SUMMARY_MIN_ROWS rows (blank rows fill it, as in the old workbook). Rows are the 공정
+// plus the 공과잡비 row; past 13 they are drawn tighter, and past 15 tighter still, so the sheet keeps to one page (measured:
+// 13 normal rows 186mm, 15 tight rows 186mm, 22 tightest rows 185mm of the 188mm page).
+export const SUMMARY_MIN_ROWS = 13;
+export type SummaryDensity = 'normal' | 'tight' | 'tightest';
+
+export function summaryLayout(groupCount: number, hasOverhead: boolean): { blankRows: number; density: SummaryDensity } {
+  const filled = groupCount + (hasOverhead ? 1 : 0);
+  return {
+    blankRows: Math.max(0, SUMMARY_MIN_ROWS - filled),
+    density: filled <= SUMMARY_MIN_ROWS ? 'normal' : filled <= 15 ? 'tight' : 'tightest',
+  };
+}
