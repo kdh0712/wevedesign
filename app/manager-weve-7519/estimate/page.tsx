@@ -38,6 +38,7 @@ import { GroupedLinesEditor } from './grouped-lines-editor';
 import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import { DETAIL_PAGE_HEIGHT_MM, DETAIL_PAGE_WIDTH_MM, PX_PER_MM, estimateTextLines, paginateByHeight, summaryLayout, type SummaryDensity } from '../../lib/estimate-detail-pages';
 import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
+import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
 import { createReceiptApi } from '../receipt-api';
@@ -2618,23 +2619,16 @@ export default function EstimateWorkspacePage() {
             <ManualDownloadButton book="estimate" authHeaders={() => authHeaders()} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={selectedSiteId}
+            <EstimateSitePicker
+              sites={sites}
+              selectedSiteId={selectedSiteId}
               disabled={isLoadingSite}
-              onChange={(event) => {
-                const nextSiteId = event.target.value;
+              onPick={(nextSiteId) => {
                 guardUnsavedChanges(() => {
                   void loadSiteEstimates(nextSiteId);
                 });
               }}
-              className="min-w-72 rounded-md border border-[#d5dde2] bg-white px-4 py-2.5 font-semibold outline-none focus:border-[#38a9bd] disabled:opacity-60"
-            >
-              {sites.map((site) => (
-                <option key={site._id} value={site._id}>
-                  {site.title || '현장명 없음'} · {site.customerName || '고객명 없음'}
-                </option>
-              ))}
-            </select>
+            />
             {isLoadingSite && (
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#60717d]">
                 <Loader2 className="animate-spin text-[#38a9bd]" size={14} />
