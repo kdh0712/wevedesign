@@ -30,3 +30,15 @@ test('templateDocumentTotals with every line named sets nothing apart', () => {
   assert.equal(totals.customerTotal, 100);
   assert.equal(totals.executionTotal, 60);
 });
+
+// The estimate page (calculateTotals) rounds the sum of every line once; the preview must land on the same 견적 금액.
+test('templateDocumentTotals rounds the whole sum once, as the 견적 금액 does', () => {
+  const half = (id, category, name) => ({ ...documentLine(id, category, name, 1_001, 1_001), quantity: 0.5 });
+  const apart = templateDocumentTotals([half('a', '목공', '문틀'), half('b', '전기', '조명')], 3);
+  assert.equal(apart.constructionTotal, 1_001);
+  assert.equal(apart.customerTotal, 1_031);
+  assert.equal(apart.executionTotal, 1_001);
+  const withUnnamed = templateDocumentTotals([half('a', '목공', '문틀'), half('b', '목공', '')], 3);
+  assert.equal(withUnnamed.constructionTotal, 1_001);
+  assert.equal(withUnnamed.customerTotal, 1_031);
+});

@@ -5127,7 +5127,7 @@ function SummaryCard({ title, value, sub }: { title: string; value: string; sub:
 // warn: an empty 품명 the documents would leave out while its amount counts (isUnnamedPricedLine), drawn in yellow.
 function PickerCell({ value, placeholder, warn = false, onClick }: { value: string; placeholder: string; warn?: boolean; onClick: () => void }) {
   // Spaces alone count as empty, as in the 세부내역서 미리보기 and the warning.
-  const shown = value.trim();
+  const shown = String(value ?? '').trim();
   return (
     <button
       type="button"
