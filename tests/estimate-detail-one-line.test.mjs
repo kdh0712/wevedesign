@@ -15,7 +15,7 @@ const amount = (lines) => lines.reduce((sum, l) => sum + l.quantity * l.customer
 test('mergeDetailOneLines turns a marked 품명 into one 식 line with the summed amount, where it first was', () => {
   const lines = [
     line('a', '가구 공사', '붙박이장-무광PET', '여닫이', '자', 8.5, 150_000),
-    line('b', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: true, note: '상부 몰딩' }),
+    line('b', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: '냉장고장', note: '상부 몰딩' }),
     line('c', '가구 공사', '냉장고장', '롱 EP', 'EA', 2, 140_000, { executionUnitPrice: 100_000 }),
     line('d', '가구 공사', '하부장', '상판 대리석', '자', 5, 250_000),
   ];
@@ -37,14 +37,14 @@ test('mergeDetailOneLines leaves unmarked 품명 and a marked 품명 with one li
   const lines = [
     line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000),
     line('b', '가구 공사', '냉장고장', '롱 EP', 'EA', 2, 140_000),
-    line('c', '가구 공사', '화장대', '안방', '식', 1, 600_000, { detailOneLine: true }),
+    line('c', '가구 공사', '화장대', '안방', '식', 1, 600_000, { detailOneLine: '화장대' }),
   ];
   assert.deepEqual(mergeDetailOneLines(lines), lines);
 });
 
 test('mergeDetailOneLines gathers a marked 품명 across its 공사 but not from another 공사', () => {
   const lines = [
-    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: true }),
+    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: '냉장고장' }),
     line('b', '가구 공사', '하부장', '', '자', 5, 250_000),
     line('c', '가구 공사', ' 냉장고장 ', '롱 EP', 'EA', 2, 140_000),
     line('d', '목공 공사', '냉장고장', '보강', '식', 1, 100_000),
@@ -56,7 +56,7 @@ test('mergeDetailOneLines gathers a marked 품명 across its 공사 but not from
 
 test('mergeDetailOneLines joins distinct notes and keeps fractional amounts exact', () => {
   const lines = [
-    line('a', '가구 공사', '냉장고장', '상부장', 'M', 0.5, 1_001, { detailOneLine: true, note: '고객 지급' }),
+    line('a', '가구 공사', '냉장고장', '상부장', 'M', 0.5, 1_001, { detailOneLine: '냉장고장', note: '고객 지급' }),
     line('b', '가구 공사', '냉장고장', '롱 EP', 'EA', 1, 100, { note: '고객 지급' }),
     line('c', '가구 공사', '냉장고장', '측판', 'EA', 1, 50, { note: '현장 확인' }),
   ];
@@ -89,7 +89,7 @@ test('toggleDetailOneLine marks every line of the 품명 in its 공사, then cle
     line('d', '목공 공사', '냉장고장', '', '식', 1, 100_000),
   ];
   const on = toggleDetailOneLine(lines, 'b');
-  assert.deepEqual(on.map((l) => Boolean(l.detailOneLine)), [true, true, false, false]);
+  assert.deepEqual(on.map((l) => l.detailOneLine ?? null), ['냉장고장', '냉장고장', null, null]);
   assert.equal(on[2], lines[2]);
   const off = toggleDetailOneLine(on, 'a');
   assert.deepEqual(off.map((l) => Boolean(l.detailOneLine)), [false, false, false, false]);
@@ -98,10 +98,30 @@ test('toggleDetailOneLine marks every line of the 품명 in its 공사, then cle
 
 test('mergedDetailLineIds lists every line drawn as one, a later line of the same 품명 included', () => {
   const lines = [
-    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: true }),
-    line('b', '가구 공사', '냉장고장', '롱 EP', 'EA', 2, 140_000, { detailOneLine: true }),
+    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: '냉장고장' }),
+    line('b', '가구 공사', '냉장고장', '롱 EP', 'EA', 2, 140_000, { detailOneLine: '냉장고장' }),
     line('c', '가구 공사', '냉장고장', '측판', 'EA', 1, 50_000),
-    line('d', '가구 공사', '화장대', '', '식', 1, 600_000, { detailOneLine: true }),
+    line('d', '가구 공사', '화장대', '', '식', 1, 600_000, { detailOneLine: '화장대' }),
   ];
   assert.deepEqual([...mergedDetailLineIds(lines)].sort(), ['a', 'b', 'c']);
+});
+
+test('a mark counts only for the 품명 it was set for, so a line given another 품명 drops out', () => {
+  const lines = [
+    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: '냉장고장' }),
+    line('b', '가구 공사', '하부장', '롱 EP', 'EA', 2, 140_000, { detailOneLine: '냉장고장' }),
+    line('c', '가구 공사', '하부장', '상판', '자', 5, 250_000),
+  ];
+  assert.deepEqual(mergeDetailOneLines(lines), lines);
+  assert.deepEqual([...mergedDetailLineIds(lines)], []);
+});
+
+test('toggleDetailOneLine turns a 품명 on when its only marks were set for another 품명', () => {
+  const lines = [
+    line('a', '가구 공사', '냉장고장', '상부장', 'M', 1, 230_000, { detailOneLine: '옛 품명' }),
+    line('b', '가구 공사', '냉장고장', '롱 EP', 'EA', 2, 140_000),
+  ];
+  const on = toggleDetailOneLine(lines, 'a');
+  assert.deepEqual(on.map((l) => l.detailOneLine), ['냉장고장', '냉장고장']);
+  assert.deepEqual([...mergedDetailLineIds(on)].sort(), ['a', 'b']);
 });

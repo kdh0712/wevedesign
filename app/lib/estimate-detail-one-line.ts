@@ -1,15 +1,18 @@
 import { templateGroupLabel, type TemplateLine } from './estimate-templates.ts';
 
 // 세부내역서 품명 한 줄로 합치기 (spec docs/superpowers/specs/2026-11-25-detail-one-line-design.md). A 품명 with two or
-// more lines in one 공사, any of them marked `detailOneLine`, is drawn on the 세부내역서 as one line: empty 규격, 단위 '식',
-// 수량 1, 단가 = the lines' summed amount. Amounts never change; only the documents' rows do. 품명 and 공사 match as the
+// more lines in one 공사, any of them marked, is drawn on the 세부내역서 as one line: empty 규격, 단위 '식', 수량 1,
+// 단가 = the lines' summed amount. Amounts never change; only the documents' rows do. 품명 and 공사 match as the
 // documents match them (trimmed 품명, templateGroupLabel).
+// A mark (`detailOneLine`) holds the 품명 it was set for, so a line given another 품명 (re-picked, retyped) is no longer
+// marked and never pulls its new 품명 into one line.
 
-export type OneLineLine = TemplateLine & { detailOneLine?: boolean };
+export type OneLineLine = TemplateLine & { detailOneLine?: string };
 
 const nameOf = (line: TemplateLine) => String(line?.name ?? '').trim();
 const oneLineKey = (line: TemplateLine) => `${templateGroupLabel(line)}\u0000${nameOf(line)}`;
 const number = (value: unknown) => Number(value) || 0;
+const isMarked = (line: OneLineLine) => Boolean(nameOf(line)) && line.detailOneLine === nameOf(line);
 
 // The lines of each named 품명, by 공사 + 품명.
 function namedGroups<T extends OneLineLine>(lines: T[]): Map<string, T[]> {
@@ -24,7 +27,7 @@ function namedGroups<T extends OneLineLine>(lines: T[]): Map<string, T[]> {
 
 function mergedKeys<T extends OneLineLine>(lines: T[]): Set<string> {
   return new Set(
-    [...namedGroups(lines)].filter(([, group]) => group.length > 1 && group.some((line) => line.detailOneLine)).map(([key]) => key),
+    [...namedGroups(lines)].filter(([, group]) => group.length > 1 && group.some(isMarked)).map(([key]) => key),
   );
 }
 
@@ -41,16 +44,17 @@ export function mergedDetailLineIds<T extends OneLineLine>(lines: T[]): Set<stri
   return new Set(lines.filter((line) => nameOf(line) && keys.has(oneLineKey(line))).map((line) => line.id));
 }
 
-// Turns the line's 품명 (in its 공사) to one line, marking all its lines, or back to separate lines, clearing them all.
+// Turns the line's 품명 (in its 공사) to one line, marking all its lines with the 품명, or, when it is drawn as one line,
+// back to separate lines, clearing them all.
 export function toggleDetailOneLine<T extends OneLineLine>(lines: T[], lineId: string): T[] {
   const target = lines.find((item) => item.id === lineId);
   if (!target || !nameOf(target)) return lines;
   const key = oneLineKey(target);
   const sameName = (line: T) => Boolean(nameOf(line)) && oneLineKey(line) === key;
-  const turnOn = !lines.some((line) => sameName(line) && line.detailOneLine);
+  const turnOn = !mergedKeys(lines).has(key);
   return lines.map((line) => {
     if (!sameName(line)) return line;
-    if (turnOn) return { ...line, detailOneLine: true };
+    if (turnOn) return { ...line, detailOneLine: nameOf(line) };
     const next = { ...line };
     delete next.detailOneLine;
     return next;

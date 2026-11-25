@@ -103,8 +103,9 @@ type EstimateLine = {
   commonName?: boolean;
   // The 자재 DB item the line was picked from; a template load takes that item's current 단가.
   materialId?: string;
-  // 세부내역서에서 한 줄로: this 품명's lines in its 공사 are drawn as one line (app/lib/estimate-detail-one-line.ts).
-  detailOneLine?: boolean;
+  // 세부내역서에서 한 줄로: the 품명 this line was marked for; its 품명's lines in its 공사 are drawn as one line
+  // (app/lib/estimate-detail-one-line.ts).
+  detailOneLine?: string;
 };
 
 type WorkLine = {
@@ -3141,8 +3142,8 @@ export default function EstimateWorkspacePage() {
                   }}
                   lineMenuExtras={(line) => [
                     { label: 'DB에 저장', run: () => openLineDbSaveFor(line) },
-                    // Offered while the 품명 has two or more lines in this 공사; turning it off stays offered after lines go.
-                    ...(canMergeDetailLine(lines, line.id) || detailOneLineIds.has(line.id) || line.detailOneLine
+                    // Offered while the 품명 has two or more lines in this 공사.
+                    ...(canMergeDetailLine(lines, line.id)
                       ? [
                           {
                             label: detailOneLineIds.has(line.id) ? '세부내역서에서 나눠 보이기' : '세부내역서에서 한 줄로 합치기',

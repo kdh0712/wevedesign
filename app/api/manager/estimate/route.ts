@@ -59,7 +59,7 @@ type EstimateLine = {
   note?: string;
   commonName?: boolean;
   materialId?: string;
-  detailOneLine?: boolean;
+  detailOneLine?: string;
 };
 
 type WorkLine = {
@@ -795,8 +795,8 @@ function normalizeLines(lines: EstimateLine[]) {
         commonName: Boolean(line.commonName),
         // The 자재 DB item the line was picked from (a template load follows its 단가); left out when there is none.
         ...(String(line.materialId || '').trim() ? { materialId: String(line.materialId).trim() } : {}),
-        // 세부내역서에서 한 줄로 (app/lib/estimate-detail-one-line.ts); left out when off.
-        ...(line.detailOneLine === true ? { detailOneLine: true } : {}),
+        // 세부내역서에서 한 줄로: the 품명 the line was marked for (app/lib/estimate-detail-one-line.ts); left out when off.
+        ...(typeof line.detailOneLine === 'string' && line.detailOneLine.trim() ? { detailOneLine: line.detailOneLine.trim().slice(0, 200) } : {}),
       };
     })
     // The page accepts a line with any of these filled in, so none of them may be dropped here.

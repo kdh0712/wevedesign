@@ -21,10 +21,12 @@ Staff split one piece of furniture into several 자재 DB items (냉장고장 = 
 
 ## How (my calls)
 
-- Stored as `detailOneLine: true` on the estimate lines (kept by the estimate save, `normalizeLines`). Turning it on marks
-  every line of that 공사 + 품명; a 품명 is merged when any of its lines is marked and it has two or more lines, so a line
-  added later with the same 품명 joins. Turning it off clears them all. 품명 and 공사 match as the documents do (trimmed
-  품명, `templateGroupLabel`).
+- Stored as `detailOneLine: '<품명>'` on the estimate lines (kept by the estimate save, `normalizeLines`): the 품명 the
+  mark was set for, so a line re-picked or retyped to another 품명 is no longer marked and never merges its new 품명
+  (review finding). Turning it on marks every line of that 공사 + 품명; a 품명 is merged when any of its lines is marked
+  for it and it has two or more lines, so a line added later with the same 품명 joins. Turning it off clears them all.
+  품명 and 공사 match as the documents do (trimmed 품명, `templateGroupLabel`).
+- The live preview draws the merged rows but totals the lines as they are, so its 합계 stays the 견적 금액 to the won.
 - One pure function (`app/lib/estimate-detail-one-line.ts`) replaces a merged 품명's lines with one line before the
   documents group and cluster them, so all renderers agree.
 - Templates do not keep the mark (template save has its own line fields); saving an estimate as a template drops it.
