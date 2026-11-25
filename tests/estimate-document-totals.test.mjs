@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mergeDetailOneLines } from '../app/lib/estimate-detail-one-line.ts';
 import { templateDocumentTotals } from '../app/lib/estimate-document-totals.ts';
 
 const documentLine = (id, category, name, customerUnitPrice, executionUnitPrice = customerUnitPrice) => ({
@@ -41,4 +42,19 @@ test('templateDocumentTotals rounds the whole sum once, as the 견적 금액 doe
   const withUnnamed = templateDocumentTotals([half('a', '목공', '문틀'), half('b', '목공', '')], 3);
   assert.equal(withUnnamed.constructionTotal, 1_001);
   assert.equal(withUnnamed.customerTotal, 1_031);
+});
+
+// Merging 품명 into one line (세부내역서에서 한 줄로) adds the amounts in another order; the 합계 must still be the
+// 견적 금액, which adds the lines as they are (here 12,633.4999… vs 12,633.5).
+test('templateDocumentTotals draws the given rows but totals the lines themselves', () => {
+  const lines = [
+    { ...documentLine('a', '가구', '냉장고장', 3_958.5, 0), detailOneLine: '냉장고장' },
+    documentLine('b', '가구', '하부장', 4_602.9, 0),
+    documentLine('c', '가구', '상판', 3_884.7, 0),
+    documentLine('d', '가구', '냉장고장', 187.4, 0),
+  ];
+  const totals = templateDocumentTotals(lines, 0, mergeDetailOneLines(lines));
+  assert.deepEqual(totals.groups[0].lines.map((line) => line.id), ['a-one-line', 'b', 'c']);
+  assert.equal(totals.constructionTotal, Math.round(3_958.5 + 4_602.9 + 3_884.7 + 187.4));
+  assert.equal(totals.constructionTotal, 12_633);
 });

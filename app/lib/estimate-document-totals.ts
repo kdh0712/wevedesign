@@ -5,6 +5,8 @@ import { groupTemplateLines, namedTemplateLines, templateCustomerTotal, type Tem
 // the lines with a 품명, as on the printed documents; lines without one are summed apart, so the 합계 is the estimate
 // total the estimate page and the printed 총합계 show. The totals add every line and round once, as calculateTotals on
 // the estimate page does, so fractional amounts land on the same won. unnamed.count: those of them with an amount.
+// drawnLines: the rows to draw when they differ from the lines (세부내역서에서 한 줄로 merges some); the 공사 come from them,
+// every total from the lines, so a merge never moves the 합계.
 export type TemplateDocumentTotals<T extends TemplateLine> = {
   groups: Array<TemplateGroup<T>>;
   unnamed: { count: number; customerTotal: number; executionTotal: number };
@@ -16,8 +18,8 @@ export type TemplateDocumentTotals<T extends TemplateLine> = {
 
 const amount = (quantity: unknown, unitPrice: unknown) => (Number(quantity) || 0) * (Number(unitPrice) || 0);
 
-export function templateDocumentTotals<T extends TemplateLine>(lines: T[], overheadRate = 0): TemplateDocumentTotals<T> {
-  const groups = groupTemplateLines(namedTemplateLines(lines));
+export function templateDocumentTotals<T extends TemplateLine>(lines: T[], overheadRate = 0, drawnLines: T[] = lines): TemplateDocumentTotals<T> {
+  const groups = groupTemplateLines(namedTemplateLines(drawnLines));
   const named = new Set(namedTemplateLines(lines));
   const unnamedLines = lines.filter((line) => !named.has(line));
   const unnamed = {
