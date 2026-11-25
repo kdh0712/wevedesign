@@ -18,6 +18,7 @@ import {
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
 import { isUnnamedPricedLine, linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedAmount, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
+import { canMergeDetailLine, mergeDetailOneLines, mergedDetailLineIds, toggleDetailOneLine } from '../../lib/estimate-detail-one-line';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -102,6 +103,8 @@ type EstimateLine = {
   commonName?: boolean;
   // The 자재 DB item the line was picked from; a template load takes that item's current 단가.
   materialId?: string;
+  // 세부내역서에서 한 줄로: this 품명's lines in its 공사 are drawn as one line (app/lib/estimate-detail-one-line.ts).
+  detailOneLine?: boolean;
 };
 
 type WorkLine = {
@@ -781,6 +784,7 @@ export default function EstimateWorkspacePage() {
   const totals = useMemo(() => calculateTotals(lines, workLines, extraItems, overheadRate), [extraItems, lines, overheadRate, workLines]);
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const unnamedPricedTotal = useMemo(() => unnamedPricedAmount(lines), [lines]);
+  const detailOneLineIds = useMemo(() => mergedDetailLineIds(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
@@ -3104,17 +3108,23 @@ export default function EstimateWorkspacePage() {
                   renderCell={{
                     category: (line) => <PickerCell value={line.category} placeholder="분류 선택" onClick={() => openMaterialPicker(line, 'category')} />,
                     process: (line) => <PickerCell value={line.process} placeholder="공종 선택" onClick={() => openMaterialPicker(line, line.category ? 'process' : 'category')} />,
-                    name: (line) =>
-                      line.commonName ? (
-                        <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
-                      ) : (
-                        <PickerCell
-                          value={line.name}
-                          placeholder="품명 선택"
-                          warn={isUnnamedPricedLine(line)}
-                          onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')}
-                        />
-                      ),
+                    name: (line) => (
+                      <>
+                        {line.commonName ? (
+                          <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
+                        ) : (
+                          <PickerCell
+                            value={line.name}
+                            placeholder="품명 선택"
+                            warn={isUnnamedPricedLine(line)}
+                            onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')}
+                          />
+                        )}
+                        {detailOneLineIds.has(line.id) && (
+                          <span className="mr-1 mt-1 inline-block rounded bg-[#e8f3f6] px-1.5 py-0.5 text-[11px] font-bold text-[#1d6d7b]">서류에 한 줄</span>
+                        )}
+                      </>
+                    ),
                   }}
                   onAddFromDb={(group) => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, group, withTemplateSpace(picked, lineSpaceFilter)))))}
                   selectedLineId={selectedLineId}
@@ -3129,7 +3139,18 @@ export default function EstimateWorkspacePage() {
                     setWorkLines((current) => ids.reduce((rows, id) => unlinkWorkLinesFromLine(rows, id), current));
                     setSelectedLineId((current) => (ids.includes(current) ? '' : current));
                   }}
-                  lineMenuExtras={(line) => [{ label: 'DB에 저장', run: () => openLineDbSaveFor(line) }]}
+                  lineMenuExtras={(line) => [
+                    { label: 'DB에 저장', run: () => openLineDbSaveFor(line) },
+                    // Offered while the 품명 has two or more lines in this 공사; turning it off stays offered after lines go.
+                    ...(canMergeDetailLine(lines, line.id) || detailOneLineIds.has(line.id) || line.detailOneLine
+                      ? [
+                          {
+                            label: detailOneLineIds.has(line.id) ? '세부내역서에서 나눠 보이기' : '세부내역서에서 한 줄로 합치기',
+                            run: () => setLines((current) => toggleDetailOneLine(current, line.id)),
+                          },
+                        ]
+                      : []),
+                  ]}
                   emptyLineWhenAllRemoved
                 />
               </div>
@@ -8023,7 +8044,8 @@ function buildEstimateDetailRows(
   lines: EstimateLine[],
   totals: Pick<ReturnType<typeof calculateTotals>, 'customerEstimateTotal' | 'overheadAmount' | 'overheadRate'>,
 ): DetailRows {
-  const visibleLines = lines.filter((line) => line.name);
+  // A 품명 set to 세부내역서에서 한 줄로 is one line here (mergeDetailOneLines); the amounts stay the same.
+  const visibleLines = mergeDetailOneLines(lines).filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
   const groups = grouped.map((group, groupIndex) => {
     const nameClusters = clusterLinesByName(group.lines);
