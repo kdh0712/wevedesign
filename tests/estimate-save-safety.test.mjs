@@ -10,7 +10,9 @@ import {
   linkMaterialToEstimateCategory,
   linkedWorkLineCount,
   removeMaterialFromSettings,
+  isUnnamedPricedLine,
   unlinkWorkLinesFromLine,
+  unnamedPricedAmount,
   unnamedPricedLineCount,
 } from '../app/lib/estimate-save-safety.ts';
 
@@ -220,6 +222,24 @@ test('unnamedPricedLineCount finds lines the documents leave out but the totals 
     { name: '', quantity: 1, customerUnitPrice: 0 },
   ];
   assert.equal(unnamedPricedLineCount(lines), 2);
+});
+
+test('isUnnamedPricedLine marks a line with an amount but no 품명', () => {
+  assert.equal(isUnnamedPricedLine({ name: '', quantity: 2, customerUnitPrice: 50 }), true);
+  assert.equal(isUnnamedPricedLine({ name: '  ', quantity: 1, customerUnitPrice: 10 }), true);
+  assert.equal(isUnnamedPricedLine({ name: '거실 철거', quantity: 1, customerUnitPrice: 100 }), false);
+  assert.equal(isUnnamedPricedLine({ name: '', quantity: 1, customerUnitPrice: 0 }), false);
+});
+
+test('unnamedPricedAmount is what lines without a 품명 add to the estimate total', () => {
+  const lines = [
+    { name: '거실 철거', quantity: 1, customerUnitPrice: 100 },
+    { name: '', quantity: 2, customerUnitPrice: 50 },
+    { name: '  ', quantity: 1, customerUnitPrice: 10 },
+    { name: '', quantity: 1, customerUnitPrice: 0 },
+  ];
+  assert.equal(unnamedPricedAmount(lines), 110);
+  assert.equal(unnamedPricedAmount([{ name: '거실 철거', quantity: 1, customerUnitPrice: 100 }]), 0);
 });
 
 test('deleting an estimate line keeps its 실행 내역 rows and only unlinks them', () => {

@@ -24,6 +24,7 @@ import {
   type TemplateLine,
   type TemplateMaterial,
 } from '../../lib/estimate-templates';
+import { isUnnamedPricedLine } from '../../lib/estimate-save-safety';
 
 // 공사별 견적 표 (spec docs/superpowers/specs/2026-10-23-estimate-grouped-editor-design.md §2): the template editor and the
 // site estimate share it. It edits the line array it is given and hands every change to onChange; it never saves.
@@ -99,6 +100,8 @@ const HANDLE_WIDTH = 28;
 const MENU_WIDTH = 44;
 const columnMinWidth = (column: GroupedColumn) => WIDTHS[column] || FLEX_MIN[column] || 0;
 const INPUT = 'w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]';
+// The 품명 input when it is empty on a line with an amount (missingName in cell()).
+const INPUT_MISSING = 'w-full min-w-0 rounded-md border border-[#e7c37a] bg-[#fff8e8] px-2 py-1.5 text-sm outline-none focus:border-[#38a9bd]';
 const SMALL = 'rounded border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold disabled:opacity-40';
 const PRIMARY_SMALL = 'rounded bg-[#171512] px-2.5 py-1 text-xs font-semibold text-white';
 const MENU_BOX = 'fixed z-[65] max-h-[60vh] w-48 overflow-y-auto rounded-md border border-[#d5dde2] bg-white py-1 text-sm shadow-lg';
@@ -299,7 +302,20 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
   const cell = (line: T, column: GroupedColumn, group: string, isLast: boolean): ReactNode => {
     const keys = { 'data-line': line.id, 'data-gcol': column, onKeyDown: (event: KeyboardEvent<HTMLElement>) => onCellKeyDown(event, line, column, group, isLast) };
     const custom = renderCell?.[column as 'category' | 'process' | 'name'];
-    if (custom) return custom(line);
+    // An empty 품명 on a line with an amount is marked (the documents leave it out while the totals count it), whatever
+    // draws the cell.
+    const missingName = column === 'name' && isUnnamedPricedLine(line);
+    const missingNameNote = missingName && <span className="mr-1 mt-1 inline-block rounded bg-[#fff1cc] px-1.5 py-0.5 text-[11px] font-bold text-[#8b6420]">품명을 넣어야 서류에 나와요</span>;
+    if (custom) {
+      return missingName ? (
+        <>
+          {custom(line)}
+          {missingNameNote}
+        </>
+      ) : (
+        custom(line)
+      );
+    }
     switch (column) {
       case 'space':
         return (
@@ -325,7 +341,15 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
         const notInDb = materials && !isBlankEstimateLine(line) && !findTemplateMaterial(line, materials);
         return (
           <>
-            <input value={line.name} onChange={(event) => updateLine(line.id, { name: event.target.value } as Partial<T>)} aria-label="품명" className={INPUT} {...keys} />
+            <input
+              value={line.name}
+              onChange={(event) => updateLine(line.id, { name: event.target.value } as Partial<T>)}
+              aria-label="품명"
+              aria-invalid={missingName || undefined}
+              className={missingName ? INPUT_MISSING : INPUT}
+              {...keys}
+            />
+            {missingNameNote}
             {props.onRepick && (
               <button type="button" onClick={() => props.onRepick?.(line)} className="mr-1 mt-1 rounded border border-[#d5dde2] px-1.5 py-0.5 text-[11px] font-semibold">DB에서 다시 고르기</button>
             )}

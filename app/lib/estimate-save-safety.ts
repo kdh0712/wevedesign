@@ -195,9 +195,21 @@ export function estimateSaveConflictMessage(conflict: EstimateSaveConflict) {
   return '';
 }
 
-// Lines the printed documents leave out (no 품명) while their amount still counts in the totals.
-export function unnamedPricedLineCount(lines: Array<{ name?: string; quantity?: number; customerUnitPrice?: number }>) {
-  return lines.filter((line) => !String(line.name || '').trim() && Number(line.quantity || 0) * Number(line.customerUnitPrice || 0) !== 0).length;
+type PricedLine = { name?: string; quantity?: number; customerUnitPrice?: number };
+const pricedAmount = (line: PricedLine) => Number(line.quantity || 0) * Number(line.customerUnitPrice || 0);
+
+// A line the printed documents leave out (no 품명) while its amount still counts in the totals.
+export function isUnnamedPricedLine(line: PricedLine) {
+  return !String(line.name || '').trim() && pricedAmount(line) !== 0;
+}
+
+export function unnamedPricedLineCount(lines: PricedLine[]) {
+  return lines.filter(isUnnamedPricedLine).length;
+}
+
+// What those lines add to the estimate total.
+export function unnamedPricedAmount(lines: PricedLine[]) {
+  return Math.round(lines.filter(isUnnamedPricedLine).reduce((sum, line) => sum + pricedAmount(line), 0)) || 0;
 }
 
 // Deleting an estimate line keeps the 실행 내역 rows made from it (their 지출/결제 are real records); they only lose the link.
