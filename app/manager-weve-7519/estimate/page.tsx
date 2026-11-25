@@ -5818,6 +5818,18 @@ function MaterialPickerModal({
   onClose: () => void;
 }) {
   const [editingPickerMaterial, setEditingPickerMaterial] = useState<Material | null>(null);
+  // The item being edited, by its list key, so the edit box opens right under it (pickerMaterialKey).
+  const [editingPickerKey, setEditingPickerKey] = useState('');
+  const pickerEditFormRef = useRef<HTMLDivElement>(null);
+  const isPickerEditOpen = editingPickerMaterial !== null;
+  const openPickerEdit = (material: Material) => {
+    setEditingPickerMaterial(material);
+    setEditingPickerKey(pickerMaterialKey(material));
+  };
+  // Opening the box brings all of it into view when it would end below the visible list.
+  useEffect(() => {
+    if (isPickerEditOpen) pickerEditFormRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [editingPickerKey, isPickerEditOpen]);
   // A '공통' item with saved 공통 항목 opens the option view first instead of going straight into the estimate.
   const [commonChoice, setCommonChoice] = useState<Material | null>(null);
   const pickMaterial = (material: Material) => {
@@ -5855,6 +5867,50 @@ function MaterialPickerModal({
   ).sort((a, b) => a.localeCompare(b, 'ko-KR'));
 
   const stepLabel = commonChoice ? '공통 항목 선택' : state.step === 'category' ? '분류 선택' : state.step === 'process' ? '공종 선택' : '품명 선택';
+
+  // Opened under its item in the list; when a search or another step hides that item, at the top of the list instead.
+  const isEditingInResults = isPickerEditOpen && materialResults.some((material) => pickerMaterialKey(material) === editingPickerKey);
+  const pickerEditForm = editingPickerMaterial ? (
+    <div ref={pickerEditFormRef} className="rounded-lg border border-[#38a9bd] bg-[#f7fafb] p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <b className="text-sm">자재 단가 DB 수정</b>
+        <button type="button" onClick={() => setEditingPickerMaterial(null)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
+          닫기
+        </button>
+      </div>
+      <div className="mt-3 grid gap-2 md:grid-cols-3">
+        <input list="picker-material-categories" value={editingPickerMaterial.category || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+        <input list="picker-material-processes" value={editingPickerMaterial.process || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+        <input value={editingPickerMaterial.name || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+        <input value={editingPickerMaterial.spec || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+        <input value={editingPickerMaterial.unit || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
+        <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} className="bg-white text-sm" />
+      </div>
+      {isCommonMaterialName(editingPickerMaterial.name) && (
+        <CommonOptionsField
+          key={editingPickerMaterial._id || 'new'}
+          options={editingPickerMaterial.commonOptions}
+          onChange={(commonOptions) => setEditingPickerMaterial((current) => (current ? { ...current, commonOptions } : current))}
+          className="mt-3"
+        />
+      )}
+      <button
+        type="button"
+        onClick={async () => {
+          // A '공통' item always sends its 공통 항목, so an emptied list clears them.
+          await onSaveMaterial(
+            isCommonMaterialName(editingPickerMaterial.name)
+              ? { ...editingPickerMaterial, commonOptions: editingPickerMaterial.commonOptions || [] }
+              : editingPickerMaterial,
+          );
+          setEditingPickerMaterial(null);
+        }}
+        className="mt-3 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
+      >
+        서버 DB 저장
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="no-print fixed inset-0 z-50 flex items-center justify-center bg-[#171512]/45 px-4 py-6 backdrop-blur-sm">
@@ -5958,74 +6014,41 @@ function MaterialPickerModal({
                 <span>·</span>
                 <span>공종 <b className="text-[#171512]">{state.process}</b></span>
               </div>
-              {editingPickerMaterial && (
-                <div className="mb-4 rounded-lg border border-[#d5dde2] bg-[#f7fafb] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <b className="text-sm">자재 단가 DB 수정</b>
-                    <button type="button" onClick={() => setEditingPickerMaterial(null)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
-                      닫기
-                    </button>
-                  </div>
-                  <div className="mt-3 grid gap-2 md:grid-cols-3">
-                    <input list="picker-material-categories" value={editingPickerMaterial.category || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, category: event.target.value })} placeholder="카테고리" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    <input list="picker-material-processes" value={editingPickerMaterial.process || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, process: event.target.value })} placeholder="공정" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    <input value={editingPickerMaterial.name || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    <input value={editingPickerMaterial.spec || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    <input value={editingPickerMaterial.unit || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-                    <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} className="bg-white text-sm" />
-                  </div>
-                  {isCommonMaterialName(editingPickerMaterial.name) && (
-                    <CommonOptionsField
-                      key={editingPickerMaterial._id || 'new'}
-                      options={editingPickerMaterial.commonOptions}
-                      onChange={(commonOptions) => setEditingPickerMaterial((current) => (current ? { ...current, commonOptions } : current))}
-                      className="mt-3"
-                    />
-                  )}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      // A '공통' item always sends its 공통 항목, so an emptied list clears them.
-                      await onSaveMaterial(
-                        isCommonMaterialName(editingPickerMaterial.name)
-                          ? { ...editingPickerMaterial, commonOptions: editingPickerMaterial.commonOptions || [] }
-                          : editingPickerMaterial,
-                      );
-                      setEditingPickerMaterial(null);
-                    }}
-                    className="mt-3 rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white"
-                  >
-                    서버 DB 저장
-                  </button>
-                </div>
-              )}
+              {editingPickerMaterial && !isEditingInResults && <div className="mb-4">{pickerEditForm}</div>}
               <div className="grid gap-2">
-                {materialResults.map((material) => (
-                  <article
-                    key={material._id || `${material.category}-${material.process}-${material.name}-${material.spec}`}
-                    className="grid gap-2 rounded-lg border border-[#d5dde2] bg-white p-4 text-left transition hover:border-[#38a9bd] hover:bg-[#edf8fb] md:grid-cols-[1.2fr_1fr_90px_130px]"
-                  >
-                    <button type="button" onClick={() => pickMaterial(material)} className="min-w-0 text-left md:col-span-3">
-                      <b className="block truncate">
-                        {material.name || '품명 없음'}
-                        {isCommonMaterialName(material.name) && material.commonOptions?.length ? (
-                          <span className="ml-2 rounded-full bg-[#fff3c7] px-2 py-0.5 text-xs font-bold text-[#8b6420]">공통 항목 {material.commonOptions.length}개</span>
-                        ) : null}
-                      </b>
-                      <small className="mt-1 block text-[#60717d]">{[material.category, material.process, material.spec, material.unit].filter(Boolean).join(' · ') || material.note || material.sourceSheet || ''}</small>
-                    </button>
-                    <div className="flex items-center justify-between gap-2 md:justify-end">
-                      <span className="font-semibold">{formatMoney(Number(material.unitPrice || 0))}</span>
-                      <button
-                        type="button"
-                        onClick={() => setEditingPickerMaterial(material)}
-                        className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-xs font-semibold hover:border-[#38a9bd]"
+                {materialResults.map((material) => {
+                  const materialKey = pickerMaterialKey(material);
+                  const isEditing = isEditingInResults && materialKey === editingPickerKey;
+                  return (
+                    <Fragment key={materialKey}>
+                      <article
+                        className={`grid gap-2 rounded-lg border p-4 text-left transition hover:border-[#38a9bd] hover:bg-[#edf8fb] md:grid-cols-[1.2fr_1fr_90px_130px] ${isEditing ? 'border-[#38a9bd] bg-[#edf8fb]' : 'border-[#d5dde2] bg-white'}`}
                       >
-                        DB 수정
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                        <button type="button" onClick={() => pickMaterial(material)} className="min-w-0 text-left md:col-span-3">
+                          <b className="block truncate">
+                            {material.name || '품명 없음'}
+                            {isCommonMaterialName(material.name) && material.commonOptions?.length ? (
+                              <span className="ml-2 rounded-full bg-[#fff3c7] px-2 py-0.5 text-xs font-bold text-[#8b6420]">공통 항목 {material.commonOptions.length}개</span>
+                            ) : null}
+                          </b>
+                          <small className="mt-1 block text-[#60717d]">{[material.category, material.process, material.spec, material.unit].filter(Boolean).join(' · ') || material.note || material.sourceSheet || ''}</small>
+                        </button>
+                        <div className="flex items-center justify-between gap-2 md:justify-end">
+                          <span className="font-semibold">{formatMoney(Number(material.unitPrice || 0))}</span>
+                          <button
+                            type="button"
+                            aria-expanded={isEditing}
+                            onClick={() => (isEditing ? setEditingPickerMaterial(null) : openPickerEdit(material))}
+                            className={`rounded-md border px-3 py-2 text-xs font-semibold hover:border-[#38a9bd] ${isEditing ? 'border-[#38a9bd] bg-[#38a9bd] text-white' : 'border-[#d5dde2] bg-white'}`}
+                          >
+                            {isEditing ? '수정 닫기' : 'DB 수정'}
+                          </button>
+                        </div>
+                      </article>
+                      {isEditing && pickerEditForm}
+                    </Fragment>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -6048,6 +6071,11 @@ function MaterialPickerModal({
       </section>
     </div>
   );
+}
+
+// A 품명 선택 list item's key; the DB edit box follows it even while its fields are being changed.
+function pickerMaterialKey(material: Material) {
+  return material._id || `${material.category}-${material.process}-${material.name}-${material.spec}`;
 }
 
 type BulkMoveGroup = { label: string; items: Material[] };
