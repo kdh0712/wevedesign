@@ -2,19 +2,20 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { templateDocumentTotals, type TemplateDocumentTotals } from '../../lib/estimate-document-totals';
 import {
   clusterTemplateLinesByName,
   groupColor,
   groupTemplateLines,
-  namedTemplateLines,
   templateNameRowSpans,
   type TemplateGroup,
   type TemplateLine,
 } from '../../lib/estimate-templates';
-import { overheadAmount, overheadLabel } from '../../lib/estimate-overhead';
+import { overheadLabel } from '../../lib/estimate-overhead';
 
 // The live 세부내역서 beside the template editor and the site estimate: grouped by 공사 like the estimate documents, lines
-// without a 품명 left out as there. 공사 colors match the editor's (screen only; printing stays grey). 실행 금액 보기
+// without a 품명 left out of them as there. Their amount is one '품명 없는 항목' row, so the 합계 is the estimate total
+// (the printed documents count it too). 공사 colors match the editor's (screen only; printing stays grey). 실행 금액 보기
 // adds execution amounts and margins for internal checks; 크게 보기 shows the same document at full size.
 
 const won = (value: number) => Math.round(value).toLocaleString('ko-KR');
@@ -39,14 +40,14 @@ export function TemplateDocumentPreview({ title, subtitle, lines, overheadRate =
 
   // Colors follow the 공사 order of every line, as in the editor, even when a 공사 has lines without a 품명 yet.
   const colorIndex = new Map(groupTemplateLines(lines).map((group, index) => [group.label, index]));
-  const groups = groupTemplateLines(namedTemplateLines(lines));
+  const totals = templateDocumentTotals(lines, overheadRate);
   const executionButton = (
     <button type="button" onClick={() => setShowExecution((current) => !current)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
       {showExecution ? '고객용으로 보기' : '실행 금액 보기'}
     </button>
   );
   const body = (large: boolean) => (
-    <DocumentBody title={title} subtitle={subtitle} groups={groups} colorIndex={colorIndex} showExecution={showExecution} large={large} overheadRate={overheadRate} />
+    <DocumentBody title={title} subtitle={subtitle} totals={totals} colorIndex={colorIndex} showExecution={showExecution} large={large} overheadRate={overheadRate} />
   );
 
   return (
@@ -92,7 +93,7 @@ export function TemplateDocumentPreview({ title, subtitle, lines, overheadRate =
 function DocumentBody({
   title,
   subtitle,
-  groups,
+  totals,
   colorIndex,
   showExecution,
   large,
@@ -100,17 +101,14 @@ function DocumentBody({
 }: {
   title: string;
   subtitle?: string;
-  groups: TemplateGroup[];
+  totals: TemplateDocumentTotals<TemplateLine>;
   colorIndex: Map<string, number>;
   showExecution: boolean;
   large: boolean;
   overheadRate: number;
 }) {
-  const constructionTotal = groups.reduce((sum, group) => sum + group.customerTotal, 0);
   // The site estimate's 공과잡비 is added to the 합계, as on the printed documents.
-  const overhead = overheadAmount(constructionTotal, overheadRate);
-  const customerTotal = constructionTotal + overhead;
-  const executionTotal = groups.reduce((sum, group) => sum + group.executionTotal, 0);
+  const { groups, unnamed, overhead, customerTotal, executionTotal } = totals;
   const cell = large ? 'border border-[#333] px-2.5 py-1.5' : 'border border-[#333] px-1.5 py-1';
   const heading = [title.trim() || '이름 없는 템플릿', subtitle?.trim(), '부가세 별도'].filter(Boolean).join(' · ');
 
@@ -118,7 +116,7 @@ function DocumentBody({
     <article className={`border border-[#111] bg-white text-[#111] ${large ? 'px-8 py-7 text-[14px]' : 'px-4 py-4 text-[12px]'}`}>
       <h3 className={`text-center font-semibold tracking-[0.5em] ${large ? 'text-2xl' : 'text-lg'}`}>세부내역서</h3>
       <p className={`mb-3 mt-1 text-center text-[#444] ${large ? 'text-[13px]' : 'text-[11px]'}`}>{heading}</p>
-      {groups.length === 0 ? (
+      {groups.length === 0 && unnamed.count === 0 ? (
         <p className="py-6 text-center text-[#60717d]">품명을 넣은 항목이 여기에 내역서로 보여요.</p>
       ) : (
         <table className="w-full border-collapse">
@@ -137,6 +135,15 @@ function DocumentBody({
             {groups.map((group) => (
               <GroupRows key={group.label} group={group} color={groupColor(colorIndex.get(group.label) ?? 0)} showExecution={showExecution} cell={cell} />
             ))}
+            {unnamed.count > 0 && (
+              <tr className="bg-[#fff8e8] font-semibold text-[#8b6420]">
+                <td className={cell} colSpan={5}>
+                  품명 없는 항목 {unnamed.count}개<span className="ml-1.5 text-[10px] font-normal">서류에는 안 나와요 · 품명을 넣어 주세요</span>
+                </td>
+                <td className={`${cell} text-right`}>{won(unnamed.customerTotal)}</td>
+                {showExecution && <td className={`${cell} text-right text-[#35596b]`}>{won(unnamed.executionTotal)}</td>}
+              </tr>
+            )}
             {overhead !== 0 && (
               <tr className="font-semibold">
                 <td className={cell} colSpan={5}>{overheadLabel(overheadRate)}</td>
@@ -152,7 +159,7 @@ function DocumentBody({
           </tbody>
         </table>
       )}
-      {showExecution && groups.length > 0 && (
+      {showExecution && (groups.length > 0 || unnamed.count > 0) && (
         <p className="mt-2 text-[#35596b]">실행 합계 {won(executionTotal)}원 · 예상 {marginText(customerTotal, executionTotal)}</p>
       )}
     </article>

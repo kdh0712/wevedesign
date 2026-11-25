@@ -17,7 +17,7 @@ import {
   type CommonBulkRow,
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
-import { linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
+import { isUnnamedPricedLine, linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedAmount, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -780,6 +780,7 @@ export default function EstimateWorkspacePage() {
   );
   const totals = useMemo(() => calculateTotals(lines, workLines, extraItems, overheadRate), [extraItems, lines, overheadRate, workLines]);
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
+  const unnamedPricedTotal = useMemo(() => unnamedPricedAmount(lines), [lines]);
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
@@ -3090,6 +3091,7 @@ export default function EstimateWorkspacePage() {
                   </div>
                 )}
               <div className={isLineDbSaveOpen ? 'mt-4' : ''}>
+                <UnnamedPricedLinesWarning count={unnamedPricedCount} amount={unnamedPricedTotal} where="editor" className="mb-3" />
                 <GroupedLinesEditor
                   lines={lines}
                   onChange={setLines}
@@ -3106,7 +3108,12 @@ export default function EstimateWorkspacePage() {
                       line.commonName ? (
                         <CommonNameCell value={line.name} onChange={(value) => updateLine(line.id, { name: value })} onPick={() => openMaterialPicker(line, 'material')} />
                       ) : (
-                        <PickerCell value={line.name} placeholder="품명 선택" onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')} />
+                        <PickerCell
+                          value={line.name}
+                          placeholder="품명 선택"
+                          warn={isUnnamedPricedLine(line)}
+                          onClick={() => openMaterialPicker(line, line.category && line.process ? 'material' : line.category ? 'process' : 'category')}
+                        />
                       ),
                   }}
                   onAddFromDb={(group) => openTemplateMaterialPicker((picked) => setLines((current) => arrangeEstimateLines(insertIntoTemplateGroup(current, group, withTemplateSpace(picked, lineSpaceFilter)))))}
@@ -4351,7 +4358,7 @@ export default function EstimateWorkspacePage() {
               <p className="mt-2 text-sm leading-6 text-[#60717d]">
                 기존 엑셀의 `표지(견)`, `갑지`, `세부내역서` 흐름에 맞춰 같은 데이터로 서류를 나눠 확인합니다.
               </p>
-              <UnnamedPricedLinesWarning count={unnamedPricedCount} className="mt-4" />
+              <UnnamedPricedLinesWarning count={unnamedPricedCount} amount={unnamedPricedTotal} className="mt-4" />
               <div className="mt-5 grid gap-2">
                 {([
                   ['cover', '표지'],
@@ -5117,16 +5124,23 @@ function SummaryCard({ title, value, sub }: { title: string; value: string; sub:
   );
 }
 
-function PickerCell({ value, placeholder, onClick }: { value: string; placeholder: string; onClick: () => void }) {
+// warn: an empty 품명 the documents would leave out while its amount counts (isUnnamedPricedLine), drawn in yellow.
+function PickerCell({ value, placeholder, warn = false, onClick }: { value: string; placeholder: string; warn?: boolean; onClick: () => void }) {
+  // Spaces alone count as empty, as in the 세부내역서 미리보기 and the warning.
+  const shown = String(value ?? '').trim();
   return (
     <button
       type="button"
       onClick={onClick}
       className={`w-full min-w-0 rounded-md border px-3 py-2 text-left text-sm outline-none transition hover:border-[#38a9bd] hover:bg-[#edf8fb] ${
-        value ? 'border-[#d5dde2] bg-white text-[#171512]' : 'border-dashed border-[#c7d4dc] bg-[#f7fafb] text-[#60717d]'
+        shown
+          ? 'border-[#d5dde2] bg-white text-[#171512]'
+          : warn
+            ? 'border-[#e7c37a] bg-[#fff8e8] font-semibold text-[#8b6420]'
+            : 'border-dashed border-[#c7d4dc] bg-[#f7fafb] text-[#60717d]'
       }`}
     >
-      <span className="block truncate">{value || placeholder}</span>
+      <span className="block truncate">{shown ? value : placeholder}</span>
     </button>
   );
 }
@@ -5188,11 +5202,23 @@ function LibraryToggle({
 }
 
 // The 갑지 and 세부내역서 leave out lines without a 품명, but their amounts still count in the totals.
-function UnnamedPricedLinesWarning({ count, className = '' }: { count: number; className?: string }) {
+// where: 'editor' above the 견적서 tab's lines (their empty 품명 cells are marked there), 'documents' where they are printed.
+function UnnamedPricedLinesWarning({
+  count,
+  amount,
+  where = 'documents',
+  className = '',
+}: {
+  count: number;
+  amount: number;
+  where?: 'editor' | 'documents';
+  className?: string;
+}) {
   if (!count) return null;
   return (
     <p role="alert" className={`rounded-md border border-[#e7c37a] bg-[#fff8e8] px-3 py-2 text-sm font-semibold leading-6 text-[#8b6420] ${className}`}>
-      품명이 비어 있는 견적 항목 {count}개는 서류에 나오지 않지만 금액은 합계에 들어갑니다. 견적서 탭에서 품명을 입력해 주세요.
+      품명이 비어 있는 견적 항목 {count}개({formatMoney(amount)})는 서류에 나오지 않지만 금액은 합계에 들어갑니다.{' '}
+      {where === 'editor' ? '아래 표에서 노란 품명 칸을 채워 주세요.' : '견적서 탭에서 품명을 입력해 주세요.'}
     </p>
   );
 }
@@ -5285,7 +5311,7 @@ function DocumentBatchPrintModal({
             <X size={18} />
           </button>
         </div>
-        {!scheduleOnly && <UnnamedPricedLinesWarning count={unnamedPricedLineCount(lines)} className="mt-4" />}
+        {!scheduleOnly && <UnnamedPricedLinesWarning count={unnamedPricedLineCount(lines)} amount={unnamedPricedAmount(lines)} className="mt-4" />}
         <p className="mt-5 text-xs font-bold text-[#60717d]">공정표 출력 방식</p>
         <div className="mt-2 grid grid-cols-2 gap-1 rounded-md bg-[#edf2f5] p-1">
           {([
