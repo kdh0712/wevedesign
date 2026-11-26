@@ -59,7 +59,7 @@ import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, over
 import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
-import { appendMissingLines, parsePaidCell, workLedgerFilterOptions, workLedgerSums, workLinePaid, workLineProcesses } from '../../lib/estimate-work-lines';
+import { appendMissingLines, parsePaidCell, workLedgerFilterOptions, workLedgerMoney, workLedgerSums, workLinePaid, workLineProcesses } from '../../lib/estimate-work-lines';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
@@ -929,6 +929,12 @@ export default function EstimateWorkspacePage() {
     }),
     [workLines],
   );
+  // 현재 마진 and the 수금 cards (workLedgerMoney): the margin waits for the first 지출, then follows every one.
+  const ledgerMoney = useMemo(() => workLedgerMoney(totals, workLedgerTotals), [totals, workLedgerTotals]);
+  const currentMarginSub =
+    ledgerMoney.currentMargin === null
+      ? '지출을 적으면 계산돼요'
+      : [`${(ledgerMoney.currentMarginRate ?? 0).toFixed(1)}%`, ledgerMoney.budgetUsedRate !== null ? `예산 ${ledgerMoney.budgetUsedRate}% 사용` : ''].filter(Boolean).join(' · ');
   const selectedLegacyWorkSite = useMemo(
     () => legacyWorkSites.find((site) => site.id === selectedLegacyWorkSiteId) || legacyWorkSites[0],
     [legacyWorkSites, selectedLegacyWorkSiteId],
@@ -2820,7 +2826,12 @@ export default function EstimateWorkspacePage() {
               />
               <CompactMetric title="예상 마진" value={formatMoney(totals.estimatedMarginAmount)} tone={totals.estimatedMarginAmount >= 0 ? 'positive' : 'negative'} sub={`${totals.estimatedMarginRate.toFixed(1)}%`} />
               <CompactMetric title="견적 예상원가" value={formatMoney(totals.estimateExecutionCostTotal)} />
-              <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+              <CompactMetric
+                title="현재 마진"
+                value={ledgerMoney.currentMargin !== null ? formatMoney(ledgerMoney.currentMargin) : '미작성'}
+                tone={ledgerMoney.currentMargin === null ? 'default' : ledgerMoney.currentMargin >= 0 ? 'positive' : 'negative'}
+                sub={currentMarginSub}
+              />
               <div className="flex flex-wrap items-center gap-2 rounded-md border border-[#d5dde2] bg-white px-4 py-2 text-sm md:col-span-2">
                 <span className="font-semibold">공과잡비</span>
                 <OverheadRateInput value={overheadRate} onChange={setOverheadRate} />
@@ -3231,7 +3242,7 @@ export default function EstimateWorkspacePage() {
               <div>
                 <h2 className="text-xl font-semibold">실행 내역서</h2>
                 <p className="mt-1 text-sm leading-6 text-[#60717d]">
-                  날짜별 수입, 지출, 결제 내역을 기록합니다. 지출 합계는 실제 마진 계산에 반영됩니다.
+                  날짜별 수입, 지출, 결제 내역을 기록합니다. 지출 합계는 현재 마진 계산에 반영됩니다.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -3253,11 +3264,27 @@ export default function EstimateWorkspacePage() {
               </div>
             </div>
 
-            <div className="mb-4 grid gap-3 md:grid-cols-4">
-              <CompactMetric title="수입 합계" value={formatMoney(workLedgerTotals.income)} />
-              <CompactMetric title="지출 합계" value={formatMoney(workLedgerTotals.expense)} />
-              <CompactMetric title="미결제 지출" value={formatMoney(workLedgerTotals.unpaid)} />
-              <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
+            <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <CompactMetric title="받은 금액" value={formatMoney(ledgerMoney.received)} sub="수입 합계" />
+              <CompactMetric
+                title="남은 받을 금액"
+                value={formatMoney(ledgerMoney.receivable)}
+                tone={ledgerMoney.receivable < 0 ? 'negative' : 'default'}
+                sub="견적 금액 + 부가세 − 받은 금액"
+              />
+              <CompactMetric title="지출 합계" value={formatMoney(ledgerMoney.expense)} sub={`미결제 ${formatMoney(ledgerMoney.unpaid)}`} />
+              <CompactMetric
+                title="현장 잔액"
+                value={formatMoney(ledgerMoney.cashOnHand)}
+                tone={ledgerMoney.cashOnHand >= 0 ? 'positive' : 'negative'}
+                sub="받은 금액 − 지출 합계"
+              />
+              <CompactMetric
+                title="현재 마진"
+                value={ledgerMoney.currentMargin !== null ? formatMoney(ledgerMoney.currentMargin) : '미작성'}
+                tone={ledgerMoney.currentMargin === null ? 'default' : ledgerMoney.currentMargin >= 0 ? 'positive' : 'negative'}
+                sub={currentMarginSub}
+              />
             </div>
 
             {selectedSiteId && (
@@ -4446,7 +4473,7 @@ export default function EstimateWorkspacePage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-xl font-semibold">추가 사항</h2>
-                <p className="mt-1 text-sm leading-6 text-[#60717d]">공사 중 발생한 추가 비용을 기록합니다. 실제 마진 계산에 반영됩니다.</p>
+                <p className="mt-1 text-sm leading-6 text-[#60717d]">공사 중 발생한 추가 비용을 기록합니다. 현재 마진 계산에 반영됩니다.</p>
               </div>
               <div className="flex items-center gap-2">
                 <div className="rounded-md border border-[#d5dde2] bg-[#f7fafb] px-4 py-2">
@@ -8353,7 +8380,8 @@ function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extr
   const overhead = overheadAmount(constructionTotal, overheadRate);
   const customerEstimateTotal = constructionTotal + overhead;
   const estimateExecutionCostTotal = Math.round(lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.executionUnitPrice || 0), 0));
-  const hasWorkLines = workLines.some(isMeaningfulWorkLine);
+  // The 현재 마진 is worked out only once a 지출 is recorded, as the server's workLineTotals does.
+  const hasWorkLines = workLines.some((line) => isMeaningfulWorkLine(line) && Number(workLineExpense(line) || 0) !== 0);
   const actualExecutionCostTotal = hasWorkLines
     ? Math.round(workLines.reduce((sum, line) => sum + Number(workLineExpense(line) || 0), 0))
     : 0;

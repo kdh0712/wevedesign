@@ -12,6 +12,7 @@ import {
   workLedgerSums,
   workLinePaid,
   workLineProcesses,
+  workLedgerMoney,
   workLineTotals,
 } from '../app/lib/estimate-work-lines.ts';
 
@@ -232,4 +233,48 @@ test('parsePaidCell reads an old ledger 결제 cell: anything written (an amount
     assert.equal(parsePaidCell(value), true, String(value));
   }
   for (const value of ['', 0, '0', '0원', '-', '미결제', '미지급', 'X', 'n', '없음', null, undefined]) assert.equal(parsePaidCell(value), false, String(value));
+});
+
+// 현재 마진과 수금 (spec docs/superpowers/specs/2026-11-26-current-margin-design.md).
+
+test('workLineTotals: no margin is worked out before a 지출 is recorded (수입 or blank lines only)', () => {
+  const base = { customerEstimateTotal: 1000000, additionalCostTotal: 0 };
+  assert.deepEqual(workLineTotals([{ expense: 0, income: 500000 }, { expense: 0 }], base), {
+    actualExecutionCostTotal: 0,
+    actualMarginAmount: 0,
+    actualMarginRate: 0,
+    executionCostTotal: 0,
+    marginAmount: 0,
+    marginRate: 0,
+  });
+  assert.equal(workLineTotals([{ expense: 0 }, { expense: 250000 }], base).actualMarginAmount, 750000);
+});
+
+test('workLedgerMoney: 받은 금액, 남은 받을 금액 (with 부가세), 현장 잔액, 현재 마진 and how much of the budget is used', () => {
+  const money = workLedgerMoney(
+    { customerEstimateTotal: 32_980_600, estimateExecutionCostTotal: 31_450_000, additionalCostTotal: 0 },
+    { income: 15_000_000, expense: 11_800_000, unpaid: 2_800_000 },
+  );
+  assert.deepEqual(money, {
+    received: 15_000_000,
+    receivable: 21_278_660,
+    expense: 11_800_000,
+    unpaid: 2_800_000,
+    cashOnHand: 3_200_000,
+    currentMargin: 21_180_600,
+    currentMarginRate: 64.2,
+    budgetUsedRate: 38,
+  });
+});
+
+test('workLedgerMoney: before any 지출 the 현재 마진 is not worked out; 추가 비용 comes off it once it is', () => {
+  const base = { customerEstimateTotal: 1_000_000, estimateExecutionCostTotal: 0, additionalCostTotal: 100_000 };
+  const none = workLedgerMoney(base, { income: 0, expense: 0, unpaid: 0 });
+  assert.equal(none.currentMargin, null);
+  assert.equal(none.currentMarginRate, null);
+  assert.equal(none.budgetUsedRate, null);
+  assert.equal(none.receivable, 1_100_000);
+  assert.equal(none.cashOnHand, 0);
+  assert.equal(workLedgerMoney(base, { income: 0, expense: 300_000, unpaid: 0 }).currentMargin, 600_000);
+  assert.equal(workLedgerMoney(base, { income: 2_000_000, expense: 300_000, unpaid: 0 }).receivable, -900_000, 'more received than owed shows as minus');
 });

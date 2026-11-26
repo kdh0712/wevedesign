@@ -565,6 +565,10 @@ const estimateSummaryFields = [
   'executionCostTotal',
   'marginAmount',
   'marginRate',
+  // The estimate-based 예상원가/예상 마진 the office cards show (marginAmount is the 현재 마진 from the 실행 내역서).
+  'estimateExecutionCostTotal',
+  'estimatedMarginAmount',
+  'estimatedMarginRate',
   'linesJson',
   'updatedAt',
   'createdAt',
