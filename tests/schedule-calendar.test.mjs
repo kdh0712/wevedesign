@@ -10,6 +10,7 @@ import {
   scheduleTaskEnd,
   shiftMonthKey,
   sundayOf,
+  tasksOnDay,
   weekPages,
 } from '../app/lib/schedule-calendar.ts';
 
@@ -116,4 +117,12 @@ test('weekPages splits the weeks from the start week to the last week into pages
   assert.equal(pages[0][0], '2026-10-18', 'the first page starts on the Sunday of the start week');
   assert.equal(pages[1][1], '2026-11-29');
   assert.deepEqual(weekPages('2026-10-21', '2026-10-01', 5), [['2026-10-18']], 'an end before the start gives the start week');
+});
+
+test('tasksOnDay: the tasks a day holds, by start (the longer first), none on a holiday', () => {
+  const tasks = [task('short', '2026-12-24', '2026-12-24'), task('long', '2026-12-22', '2026-12-26'), task('late', '2026-12-24', '2026-12-28'), task('x', '', '')];
+  assert.deepEqual(tasksOnDay(tasks, '2026-12-24', new Set()).map((t) => t.id), ['long', 'late', 'short']);
+  assert.deepEqual(tasksOnDay(tasks, '2026-12-22', new Set()).map((t) => t.id), ['long']);
+  assert.deepEqual(tasksOnDay(tasks, '2026-12-25', new Set(['2026-12-25'])), []);
+  assert.deepEqual(tasksOnDay(tasks, '2026-12-29', new Set()), []);
 });
