@@ -22,6 +22,7 @@ import { canMergeDetailLine, mergedDetailLineIds, toggleDetailOneLine } from '..
 import { detailDocumentLines, hasDetailDisplay, type DetailDisplay } from '../../lib/estimate-detail-display';
 import { applyPriceEdit, isPriceEditCommon, priceEditMaterialSave } from '../../lib/estimate-price-edit';
 import { applySiteQuickEdit, type QuickEditCustomer, type QuickEditSite, type SiteQuickEditPlan } from '../../lib/site-quick-edit';
+import { buildConstructionPool, poolItemsLabel } from '../../lib/schedule-process-pool';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -834,7 +835,8 @@ export default function EstimateWorkspacePage() {
   const estimateDocumentView: 'cover' | 'summary' | 'detail' =
     documentView === 'cover' || documentView === 'summary' ? documentView : 'detail';
   const printPageOrientation: 'portrait' | 'landscape' = documentPurchaseOrder ? 'portrait' : 'landscape';
-  const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
+  // The 공정 작업 list: one card per 공사 with its 공정 under it (schedule-process-pool.ts).
+  const processPool = useMemo(() => buildConstructionPool(lines, workLines), [lines, workLines]);
   const effectiveStartDate = constructionStartDate || earliestTaskStartDate(schedule);
   const calendarWeekStart = effectiveStartDate ? addDays(sundayOfWeek(effectiveStartDate), calendarWeekOffset * 7) : '';
   const isStartWeekCalendar = calendarView === 'startWeek' && Boolean(calendarWeekStart);
@@ -4005,27 +4007,28 @@ export default function EstimateWorkspacePage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 작업</h2>
-                  <p className="mt-1 text-sm leading-6 text-[#60717d]">견적/공사내역의 공종을 날짜에 끌어 놓아 일정을 만듭니다.</p>
+                  <p className="mt-1 text-sm leading-6 text-[#60717d]">견적서의 공사를 날짜에 끌어 놓아 일정을 만듭니다.</p>
                 </div>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{processPool.length}개</span>
               </div>
               <div className="mt-4 grid gap-2">
                 {processPool.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-5 text-sm text-[#60717d]">
-                    견적 내역 또는 실행 내역서에 공종을 입력하면 이곳에 자동으로 표시됩니다.
+                    견적서나 실행 내역서에 공사를 입력하면 이곳에 공사별로 표시됩니다.
                   </div>
                 ) : (
-                  processPool.map((process) => (
+                  processPool.map((group) => (
                     <button
-                      key={process.name}
+                      key={group.name}
                       type="button"
                       draggable
-                      onDragStart={(event) => event.dataTransfer.setData('text/plain', process.name)}
-                      onClick={() => addScheduleFromProcess(process.name, todayKey())}
-                      className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] px-4 py-3 text-left transition hover:border-[#c6a25d] hover:bg-[#fff8e8]"
+                      onDragStart={(event) => event.dataTransfer.setData('text/plain', group.name)}
+                      onClick={() => addScheduleFromProcess(group.name, todayKey())}
+                      title={group.items.join(' · ')}
+                      className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] px-4 py-2.5 text-left transition hover:border-[#c6a25d] hover:bg-[#fff8e8]"
                     >
-                      <span className="block text-sm font-semibold">{process.name}</span>
-                      <span className="mt-1 block text-xs text-[#60717d]">{process.meta || '공종 정보'}</span>
+                      <span className="block text-sm font-semibold">{group.name}</span>
+                      {group.items.length > 0 && <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-[#60717d]">{poolItemsLabel(group.items)}</span>}
                     </button>
                   ))
                 )}
@@ -4064,7 +4067,7 @@ export default function EstimateWorkspacePage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 달력</h2>
-                  <p className="mt-1 text-sm text-[#60717d]">날짜 칸에 공종을 드래그하면 해당 날짜 일정으로 등록됩니다.</p>
+                  <p className="mt-1 text-sm text-[#60717d]">날짜 칸에 공사를 드래그하면 해당 날짜 일정으로 등록됩니다.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" onClick={() => (isStartWeekCalendar ? setCalendarWeekOffset((current) => current - 1) : setCalendarMonth(shiftMonth(calendarMonth, -1)))} aria-label={isStartWeekCalendar ? '이전 주' : '이전 달'} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
@@ -8570,17 +8573,6 @@ function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extr
     marginRate: actualMarginRate,
     hasWorkLines,
   };
-}
-
-function buildProcessPool(lines: EstimateLine[], workLines: WorkLine[]) {
-  const map = new Map<string, string>();
-  [...workLines, ...lines].forEach((line) => {
-    const name = (line.process || line.category || line.name || '').trim();
-    if (!name) return;
-    const meta = [line.space, line.category, line.name].filter(Boolean).join(' · ');
-    if (!map.has(name)) map.set(name, meta);
-  });
-  return Array.from(map.entries()).map(([name, meta]) => ({ name, meta }));
 }
 
 function todayKey() {
