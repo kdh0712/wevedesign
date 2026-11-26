@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import {
   detailDisplayChanges,
   detailDisplayPreview,
+  hasDetailDisplay,
   normalizeDetailDisplay,
   type DetailDisplay,
   type DisplayLine,
@@ -30,7 +31,8 @@ export function DetailDisplayDialog({
   onApply: (display: DetailDisplay | undefined) => void;
   onClose: () => void;
 }) {
-  const stored = normalizeDetailDisplay(line.detailDisplay);
+  // A display set for another 품명 (the line was re-picked) is not shown here, as on the documents.
+  const stored = hasDetailDisplay(line) ? normalizeDetailDisplay(line.detailDisplay) : undefined;
   const [fields, setFields] = useState({
     name: stored?.name ?? line.name,
     spec: stored?.spec ?? line.spec,
@@ -51,6 +53,8 @@ export function DetailDisplayDialog({
   const edited = (key: 'name' | 'spec' | 'unit' | 'quantity') => Boolean(changes && key in changes);
   const field = (key: 'name' | 'spec' | 'unit') => (
     <input
+      autoFocus={key === 'name'}
+      placeholder={key === 'spec' ? '비우면 규격 없이' : line[key]}
       value={fields[key]}
       onChange={(event) => setFields((current) => ({ ...current, [key]: event.target.value }))}
       aria-label={`세부내역서 ${key === 'name' ? '품명' : key === 'spec' ? '규격' : '단위'}`}
@@ -142,7 +146,7 @@ export function DetailDisplayDialog({
             금액이 수량으로 나누어떨어지지 않아 단가에 소수점이 생겨요. 서류에는 금액은 그대로, 단가는 소수점까지 나와요.
           </p>
         )}
-        {!(fields.quantity > 0) && <p className="mt-3 text-xs font-semibold text-[#b42318]">수량은 0보다 커야 해요. 비워 두면 견적서 수량으로 나와요.</p>}
+        <p className="mt-3 text-xs text-[#60717d]">품명·단위를 비우거나 수량을 0으로 두면 견적서 값으로 나와요. 규격은 비우면 빈칸으로 나와요.</p>
 
         <div className="mt-4 flex items-center justify-between gap-2">
           <button

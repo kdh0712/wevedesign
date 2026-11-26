@@ -21,6 +21,9 @@ test('normalizeDetailDisplay keeps what is set: a 품명 only when not blank, �
   assert.deepEqual(normalizeDetailDisplay({ name: '   ', quantity: 0 }), undefined);
   assert.deepEqual(normalizeDetailDisplay({ quantity: -2, unit: 3 }), undefined);
   assert.deepEqual(normalizeDetailDisplay({ quantity: '2' }), undefined);
+  assert.deepEqual(normalizeDetailDisplay({ unit: '  ' }), undefined, 'a blank 단위 prints 식 anyway, so it is not kept');
+  assert.deepEqual(normalizeDetailDisplay({ for: '씽크대' }), undefined, 'the 품명 it was set for alone shows nothing');
+  assert.deepEqual(normalizeDetailDisplay({ for: ' 씽크대 ', unit: '식' }), { unit: '식', for: '씽크대' });
   assert.equal(normalizeDetailDisplay(null), undefined);
   assert.equal(normalizeDetailDisplay([]), undefined);
   assert.equal(normalizeDetailDisplay({ name: 'x'.repeat(200) }).name.length, 120);
@@ -70,8 +73,31 @@ test('hasDetailDisplay and detailDisplayPreview (the dialog): the shown 단가 a
 
 test('detailDisplayChanges keeps only what differs from the estimate line, so 원래대로 values store nothing', () => {
   const sink = line('a', '씽크대', '대리석', 'M', 5.4, 410_000);
-  assert.deepEqual(detailDisplayChanges(sink, { name: '씽크대', spec: '대리석', unit: '식', quantity: 1 }), { unit: '식', quantity: 1 });
+  assert.deepEqual(detailDisplayChanges(sink, { name: '씽크대', spec: '대리석', unit: '식', quantity: 1 }), { unit: '식', quantity: 1, for: '씽크대' });
   assert.deepEqual(detailDisplayChanges(sink, { name: ' 씽크대 ', spec: '대리석', unit: 'M', quantity: 5.4 }), undefined);
-  assert.deepEqual(detailDisplayChanges(sink, { name: '', spec: '', unit: 'M', quantity: 0 }), { spec: '' });
-  assert.deepEqual(detailDisplayChanges(sink, { name: '주방 씽크대', spec: '대리석', unit: 'M', quantity: 5.4 }), { name: '주방 씽크대' });
+  assert.deepEqual(detailDisplayChanges(sink, { name: '', spec: '', unit: 'M', quantity: 0 }), { spec: '', for: '씽크대' });
+  assert.deepEqual(detailDisplayChanges(sink, { name: '주방 씽크대', spec: '대리석', unit: 'M', quantity: 5.4 }), { name: '주방 씽크대', for: '씽크대' });
+});
+
+test('a display counts only for the 품명 it was set for, so a line re-picked as another item drops it', () => {
+  const display = { for: '씽크대', name: '주방 씽크대', unit: '식', quantity: 1 };
+  const repicked = line('a', '욕실 타일', '600각', 'm2', 12, 30_000, { detailDisplay: display });
+  assert.equal(hasDetailDisplay(repicked), false);
+  assert.equal(applyDetailDisplay(repicked), repicked);
+  const same = line('b', '씽크대', '대리석', 'M', 5.4, 410_000, { detailDisplay: display });
+  assert.equal(hasDetailDisplay(same), true);
+  assert.equal(applyDetailDisplay(same).name, '주방 씽크대');
+});
+
+test('a blank 규격 prints blank: the 공간 that the documents would show in its place is cleared too', () => {
+  const kitchen = line('a', '하부장', '대리석', '자', 5, 250_000, { space: '주방', detailDisplay: { spec: '' } });
+  const shown = applyDetailDisplay(kitchen);
+  assert.deepEqual([shown.spec, shown.space], ['', '']);
+});
+
+test('a large shown 수량 still multiplies back to the amount within a thousandth of a won', () => {
+  const shown = applyDetailDisplay(line('a', '공사비', '', '식', 1, 1_000_000, { detailDisplay: { quantity: 3000 } }));
+  assert.ok(Math.abs(shown.quantity * shown.customerUnitPrice - 1_000_000) < 0.0005);
+  const odd = applyDetailDisplay(line('b', '공사비', '', '식', 1, 100_000, { detailDisplay: { quantity: 1069 } }));
+  assert.ok(Math.abs(odd.quantity * odd.customerUnitPrice - 100_000) < 0.0005);
 });

@@ -4,16 +4,19 @@ import { mergeDetailOneLines, type OneLineLine } from './estimate-detail-one-lin
 // 규격, 단위 and 수량 on the 세부내역서 than in the estimate. Its amount never changes; the 단가 shown is that amount ÷ the
 // shown 수량. Only the documents' rows change (print, the live preview, the Excel export); totals and the 갑지 do not.
 
-// What a line shows instead: a field left out shows the estimate's own. 규격 and 단위 may be blank on purpose; a blank 품명
-// would drop the line from the documents, so it never counts.
-export type DetailDisplay = { name?: string; spec?: string; unit?: string; quantity?: number };
+// What a line shows instead: a field left out shows the estimate's own. 규격 may be blank on purpose; a blank 품명 would
+// drop the line from the documents and a blank 단위 prints 식 anyway, so neither counts. `for` is the 품명 the display was
+// set for: a line given another 품명 (re-picked from the DB, retyped) no longer shows it.
+export type DetailDisplay = { name?: string; spec?: string; unit?: string; quantity?: number; for?: string };
 export type DisplayLine = OneLineLine & { detailDisplay?: DetailDisplay };
 
 const TEXT_MAX = 120;
 const number = (value: unknown) => Number(value) || 0;
 const text = (value: unknown) => (typeof value === 'string' ? value.trim().slice(0, TEXT_MAX) : null);
-// Leftover float digits (410,000 × 5.4) off a shown 단가, keeping real fractions.
-const clean = (value: number) => Math.round(value * 1e6) / 1e6;
+// Leftover float digits (410,000 × 5.4) off a shown 단가, keeping real fractions to 12 significant digits, so 수량 × 단가
+// on the documents comes back to the amount within far less than a thousandth of a won.
+const clean = (value: number) => (Number.isFinite(value) ? Number(value.toPrecision(12)) : 0);
+const nameOf = (line: { name?: unknown }) => String(line.name ?? '').trim();
 
 // The stored form, also how the estimate save keeps it; nothing at all when no field is set.
 export function normalizeDetailDisplay(raw: unknown): DetailDisplay | undefined {
@@ -25,18 +28,27 @@ export function normalizeDetailDisplay(raw: unknown): DetailDisplay | undefined 
   const spec = text(input.spec);
   if (spec !== null) display.spec = spec;
   const unit = text(input.unit);
-  if (unit !== null) display.unit = unit;
+  if (unit) display.unit = unit;
   if (typeof input.quantity === 'number' && Number.isFinite(input.quantity) && input.quantity > 0) display.quantity = input.quantity;
-  return Object.keys(display).length > 0 ? display : undefined;
+  if (Object.keys(display).length === 0) return undefined;
+  const forName = text(input.for);
+  if (forName) display.for = forName;
+  return display;
 }
 
-export function hasDetailDisplay(line: { detailDisplay?: unknown }): boolean {
-  return normalizeDetailDisplay(line.detailDisplay) !== undefined;
+// The display the line shows: none when it has none, or when it was set for another 품명.
+function activeDisplay(line: { name?: unknown; detailDisplay?: unknown }): DetailDisplay | undefined {
+  const display = normalizeDetailDisplay(line.detailDisplay);
+  return display && (display.for === undefined || display.for === nameOf(line)) ? display : undefined;
+}
+
+export function hasDetailDisplay(line: { name?: unknown; detailDisplay?: unknown }): boolean {
+  return activeDisplay(line) !== undefined;
 }
 
 // The line as the 세부내역서 shows it, or the line itself when it has no display.
 export function applyDetailDisplay<T extends DisplayLine>(line: T): T {
-  const display = normalizeDetailDisplay(line.detailDisplay);
+  const display = activeDisplay(line);
   if (!display) return line;
   const quantity = number(line.quantity);
   const shownQuantity = display.quantity ?? quantity;
@@ -45,6 +57,8 @@ export function applyDetailDisplay<T extends DisplayLine>(line: T): T {
     ...line,
     name: display.name ?? line.name,
     spec: display.spec ?? line.spec,
+    // The documents print the 공간 where the 규격 is blank; a 규격 set here (even blank) is what they print.
+    space: display.spec !== undefined ? '' : line.space,
     unit: display.unit ?? line.unit,
     quantity: shownQuantity,
     customerUnitPrice: per(line.customerUnitPrice),
@@ -61,7 +75,7 @@ export function detailDisplayChanges(line: DisplayLine, fields: { name: string; 
   if (!same(fields.spec, line.spec)) changes.spec = fields.spec;
   if (!same(fields.unit, line.unit)) changes.unit = fields.unit;
   if (fields.quantity > 0 && fields.quantity !== number(line.quantity)) changes.quantity = fields.quantity;
-  return normalizeDetailDisplay(changes);
+  return normalizeDetailDisplay({ ...changes, for: nameOf(line) });
 }
 
 // What the dialog shows for a display being typed: the amount (fixed), the 단가 it gives and whether that has a fraction.

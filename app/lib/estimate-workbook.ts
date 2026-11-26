@@ -34,7 +34,15 @@ const DETAIL_SHEET = '세부내역서';
 const DETAIL_HEADER = ['품명', '규격', '단위', '수량', '단가', '금액', '비고'];
 const SUMMARY_HEADER = ['공정', '규격', '산식', '단위', '금액', '세액'];
 
-const money = (value: number, formula?: string): WorkbookMoneyCell => ({ t: 'n', v: value, z: MONEY_FORMAT, ...(formula ? { f: formula } : {}) });
+// A 단가 with a real fraction (세부내역서 표시 바꾸기: 2,214,000 ÷ 7) shows its decimals, so 수량 × 단가 reads as the 금액.
+const FRACTION_FORMAT = '#,##0.##';
+const isWhole = (value: number) => Math.abs(value - Math.round(value)) < 1e-4;
+const money = (value: number, formula?: string): WorkbookMoneyCell => ({
+  t: 'n',
+  v: value,
+  z: isWhole(value) ? MONEY_FORMAT : FRACTION_FORMAT,
+  ...(formula ? { f: formula } : {}),
+});
 const fromDetail = (row: number) => `'${DETAIL_SHEET}'!F${row}`;
 
 // Consecutive row numbers as Excel ranges: [10, 11, 13] → F10:F11,F13.
