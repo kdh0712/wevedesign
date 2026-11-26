@@ -5860,8 +5860,8 @@ function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?:
 }
 
 // The printed 공정표, one A4 landscape page per sheet: a one-row head (SchedulePrintHeader), then a Sunday-first calendar
-// with the same bars as the 공정 달력: one bar per task in its colour across its days (longest on top, layoutCalendarWeek),
-// with the name and worker in the middle.
+// with the same bars as the 공정 달력: one bar per task across its days (longest on top, layoutCalendarWeek) in the same
+// light shade of its colour (softenColor) with dark text, and the name and worker in the middle.
 function SchedulePrintPages({
   sheets,
   tasks,
@@ -5921,12 +5921,11 @@ function SchedulePrintPages({
                     })}
                     {bars.map((bar) => {
                       const { task } = bar.task;
-                      const color = normalizeColor(task.color);
                       return (
                         <div
                           key={task.id}
-                          style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: color, color: readableTextColor(color) }}
-                          className={`relative z-[1] my-[2px] flex h-[22px] min-w-0 items-center justify-center px-2 text-[12.5px] font-bold ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
+                          style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: softenColor(task.color || '#f1c76a') }}
+                          className={`relative z-[1] my-[2px] flex h-[22px] min-w-0 items-center justify-center px-2 text-[12.5px] font-semibold text-[#171512] ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
                         >
                           <span className="truncate">
                             {task.name || '공정명 없음'}
@@ -8731,13 +8730,6 @@ function colorForName(name: string) {
 function normalizeColor(value?: string) {
   const color = String(value || '').trim();
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
-}
-
-// Black or white, whichever reads better on the colour (the printed 공정표's bars).
-function readableTextColor(color: string) {
-  const hex = normalizeColor(color).replace('#', '');
-  const [r, g, b] = [0, 2, 4].map((index) => parseInt(hex.slice(index, index + 2), 16));
-  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#171512' : '#ffffff';
 }
 
 function softenColor(color: string) {
