@@ -4,12 +4,12 @@ import {
   addDays,
   clampMonthKey,
   layoutCalendarWeek,
-  mondayOf,
   monthKeysBetween,
   monthWeekStarts,
   scheduleSpan,
   scheduleTaskEnd,
   shiftMonthKey,
+  sundayOf,
   weekPages,
 } from '../app/lib/schedule-calendar.ts';
 
@@ -19,9 +19,10 @@ const lanesOf = (layout) => Object.fromEntries(layout.bars.map((bar) => [bar.tas
 test('date helpers work on YYYY-MM-DD keys across months and years', () => {
   assert.equal(addDays('2026-10-31', 1), '2026-11-01');
   assert.equal(addDays('2026-01-01', -1), '2025-12-31');
-  assert.equal(mondayOf('2026-10-23'), '2026-10-19'); // Friday
-  assert.equal(mondayOf('2026-10-19'), '2026-10-19'); // Monday
-  assert.equal(mondayOf('2026-10-25'), '2026-10-19'); // Sunday belongs to the week that started on Monday
+  assert.equal(sundayOf('2026-10-23'), '2026-10-18'); // Friday
+  assert.equal(sundayOf('2026-10-18'), '2026-10-18'); // Sunday starts its week
+  assert.equal(sundayOf('2026-10-24'), '2026-10-18'); // Saturday ends the week that started on Sunday
+  assert.equal(sundayOf('2027-01-01'), '2026-12-27');
   assert.equal(shiftMonthKey('2026-12', 1), '2027-01');
   assert.equal(shiftMonthKey('2026-01', -1), '2025-12');
 });
@@ -88,9 +89,9 @@ test('layoutCalendarWeek clips tasks that cross the week and skips tasks outside
   assert.deepEqual(layoutCalendarWeek([], '2026-10-19'), { bars: [], laneCount: 0 });
 });
 
-test('monthWeekStarts lists the Mondays of the weeks that hold the month', () => {
-  assert.deepEqual(monthWeekStarts('2026-10'), ['2026-09-28', '2026-10-05', '2026-10-12', '2026-10-19', '2026-10-26']);
-  assert.deepEqual(monthWeekStarts('2027-02'), ['2027-02-01', '2027-02-08', '2027-02-15', '2027-02-22']); // 28 days from a Monday
+test('monthWeekStarts lists the Sundays of the weeks that hold the month', () => {
+  assert.deepEqual(monthWeekStarts('2026-10'), ['2026-09-27', '2026-10-04', '2026-10-11', '2026-10-18', '2026-10-25']);
+  assert.deepEqual(monthWeekStarts('2026-02'), ['2026-02-01', '2026-02-08', '2026-02-15', '2026-02-22']); // 28 days from a Sunday
   assert.equal(monthWeekStarts('2026-08').length, 6); // Saturday the 1st to Monday the 31st
 });
 
@@ -109,10 +110,10 @@ test('scheduleSpan finds the first start and the last end; monthKeysBetween list
 });
 
 test('weekPages splits the weeks from the start week to the last week into pages', () => {
-  assert.deepEqual(weekPages('2026-10-19', '2026-11-09', 5), [['2026-10-19', '2026-10-26', '2026-11-02', '2026-11-09']]);
+  assert.deepEqual(weekPages('2026-10-19', '2026-11-09', 5), [['2026-10-18', '2026-10-25', '2026-11-01', '2026-11-08']]);
   const pages = weekPages('2026-10-21', '2026-12-01', 5);
   assert.deepEqual(pages.map((page) => page.length), [5, 2]);
-  assert.equal(pages[0][0], '2026-10-19', 'the first page starts on the Monday of the start week');
-  assert.equal(pages[1][1], '2026-11-30');
-  assert.deepEqual(weekPages('2026-10-21', '2026-10-01', 5), [['2026-10-19']], 'an end before the start gives the start week');
+  assert.equal(pages[0][0], '2026-10-18', 'the first page starts on the Sunday of the start week');
+  assert.equal(pages[1][1], '2026-11-29');
+  assert.deepEqual(weekPages('2026-10-21', '2026-10-01', 5), [['2026-10-18']], 'an end before the start gives the start week');
 });

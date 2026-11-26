@@ -25,13 +25,16 @@ export function addDays(key: string, days: number): string {
   return day === null ? '' : keyOf(day + days);
 }
 
-// The Monday of the week that holds the date (weeks run Monday to Sunday).
-export function mondayOf(key: string): string {
+// The Sunday of the week that holds the date (calendar weeks run Sunday to Saturday).
+export function sundayOf(key: string): string {
   const day = dayNumber(key);
   if (day === null) return '';
-  const weekday = new Date(day * DAY_MS).getUTCDay();
-  return keyOf(day - ((weekday + 6) % 7));
+  return keyOf(day - new Date(day * DAY_MS).getUTCDay());
 }
+
+// The weekday heads of a calendar week, Sunday first; 일 (index 0) and 토 (index 6) are the weekend, drawn in red.
+export const CALENDAR_WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'] as const;
+export const isWeekendColumn = (index: number) => index === 0 || index === 6;
 
 export function shiftMonthKey(monthKey: string, offset: number): string {
   const [year, month] = monthKey.split('-').map(Number);
@@ -50,20 +53,20 @@ export function monthKeysBetween(from: string, to: string, limit = 12): string[]
   return months;
 }
 
-// The Mondays of the weeks that hold any day of the month (4 to 6 weeks).
+// The Sundays of the weeks that hold any day of the month (4 to 6 weeks).
 export function monthWeekStarts(monthKey: string): string[] {
   const first = `${monthKey}-01`;
   const last = addDays(`${shiftMonthKey(monthKey, 1)}-01`, -1);
   const weeks: string[] = [];
-  for (let week = mondayOf(first); week && week <= last; week = addDays(week, 7)) weeks.push(week);
+  for (let week = sundayOf(first); week && week <= last; week = addDays(week, 7)) weeks.push(week);
   return weeks;
 }
 
 // The weeks from the week of `from` to the week of `to`, split into pages of `weeksPerPage` weeks.
 export function weekPages(from: string, to: string, weeksPerPage = 5): string[][] {
-  const first = mondayOf(from);
+  const first = sundayOf(from);
   if (!first) return [];
-  const last = mondayOf(to > from ? to : from);
+  const last = sundayOf(to > from ? to : from);
   const pages: string[][] = [];
   for (let week = first; week <= last; week = addDays(week, 7)) {
     if (pages.length === 0 || pages[pages.length - 1].length >= weeksPerPage) pages.push([]);
