@@ -25,6 +25,8 @@ import {
   insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
+  lineDbSavePrices,
+  materialPrices,
   orderTemplateLinesByGroup,
   pinBaseGroupFirst,
   placeTemplateLines,
@@ -80,7 +82,10 @@ type Material = {
   name?: string;
   spec?: string;
   unit?: string;
+  // The 견적단가.
   unitPrice?: number;
+  // The 실행단가 when one was entered; without it the 견적단가 serves for both (materialPrices).
+  executionUnitPrice?: number;
   note?: string;
   sourceSheet?: string;
   updatedAt?: string;
@@ -1722,8 +1727,7 @@ export default function EstimateWorkspacePage() {
       commonName: isCommon,
       spec: material.spec || '',
       unit: material.unit || '',
-      customerUnitPrice: Number(material.unitPrice || 0),
-      executionUnitPrice: Number(material.unitPrice || 0),
+      ...materialPrices(material),
       materialId: material._id || undefined,
     };
   };
@@ -1825,7 +1829,8 @@ export default function EstimateWorkspacePage() {
         name,
         spec: lineDraft.spec,
         unit: lineDraft.unit,
-        unitPrice: lineDraft.customerUnitPrice,
+        // The line's own 실행단가 only; without one the DB keeps the 실행단가 it has (lineDbSavePrices).
+        ...lineDbSavePrices(lineDraft),
         note: lineDraftSource?.note || '',
         sourceSheet: '견적서 입력',
         ...(lineDbSaveCommon ? { commonOptions: lineDbSaveOptions } : {}),
@@ -3018,7 +3023,7 @@ export default function EstimateWorkspacePage() {
                             <p className="truncate text-sm font-semibold">{material.name || '품명 없음'}</p>
                             <p className="mt-1 text-xs text-[#60717d]">{[dbLibrary === 'estimate' ? estimateCategoryOf(material) : material.category, material.spec, material.unit].filter(Boolean).join(' · ') || '규격 정보 없음'}</p>
                           </div>
-                          <b className="shrink-0 text-sm">{formatMoney(Number(material.unitPrice || 0))}</b>
+                          <MaterialPriceText material={material} className="shrink-0 text-sm" />
                         </div>
                         <div className="mt-3 grid grid-cols-2 gap-2">
                           <button type="button" onClick={() => applyMaterialToSelectedLine(material)} className="rounded-md bg-[#f1c76a] px-3 py-2 text-xs font-semibold">
@@ -3124,7 +3129,11 @@ export default function EstimateWorkspacePage() {
                     </button>
                     {lineDbSaveCommon && <CommonOptionsField key={lineDbSaveKey || 'new'} options={lineDbSaveOptions} onChange={setLineDbSaveOptions} className="md:col-span-4" />}
                     <p className="text-xs leading-5 text-[#60717d] md:col-span-4">
-                      분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다. 공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
+                      분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다.{' '}
+                      {lineDbSavePrices(lineDraft).executionUnitPrice !== undefined
+                        ? `실행단가 ${formatMoney(lineDraft.executionUnitPrice)}도 함께 저장해요.`
+                        : '실행단가는 이 줄에 따로 없어서, DB에 있는 값을 그대로 둬요.'}{' '}
+                      공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
                     </p>
                   </div>
                 )}
@@ -3475,10 +3484,21 @@ export default function EstimateWorkspacePage() {
                 <input list="estimate-material-processes" value={editingMaterial.process || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, process: event.target.value })} placeholder="공정" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
                 <input value={editingMaterial.name || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, name: event.target.value })} placeholder="품명" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
                 <input value={editingMaterial.spec || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, spec: event.target.value })} placeholder="규격" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
-                <div className="grid grid-cols-2 gap-2">
-                  <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm" />
-                  <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} className="min-w-0 py-1.5 text-sm" />
+                <div className="grid grid-cols-3 items-end gap-2">
+                  <label className="grid gap-0.5 text-[11px] font-bold text-[#60717d]">
+                    단위
+                    <input value={editingMaterial.unit || ''} onChange={(event) => setEditingMaterial({ ...editingMaterial, unit: event.target.value })} placeholder="단위" className="min-w-0 rounded-md border border-[#d5dde2] px-3 py-1.5 text-sm font-normal text-[#171512]" />
+                  </label>
+                  <label className="grid gap-0.5 text-[11px] font-bold text-[#60717d]">
+                    견적단가
+                    <NumberTextInput value={Number(editingMaterial.unitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, unitPrice: value })} ariaLabel="견적단가" className="min-w-0 py-1.5 text-sm font-normal text-[#171512]" />
+                  </label>
+                  <label className="grid gap-0.5 text-[11px] font-bold text-[#60717d]">
+                    실행단가
+                    <NumberTextInput value={Number(editingMaterial.executionUnitPrice || 0)} onChange={(value) => setEditingMaterial({ ...editingMaterial, executionUnitPrice: value })} ariaLabel="실행단가" className="min-w-0 py-1.5 text-sm font-normal text-[#171512]" />
+                  </label>
                 </div>
+                <p className="-mt-1 text-[11px] text-[#60717d]">실행단가를 비워 두면 견적에 불러올 때 견적단가와 같게 들어가요.</p>
                 {isCommonMaterialName(editingMaterial.name) && (
                   <CommonOptionsField key={editingMaterial._id || 'new'} options={editingMaterial.commonOptions} onChange={(commonOptions) => setEditingMaterial((current) => ({ ...current, commonOptions }))} />
                 )}
@@ -3709,7 +3729,7 @@ export default function EstimateWorkspacePage() {
                 </div>
               ) : (
               <div className="mt-4 max-h-[min(720px,70vh)] overflow-auto rounded-lg border border-[#edf2f5]">
-                <table className="min-w-[820px] w-full text-sm">
+                <table className="min-w-[900px] w-full text-sm">
                   <thead className="sticky top-0 z-10 bg-[#f7fafb] text-left text-xs uppercase tracking-[0.08em] text-[#60717d]">
                     <tr>
                       <th className="w-10 border-b border-[#d5dde2] px-3 py-3">
@@ -3722,7 +3742,7 @@ export default function EstimateWorkspacePage() {
                           />
                         )}
                       </th>
-                      {['공정', '품명', '규격', '단위', '단가', '견적 카테고리', '작업'].map((header) => (
+                      {['공정', '품명', '규격', '단위', '견적단가', '실행단가', '견적 카테고리', '작업'].map((header) => (
                         <th key={header} className="border-b border-[#d5dde2] px-3 py-3">{header}</th>
                       ))}
                     </tr>
@@ -3781,6 +3801,9 @@ export default function EstimateWorkspacePage() {
                           <td className="px-3 py-3">{material.spec}</td>
                           <td className="px-3 py-3">{material.unit}</td>
                           <td className="px-3 py-3">{formatMoney(Number(material.unitPrice || 0))}</td>
+                          <td className="px-3 py-3">
+                            {Number(material.executionUnitPrice || 0) > 0 ? formatMoney(Number(material.executionUnitPrice)) : <span className="text-xs text-[#a9b4bb]">견적단가와 같음</span>}
+                          </td>
                           <td className="px-3 py-3">
                             {materialOrderDraft ? (
                               <span className={`text-xs font-bold ${estimateItems[id] ? 'text-[#8b6420]' : 'text-[#a9b4bb]'}`}>{estimateItems[id] || '-'}</span>
@@ -5270,6 +5293,17 @@ function SummaryCard({ title, value, sub }: { title: string; value: string; sub:
   );
 }
 
+// A 자재 DB item's prices in a list: the 견적단가, with the 실행단가 under it when one was entered.
+function MaterialPriceText({ material, className = '' }: { material: Material; className?: string }) {
+  const execution = Number(material.executionUnitPrice || 0);
+  return (
+    <span className={`text-right ${className}`}>
+      <span className="block">{formatMoney(Number(material.unitPrice || 0))}</span>
+      {execution > 0 && <span className="block text-xs font-normal text-[#60717d]">실행 {formatMoney(execution)}</span>}
+    </span>
+  );
+}
+
 // warn: an empty 품명 the documents would leave out while its amount counts (isUnnamedPricedLine), drawn in yellow.
 function PickerCell({ value, placeholder, warn = false, onClick }: { value: string; placeholder: string; warn?: boolean; onClick: () => void }) {
   // Spaces alone count as empty, as in the 세부내역서 미리보기 and the warning.
@@ -6056,7 +6090,14 @@ function MaterialPickerModal({
         <input value={editingPickerMaterial.name || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, name: event.target.value })} placeholder="품명" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
         <input value={editingPickerMaterial.spec || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, spec: event.target.value })} placeholder="규격" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
         <input value={editingPickerMaterial.unit || ''} onChange={(event) => setEditingPickerMaterial({ ...editingPickerMaterial, unit: event.target.value })} placeholder="단위" className="rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#38a9bd]" />
-        <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} className="bg-white text-sm" />
+        <label className="grid gap-0.5 text-[11px] font-bold text-[#60717d]">
+          견적단가
+          <NumberTextInput value={Number(editingPickerMaterial.unitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, unitPrice: value })} ariaLabel="견적단가" className="bg-white text-sm font-normal text-[#171512]" />
+        </label>
+        <label className="grid gap-0.5 text-[11px] font-bold text-[#60717d]">
+          실행단가 (비우면 견적단가와 같게)
+          <NumberTextInput value={Number(editingPickerMaterial.executionUnitPrice || 0)} onChange={(value) => setEditingPickerMaterial({ ...editingPickerMaterial, executionUnitPrice: value })} ariaLabel="실행단가" className="bg-white text-sm font-normal text-[#171512]" />
+        </label>
       </div>
       {isCommonMaterialName(editingPickerMaterial.name) && (
         <CommonOptionsField
@@ -6206,7 +6247,7 @@ function MaterialPickerModal({
                           <small className="mt-1 block text-[#60717d]">{[material.category, material.process, material.spec, material.unit].filter(Boolean).join(' · ') || material.note || material.sourceSheet || ''}</small>
                         </button>
                         <div className="flex items-center justify-between gap-2 md:justify-end">
-                          <span className="font-semibold">{formatMoney(Number(material.unitPrice || 0))}</span>
+                          <MaterialPriceText material={material} className="font-semibold" />
                           <button
                             type="button"
                             aria-expanded={isEditing}

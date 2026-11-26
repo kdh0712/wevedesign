@@ -15,6 +15,7 @@ import {
 } from '../../lib/office-changes';
 import { hashId } from './_utils';
 import { saveIfUnchanged } from '../../lib/conditional-save';
+import { materialFieldsToKeep } from '../../lib/estimate-save-safety';
 import { PROTECTED_SITE_FIELDS, SERVER_OWNED_SITE_FIELDS, dropBrowserSiteFields, stripServerOwnedSiteFields } from './_site-fields';
 import {
   FirestoreConflictError,
@@ -920,8 +921,9 @@ export async function deleteEstimateFromFirestore(request: Request, id: string) 
   return deleteFirestoreDocument('siteEstimates', id, requestIdToken(request));
 }
 
+// A masked write: the fields the record leaves out (실행단가, 공통 항목) keep their stored values (materialFieldsToKeep).
 export async function saveMaterialToFirestore(record: Record<string, unknown>, request: Request) {
-  return saveFirestoreDocument('estimateMaterials', record, requestIdToken(request), String(record._id || ''));
+  return saveFirestoreDocument('estimateMaterials', record, requestIdToken(request), String(record._id || ''), materialFieldsToKeep(record));
 }
 
 export async function deleteMaterialFromFirestore(request: Request, id: string) {

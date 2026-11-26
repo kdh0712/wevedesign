@@ -19,6 +19,8 @@ export type CommonMaterial = {
   spec?: string;
   unit?: string;
   unitPrice?: number;
+  // The 실행단가 when one was entered (materialPrices).
+  executionUnitPrice?: number;
   commonOptions?: string[] | null;
 };
 

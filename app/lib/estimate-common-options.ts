@@ -127,23 +127,29 @@ const withoutSpaces = (value: unknown) => String(value ?? '').replace(/\s/g, '')
 // - replacedLine: the line row 1 will replace. Like a single pick onto that line, row 1 keeps its 수량 and 비고.
 // - 공간: an option named after one of spaceOptions (spaces ignored) starts in that 공간. Otherwise row 1 takes
 //   firstRowSpace (the 공간 of the line or draft the picker was opened for) and the other rows start empty.
+// prices: the DB 단가 for both prices, or { customerUnitPrice, executionUnitPrice } (materialPrices) for each its own.
 export function defaultCommonBulkRows(
   options: readonly string[],
-  unitPrice: unknown,
+  prices: unknown,
   {
     replacedLine = null,
     spaceOptions = [],
     firstRowSpace = '',
   }: { replacedLine?: { quantity?: number; note?: string } | null; spaceOptions?: readonly string[]; firstRowSpace?: string } = {},
 ): CommonBulkRow[] {
-  const price = Number(unitPrice || 0);
-  const safePrice = Number.isFinite(price) ? price : 0;
+  const amount = (value: unknown) => {
+    const price = Number(value || 0);
+    return Number.isFinite(price) ? price : 0;
+  };
+  const both = typeof prices === 'object' && prices !== null ? (prices as { customerUnitPrice?: unknown; executionUnitPrice?: unknown }) : null;
+  const customerPrice = amount(both ? both.customerUnitPrice : prices);
+  const executionPrice = both ? amount(both.executionUnitPrice) : customerPrice;
   const namedSpace = (name: string) => spaceOptions.find((space) => withoutSpaces(space) && withoutSpaces(space) === withoutSpaces(name)) || '';
   return options.map((name, index) => {
     const kept = index === 0 ? replacedLine : null;
     const quantity = kept && Number.isFinite(kept.quantity) ? Number(kept.quantity) : 1;
     const space = namedSpace(name) || (index === 0 ? firstRowSpace : '');
-    return { space, name, quantity, customerUnitPrice: safePrice, executionUnitPrice: safePrice, note: kept ? kept.note || '' : '' };
+    return { space, name, quantity, customerUnitPrice: customerPrice, executionUnitPrice: executionPrice, note: kept ? kept.note || '' : '' };
   });
 }
 

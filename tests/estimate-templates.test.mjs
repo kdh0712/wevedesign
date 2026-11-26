@@ -41,6 +41,8 @@ import {
   normalizeTemplateLines,
   placeTemplateLines,
   refreshTemplateLines,
+  materialPrices,
+  lineDbSavePrices,
   repickTemplateLine,
   templateCopyName,
   templateCustomerTotal,
@@ -109,8 +111,35 @@ test('refreshTemplateLines puts the DB price in both prices, keeps the rest, and
     { customerUnitPrice: 33000, executionUnitPrice: 33000, spec: '600각(신)', quantity: 12, space: '욕실', note: '벽', materialId: 'm1' });
   assert.equal(result.lines[1].name, '줄눈 시공', 'a common line keeps its own 품명');
   assert.deepEqual(pick(result.lines[2], ['customerUnitPrice', 'executionUnitPrice']), { customerUnitPrice: 500000, executionUnitPrice: 400000 });
-  assert.deepEqual(result.changed, [{ name: '타일', before: 30000, after: 33000 }]);
+  assert.deepEqual(result.changed, [{ name: '타일', before: 30000, after: 33000, executionBefore: 30000, executionAfter: 33000 }]);
   assert.deepEqual(result.notFound, ['특수 시공비']);
+});
+
+test('materialPrices: the DB 단가 is the 견적단가; the 실행단가 is its own, or the 견적단가 when none is entered', () => {
+  assert.deepEqual(materialPrices({ unitPrice: 230000, executionUnitPrice: 180000 }), { customerUnitPrice: 230000, executionUnitPrice: 180000 });
+  assert.deepEqual(materialPrices({ unitPrice: 230000 }), { customerUnitPrice: 230000, executionUnitPrice: 230000 });
+  assert.deepEqual(materialPrices({ unitPrice: 230000, executionUnitPrice: 0 }), { customerUnitPrice: 230000, executionUnitPrice: 230000 });
+  assert.deepEqual(materialPrices({}), { customerUnitPrice: 0, executionUnitPrice: 0 });
+});
+
+test('lineDbSavePrices: DB에 저장 sends the line 실행단가 only when it has its own, so a stored one is not overwritten', () => {
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 240000, executionUnitPrice: 180000 }), { unitPrice: 240000, executionUnitPrice: 180000 });
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 230000, executionUnitPrice: 230000 }), { unitPrice: 230000 });
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 230000, executionUnitPrice: 0 }), { unitPrice: 230000 });
+});
+
+test('refreshTemplateLines puts the DB 실행단가 in the 실행 price and reports a change of either price', () => {
+  const db = [
+    { _id: 'm1', name: '냉장고장', spec: '상부장', unit: 'M', unitPrice: 230000, executionUnitPrice: 180000 },
+    { _id: 'm2', name: '롱 EP', spec: '', unit: 'EA', unitPrice: 140000, executionUnitPrice: 100000 },
+  ];
+  let n = 0;
+  const result = refreshTemplateLines([
+    line({ id: 'a', materialId: 'm1', name: '냉장고장', spec: '상부장', unit: 'M', customerUnitPrice: 230000, executionUnitPrice: 230000 }),
+    line({ id: 'b', materialId: 'm2', name: '롱 EP', unit: 'EA', customerUnitPrice: 140000, executionUnitPrice: 100000 }),
+  ], db, () => `new-${++n}`);
+  assert.deepEqual(result.lines.map((l) => [l.customerUnitPrice, l.executionUnitPrice]), [[230000, 180000], [140000, 100000]]);
+  assert.deepEqual(result.changed, [{ name: '냉장고장', before: 230000, after: 230000, executionBefore: 230000, executionAfter: 180000 }]);
 });
 
 test('placing template lines: replace, append, and new ids never collide', () => {
