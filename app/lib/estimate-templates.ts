@@ -18,12 +18,13 @@ export type TemplateLine = {
   materialId?: string;
 };
 
-export type TemplateMaterial = { _id?: string; name?: string; spec?: string; unit?: string; unitPrice?: number };
+// unitPrice is the 견적단가; executionUnitPrice the 실행단가, when one was entered (materialPrices).
+export type TemplateMaterial = { _id?: string; name?: string; spec?: string; unit?: string; unitPrice?: number; executionUnitPrice?: number };
 // The boxes that are ticked, by label (NO_CATEGORY / NO_SPACE for blank values).
 export type TemplateSelection = { categories: string[]; spaces: string[] };
 export type TemplateRefreshResult = {
   lines: TemplateLine[];
-  changed: Array<{ name: string; before: number; after: number }>;
+  changed: Array<{ name: string; before: number; after: number; executionBefore: number; executionAfter: number }>;
   notFound: string[];
 };
 
@@ -108,6 +109,14 @@ export function findTemplateMaterial(line: TemplateLine, materials: TemplateMate
   return matches.length === 1 ? matches[0] : null;
 }
 
+// The prices a 자재 DB item puts on an estimate line: its 단가 as the 견적단가, its 실행단가 when one was entered (above
+// 0), else the 견적단가 again, as before 실행단가 existed.
+export function materialPrices(material: { unitPrice?: unknown; executionUnitPrice?: unknown }): { customerUnitPrice: number; executionUnitPrice: number } {
+  const customerUnitPrice = number(material.unitPrice);
+  const execution = number(material.executionUnitPrice);
+  return { customerUnitPrice, executionUnitPrice: execution > 0 ? execution : customerUnitPrice };
+}
+
 export function refreshTemplateLines(lines: TemplateLine[], materials: TemplateMaterial[], newId: () => string): TemplateRefreshResult {
   const changed: TemplateRefreshResult['changed'] = [];
   const notFound: string[] = [];
@@ -117,9 +126,15 @@ export function refreshTemplateLines(lines: TemplateLine[], materials: TemplateM
       notFound.push(lineLabel(line));
       return { ...line, id: newId() };
     }
-    const price = number(material.unitPrice);
-    if (line.customerUnitPrice !== price || line.executionUnitPrice !== price) {
-      changed.push({ name: lineLabel(line), before: line.customerUnitPrice, after: price });
+    const prices = materialPrices(material);
+    if (line.customerUnitPrice !== prices.customerUnitPrice || line.executionUnitPrice !== prices.executionUnitPrice) {
+      changed.push({
+        name: lineLabel(line),
+        before: line.customerUnitPrice,
+        after: prices.customerUnitPrice,
+        executionBefore: line.executionUnitPrice,
+        executionAfter: prices.executionUnitPrice,
+      });
     }
     return {
       ...line,
@@ -127,8 +142,7 @@ export function refreshTemplateLines(lines: TemplateLine[], materials: TemplateM
       name: line.commonName ? line.name : text(material.name) || line.name,
       spec: text(material.spec),
       unit: text(material.unit),
-      customerUnitPrice: price,
-      executionUnitPrice: price,
+      ...prices,
       ...(material._id ? { materialId: material._id } : {}),
     };
   });

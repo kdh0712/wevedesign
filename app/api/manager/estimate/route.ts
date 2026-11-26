@@ -173,6 +173,8 @@ type MaterialDoc = {
   spec: string;
   unit: string;
   unitPrice: number;
+  // The 실행단가 when one was entered; missing or 0 means the 견적단가 (unitPrice) serves for both (materialPrices).
+  executionUnitPrice?: number;
   note: string;
   sourceSheet: string;
   // Only meaningful when name is '공통': the 품명s offered when the item is picked into an estimate, in order.
@@ -201,7 +203,7 @@ const allEstimatesGroq = `*[_type == "siteEstimate"] | order(updatedAt desc, _up
 const siteEstimatesGroq = `*[_type == "siteEstimate" && siteId == $siteId] | order(updatedAt desc, _updatedAt desc) ${estimateProjection}`;
 const newestSiteIdGroq = `*[_type == "officeSite" && !defined(deletedAt)] | order(createdAt desc, _createdAt desc)[0]._id`;
 const materialsGroq = `*[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...5000] {
-    _id, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt, defined(commonOptions) => { commonOptions }
+    _id, category, process, name, spec, unit, unitPrice, executionUnitPrice, note, sourceSheet, updatedAt, defined(commonOptions) => { commonOptions }
   }`;
 const materialSettingsGroq = `*[_id == "${MATERIAL_SETTINGS_ID}"][0] ${materialSettingsProjection}`;
 const vendorsGroq = `*[_type == "officeVendor" && !defined(deletedAt)] | order(name asc)[0...300] {
@@ -672,6 +674,9 @@ async function saveMaterial(material: Record<string, unknown>, request: Request,
   // Only a request that sends commonOptions changes them; without the field the Firestore merge keeps the stored list.
   const commonOptions = commonOptionsForSave(name, material.commonOptions);
   if (commonOptions) doc.commonOptions = commonOptions;
+  // Likewise only a request that sends executionUnitPrice changes it, so a save from a page that has no 실행단가 field
+  // keeps the stored one.
+  if ('executionUnitPrice' in material) doc.executionUnitPrice = Math.max(0, toNumber(material.executionUnitPrice));
 
   let record: MaterialDoc = doc;
   if (shouldUseFirestoreErp() && canUseFirestoreForRequest(request)) {
@@ -741,6 +746,8 @@ function parseSheet(workbook: XLSX.WorkBook, sheetName: string, updatedAt: strin
   const specIndex = column('규격');
   const unitIndex = column('단위');
   const priceIndex = column('단가');
+  // Optional: a sheet without it leaves each item's stored 실행단가 as it is.
+  const executionPriceIndex = column('실행단가');
   const processIndex = column('공종');
   const noteIndex = column('비고');
 
@@ -764,6 +771,7 @@ function parseSheet(workbook: XLSX.WorkBook, sheetName: string, updatedAt: strin
         spec,
         unit,
         unitPrice,
+        ...(executionPriceIndex >= 0 ? { executionUnitPrice: Math.max(0, toNumber(row[executionPriceIndex])) } : {}),
         note: noteIndex >= 0 ? cleanCell(row[noteIndex]) : '',
         sourceSheet: sheetName,
         updatedAt,

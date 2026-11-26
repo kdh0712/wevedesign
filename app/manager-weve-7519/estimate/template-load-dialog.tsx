@@ -194,7 +194,10 @@ export function TemplateLoadDialog({ api, materials, ensureLatestMaterials, curr
                   <h3 className="font-semibold">단가가 바뀐 항목 {result.changed.length}개</h3>
                   <ul className="mt-2 grid gap-1 text-[#4d5d66]">
                     {result.changed.map((item, index) => (
-                      <li key={`${item.name}-${index}`}>{item.name}: {money(item.before)} → {money(item.after)}</li>
+                      <li key={`${item.name}-${index}`}>
+                        {item.name}: {money(item.before)} → {money(item.after)}
+                        {item.executionBefore !== item.executionAfter && ` · 실행 ${money(item.executionBefore)} → ${money(item.executionAfter)}`}
+                      </li>
                     ))}
                   </ul>
                 </div>
