@@ -22,6 +22,7 @@ import { canMergeDetailLine, mergedDetailLineIds, toggleDetailOneLine } from '..
 import { detailDocumentLines, hasDetailDisplay, type DetailDisplay } from '../../lib/estimate-detail-display';
 import { applyPriceEdit, isPriceEditCommon, priceEditMaterialSave } from '../../lib/estimate-price-edit';
 import { applySiteQuickEdit, type QuickEditCustomer, type QuickEditSite, type SiteQuickEditPlan } from '../../lib/site-quick-edit';
+import { buildConstructionPool, poolItemsLabel } from '../../lib/schedule-process-pool';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -46,7 +47,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
-import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, tasksOnDay, weekPages } from '../../lib/schedule-calendar';
+import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, printBarSize, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import {
   DETAIL_PAGE_HEIGHT_MM,
   DETAIL_PAGE_WIDTH_MM,
@@ -834,7 +835,8 @@ export default function EstimateWorkspacePage() {
   const estimateDocumentView: 'cover' | 'summary' | 'detail' =
     documentView === 'cover' || documentView === 'summary' ? documentView : 'detail';
   const printPageOrientation: 'portrait' | 'landscape' = documentPurchaseOrder ? 'portrait' : 'landscape';
-  const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
+  // The 공정 작업 list: one card per 공사 with its 공정 under it (schedule-process-pool.ts).
+  const processPool = useMemo(() => buildConstructionPool(lines, workLines), [lines, workLines]);
   const effectiveStartDate = constructionStartDate || earliestTaskStartDate(schedule);
   const calendarWeekStart = effectiveStartDate ? addDays(sundayOfWeek(effectiveStartDate), calendarWeekOffset * 7) : '';
   const isStartWeekCalendar = calendarView === 'startWeek' && Boolean(calendarWeekStart);
@@ -4005,27 +4007,28 @@ export default function EstimateWorkspacePage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 작업</h2>
-                  <p className="mt-1 text-sm leading-6 text-[#60717d]">견적/공사내역의 공종을 날짜에 끌어 놓아 일정을 만듭니다.</p>
+                  <p className="mt-1 text-sm leading-6 text-[#60717d]">견적서의 공사를 날짜에 끌어 놓아 일정을 만듭니다.</p>
                 </div>
                 <span className="rounded-full bg-[#edf8fb] px-3 py-1 text-xs font-bold text-[#267d8c]">{processPool.length}개</span>
               </div>
               <div className="mt-4 grid gap-2">
                 {processPool.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-[#d5dde2] bg-[#f7fafb] p-5 text-sm text-[#60717d]">
-                    견적 내역 또는 실행 내역서에 공종을 입력하면 이곳에 자동으로 표시됩니다.
+                    견적서나 실행 내역서에 공사를 입력하면 이곳에 공사별로 표시됩니다.
                   </div>
                 ) : (
-                  processPool.map((process) => (
+                  processPool.map((group) => (
                     <button
-                      key={process.name}
+                      key={group.name}
                       type="button"
                       draggable
-                      onDragStart={(event) => event.dataTransfer.setData('text/plain', process.name)}
-                      onClick={() => addScheduleFromProcess(process.name, todayKey())}
-                      className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] px-4 py-3 text-left transition hover:border-[#c6a25d] hover:bg-[#fff8e8]"
+                      onDragStart={(event) => event.dataTransfer.setData('text/plain', group.name)}
+                      onClick={() => addScheduleFromProcess(group.name, todayKey())}
+                      title={group.items.join(' · ')}
+                      className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] px-4 py-2.5 text-left transition hover:border-[#c6a25d] hover:bg-[#fff8e8]"
                     >
-                      <span className="block text-sm font-semibold">{process.name}</span>
-                      <span className="mt-1 block text-xs text-[#60717d]">{process.meta || '공종 정보'}</span>
+                      <span className="block text-sm font-semibold">{group.name}</span>
+                      {group.items.length > 0 && <span className="mt-0.5 line-clamp-2 text-xs leading-5 text-[#60717d]">{poolItemsLabel(group.items)}</span>}
                     </button>
                   ))
                 )}
@@ -4064,7 +4067,7 @@ export default function EstimateWorkspacePage() {
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-semibold">공정 달력</h2>
-                  <p className="mt-1 text-sm text-[#60717d]">날짜 칸에 공종을 드래그하면 해당 날짜 일정으로 등록됩니다.</p>
+                  <p className="mt-1 text-sm text-[#60717d]">날짜 칸에 공사를 드래그하면 해당 날짜 일정으로 등록됩니다.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" onClick={() => (isStartWeekCalendar ? setCalendarWeekOffset((current) => current - 1) : setCalendarMonth(shiftMonth(calendarMonth, -1)))} aria-label={isStartWeekCalendar ? '이전 주' : '이전 달'} className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#d5dde2] bg-white">
@@ -5860,8 +5863,9 @@ function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?:
 }
 
 // The printed 공정표, one A4 landscape page per sheet: a one-row head (SchedulePrintHeader), then a Sunday-first calendar
-// whose days list, as plain black text, the tasks done that day (tasksOnDay; none on a holiday) with their worker. Four
-// fit a day; more show three and '외 N건'. No task colours, so it prints alike in black and white.
+// with the same bars as the 공정 달력: one bar per task across its days (longest on top, layoutCalendarWeek) in the same
+// light shade of its colour (softenColor) with dark text, and the name and worker in the middle. A busy week's row grows
+// with its bars, and a sheet whose bars would not fit the page at full size draws them compact (printBarSize).
 function SchedulePrintPages({
   sheets,
   tasks,
@@ -5877,7 +5881,10 @@ function SchedulePrintPages({
 }) {
   return (
     <>
-      {sheets.map((sheet) => (
+      {sheets.map((sheet) => {
+        const weeks = sheet.weeks.map((weekStart) => ({ weekStart, ...layoutCalendarWeek(tasks, weekStart) }));
+        const compact = printBarSize(weeks.map((week) => week.laneCount)) === 'compact';
+        return (
         <section key={sheet.key} className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] rounded-lg bg-white p-6 shadow-sm print:rounded-none print:p-0 print:shadow-none">
           <div className="flex h-full flex-col">
             <SchedulePrintHeader title={sheet.title} subtitle={sheet.subtitle} site={site} />
@@ -5892,51 +5899,58 @@ function SchedulePrintPages({
                   </div>
                 ))}
               </div>
-              {sheet.weeks.map((weekStart, weekIndex) => (
-                <div key={weekStart} className={`grid min-h-0 flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}>
-                  {Array.from({ length: 7 }, (_, index) => {
-                    const date = addDays(weekStart, index);
-                    const muted = sheet.monthKey ? !date.startsWith(sheet.monthKey) : Boolean(sheet.fromDate && date < sheet.fromDate);
-                    const day = Number(date.slice(8));
-                    const label = !sheet.monthKey && (index === 0 || day === 1) ? `${Number(date.slice(5, 7))}/${day}` : String(day);
-                    const dayTasks = tasksOnDay(tasks, date, holidays);
-                    const shown = dayTasks.length > SCHEDULE_PRINT_DAY_TASKS ? dayTasks.slice(0, SCHEDULE_PRINT_DAY_TASKS - 1) : dayTasks;
-                    return (
-                      <div
-                        key={date}
-                        className={`min-w-0 overflow-hidden px-1.5 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f4f4f4] text-[#9aa6ad]' : 'bg-white'}`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className={`text-[13.5px] font-extrabold ${isWeekendColumn(index) ? (muted ? 'text-[#f0a49c]' : 'text-[#d92d20]') : ''}`}>{label}</span>
-                          {date === startDate && <span className="rounded-full border border-[#171512] px-1.5 text-[11px] font-bold text-[#171512]">공사 시작</span>}
-                          {holidays.has(date) && <span className="rounded-full border border-[#d92d20] px-1.5 text-[11px] font-bold text-[#d92d20]">휴일</span>}
+              {weeks.map(({ weekStart, bars, laneCount }, weekIndex) => {
+                return (
+                  <div
+                    key={weekStart}
+                    className={`grid flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}
+                    style={{ gridTemplateRows: `24px repeat(${laneCount}, auto) minmax(4px, 1fr)` }}
+                  >
+                    {Array.from({ length: 7 }, (_, index) => {
+                      const date = addDays(weekStart, index);
+                      const muted = sheet.monthKey ? !date.startsWith(sheet.monthKey) : Boolean(sheet.fromDate && date < sheet.fromDate);
+                      const day = Number(date.slice(8));
+                      const label = !sheet.monthKey && (index === 0 || day === 1) ? `${Number(date.slice(5, 7))}/${day}` : String(day);
+                      return (
+                        <div
+                          key={date}
+                          style={{ gridColumn: index + 1, gridRow: '1 / -1' }}
+                          className={`min-w-0 px-1.5 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f4f4f4] text-[#9aa6ad]' : 'bg-white'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[13.5px] font-extrabold ${isWeekendColumn(index) ? (muted ? 'text-[#f0a49c]' : 'text-[#d92d20]') : ''}`}>{label}</span>
+                            {date === startDate && <span className="rounded-full border border-[#171512] px-1.5 text-[11px] font-bold text-[#171512]">공사 시작</span>}
+                            {holidays.has(date) && <span className="rounded-full border border-[#d92d20] px-1.5 text-[11px] font-bold text-[#d92d20]">휴일</span>}
+                          </div>
                         </div>
-                        {shown.length > 0 && (
-                          <ul className="mt-0.5">
-                            {shown.map(({ task }) => (
-                              <li key={task.id} className="truncate text-[13px] font-semibold leading-[1.4]">
-                                · {task.name || '공정명 없음'}
-                                {task.vendorName ? ` · ${task.vendorName}` : ''}
-                              </li>
-                            ))}
-                            {dayTasks.length > shown.length && <li className="text-[12px] font-semibold leading-[1.4]">외 {dayTasks.length - shown.length}건</li>}
-                          </ul>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+                      );
+                    })}
+                    {bars.map((bar) => {
+                      const { task } = bar.task;
+                      return (
+                        <div
+                          key={task.id}
+                          style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: softenColor(task.color || '#f1c76a') }}
+                          className={`relative z-[1] flex min-w-0 items-center justify-center px-2 font-semibold text-[#171512] ${compact ? 'my-px h-4 text-[10.5px]' : 'my-[2px] h-[22px] text-[12.5px]'} ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
+                        >
+                          <span className="truncate">
+                            {task.name || '공정명 없음'}
+                            {task.vendorName ? ` · ${task.vendorName}` : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
-      ))}
+        );
+      })}
     </>
   );
 }
-
-// How many tasks a printed 공정표 day lists before it writes '외 N건' instead of the last.
-const SCHEDULE_PRINT_DAY_TASKS = 4;
 
 // The printed 공정표's one-row head: the site address on the left, the title in the middle and the company on the right. The title's double underline reaches a little past both ends: letter spacing also follows the
 // last letter, so the same space before the first keeps the word in the middle of its line.
@@ -8563,17 +8577,6 @@ function calculateTotals(lines: EstimateLine[], workLines: WorkLine[] = [], extr
     marginRate: actualMarginRate,
     hasWorkLines,
   };
-}
-
-function buildProcessPool(lines: EstimateLine[], workLines: WorkLine[]) {
-  const map = new Map<string, string>();
-  [...workLines, ...lines].forEach((line) => {
-    const name = (line.process || line.category || line.name || '').trim();
-    if (!name) return;
-    const meta = [line.space, line.category, line.name].filter(Boolean).join(' · ');
-    if (!map.has(name)) map.set(name, meta);
-  });
-  return Array.from(map.entries()).map(([name, meta]) => ({ name, meta }));
 }
 
 function todayKey() {

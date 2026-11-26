@@ -4,13 +4,13 @@ import {
   addDays,
   clampMonthKey,
   layoutCalendarWeek,
+  printBarSize,
   monthKeysBetween,
   monthWeekStarts,
   scheduleSpan,
   scheduleTaskEnd,
   shiftMonthKey,
   sundayOf,
-  tasksOnDay,
   weekPages,
 } from '../app/lib/schedule-calendar.ts';
 
@@ -119,10 +119,8 @@ test('weekPages splits the weeks from the start week to the last week into pages
   assert.deepEqual(weekPages('2026-10-21', '2026-10-01', 5), [['2026-10-18']], 'an end before the start gives the start week');
 });
 
-test('tasksOnDay: the tasks a day holds, by start (the longer first), none on a holiday', () => {
-  const tasks = [task('short', '2026-12-24', '2026-12-24'), task('long', '2026-12-22', '2026-12-26'), task('late', '2026-12-24', '2026-12-28'), task('x', '', '')];
-  assert.deepEqual(tasksOnDay(tasks, '2026-12-24', new Set()).map((t) => t.id), ['long', 'late', 'short']);
-  assert.deepEqual(tasksOnDay(tasks, '2026-12-22', new Set()).map((t) => t.id), ['long']);
-  assert.deepEqual(tasksOnDay(tasks, '2026-12-25', new Set(['2026-12-25'])), []);
-  assert.deepEqual(tasksOnDay(tasks, '2026-12-29', new Set()), []);
+test('printBarSize: the printed 공정표 shrinks its bars when the lanes of a sheet would not fit at full size (review finding)', () => {
+  assert.equal(printBarSize([2, 3, 1, 2, 2]), 'normal');
+  assert.equal(printBarSize([3, 3, 3, 3, 3, 3]), 'compact');
+  assert.equal(printBarSize([]), 'normal');
 });
