@@ -983,6 +983,16 @@ export default function EstimateWorkspacePage() {
     else proceed();
   };
 
+  // The site on screen goes into the address (?siteId=), so a refresh, a bookmark or a copied link opens the same site.
+  // The page reads it on load (below); switching sites inside the page used to leave the first one there.
+  useEffect(() => {
+    if (!selectedSiteId) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('siteId') === selectedSiteId) return;
+    url.searchParams.set('siteId', selectedSiteId);
+    window.history.replaceState(window.history.state, '', url);
+  }, [selectedSiteId]);
+
   useEffect(() => {
     // Never auto-login from a stored password: only this tab's signed manager session is used.
     window.localStorage.removeItem('weve-manager-password');
@@ -5802,17 +5812,12 @@ function SchedulePrintPages({
 // How many tasks a printed 공정표 day lists before it writes '외 N건' instead of the last.
 const SCHEDULE_PRINT_DAY_TASKS = 4;
 
-// The printed 공정표's one-row head: the date, the site address and the customer on the left, the title in the middle and
-// the company on the right. The title's double underline reaches a little past both ends: letter spacing also follows the
+// The printed 공정표's one-row head: the site address on the left, the title in the middle and the company on the right. The title's double underline reaches a little past both ends: letter spacing also follows the
 // last letter, so the same space before the first keeps the word in the middle of its line.
 function SchedulePrintHeader({ title, subtitle, site }: { title: string; subtitle?: string; site?: Site }) {
   return (
     <header className="grid grid-cols-[1fr_auto_1fr] items-center gap-5">
-      <div className="text-[13px] leading-6">
-        <p>{formatShortDate(todayKey())}</p>
-        <p className="text-[15px] font-extrabold">{site?.address || site?.title || '-'}</p>
-        <p>{site?.customerName || '고객'} 님 귀하</p>
-      </div>
+      <p className="text-[15px] font-extrabold leading-6">{site?.address || site?.title || '-'}</p>
       <div className="text-center">
         {/* A div, not h1: the site's own h1 rule sets letter spacing to 0. */}
         <div className="inline-block border-b-[5px] border-double border-[#171512] pb-1 pl-[calc(8px+0.5em)] pr-[8px] text-[34px] font-extrabold leading-tight tracking-[0.5em]">
