@@ -48,3 +48,8 @@ test('poolItemsLabel shows up to six, then five and 외 N개', () => {
   assert.equal(poolItemsLabel(['a', 'b', 'c', 'd', 'e', 'f']), 'a · b · c · d · e · f');
   assert.equal(poolItemsLabel(['a', 'b', 'c', 'd', 'e', 'f', 'g']), 'a · b · c · d · e 외 2개');
 });
+
+test('a 실행 line whose 공종 is a 공사 name joins that 공사 (review finding: it went to 기타)', () => {
+  const pool = buildConstructionPool([line('도배 공사', '', '실크 벽지')], [line('', '도배 공사', '도배 추가'), line('', ' 도배공사 ', '')]);
+  assert.deepEqual(pool, [{ name: '도배 공사', items: ['실크 벽지', '도배 추가'] }]);
+});

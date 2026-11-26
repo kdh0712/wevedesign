@@ -17,7 +17,13 @@ const squash = (value: string) => value.replace(/\s+/g, '');
 // line with the same 공종.
 export function buildConstructionPool(lines: readonly PoolLine[], workLines: readonly PoolLine[]): ConstructionGroup[] {
   const groups = new Map<string, { name: string; items: string[]; seen: Set<string> }>();
+  // A 실행 line's 공종 → the estimate 공사 it belongs to. A 공사 name itself comes first: the 실행 공종 choices offer the
+  // 공사 for estimate lines without a 공종 (workLineProcesses), so such a line joins that 공사 (review finding).
   const categoryOfProcess = new Map<string, string>();
+  for (const line of lines) {
+    const category = text(line.category);
+    if (category && !categoryOfProcess.has(squash(category))) categoryOfProcess.set(squash(category), category);
+  }
   for (const line of lines) {
     const category = text(line.category);
     const process = text(line.process);

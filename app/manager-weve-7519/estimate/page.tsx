@@ -47,7 +47,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
-import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
+import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, printBarSize, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import {
   DETAIL_PAGE_HEIGHT_MM,
   DETAIL_PAGE_WIDTH_MM,
@@ -4028,7 +4028,7 @@ export default function EstimateWorkspacePage() {
                       className="rounded-lg border border-[#d5dde2] bg-[#fdfdfb] px-4 py-2.5 text-left transition hover:border-[#c6a25d] hover:bg-[#fff8e8]"
                     >
                       <span className="block text-sm font-semibold">{group.name}</span>
-                      {group.items.length > 0 && <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-[#60717d]">{poolItemsLabel(group.items)}</span>}
+                      {group.items.length > 0 && <span className="mt-0.5 line-clamp-2 text-xs leading-5 text-[#60717d]">{poolItemsLabel(group.items)}</span>}
                     </button>
                   ))
                 )}
@@ -5864,7 +5864,8 @@ function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?:
 
 // The printed 공정표, one A4 landscape page per sheet: a one-row head (SchedulePrintHeader), then a Sunday-first calendar
 // with the same bars as the 공정 달력: one bar per task across its days (longest on top, layoutCalendarWeek) in the same
-// light shade of its colour (softenColor) with dark text, and the name and worker in the middle.
+// light shade of its colour (softenColor) with dark text, and the name and worker in the middle. A busy week's row grows
+// with its bars, and a sheet whose bars would not fit the page at full size draws them compact (printBarSize).
 function SchedulePrintPages({
   sheets,
   tasks,
@@ -5880,7 +5881,10 @@ function SchedulePrintPages({
 }) {
   return (
     <>
-      {sheets.map((sheet) => (
+      {sheets.map((sheet) => {
+        const weeks = sheet.weeks.map((weekStart) => ({ weekStart, ...layoutCalendarWeek(tasks, weekStart) }));
+        const compact = printBarSize(weeks.map((week) => week.laneCount)) === 'compact';
+        return (
         <section key={sheet.key} className="print-landscape mx-auto aspect-[1.414/1] w-full max-w-[1120px] rounded-lg bg-white p-6 shadow-sm print:rounded-none print:p-0 print:shadow-none">
           <div className="flex h-full flex-col">
             <SchedulePrintHeader title={sheet.title} subtitle={sheet.subtitle} site={site} />
@@ -5895,12 +5899,11 @@ function SchedulePrintPages({
                   </div>
                 ))}
               </div>
-              {sheet.weeks.map((weekStart, weekIndex) => {
-                const { bars, laneCount } = layoutCalendarWeek(tasks, weekStart);
+              {weeks.map(({ weekStart, bars, laneCount }, weekIndex) => {
                 return (
                   <div
                     key={weekStart}
-                    className={`grid min-h-0 flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}
+                    className={`grid flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}
                     style={{ gridTemplateRows: `24px repeat(${laneCount}, auto) minmax(4px, 1fr)` }}
                   >
                     {Array.from({ length: 7 }, (_, index) => {
@@ -5928,7 +5931,7 @@ function SchedulePrintPages({
                         <div
                           key={task.id}
                           style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: softenColor(task.color || '#f1c76a') }}
-                          className={`relative z-[1] my-[2px] flex h-[22px] min-w-0 items-center justify-center px-2 text-[12.5px] font-semibold text-[#171512] ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
+                          className={`relative z-[1] flex min-w-0 items-center justify-center px-2 font-semibold text-[#171512] ${compact ? 'my-px h-4 text-[10.5px]' : 'my-[2px] h-[22px] text-[12.5px]'} ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
                         >
                           <span className="truncate">
                             {task.name || '공정명 없음'}
@@ -5943,7 +5946,8 @@ function SchedulePrintPages({
             </div>
           </div>
         </section>
-      ))}
+        );
+      })}
     </>
   );
 }

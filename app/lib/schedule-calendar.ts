@@ -149,3 +149,13 @@ export function layoutCalendarWeek<T extends { startDate: string; endDate: strin
   return { bars, laneCount: lanes.length };
 }
 
+// The printed 공정표's bars: full size (a 22px bar and its margins, 26px a lane) when every week of a sheet fits the about
+// 520px an A4 landscape page leaves under the head and the weekday row, else compact (18px a lane), so a busy sheet does
+// not run off the page. Each week also has its 24px date row.
+const PRINT_WEEKS_HEIGHT = 520;
+const PRINT_DATE_ROW = 24;
+const PRINT_LANE = 26;
+export function printBarSize(laneCounts: readonly number[]): 'normal' | 'compact' {
+  const needed = laneCounts.reduce((sum, lanes) => sum + PRINT_DATE_ROW + lanes * PRINT_LANE, 0);
+  return needed > PRINT_WEEKS_HEIGHT ? 'compact' : 'normal';
+}

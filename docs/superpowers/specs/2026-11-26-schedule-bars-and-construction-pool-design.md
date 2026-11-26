@@ -18,6 +18,9 @@ Calls marked *(my call)* were not discussed and may be corrected.
 - Colours are the ones chosen for each task in 공정 일정, in the same light shade as on screen (`softenColor`), with dark
   text.
 - `tasksOnDay` is no longer used and is removed.
+- A busy week's row grows with its bars and the other weeks shrink. A sheet whose bars would not fit the page at full
+  size draws them compact (`printBarSize`: about 520px for the weeks, 24px per date row, 26px per lane at full size).
+  (review finding: with fixed rows a third overlapping task ran into the next week)
 
 ## 2. 공정 작업 list by 공사
 
@@ -29,6 +32,7 @@ Calls marked *(my call)* were not discussed and may be corrected.
 - Dragging or clicking a card makes a task named after the 공사, as dragging a 공종 did before. The name can still be
   changed afterwards.
 - 실행 내역서 lines join the 공사 in their 분류. A line without one joins the 공사 of an estimate line with the same 공종,
-  else '기타', which comes last. *(my call)*
+  else '기타', which comes last. *(my call)* A 실행 line whose 공종 is a 공사 name joins that 공사; the 실행 공종 choices
+  offer the 공사 for estimate lines without a 공종 (review finding).
 - The count badge counts 공사.
 - Rules: `app/lib/schedule-process-pool.ts`, tested in `tests/schedule-process-pool.test.mjs`.

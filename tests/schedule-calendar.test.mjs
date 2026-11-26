@@ -4,6 +4,7 @@ import {
   addDays,
   clampMonthKey,
   layoutCalendarWeek,
+  printBarSize,
   monthKeysBetween,
   monthWeekStarts,
   scheduleSpan,
@@ -116,4 +117,10 @@ test('weekPages splits the weeks from the start week to the last week into pages
   assert.equal(pages[0][0], '2026-10-18', 'the first page starts on the Sunday of the start week');
   assert.equal(pages[1][1], '2026-11-29');
   assert.deepEqual(weekPages('2026-10-21', '2026-10-01', 5), [['2026-10-18']], 'an end before the start gives the start week');
+});
+
+test('printBarSize: the printed 공정표 shrinks its bars when the lanes of a sheet would not fit at full size (review finding)', () => {
+  assert.equal(printBarSize([2, 3, 1, 2, 2]), 'normal');
+  assert.equal(printBarSize([3, 3, 3, 3, 3, 3]), 'compact');
+  assert.equal(printBarSize([]), 'normal');
 });
