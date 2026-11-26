@@ -658,7 +658,8 @@ export default function EstimateWorkspacePage() {
   const [newVersionType, setNewVersionType] = useState<EstimateVersionType>('revision');
   const [versionLabel, setVersionLabel] = useState('초안');
   const [memo, setMemo] = useState('');
-  const [lines, setLines] = useState<EstimateLine[]>([emptyLine()]);
+  // A new estimate starts blank: no line and so no '기타 공사' group until staff add one.
+  const [lines, setLines] = useState<EstimateLine[]>([]);
   const [lineDraft, setLineDraft] = useState<EstimateLine>(() => emptyLine());
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [workLineDraft, setWorkLineDraft] = useState<WorkLine>(() => emptyWorkLine());
@@ -1062,16 +1063,15 @@ export default function EstimateWorkspacePage() {
     }
 
     if (selectedSiteEstimates.length === 0) {
-      const site = sites.find((item) => item._id === selectedSiteId);
       setSelectedEstimateId(NEW_ESTIMATE_ID);
       setEstimateId('');
       setVersionType('draft');
       setNewVersionType('revision');
       setVersionLabel(defaultVersionLabel('draft', []));
       setMemo('');
-      const nextLines = site ? [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }] : [emptyLine()];
-      setLines(nextLines);
-      setWorkLines(deriveWorkLines(nextLines));
+      // A site's first estimate starts blank (no '<현장> 초안' line, so no '기타 공사' group and no 실행 line from it).
+      setLines([]);
+      setWorkLines([]);
       setLineDraft(emptyLine());
       setWorkLineDraft(emptyWorkLine());
       setEditingWorkLineId('');
@@ -1125,7 +1125,7 @@ export default function EstimateWorkspacePage() {
     setMemo(estimate?.memo || '');
     // Lines are shown and saved gathered by 공사 with the 기본견적 공사 first (spec 2026-10-23 §3). The saved-state snapshot
     // is taken after this, so opening an estimate never counts as an unsaved change.
-    const nextLines = arrangeEstimateLines(parseJson<EstimateLine[]>(estimate?.linesJson, [emptyLine()]));
+    const nextLines = arrangeEstimateLines(parseJson<EstimateLine[]>(estimate?.linesJson, []));
     const nextWorkLines = hydrateWorkLines(parseJson<Partial<WorkLine>[]>(estimate?.workLinesJson, []));
     const nextPurchaseOrders = hydratePurchaseOrders(parseJson<Partial<PurchaseOrder>[]>(estimate?.purchaseOrdersJson, [emptyPurchaseOrder()]));
     const nextPurchaseOrderTemplatePresets = hydratePurchaseOrderTemplatePresets(parseJson<Partial<PurchaseOrderTemplatePreset>[]>(estimate?.purchaseOrderTemplatesJson, defaultPurchaseOrderTemplatePresets));
@@ -1162,9 +1162,9 @@ export default function EstimateWorkspacePage() {
     if (!estimate && site) {
       setVersionType('draft');
       setVersionLabel(defaultVersionLabel('draft', selectedSiteEstimates));
-      const nextLinesForSite = [{ ...emptyLine(), space: '공용', category: site.siteType || '', name: `${site.title || '현장'} 초안` }];
-      setLines(nextLinesForSite);
-      setWorkLines(deriveWorkLines(nextLinesForSite));
+      // Blank, as above.
+      setLines([]);
+      setWorkLines([]);
       setLineDraft(emptyLine());
       setWorkLineDraft(emptyWorkLine());
       setEditingWorkLineId('');
@@ -1993,8 +1993,7 @@ export default function EstimateWorkspacePage() {
   const applyTemplateLines = (incoming: EstimateLine[], mode: 'replace' | 'append') => {
     const removedIds = (mode === 'replace' ? lines : lines.filter(isBlankEstimateLine)).map((line) => line.id);
     setLines((current) => {
-      const next = arrangeEstimateLines(placeTemplateLines(current, incoming, mode));
-      return next.length ? next : [emptyLine()];
+      return arrangeEstimateLines(placeTemplateLines(current, incoming, mode));
     });
     setWorkLines((current) => removedIds.reduce((rows, id) => unlinkWorkLinesFromLine(rows, id), current));
     setActiveTab('lines');
@@ -3223,7 +3222,6 @@ export default function EstimateWorkspacePage() {
                     // A merged 품명 shows as one line, so a line's own display only applies while it is not merged.
                     ...(line.name.trim() && !detailOneLineIds.has(line.id) ? [{ label: '세부내역서 표시 바꾸기…', run: () => setDetailDisplayLineId(line.id) }] : []),
                   ]}
-                  emptyLineWhenAllRemoved
                 />
               </div>
             </section>
@@ -8122,9 +8120,9 @@ function estimateLineToWorkLine(line: EstimateLine): WorkLine {
   };
 }
 
+// 실행 lines made from the estimate's lines; none when it has none (no blank row dated today).
 function deriveWorkLines(lines: EstimateLine[]) {
-  const workItems = lines.filter((line) => line.name || line.category || line.process).map(estimateLineToWorkLine);
-  return workItems.length ? workItems : [emptyWorkLine()];
+  return lines.filter((line) => line.name || line.category || line.process).map(estimateLineToWorkLine);
 }
 
 function cloneWorkLines(lines: WorkLine[]) {
