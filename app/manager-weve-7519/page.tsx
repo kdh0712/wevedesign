@@ -156,13 +156,23 @@ type EstimateSummary = {
   versionType?: EstimateVersionType;
   versionLabel?: string;
   customerEstimateTotal?: number;
+  // From the 실행 내역서: what was spent, and the 현재 마진 (0 until a 지출 is recorded).
   executionCostTotal?: number;
   marginAmount?: number;
   marginRate?: number;
+  // From the estimate's own 실행단가: the 예상원가 and 예상 마진 (missing on a version saved before they were stored).
+  estimateExecutionCostTotal?: number;
+  estimatedMarginAmount?: number;
+  estimatedMarginRate?: number;
   linesJson?: string;
   updatedAt?: string;
   createdAt?: string;
 };
+
+// The 예상 figures of an estimate: the estimate-based ones, or for a version saved before they were stored, the old fields.
+const estimatedCostOf = (estimate?: EstimateSummary) => Number(estimate?.estimateExecutionCostTotal ?? estimate?.executionCostTotal ?? 0);
+const estimatedMarginOf = (estimate?: EstimateSummary) => Number(estimate?.estimatedMarginAmount ?? estimate?.marginAmount ?? 0);
+const estimatedMarginRateOf = (estimate?: EstimateSummary) => Number(estimate?.estimatedMarginRate ?? estimate?.marginRate ?? 0);
 
 type EstimateLine = {
   id?: string;
@@ -738,7 +748,7 @@ export default function ManagerPage() {
     [latestEstimateBySite],
   );
   const projectedMarginTotal = useMemo(
-    () => Array.from(latestEstimateBySite.values()).reduce((sum, estimate) => sum + Number(estimate.marginAmount || 0), 0),
+    () => Array.from(latestEstimateBySite.values()).reduce((sum, estimate) => sum + estimatedMarginOf(estimate), 0),
     [latestEstimateBySite],
   );
   const contractedSiteCount = useMemo(
@@ -3032,8 +3042,8 @@ function EstimateSitesPanel({
 
             <div className="grid gap-3 md:grid-cols-4">
               <MetricCard title="견적 금액" value={formatMoney(Number(selectedEstimate?.customerEstimateTotal || 0))} sub="고객에게 제안할 금액" />
-              <MetricCard title="실행 원가" value={formatMoney(Number(selectedEstimate?.executionCostTotal || 0))} sub="자재·공정 예상 비용" />
-              <MetricCard title="예상 마진" value={formatMoney(Number(selectedEstimate?.marginAmount || 0))} sub={`${Number(selectedEstimate?.marginRate || 0).toFixed(1)}%`} />
+              <MetricCard title="예상 원가" value={formatMoney(estimatedCostOf(selectedEstimate))} sub="견적서 실행단가 기준" />
+              <MetricCard title="예상 마진" value={formatMoney(estimatedMarginOf(selectedEstimate))} sub={`${estimatedMarginRateOf(selectedEstimate).toFixed(1)}%`} />
               <MetricCard title="작성 현장" value={`${estimatedSiteCount}곳`} sub={`전체 현장 ${sites.length}곳`} />
             </div>
 

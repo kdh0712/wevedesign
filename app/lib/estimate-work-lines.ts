@@ -92,12 +92,13 @@ export function appendMissingLines<T extends { id: string }>(current: T[], extra
   return missing.length > 0 ? [...current, ...missing] : current;
 }
 
-// The 실행 part of an estimate's stored totals, as the estimate save computes it.
+// The 실행 part of an estimate's stored totals, as the estimate save computes it. The 현재 마진 is worked out only once a
+// 지출 is recorded; lines with 수입 alone (계약금) or nothing yet leave it at 0, not at the whole 견적 금액.
 export function workLineTotals(
   workLines: ReadonlyArray<{ expense?: number; executionAmount?: number }>,
   base: { customerEstimateTotal: number; additionalCostTotal: number },
 ) {
-  const hasWorkLines = workLines.length > 0;
+  const hasWorkLines = workLines.some((line) => Number(line.expense || line.executionAmount || 0) !== 0);
   const actualExecutionCostTotal = hasWorkLines ? Math.round(workLines.reduce((sum, line) => sum + Number(line.expense || line.executionAmount || 0), 0)) : 0;
   const actualMarginAmount = hasWorkLines ? base.customerEstimateTotal - actualExecutionCostTotal - base.additionalCostTotal : 0;
   const actualMarginRate = base.customerEstimateTotal > 0 && hasWorkLines ? Math.round((actualMarginAmount / base.customerEstimateTotal) * 1000) / 10 : 0;
@@ -264,4 +265,30 @@ export function parsePaidCell(value: unknown): boolean {
   if (/^\d{4}[-./]\d{1,2}[-./]\d{1,2}\.?$/.test(word)) return true;
   if (/^[0-9.,\-원₩]+$/.test(word)) return toNumber(word) > 0;
   return true;
+}
+
+// 받는 돈에는 부가세가 들어 있어서, 남은 받을 금액은 견적 금액 (부가세 별도) + 10%에서 셈한다.
+const VAT_RATE = 0.1;
+
+// The money cards above the 실행 내역서 (spec docs/superpowers/specs/2026-11-26-current-margin-design.md): 받은 금액 (수입),
+// 남은 받을 금액 (견적 금액 + 부가세 − 받은 금액; minus when more came in), 현장 잔액 (받은 금액 − 지출), and the 현재 마진
+// (견적 금액 − 지출 − 추가 비용) with how much of the 견적 예상원가 is spent. Before any 지출 the margin is null (미작성).
+export function workLedgerMoney(
+  estimate: { customerEstimateTotal: number; estimateExecutionCostTotal: number; additionalCostTotal: number },
+  sums: { income: number; expense: number; unpaid: number },
+) {
+  const customer = Number(estimate.customerEstimateTotal) || 0;
+  const budget = Number(estimate.estimateExecutionCostTotal) || 0;
+  const hasExpense = sums.expense !== 0;
+  const currentMargin = hasExpense ? customer - sums.expense - (Number(estimate.additionalCostTotal) || 0) : null;
+  return {
+    received: sums.income,
+    receivable: Math.round(customer * (1 + VAT_RATE)) - sums.income,
+    expense: sums.expense,
+    unpaid: sums.unpaid,
+    cashOnHand: sums.income - sums.expense,
+    currentMargin,
+    currentMarginRate: currentMargin !== null && customer > 0 ? Math.round((currentMargin / customer) * 1000) / 10 : null,
+    budgetUsedRate: hasExpense && budget > 0 ? Math.round((sums.expense / budget) * 100) : null,
+  };
 }
