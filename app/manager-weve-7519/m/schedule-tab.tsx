@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { MobileOverview } from '../../lib/mobile-overview';
 import { addDays, buildMonthSchedule, buildWeekSchedule, mondayOf, monthLabel, monthOf, weekLabel, type ScheduleEntry } from '../../lib/mobile-schedule';
-import { shiftMonthKey } from '../../lib/schedule-calendar';
+import { CALENDAR_WEEKDAYS, isWeekendColumn, shiftMonthKey } from '../../lib/schedule-calendar';
 
 // 일정: every listed site's schedule, as a month calendar (the default) or one week at a time by day (spec 2026-10-21
 // §3). Both read the overview the phone already has. A row opens that site.
@@ -74,9 +74,7 @@ export function ScheduleTab({ overview, onOpenSite }: { overview: MobileOverview
   );
 }
 
-const CALENDAR_WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
-
-// A month of Monday-first weeks. Each day shows a coloured bar per site with work that day (three at most, then +N);
+// A month of Sunday-first weeks (토·일 in red). Each day shows a coloured bar per site with work that day (three at most, then +N);
 // tapping a day lists its work under the calendar, the way the week list shows a day.
 function MonthCalendar({
   overview,
@@ -127,15 +125,15 @@ function MonthCalendar({
 
       <div className="overflow-hidden rounded-2xl border border-[#eadfcd] bg-white">
         <div className="grid grid-cols-7 border-b border-[#f1ebe0] text-center text-[11px] font-semibold text-[#8a8378]">
-          {CALENDAR_WEEKDAYS.map((weekday) => (
-            <span key={weekday} className="py-1.5">
+          {CALENDAR_WEEKDAYS.map((weekday, index) => (
+            <span key={weekday} className={`py-1.5 ${isWeekendColumn(index) ? 'text-[#d92d20]' : ''}`}>
               {weekday}
             </span>
           ))}
         </div>
         {weeks.map((week) => (
           <div key={week[0].date} className="grid grid-cols-7 border-b border-[#f6f1e8] last:border-b-0">
-            {week.map((item) => {
+            {week.map((item, index) => {
               const isSelected = item.date === selected;
               const count = item.entries.length;
               return (
@@ -149,7 +147,15 @@ function MonthCalendar({
                 >
                   <span
                     className={`mx-auto flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                      item.isToday ? 'bg-[#171512] text-white' : item.inMonth ? 'text-[#171512]' : 'text-[#c4bcae]'
+                      item.isToday
+                        ? 'bg-[#171512] text-white'
+                        : isWeekendColumn(index)
+                          ? item.inMonth
+                            ? 'text-[#d92d20]'
+                            : 'text-[#f0a49c]'
+                          : item.inMonth
+                            ? 'text-[#171512]'
+                            : 'text-[#c4bcae]'
                     }`}
                   >
                     {Number(item.date.slice(8))}

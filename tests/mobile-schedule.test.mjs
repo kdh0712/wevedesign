@@ -81,15 +81,15 @@ test('sites without a schedule are skipped', () => {
 
 // 일정 달력 (the phone's month view): the same entries as the week list, laid out as a month of Monday-first weeks.
 
-test('month calendar: Monday-first weeks covering the whole month, the days around it marked', () => {
+test('month calendar: Sunday-first weeks covering the whole month, the days around it marked', () => {
   const weeks = buildMonthSchedule([], '2026-11', '2026-11-24');
-  // 1 November 2026 is a Sunday and the 30th a Monday: six weeks, 26 October to 6 December.
-  assert.equal(weeks.length, 6);
+  // Weeks run Sunday to Saturday. 1 November 2026 is a Sunday and the 30th a Monday: five weeks, 1 November to 5 December.
+  assert.equal(weeks.length, 5);
   assert.ok(weeks.every((week) => week.length === 7));
-  assert.deepEqual([weeks[0][0].date, weeks[0][0].inMonth, weeks[0][0].weekday], ['2026-10-26', false, '월']);
-  assert.deepEqual([weeks[0][6].date, weeks[0][6].inMonth], ['2026-11-01', true]);
-  assert.deepEqual([weeks[5][0].date, weeks[5][0].inMonth], ['2026-11-30', true]);
-  assert.deepEqual([weeks[5][6].date, weeks[5][6].inMonth], ['2026-12-06', false]);
+  assert.deepEqual([weeks[0][0].date, weeks[0][0].inMonth, weeks[0][0].weekday], ['2026-11-01', true, '일']);
+  assert.deepEqual([weeks[0][6].date, weeks[0][6].weekday], ['2026-11-07', '토']);
+  assert.deepEqual([weeks[4][0].date, weeks[4][0].inMonth], ['2026-11-29', true]);
+  assert.deepEqual([weeks[4][6].date, weeks[4][6].inMonth], ['2026-12-05', false]);
   assert.deepEqual(weeks.flat().filter((item) => item.isToday).map((item) => item.date), ['2026-11-24']);
 });
 
@@ -113,10 +113,11 @@ test('month calendar: one bar per site a day, in the overview order, three at mo
 });
 
 test('month calendar: tasks reach into the days shown from the months around it', () => {
-  const sites = [site('a', '가 현장', [task('t1', '철거', '2026-10-27', '2026-11-02')])];
-  const days = buildMonthSchedule(sites, '2026-11', '2026-11-24').flat();
-  assert.deepEqual(day(days, '2026-10-27').bars, ['a']);
-  assert.deepEqual(day(days, '2026-11-02').bars, ['a']);
+  // December 2026 starts on a Tuesday, so its first week shows 29 and 30 November.
+  const sites = [site('a', '가 현장', [task('t1', '철거', '2026-11-27', '2026-12-02')])];
+  const days = buildMonthSchedule(sites, '2026-12', '2026-12-01').flat();
+  assert.deepEqual(day(days, '2026-11-29').bars, ['a']);
+  assert.deepEqual(day(days, '2026-12-02').bars, ['a']);
 });
 
 test('month keys and labels', () => {

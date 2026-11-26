@@ -39,7 +39,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
-import { layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
+import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import {
   DETAIL_PAGE_HEIGHT_MM,
   DETAIL_PAGE_WIDTH_MM,
@@ -808,7 +808,7 @@ export default function EstimateWorkspacePage() {
   const printPageOrientation: 'portrait' | 'landscape' = documentPurchaseOrder ? 'portrait' : 'landscape';
   const processPool = useMemo(() => buildProcessPool(lines, workLines), [lines, workLines]);
   const effectiveStartDate = constructionStartDate || earliestTaskStartDate(schedule);
-  const calendarWeekStart = effectiveStartDate ? addDays(mondayOfWeek(effectiveStartDate), calendarWeekOffset * 7) : '';
+  const calendarWeekStart = effectiveStartDate ? addDays(sundayOfWeek(effectiveStartDate), calendarWeekOffset * 7) : '';
   const isStartWeekCalendar = calendarView === 'startWeek' && Boolean(calendarWeekStart);
   const calendarDays = useMemo(
     () => (isStartWeekCalendar ? buildWeekCalendarDays(calendarWeekStart, effectiveStartDate) : buildCalendarDays(calendarMonth)),
@@ -4002,8 +4002,10 @@ export default function EstimateWorkspacePage() {
 
               <div className="overflow-x-auto rounded-lg border border-[#edf2f5]">
                 <div className="grid min-w-[980px] grid-cols-7 bg-[#f7fafb] text-center text-xs font-bold uppercase tracking-[0.12em] text-[#60717d]">
-                  {['월', '화', '수', '목', '금', '토', '일'].map((day) => (
-                    <div key={day} className="border-b border-r border-[#edf2f5] px-2 py-3 last:border-r-0">{day}</div>
+                  {CALENDAR_WEEKDAYS.map((day, index) => (
+                    <div key={day} className={`border-b border-r border-[#edf2f5] px-2 py-3 last:border-r-0 ${isWeekendColumn(index) ? 'text-[#d92d20]' : ''}`}>
+                      {day}
+                    </div>
                   ))}
                 </div>
                 <div className="min-w-[980px]">
@@ -4031,7 +4033,19 @@ export default function EstimateWorkspacePage() {
                               className={`border-b border-[#edf2f5] p-2 ${index < 6 ? 'border-r' : ''} ${day.isCurrentMonth ? 'bg-white' : 'bg-[#f7fafb] text-[#a9b4bb]'} ${isHoliday ? 'bg-[linear-gradient(135deg,#fff7f7_0,#fff7f7_50%,#fff_50%,#fff_100%)]' : ''}`}
                             >
                               <div className="flex items-center justify-between gap-2">
-                                <span className={`text-xs font-bold ${day.date === todayKey() ? 'rounded-full bg-[#171512] px-2 py-1 text-white' : ''}`}>{day.label}</span>
+                                <span
+                                  className={`text-xs font-bold ${
+                                    day.date === todayKey()
+                                      ? 'rounded-full bg-[#171512] px-2 py-1 text-white'
+                                      : isWeekendColumn(index)
+                                        ? day.isCurrentMonth
+                                          ? 'text-[#d92d20]'
+                                          : 'text-[#f0a49c]'
+                                        : ''
+                                  }`}
+                                >
+                                  {day.label}
+                                </span>
                                 {day.date === effectiveStartDate && <span className="rounded-full bg-[#171512] px-2 py-0.5 text-[10px] font-bold text-white">공사 시작</span>}
                                 {isHoliday && <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold text-red-600">휴일</span>}
                                 <button
@@ -5666,8 +5680,8 @@ function SchedulePrintPages({
             <DocumentPrintHeader title={sheet.title} site={site} compact />
             <div className="mt-4 flex min-h-0 flex-1 flex-col border border-[#171512] text-xs">
               <div className="grid grid-cols-7">
-                {['월', '화', '수', '목', '금', '토', '일'].map((day, index) => (
-                  <div key={day} className={`border-b border-[#171512] bg-[#f4f1ec] py-1.5 text-center font-bold ${index < 6 ? 'border-r' : ''}`}>
+                {CALENDAR_WEEKDAYS.map((day, index) => (
+                  <div key={day} className={`border-b border-[#171512] bg-[#f4f1ec] py-1.5 text-center font-bold ${index < 6 ? 'border-r' : ''} ${isWeekendColumn(index) ? 'text-[#d92d20]' : ''}`}>
                     {day}
                   </div>
                 ))}
@@ -5692,7 +5706,7 @@ function SchedulePrintPages({
                           className={`px-1 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f5f5f5] text-[#9aa6ad]' : 'bg-white'}`}
                         >
                           <div className="flex items-center gap-1 text-[10px] font-bold">
-                            <span>{label}</span>
+                            <span className={isWeekendColumn(index) ? (muted ? 'text-[#f0a49c]' : 'text-[#d92d20]') : ''}>{label}</span>
                             {date === startDate && <span className="rounded-full bg-[#171512] px-1.5 text-[9px] text-white">공사 시작</span>}
                             {holidays.has(date) && <span className="text-red-600">휴일</span>}
                           </div>
@@ -8360,8 +8374,8 @@ function buildCalendarDays(monthKey: string) {
   const [year, month] = monthKey.split('-').map(Number);
   const first = new Date(year, month - 1, 1);
   const start = new Date(first);
-  const mondayOffset = (first.getDay() + 6) % 7;
-  start.setDate(first.getDate() - mondayOffset);
+  // Weeks run Sunday to Saturday, as on every calendar (schedule-calendar.ts).
+  start.setDate(first.getDate() - first.getDay());
 
   return Array.from({ length: 42 }).map((_, index) => {
     const date = new Date(start);
@@ -8392,9 +8406,9 @@ function buildWeekCalendarDays(weekStart: string, startDate: string) {
   });
 }
 
-function mondayOfWeek(dateKeyValue: string) {
+function sundayOfWeek(dateKeyValue: string) {
   const date = parseDateKey(dateKeyValue);
-  return addDays(dateKeyValue, -((date.getDay() + 6) % 7));
+  return addDays(dateKeyValue, -date.getDay());
 }
 
 function earliestTaskStartDate(tasks: ScheduleTask[]) {

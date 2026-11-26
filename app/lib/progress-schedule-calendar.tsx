@@ -2,10 +2,8 @@
 
 import { useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { addDays, clampMonthKey, layoutCalendarWeek, monthWeekStarts, shiftMonthKey } from './schedule-calendar';
+import { CALENDAR_WEEKDAYS, addDays, clampMonthKey, isWeekendColumn, layoutCalendarWeek, monthWeekStarts, shiftMonthKey } from './schedule-calendar';
 import type { CustomerSchedule } from './site-progress';
-
-const WEEKDAYS = ['월', '화', '수', '목', '금', '토', '일'];
 
 // The manager calendar's bar color: the task color at 72%, gold when there is none.
 function barColor(color: string): string {
@@ -50,8 +48,8 @@ export function ProgressScheduleCalendar({ schedule }: { schedule: CustomerSched
 
       <div className="overflow-hidden rounded-lg border border-[#e3e9ec]">
         <div className="grid grid-cols-7 bg-[#f7f9fa] text-center text-[11px] font-bold text-[#60717d]">
-          {WEEKDAYS.map((day) => (
-            <div key={day} className="border-b border-[#e3e9ec] py-1.5">
+          {CALENDAR_WEEKDAYS.map((day, index) => (
+            <div key={day} className={`border-b border-[#e3e9ec] py-1.5 ${isWeekendColumn(index) ? 'text-[#d92d20]' : ''}`}>
               {day}
             </div>
           ))}
@@ -76,7 +74,15 @@ export function ProgressScheduleCalendar({ schedule }: { schedule: CustomerSched
                   >
                     <span
                       className={`inline-block rounded-full px-1 text-[11px] font-bold leading-4 ${
-                        isToday ? 'bg-[#38a9bd] text-white' : !inMonth ? 'text-[#b4bec4]' : holidays.has(date) ? 'text-red-600' : 'text-[#171512]'
+                        isToday
+                          ? 'bg-[#38a9bd] text-white'
+                          : !inMonth
+                            ? isWeekendColumn(index)
+                              ? 'text-[#f0a49c]'
+                              : 'text-[#b4bec4]'
+                            : holidays.has(date) || isWeekendColumn(index)
+                              ? 'text-[#d92d20]'
+                              : 'text-[#171512]'
                       }`}
                     >
                       {Number(date.slice(8))}
