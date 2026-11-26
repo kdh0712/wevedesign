@@ -164,6 +164,13 @@ test('defaultCommonBulkRows starts each option at quantity 1 with the material p
   assert.deepEqual(defaultCommonBulkRows(['현관'], undefined), [{ space: '', name: '현관', quantity: 1, customerUnitPrice: 0, executionUnitPrice: 0, note: '' }]);
 });
 
+test('defaultCommonBulkRows takes the DB 견적단가 and 실행단가 when given both (materialPrices)', () => {
+  assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '현관'], { customerUnitPrice: 35000, executionUnitPrice: 25000 }).map((row) => [row.customerUnitPrice, row.executionUnitPrice]), [
+    [35000, 25000],
+    [35000, 25000],
+  ]);
+});
+
 test('defaultCommonBulkRows gives row 1 the 수량 and 비고 of the line it replaces', () => {
   assert.deepEqual(defaultCommonBulkRows(['안방 욕실', '거실 욕실', '현관'], 35000, { replacedLine: { quantity: 4.5, note: '벽만' } }), [
     { space: '', name: '안방 욕실', quantity: 4.5, customerUnitPrice: 35000, executionUnitPrice: 35000, note: '벽만' },

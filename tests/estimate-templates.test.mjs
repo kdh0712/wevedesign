@@ -42,6 +42,7 @@ import {
   placeTemplateLines,
   refreshTemplateLines,
   materialPrices,
+  lineDbSavePrices,
   repickTemplateLine,
   templateCopyName,
   templateCustomerTotal,
@@ -119,6 +120,12 @@ test('materialPrices: the DB 단가 is the 견적단가; the 실행단가 is its
   assert.deepEqual(materialPrices({ unitPrice: 230000 }), { customerUnitPrice: 230000, executionUnitPrice: 230000 });
   assert.deepEqual(materialPrices({ unitPrice: 230000, executionUnitPrice: 0 }), { customerUnitPrice: 230000, executionUnitPrice: 230000 });
   assert.deepEqual(materialPrices({}), { customerUnitPrice: 0, executionUnitPrice: 0 });
+});
+
+test('lineDbSavePrices: DB에 저장 sends the line 실행단가 only when it has its own, so a stored one is not overwritten', () => {
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 240000, executionUnitPrice: 180000 }), { unitPrice: 240000, executionUnitPrice: 180000 });
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 230000, executionUnitPrice: 230000 }), { unitPrice: 230000 });
+  assert.deepEqual(lineDbSavePrices({ customerUnitPrice: 230000, executionUnitPrice: 0 }), { unitPrice: 230000 });
 });
 
 test('refreshTemplateLines puts the DB 실행단가 in the 실행 price and reports a change of either price', () => {

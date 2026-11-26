@@ -11,6 +11,7 @@ import {
   linkedWorkLineCount,
   removeMaterialFromSettings,
   isUnnamedPricedLine,
+  materialFieldsToKeep,
   unlinkWorkLinesFromLine,
   unnamedPricedAmount,
   unnamedPricedLineCount,
@@ -254,4 +255,10 @@ test('deleting an estimate line keeps its 실행 내역 rows and only unlinks th
   assert.deepEqual(next.map((line) => line.sourceLineId), ['', 'l2', '']);
   assert.equal(next[0].expense, 5000);
   assert.equal(next[2].payment, 3000);
+});
+
+test('materialFieldsToKeep: a 자재 DB save leaves the 실행단가 and 공통 항목 it does not send as they are stored', () => {
+  assert.deepEqual(materialFieldsToKeep({ name: '타일', unitPrice: 30000 }), ['executionUnitPrice', 'commonOptions']);
+  assert.deepEqual(materialFieldsToKeep({ name: '타일', unitPrice: 30000, executionUnitPrice: 0 }), ['commonOptions']);
+  assert.deepEqual(materialFieldsToKeep({ name: '공통', executionUnitPrice: 1, commonOptions: [] }), []);
 });

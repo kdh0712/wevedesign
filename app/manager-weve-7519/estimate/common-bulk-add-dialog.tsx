@@ -3,6 +3,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Trash2, X } from 'lucide-react';
 import { defaultCommonBulkRows, validateCommonBulkRows, type CommonBulkRow, type CommonBulkShared } from '../../lib/estimate-common-options';
+import { materialPrices } from '../../lib/estimate-templates';
 import { CommonMaterialSummary, type CommonMaterial } from './common-options';
 import { NumberTextInput } from './number-text-input';
 
@@ -60,7 +61,7 @@ export function CommonBulkAddDialog({
   const [spaceChoices] = useState(() => (firstRowSpace && !spaceOptions.includes(firstRowSpace) ? [firstRowSpace, ...spaceOptions] : spaceOptions));
   const [shared, setShared] = useState<CommonBulkShared>(() => ({ spec: material.spec || '', unit: material.unit || '' }));
   const [rows, setRows] = useState<DraftRow[]>(() =>
-    defaultCommonBulkRows(options, material.unitPrice, { replacedLine, spaceOptions: spaceChoices, firstRowSpace }).map((row, index) => ({
+    defaultCommonBulkRows(options, materialPrices(material), { replacedLine, spaceOptions: spaceChoices, firstRowSpace }).map((row, index) => ({
       ...row,
       key: `row-${index}`,
     })),

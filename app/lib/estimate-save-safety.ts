@@ -195,6 +195,13 @@ export function estimateSaveConflictMessage(conflict: EstimateSaveConflict) {
   return '';
 }
 
+// Fields of a 자재 DB item that a save leaving them out must not touch: the Firestore write masks them out, so the stored
+// 실행단가 and 공통 항목 stay even when the read before the write fails.
+const OPTIONAL_MATERIAL_FIELDS = ['executionUnitPrice', 'commonOptions'] as const;
+export function materialFieldsToKeep(record: Record<string, unknown>): string[] {
+  return OPTIONAL_MATERIAL_FIELDS.filter((field) => !(field in record));
+}
+
 type PricedLine = { name?: string; quantity?: number; customerUnitPrice?: number };
 const pricedAmount = (line: PricedLine) => Number(line.quantity || 0) * Number(line.customerUnitPrice || 0);
 

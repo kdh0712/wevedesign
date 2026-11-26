@@ -737,16 +737,18 @@ async function importMaterials(request: Request) {
 function parseSheet(workbook: XLSX.WorkBook, sheetName: string, updatedAt: string): MaterialDoc[] {
   const sheet = workbook.Sheets[sheetName];
   const rows = XLSX.utils.sheet_to_json<Array<string | number>>(sheet, { header: 1, defval: '' });
-  const headerIndex = rows.findIndex((row) => row.some((cell) => String(cell).trim() === '품명') && row.some((cell) => String(cell).trim() === '단가'));
+  // Headers match without spaces ('실행 단가' is '실행단가'); '견적단가' may stand for '단가'.
+  const label = (cell: unknown) => String(cell).replace(/\s+/g, '');
+  const headerIndex = rows.findIndex((row) => row.some((cell) => label(cell) === '품명') && row.some((cell) => label(cell) === '단가' || label(cell) === '견적단가'));
   if (headerIndex < 0) return [];
 
-  const headers = rows[headerIndex].map((cell) => String(cell).trim());
+  const headers = rows[headerIndex].map((cell) => label(cell));
   const column = (name: string) => headers.findIndex((header) => header === name);
   const nameIndex = column('품명');
   const specIndex = column('규격');
   const unitIndex = column('단위');
-  const priceIndex = column('단가');
-  // Optional: a sheet without it leaves each item's stored 실행단가 as it is.
+  const priceIndex = column('단가') >= 0 ? column('단가') : column('견적단가');
+  // Optional: a sheet without it, or a blank cell, leaves that item's stored 실행단가 as it is.
   const executionPriceIndex = column('실행단가');
   const processIndex = column('공종');
   const noteIndex = column('비고');
@@ -771,7 +773,9 @@ function parseSheet(workbook: XLSX.WorkBook, sheetName: string, updatedAt: strin
         spec,
         unit,
         unitPrice,
-        ...(executionPriceIndex >= 0 ? { executionUnitPrice: Math.max(0, toNumber(row[executionPriceIndex])) } : {}),
+        ...(executionPriceIndex >= 0 && String(row[executionPriceIndex] ?? '').trim() !== ''
+          ? { executionUnitPrice: Math.max(0, toNumber(row[executionPriceIndex])) }
+          : {}),
         note: noteIndex >= 0 ? cleanCell(row[noteIndex]) : '',
         sourceSheet: sheetName,
         updatedAt,

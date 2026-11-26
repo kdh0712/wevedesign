@@ -25,6 +25,7 @@ import {
   insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
+  lineDbSavePrices,
   materialPrices,
   orderTemplateLinesByGroup,
   pinBaseGroupFirst,
@@ -1828,8 +1829,8 @@ export default function EstimateWorkspacePage() {
         name,
         spec: lineDraft.spec,
         unit: lineDraft.unit,
-        unitPrice: lineDraft.customerUnitPrice,
-        executionUnitPrice: lineDraft.executionUnitPrice,
+        // The line's own 실행단가 only; without one the DB keeps the 실행단가 it has (lineDbSavePrices).
+        ...lineDbSavePrices(lineDraft),
         note: lineDraftSource?.note || '',
         sourceSheet: '견적서 입력',
         ...(lineDbSaveCommon ? { commonOptions: lineDbSaveOptions } : {}),
@@ -3128,7 +3129,11 @@ export default function EstimateWorkspacePage() {
                     </button>
                     {lineDbSaveCommon && <CommonOptionsField key={lineDbSaveKey || 'new'} options={lineDbSaveOptions} onChange={setLineDbSaveOptions} className="md:col-span-4" />}
                     <p className="text-xs leading-5 text-[#60717d] md:col-span-4">
-                      분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다. 공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
+                      분류·공종·규격·단위·견적단가를 자재 DB에 저장합니다.{' '}
+                      {lineDbSavePrices(lineDraft).executionUnitPrice !== undefined
+                        ? `실행단가 ${formatMoney(lineDraft.executionUnitPrice)}도 함께 저장해요.`
+                        : '실행단가는 이 줄에 따로 없어서, DB에 있는 값을 그대로 둬요.'}{' '}
+                      공통으로 저장하면 여러 곳에 쓰는 같은 규격 품목을 불러올 때 품명을 직접 입력합니다.
                     </p>
                   </div>
                 )}
@@ -5288,7 +5293,6 @@ function SummaryCard({ title, value, sub }: { title: string; value: string; sub:
   );
 }
 
-// warn: an empty 품명 the documents would leave out while its amount counts (isUnnamedPricedLine), drawn in yellow.
 // A 자재 DB item's prices in a list: the 견적단가, with the 실행단가 under it when one was entered.
 function MaterialPriceText({ material, className = '' }: { material: Material; className?: string }) {
   const execution = Number(material.executionUnitPrice || 0);
@@ -5300,6 +5304,7 @@ function MaterialPriceText({ material, className = '' }: { material: Material; c
   );
 }
 
+// warn: an empty 품명 the documents would leave out while its amount counts (isUnnamedPricedLine), drawn in yellow.
 function PickerCell({ value, placeholder, warn = false, onClick }: { value: string; placeholder: string; warn?: boolean; onClick: () => void }) {
   // Spaces alone count as empty, as in the 세부내역서 미리보기 and the warning.
   const shown = String(value ?? '').trim();

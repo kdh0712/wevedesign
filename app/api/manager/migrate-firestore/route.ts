@@ -38,7 +38,7 @@ const migrationQuery = `{
     customerEstimateTotal, executionCostTotal, marginAmount, marginRate, memo, updatedAt, createdAt
   },
   "materials": *[_type == "estimateMaterial"] | order(category asc, process asc, name asc)[0...10000] {
-    _id, _type, category, process, name, spec, unit, unitPrice, note, sourceSheet, updatedAt
+    _id, _type, category, process, name, spec, unit, unitPrice, executionUnitPrice, note, sourceSheet, updatedAt
   }
 }`;
 

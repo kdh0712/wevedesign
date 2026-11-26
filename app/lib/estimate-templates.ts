@@ -117,6 +117,14 @@ export function materialPrices(material: { unitPrice?: unknown; executionUnitPri
   return { customerUnitPrice, executionUnitPrice: execution > 0 ? execution : customerUnitPrice };
 }
 
+// The prices 'DB에 저장' from a line writes: its 견적단가, and its 실행단가 only when the line has its own (above 0 and not the
+// 견적단가). Otherwise the field is left out and the DB keeps the 실행단가 it has.
+export function lineDbSavePrices(line: { customerUnitPrice?: unknown; executionUnitPrice?: unknown }): { unitPrice: number; executionUnitPrice?: number } {
+  const unitPrice = number(line.customerUnitPrice);
+  const execution = number(line.executionUnitPrice);
+  return execution > 0 && execution !== unitPrice ? { unitPrice, executionUnitPrice: execution } : { unitPrice };
+}
+
 export function refreshTemplateLines(lines: TemplateLine[], materials: TemplateMaterial[], newId: () => string): TemplateRefreshResult {
   const changed: TemplateRefreshResult['changed'] = [];
   const notFound: string[] = [];
