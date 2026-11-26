@@ -18,7 +18,8 @@ import {
   type CommonBulkShared,
 } from '../../lib/estimate-common-options';
 import { isUnnamedPricedLine, linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedAmount, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
-import { canMergeDetailLine, mergeDetailOneLines, mergedDetailLineIds, toggleDetailOneLine } from '../../lib/estimate-detail-one-line';
+import { canMergeDetailLine, mergedDetailLineIds, toggleDetailOneLine } from '../../lib/estimate-detail-one-line';
+import { detailDocumentLines, hasDetailDisplay, type DetailDisplay } from '../../lib/estimate-detail-display';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -34,6 +35,7 @@ import {
 } from '../../lib/estimate-templates';
 import { ManualDownloadButton } from '../manual-download-button';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
+import { DetailDisplayDialog } from './detail-display-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
@@ -111,6 +113,8 @@ type EstimateLine = {
   // 세부내역서에서 한 줄로: the 품명 this line was marked for; its 품명's lines in its 공사 are drawn as one line
   // (app/lib/estimate-detail-one-line.ts).
   detailOneLine?: string;
+  // 세부내역서 표시 바꾸기: another 품명/규격/단위/수량 on the 세부내역서 for the same amount (app/lib/estimate-detail-display.ts).
+  detailDisplay?: DetailDisplay;
 };
 
 type WorkLine = {
@@ -659,6 +663,8 @@ export default function EstimateWorkspacePage() {
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [workLineDraft, setWorkLineDraft] = useState<WorkLine>(() => emptyWorkLine());
   const [editingWorkLineId, setEditingWorkLineId] = useState('');
+  // The line whose 세부내역서 표시 바꾸기 dialog is open.
+  const [detailDisplayLineId, setDetailDisplayLineId] = useState('');
   // The 실행 항목 입력 공종 typed instead of picked from the list.
   const [isCustomWorkProcess, setIsCustomWorkProcess] = useState(false);
   // The 공종 the 실행 내역서 table shows: null for every line, '' for lines without a 공종.
@@ -798,6 +804,7 @@ export default function EstimateWorkspacePage() {
   const unnamedPricedCount = useMemo(() => unnamedPricedLineCount(lines), [lines]);
   const unnamedPricedTotal = useMemo(() => unnamedPricedAmount(lines), [lines]);
   const detailOneLineIds = useMemo(() => mergedDetailLineIds(lines), [lines]);
+  const detailDisplayLine = detailDisplayLineId ? lines.find((line) => line.id === detailDisplayLineId) || null : null;
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
@@ -3166,6 +3173,15 @@ export default function EstimateWorkspacePage() {
                         {detailOneLineIds.has(line.id) && (
                           <span className="mr-1 mt-1 inline-block rounded bg-[#e8f3f6] px-1.5 py-0.5 text-[11px] font-bold text-[#1d6d7b]">서류에 한 줄</span>
                         )}
+                        {!detailOneLineIds.has(line.id) && hasDetailDisplay(line) && (
+                          <button
+                            type="button"
+                            onClick={() => setDetailDisplayLineId(line.id)}
+                            className="mr-1 mt-1 inline-block rounded bg-[#e8f3f6] px-1.5 py-0.5 text-[11px] font-bold text-[#1d6d7b]"
+                          >
+                            서류 표시 변경
+                          </button>
+                        )}
                       </>
                     ),
                   }}
@@ -3193,6 +3209,8 @@ export default function EstimateWorkspacePage() {
                           },
                         ]
                       : []),
+                    // A merged 품명 shows as one line, so a line's own display only applies while it is not merged.
+                    ...(line.name.trim() && !detailOneLineIds.has(line.id) ? [{ label: '세부내역서 표시 바꾸기…', run: () => setDetailDisplayLineId(line.id) }] : []),
                   ]}
                   emptyLineWhenAllRemoved
                 />
@@ -4692,6 +4710,26 @@ export default function EstimateWorkspacePage() {
           onChooseCommonOptions={choosePickerCommonOptions}
           onSaveMaterial={saveMaterial}
           onClose={() => setMaterialPicker(null)}
+        />
+      )}
+
+      {detailDisplayLine && (
+        <DetailDisplayDialog
+          key={detailDisplayLine.id}
+          line={detailDisplayLine}
+          onClose={() => setDetailDisplayLineId('')}
+          onApply={(display) => {
+            setLines((current) =>
+              current.map((line) => {
+                if (line.id !== detailDisplayLine.id) return line;
+                const next = { ...line };
+                if (display) next.detailDisplay = display;
+                else delete next.detailDisplay;
+                return next;
+              }),
+            );
+            setDetailDisplayLineId('');
+          }}
         />
       )}
 
@@ -8258,8 +8296,9 @@ function buildEstimateDetailRows(
   lines: EstimateLine[],
   totals: Pick<ReturnType<typeof calculateTotals>, 'customerEstimateTotal' | 'overheadAmount' | 'overheadRate'>,
 ): DetailRows {
-  // A 품명 set to 세부내역서에서 한 줄로 is one line here (mergeDetailOneLines); the amounts stay the same.
-  const visibleLines = mergeDetailOneLines(lines).filter((line) => line.name);
+  // A 품명 set to 세부내역서에서 한 줄로 is one line here, and a line's 세부내역서 표시 its own 품명/규격/단위/수량
+  // (detailDocumentLines); the amounts stay the same.
+  const visibleLines = detailDocumentLines(lines).filter((line) => line.name);
   const grouped = groupLinesByCategory(visibleLines);
   const groups = grouped.map((group, groupIndex) => {
     const nameClusters = clusterLinesByName(group.lines);

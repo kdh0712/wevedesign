@@ -142,3 +142,21 @@ test('priced lines with no 품명 (left off the documents, counted in the total)
   // Without any, no such row.
   assert.equal(detail.rows.some((cells) => cells[0] === '품명 없는 항목'), false);
 });
+
+test('세부내역서: a 단가 with a fraction (세부내역서 표시 바꾸기) shows its decimals; whole amounts stay #,##0', () => {
+  const fractional = estimateWorkbook({
+    siteTitle: '현장',
+    customerName: '',
+    dateText: '',
+    versionLabel: '',
+    rows: [
+      { type: 'group', groupIndex: 0, category: '가구 공사' },
+      line('씽크대', '', '식', 7, 316285.714286),
+      { type: 'subtotal', amount: 2214000, hasNameSubtotals: false },
+      { type: 'total', amount: 2214000 },
+    ],
+  });
+  const sheet = fractional.sheets[1];
+  assert.equal(at(sheet, 6, 'E').z, '#,##0.##');
+  assert.equal(at(sheet, 6, 'F').z, '#,##0');
+});

@@ -42,6 +42,7 @@ import {
   type MaterialSettingsChange,
 } from '../../../lib/estimate-save-safety';
 import { normalizeWorkLines, unseenPhoneLines, workLineTotals } from '../../../lib/estimate-work-lines';
+import { normalizeDetailDisplay } from '../../../lib/estimate-detail-display';
 
 export const runtime = 'nodejs';
 
@@ -60,6 +61,7 @@ type EstimateLine = {
   commonName?: boolean;
   materialId?: string;
   detailOneLine?: string;
+  detailDisplay?: unknown;
 };
 
 type WorkLine = {
@@ -809,6 +811,8 @@ function normalizeLines(lines: EstimateLine[]) {
         ...(String(line.materialId || '').trim() ? { materialId: String(line.materialId).trim() } : {}),
         // 세부내역서에서 한 줄로: the 품명 the line was marked for (app/lib/estimate-detail-one-line.ts); left out when off.
         ...(typeof line.detailOneLine === 'string' && line.detailOneLine.trim() ? { detailOneLine: line.detailOneLine.trim().slice(0, 200) } : {}),
+        // 세부내역서 표시 바꾸기 (app/lib/estimate-detail-display.ts); left out when nothing is set.
+        ...(normalizeDetailDisplay(line.detailDisplay) ? { detailDisplay: normalizeDetailDisplay(line.detailDisplay) } : {}),
       };
     })
     // The page accepts a line with any of these filled in, so none of them may be dropped here.
