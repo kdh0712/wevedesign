@@ -5821,7 +5821,7 @@ function CompanyInfoBlock({ compact = false }: { compact?: boolean }) {
       <p className="font-bold tracking-[0.25em]">위 브 디 자 인</p>
       <p>경기도 의왕시 오리나무1길 12, 1층</p>
       <p>대표 : 김현종</p>
-      <p>☎ 031.381.0489&nbsp;&nbsp;&nbsp; FAX 031.422.2915</p>
+      <p>☎ 031.381.0489&nbsp;&nbsp;&nbsp; FAX 0503.8379.6712</p>
       <p>✉ weve0489@gmail.com</p>
       <p>담당자 : 김현종&nbsp;&nbsp;010.6346.3882</p>
     </div>
@@ -6608,7 +6608,7 @@ function LandscapeEstimateDocumentPreview({
     ceo: '김현종',
     address: '경기도 의왕시 오리나무1길 12, 1층',
     phone: '031.381.0489',
-    fax: '031.422.2915',
+    fax: '0503.8379.6712',
     email: 'weve0489@gmail.com',
     manager: '김현종',
     managerPhone: '010.6346.3882',
@@ -7101,7 +7101,7 @@ function EstimateDocumentPreview({
                 <p className="tracking-[0.35em]">위 브 디 자 인</p>
                 <p>경기도 의왕시 오리나무1길 12, 1층</p>
                 <p>대표 : 김현종</p>
-                <p>☎ 031.381.0489 &nbsp;&nbsp; FAX 031.422.2915</p>
+                <p>☎ 031.381.0489 &nbsp;&nbsp; FAX 0503.8379.6712</p>
                 <p>✉ weve0489@gmail.com</p>
                 <p>담당자 : 김현종 &nbsp; 010.6346.3882</p>
               </div>
@@ -7131,7 +7131,7 @@ function EstimateDocumentPreview({
               <p>경기도 의왕시 오리나무1길 12, 1층</p>
               <p>위브디자인</p>
               <p>대표 &nbsp;&nbsp; 김현종</p>
-              <p>T-031.381.0489 <span className="float-right">FAX-031.422.2915</span></p>
+              <p>T-031.381.0489 <span className="float-right">FAX-0503.8379.6712</span></p>
             </div>
           </header>
           <table className="mt-2 w-full border-collapse text-base">
