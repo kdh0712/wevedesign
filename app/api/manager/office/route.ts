@@ -211,6 +211,11 @@ export async function GET(request: Request) {
   if (access.error) return access.error;
   const { session } = access;
 
+  // ?siteEdit=<id>: one site as stored now and its customer's name and number, for 견적 작업's 현장 정보 수정 popup
+  // (spec docs/superpowers/specs/2026-11-26-site-quick-edit-design.md).
+  const siteEditParam = new URL(request.url).searchParams.get('siteEdit');
+  if (siteEditParam !== null) return readSiteForQuickEdit(request, session, siteEditParam);
+
   const startedAt = Date.now();
   // The dashboard's periodic refresh sends scope=refresh: it keeps the portfolio (projects, categories) it has.
   const isRefresh = new URL(request.url).searchParams.get('scope') === 'refresh';
@@ -551,6 +556,49 @@ export async function PATCH(request: Request) {
   } catch (error) {
     console.error('Office data restore failed:', error);
     return NextResponse.json({ error: getErrorMessage(error, '휴지통에서 복구하지 못했습니다.') }, { status: 500 });
+  }
+}
+
+// The popup starts from the site as stored now (the page's list is read once, when it opens) and shows only the fields it
+// edits; of the customer only the name and number. A trashed site or customer is not found; a customer that cannot be
+// read comes back as customerError, so the site part can still be edited.
+async function readSiteForQuickEdit(request: Request, session: Parameters<typeof canReadOffice>[0], rawId: string) {
+  if (!canReadOffice(session, 'sites')) return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 });
+  const id = rawId.trim();
+  if (!id) return NextResponse.json({ error: '현장을 찾을 수 없습니다.' }, { status: 404 });
+  const text = (value: unknown) => (typeof value === 'string' ? value : '');
+  try {
+    const useFirestore = shouldUseFirestoreErp() && canUseFirestoreForRequest(request);
+    const read = (type: 'site' | 'customer', docId: string, sanityType: string) =>
+      useFirestore
+        ? getOfficeRecordFromFirestore(request, type, docId)
+        : managerClient.fetch<Record<string, unknown> | null>(`*[_type == $sanityType && _id == $id][0]`, { sanityType, id: docId });
+    const stored = await read('site', id, typeMap.site);
+    if (!stored || stored.deletedAt) return NextResponse.json({ error: '현장을 찾을 수 없습니다.' }, { status: 404 });
+    const site = {
+      _id: id,
+      title: text(stored.title),
+      siteType: text(stored.siteType),
+      address: text(stored.address),
+      status: text(stored.status),
+      memo: text(stored.memo),
+      customerId: text(stored.customerId),
+      customerName: text(stored.customerName),
+      customerPhone: text(stored.customerPhone),
+    };
+    if (!site.customerId) return NextResponse.json({ site, customer: null });
+    if (!canReadOffice(session, 'customers')) return NextResponse.json({ site, customer: null, customerError: '고객 정보를 볼 권한이 없습니다.' });
+    try {
+      const customer = await read('customer', site.customerId, typeMap.customer);
+      if (!customer || customer.deletedAt) return NextResponse.json({ site, customer: null, customerError: '연결된 고객을 찾을 수 없습니다.' });
+      return NextResponse.json({ site, customer: { _id: site.customerId, name: text(customer.name), phone: text(customer.phone) } });
+    } catch (error) {
+      console.error('Office customer read failed:', error);
+      return NextResponse.json({ site, customer: null, customerError: getErrorMessage(error, '고객 정보를 불러오지 못했습니다.') });
+    }
+  } catch (error) {
+    console.error('Office site read failed:', error);
+    return NextResponse.json({ error: getErrorMessage(error, '현장 정보를 불러오지 못했습니다.') }, { status: 500 });
   }
 }
 

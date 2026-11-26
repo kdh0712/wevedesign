@@ -21,6 +21,7 @@ import { isUnnamedPricedLine, linkedWorkLineCount, unlinkWorkLinesFromLine, unna
 import { canMergeDetailLine, mergedDetailLineIds, toggleDetailOneLine } from '../../lib/estimate-detail-one-line';
 import { detailDocumentLines, hasDetailDisplay, type DetailDisplay } from '../../lib/estimate-detail-display';
 import { applyPriceEdit, isPriceEditCommon, priceEditMaterialSave } from '../../lib/estimate-price-edit';
+import { applySiteQuickEdit, type QuickEditCustomer, type QuickEditSite, type SiteQuickEditPlan } from '../../lib/site-quick-edit';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
@@ -39,6 +40,7 @@ import { ManualDownloadButton } from '../manual-download-button';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { DetailDisplayDialog } from './detail-display-dialog';
 import { PriceEditDialog } from './price-edit-dialog';
+import { SiteEditDialog } from './site-edit-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
@@ -72,6 +74,8 @@ import { CommonOptionPicker, CommonOptionsField } from './common-options';
 type Site = {
   _id: string;
   title?: string;
+  // The linked customer (office record); the 현장 정보 수정 popup reads and saves it.
+  customerId?: string;
   customerName?: string;
   customerPhone?: string;
   siteType?: string;
@@ -651,6 +655,10 @@ export default function EstimateWorkspacePage() {
   // Starts true so opening or refreshing with a saved session shows a loading screen instead of the password form.
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
+  // Staff who may edit sites (the office API's write permission) see '현장 정보 수정' in the SITE box.
+  const [canEditSites, setCanEditSites] = useState(false);
+  // The site the 현장 정보 수정 popup was opened for ('' while closed): it stays on that site even if another is picked.
+  const [siteEditId, setSiteEditId] = useState('');
   const [estimates, setEstimates] = useState<SiteEstimate[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -770,6 +778,10 @@ export default function EstimateWorkspacePage() {
   const materialOrderBaseRef = useRef<string[]>([]);
 
   const selectedSite = sites.find((site) => site._id === selectedSiteId);
+  // The editor effects below follow whether the selected site is there, not the list itself: saving 현장 정보 수정 puts a
+  // new list in place, and reloading the editor then would throw away unsaved edits (review finding).
+  const selectedSiteExists = Boolean(selectedSite);
+  const siteEditSite = siteEditId ? sites.find((site) => site._id === siteEditId) : undefined;
   const selectedSiteEstimates = useMemo(
     () => sortEstimateVersions(estimates.filter((estimate) => estimate.siteId === selectedSiteId)),
     [estimates, selectedSiteId],
@@ -1015,6 +1027,7 @@ export default function EstimateWorkspacePage() {
     setPassword(session.token);
     setFirebaseToken(session.firebaseToken);
     setLoginId(session.user.loginId || 'admin');
+    setCanEditSites(hasAnyPermission(session.user, ['sites', 'customers']));
     if (!hasAnyPermission(session.user, ['estimates'])) {
       setAccessDenied(true);
       setIsLoadingData(false);
@@ -1121,12 +1134,11 @@ export default function EstimateWorkspacePage() {
       setIsManualNewEstimateVersion(false);
       setSelectedEstimateId(selectedSiteEstimates[0]?._id || '');
     }
-  }, [isManualNewEstimateVersion, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
+  }, [isManualNewEstimateVersion, selectedEstimateId, selectedSiteEstimates, selectedSiteId, selectedSiteExists]);
 
   useEffect(() => {
     if (!selectedSiteId || selectedEstimateId === NEW_ESTIMATE_ID) return;
     const estimate = selectedEstimate;
-    const site = sites.find((item) => item._id === selectedSiteId);
 
     // The version this page just saved: the editor already holds its content (and possibly newer typing), and
     // saveEstimate set the saved state, so nothing is reloaded.
@@ -1177,7 +1189,7 @@ export default function EstimateWorkspacePage() {
     setCalendarWeekOffset(0);
     setSelectedLineId('');
 
-    if (!estimate && site) {
+    if (!estimate && selectedSiteExists) {
       setVersionType('draft');
       setVersionLabel(defaultVersionLabel('draft', selectedSiteEstimates));
       // Blank, as above.
@@ -1202,7 +1214,7 @@ export default function EstimateWorkspacePage() {
       setHolidays([]);
     }
     setSnapshotRequest((current) => current + 1);
-  }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, sites]);
+  }, [selectedEstimate, selectedEstimateId, selectedSiteEstimates, selectedSiteId, selectedSiteExists]);
 
   useEffect(() => {
     setPurchaseItemDraft(emptyPurchaseOrderItem());
@@ -1272,6 +1284,7 @@ export default function EstimateWorkspacePage() {
     setIsLoggingIn(true);
     try {
       const session = await requestSession();
+      setCanEditSites(hasAnyPermission(session.user, ['sites', 'customers']));
       if (!hasAnyPermission(session.user, ['estimates'])) {
         setAccessDenied(true);
         return;
@@ -1291,6 +1304,7 @@ export default function EstimateWorkspacePage() {
     try {
       const session = await requestSession();
       setNeedsRelogin(false);
+      setCanEditSites(hasAnyPermission(session.user, ['sites', 'customers']));
       if (!hasAnyPermission(session.user, ['estimates'])) {
         setAccessDenied(true);
         return;
@@ -1301,6 +1315,57 @@ export default function EstimateWorkspacePage() {
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  // 현장 정보 수정: the office API, as the 고객·현장 tab uses it.
+  const officeRequest = async (input: string, init: RequestInit = {}) => {
+    const response = await managerFetch(input, init);
+    const data = (await response.json().catch(() => ({}))) as { error?: string; site?: QuickEditSite; customer?: QuickEditCustomer | null; customerError?: string };
+    if (!response.ok) throw new Error(data.error || '현장 정보를 저장하지 못했습니다.');
+    return data;
+  };
+  const postOffice = (body: Record<string, unknown>) =>
+    officeRequest('/api/manager/office', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const loadSiteForEdit = async (siteId: string) => {
+    const data = await officeRequest(`/api/manager/office?siteEdit=${encodeURIComponent(siteId)}`);
+    if (!data.site) throw new Error('현장 정보를 불러오지 못했습니다.');
+    return { site: data.site, customer: data.customer ?? null, customerError: data.customerError || '' };
+  };
+  // The customer, then (when asked) the customer's other sites, then this site, so this site's own number is written last
+  // and a sync cannot overwrite it (review finding). A failed customer or site save keeps the popup open and says what was
+  // saved already; a failed sync is reported after the site is saved.
+  const saveSiteQuickEdit = async (plan: SiteQuickEditPlan, otherSiteIds: string[], stored: QuickEditSite) => {
+    const failure = (caught: unknown, fallback: string) => (caught instanceof Error ? caught.message : fallback);
+    try {
+      if (plan.customer) await postOffice({ type: 'customer', id: plan.customer.id, data: plan.customer.data });
+    } catch (caught) {
+      return failure(caught, '고객 정보를 저장하지 못했습니다.');
+    }
+    let synced: string[] = [];
+    let syncError = '';
+    if (plan.sync) {
+      try {
+        await postOffice({ action: 'syncCustomerToSites', ...plan.sync });
+        synced = otherSiteIds;
+      } catch (caught) {
+        syncError = failure(caught, '다른 현장에 반영하지 못했습니다.');
+      }
+    }
+    if (Object.keys(plan.site.data).length > 0) {
+      try {
+        await postOffice({ type: 'site', id: plan.site.id, data: plan.site.data });
+      } catch (caught) {
+        const message = failure(caught, '현장 정보를 저장하지 못했습니다.');
+        return plan.customer ? `고객 정보는 저장했지만 현장 정보를 저장하지 못했습니다: ${message} 다시 저장해 주세요.` : message;
+      }
+    }
+    // The list takes the site as stored when the popup opened, then the saved changes.
+    setSites((current) => applySiteQuickEdit(current.map((site) => (site._id === stored._id ? { ...site, ...stored } : site)), plan, synced));
+    setSiteEditId('');
+    if (syncError) setError(`현장 정보는 저장했지만 다른 현장에는 반영하지 못했습니다: ${syncError}`);
+    else if (synced.length) setStatus(`현장 정보와 고객 정보를 저장하고 다른 현장 ${synced.length}곳에도 반영했습니다.`);
+    else setStatus(Object.keys(plan.site.data).length || plan.customer ? '현장 정보를 저장했습니다.' : '바뀐 내용이 없습니다.');
+    return '';
   };
 
   const postEstimateApi = (body: Record<string, unknown>) =>
@@ -2809,7 +2874,18 @@ export default function EstimateWorkspacePage() {
         <section className="rounded-lg border border-[#d5dde2] bg-white p-3 shadow-sm">
           <div className="grid gap-3 2xl:grid-cols-[minmax(260px,0.8fr)_minmax(300px,0.8fr)_minmax(560px,1.4fr)]">
             <div className="rounded-md bg-[#f7fafb] px-4 py-3">
-              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-[#38a9bd]">SITE</p>
+                {canEditSites && selectedSite && (
+                  <button
+                    type="button"
+                    onClick={() => setSiteEditId(selectedSite._id)}
+                    className="no-print text-xs font-semibold text-[#1d6d7b] underline underline-offset-[3px] hover:text-[#38a9bd]"
+                  >
+                    현장 정보 수정
+                  </button>
+                )}
+              </div>
               <h2 className="mt-1 truncate text-lg font-semibold">{selectedSite?.title || '현장을 선택해주세요'}</h2>
               <p className="mt-1 text-sm leading-5 text-[#60717d]">
                 <span className="block truncate">{[selectedSite?.customerName, selectedSite?.customerPhone].filter(Boolean).join(' · ') || '고객 정보 없음'}</span>
@@ -4760,6 +4836,17 @@ export default function EstimateWorkspacePage() {
           onChooseCommonOptions={choosePickerCommonOptions}
           onSaveMaterial={saveMaterial}
           onClose={() => setMaterialPicker(null)}
+        />
+      )}
+
+      {siteEditSite && (
+        <SiteEditDialog
+          key={siteEditSite._id}
+          site={siteEditSite}
+          sites={sites}
+          loadSite={loadSiteForEdit}
+          onSave={saveSiteQuickEdit}
+          onClose={() => setSiteEditId('')}
         />
       )}
 
