@@ -96,7 +96,7 @@ export function filterTemplateLines(lines: TemplateLine[], selection: TemplateSe
 
 // 1) the remembered item, 2) for a non-common line, the one item with the same 품명·규격·단위. Two or more such items
 // are not guessed between.
-export function findTemplateMaterial(line: TemplateLine, materials: TemplateMaterial[]): TemplateMaterial | null {
+export function findTemplateMaterial<M extends TemplateMaterial>(line: TemplateLine, materials: M[]): M | null {
   const id = key(line.materialId);
   if (id) {
     const remembered = materials.find((material) => material._id === id);

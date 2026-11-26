@@ -64,6 +64,9 @@ export type GroupedLinesEditorProps<T extends TemplateLine> = {
   onRemoved?: (ids: string[]) => void;
   lineMenuExtras?: (line: T) => Array<{ label: string; run: () => void }>;
   emptyLineWhenAllRemoved?: boolean;
+  // A mouse press on a 견적단가/실행단가 cell calls this instead of focusing the cell (the 견적서 tab's 단가 수정 popup);
+  // the keyboard still moves into the cell and types there.
+  onPriceCellClick?: (line: T, column: 'customerUnitPrice' | 'executionUnitPrice') => void;
 };
 
 const LABELS: Record<GroupedColumn, string> = {
@@ -359,18 +362,30 @@ export function GroupedLinesEditor<T extends TemplateLine>(props: GroupedLinesEd
       }
       case 'quantity':
       case 'customerUnitPrice':
-      case 'executionUnitPrice':
+      case 'executionUnitPrice': {
+        const onPriceClick = column !== 'quantity' ? props.onPriceCellClick : undefined;
         return (
           <NumberTextInput
             value={line[column]}
             onChange={(value) => updateLine(line.id, { [column]: value } as Partial<T>)}
             ariaLabel={labels[column]}
-            className={INPUT}
+            className={onPriceClick ? `${INPUT} cursor-pointer hover:border-[#38a9bd] hover:bg-[#f1fafc]` : INPUT}
             dataLine={line.id}
             dataCol={column}
             onKeyDown={keys.onKeyDown}
+            title={onPriceClick ? '눌러서 단가·자재 DB 수정' : undefined}
+            onMouseDown={
+              onPriceClick
+                ? (event) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    onPriceClick(line, column as 'customerUnitPrice' | 'executionUnitPrice');
+                  }
+                : undefined
+            }
           />
         );
+      }
       case 'margin': {
         const customer = line.quantity * line.customerUnitPrice;
         const margin = customer - line.quantity * line.executionUnitPrice;
