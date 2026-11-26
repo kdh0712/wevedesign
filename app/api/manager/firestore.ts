@@ -719,8 +719,9 @@ export async function saveOfficeRecordToFirestoreWithPrevious(
   };
   const documentId = id || `${collection}-${hashId(`${type}-${now}-${Math.random()}`)}`;
   // A site save is masked so it never writes the server-written fields: a link or a 유입 경로 answer saved while the form was
-  // open stays.
-  const saved = await saveFirestoreDocument(collection, record, idToken, documentId, type === 'site' ? PROTECTED_SITE_FIELDS : undefined);
+  // open stays. A customer save is masked too (nothing kept back): when the read of the stored record fails, only the
+  // fields sent are written instead of the whole record being replaced by them (현장 정보 수정 sends name and number only).
+  const saved = await saveFirestoreDocument(collection, record, idToken, documentId, type === 'site' ? PROTECTED_SITE_FIELDS : type === 'customer' ? [] : undefined);
   return { saved, previous };
 }
 
