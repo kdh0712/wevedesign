@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { mergeDetailOneLines } from '../../lib/estimate-detail-one-line';
+import { detailDocumentLines } from '../../lib/estimate-detail-display';
 import { templateDocumentTotals, type TemplateDocumentTotals } from '../../lib/estimate-document-totals';
 import {
   clusterTemplateLinesByName,
@@ -41,8 +41,8 @@ export function TemplateDocumentPreview({ title, subtitle, lines, overheadRate =
 
   // Colors follow the 공사 order of every line, as in the editor, even when a 공사 has lines without a 품명 yet.
   const colorIndex = new Map(groupTemplateLines(lines).map((group, index) => [group.label, index]));
-  // A 품명 set to 세부내역서에서 한 줄로 is one line, as on the printed 세부내역서; the totals stay those of the lines.
-  const totals = templateDocumentTotals(lines, overheadRate, mergeDetailOneLines(lines));
+  // The rows as the printed 세부내역서 draws them (한 줄로 merges, 세부내역서 표시); the totals stay those of the lines.
+  const totals = templateDocumentTotals(lines, overheadRate, detailDocumentLines(lines));
   const executionButton = (
     <button type="button" onClick={() => setShowExecution((current) => !current)} className="rounded-md border border-[#d5dde2] bg-white px-2 py-1 text-xs font-semibold">
       {showExecution ? '고객용으로 보기' : '실행 금액 보기'}
