@@ -1116,6 +1116,9 @@ export default function EstimateWorkspacePage() {
     setLineDraft(emptyLine());
     setWorkLineDraft(emptyWorkLine());
     setEditingWorkLineId('');
+    // Another site or version opens on every 실행 line, with the 공종 picked from the list.
+    setWorkProcessFilter(null);
+    setIsCustomWorkProcess(false);
     setSchedule(hydrateScheduleTasks(parseJson<Partial<ScheduleTask>[]>(estimate?.scheduleJson, [emptyTask()])));
     setPurchaseOrders(nextPurchaseOrders);
     setSelectedPurchaseOrderId(nextPurchaseOrders[0]?.id || '');
@@ -2020,6 +2023,9 @@ export default function EstimateWorkspacePage() {
         ? current.map((line) => (line.id === editingWorkLineId ? nextLine : line))
         : [...current, nextLine],
     );
+    // A line of another 공종 than the one the table shows would vanish as it is added (and get added twice), so the
+    // table goes back to 전체.
+    if (activeWorkProcess !== null && (nextLine.process || '').trim() !== activeWorkProcess) setWorkProcessFilter(null);
     resetWorkLineDraft();
     setError('');
   };
@@ -3277,8 +3283,8 @@ export default function EstimateWorkspacePage() {
                       onChange={(event) => {
                         const value = event.target.value;
                         if (value === CUSTOM_WORK_PROCESS) {
+                          // Typing starts from the 공종 already there, so an edited line keeps it until changed.
                           setIsCustomWorkProcess(true);
-                          setWorkLineDraft((current) => ({ ...current, process: '' }));
                         } else {
                           setWorkLineDraft((current) => ({ ...current, process: value }));
                         }
@@ -3402,19 +3408,24 @@ export default function EstimateWorkspacePage() {
                           <td className="px-3 py-2 text-right">{formatMoney(line.income || 0)}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(line))}</td>
                           <td className="px-3 py-2">
-                            <button
-                              type="button"
-                              aria-pressed={line.paid}
-                              title="눌러서 결제/미결제 바꾸기"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleWorkLinePaid(line.id);
-                              }}
-                              onDoubleClick={(event) => event.stopPropagation()}
-                              className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${line.paid ? 'border-[#bfe3cc] bg-[#e7f5ec] text-[#1f7a4d]' : 'border-[#f5d0a9] bg-[#fff1e6] text-[#b45309]'}`}
-                            >
-                              {line.paid ? '결제' : '미결제'}
-                            </button>
+                            {/* 결제/미결제 is about money paid out; a line without 지출 (a 수입) shows none. */}
+                            {workLineExpense(line) === 0 ? (
+                              <span className="text-[#a59d90]">-</span>
+                            ) : (
+                              <button
+                                type="button"
+                                aria-pressed={line.paid}
+                                title="눌러서 결제/미결제 바꾸기"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  toggleWorkLinePaid(line.id);
+                                }}
+                                onDoubleClick={(event) => event.stopPropagation()}
+                                className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${line.paid ? 'border-[#bfe3cc] bg-[#e7f5ec] text-[#1f7a4d]' : 'border-[#f5d0a9] bg-[#fff1e6] text-[#b45309]'}`}
+                              >
+                                {line.paid ? '결제' : '미결제'}
+                              </button>
+                            )}
                           </td>
                           <td className="truncate px-3 py-2 text-[#60717d]">{line.note || '-'}</td>
                           <td className="px-3 py-2 text-right">

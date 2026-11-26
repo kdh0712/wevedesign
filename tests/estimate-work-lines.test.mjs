@@ -167,6 +167,21 @@ test('workLinePaid: a saved choice wins; a line from before reads 결제 when it
   assert.equal(workLinePaid({}), false);
 });
 
+test('workLinePaid: an old line paid only in part stays 미결제, so what is still owed is not lost', () => {
+  assert.equal(workLinePaid({ expense: 5_000_000, payment: 2_000_000 }), false);
+  assert.equal(workLinePaid({ expense: 5_000_000, payment: 5_000_000 }), true);
+  assert.equal(workLinePaid({ quantity: 2, executionUnitPrice: 100, payment: 150 }), false);
+  assert.equal(workLinePaid({ income: 10_000_000, payment: 10_000_000 }), true);
+});
+
+test('workLinePaid: phone and receipt lines saved before the choice existed read 결제', () => {
+  assert.equal(workLinePaid({ addedFrom: 'phone', expense: 32_000, payment: 0 }), true);
+  assert.equal(workLinePaid({ receiptId: 'receipt-1', expense: 5_000 }), true);
+  assert.equal(workLinePaid({ addedFrom: 'phone', expense: 32_000, paid: false }), false);
+  const stored = JSON.stringify([{ id: 'work-phone-1', process: '타일', expense: 32_000, addedFrom: 'phone', addedBy: '김가영', addedAt: '2026-11-24T01:00:00Z' }]);
+  assert.equal(unseenPhoneLines(stored, new Set(), null)[0].paid, true);
+});
+
 test('normalizeWorkLines keeps 결제/미결제 and reads it for lines saved before', () => {
   const lines = normalizeWorkLines([
     { id: 'a', process: '목공', expense: 100, paid: true },
@@ -212,7 +227,9 @@ test('workLedgerFilterOptions: the 공종 the ledger uses, in the given order, t
   ]);
 });
 
-test('parsePaidCell reads an old ledger 결제 cell: an amount or a paid word is 결제, 미… or blank is 미결제', () => {
-  for (const value of [30000, '30,000', '결제', '완료', '지급', '결제완료', 'O', 'y']) assert.equal(parsePaidCell(value), true, String(value));
-  for (const value of ['', 0, '0', '미결제', '미지급', 'X', 'n', null, undefined]) assert.equal(parsePaidCell(value), false, String(value));
+test('parsePaidCell reads an old ledger 결제 cell: anything written (an amount, a date, 카드, 완료…) is 결제; blank, 0, -, X or 미… is 미결제', () => {
+  for (const value of [30000, '30,000', '결제', '완료', '지급', '결제완료', 'O', 'y', '카드', '현금', '계좌이체', '완납', '2026-11-20', new Date(2026, 10, 20)]) {
+    assert.equal(parsePaidCell(value), true, String(value));
+  }
+  for (const value of ['', 0, '0', '0원', '-', '미결제', '미지급', 'X', 'n', '없음', null, undefined]) assert.equal(parsePaidCell(value), false, String(value));
 });

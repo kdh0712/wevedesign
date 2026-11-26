@@ -203,13 +203,27 @@ export function unseenPhoneLines(storedWorkLinesJson: unknown, incomingIds: Read
 
 // 실행 내역서 결제/미결제와 공종 고르기 (spec docs/superpowers/specs/2026-11-26-work-ledger-paid-filter-design.md).
 
-// 결제 (true) or 미결제: the saved choice, else, for a line saved before the choice existed, whether its old 결제 amount
-// is above 0.
-export function workLinePaid(line: { paid?: unknown; payment?: unknown }): boolean {
-  return typeof line.paid === 'boolean' ? line.paid : toNumber(line.payment) > 0;
-}
+type LedgerLine = {
+  process?: unknown;
+  income?: unknown;
+  expense?: unknown;
+  quantity?: unknown;
+  executionUnitPrice?: unknown;
+  paid?: unknown;
+  payment?: unknown;
+  addedFrom?: unknown;
+  receiptId?: unknown;
+};
 
-type LedgerLine = { process?: unknown; income?: unknown; expense?: unknown; quantity?: unknown; executionUnitPrice?: unknown; paid?: unknown; payment?: unknown };
+// 결제 (true) or 미결제: the saved choice. A line saved before the choice existed reads 결제 when it came from the phone or
+// a receipt (something already bought), or when its old 결제 amount covers its 지출; a line paid only in part stays 미결제,
+// so what is still owed shows.
+export function workLinePaid(line: LedgerLine): boolean {
+  if (typeof line.paid === 'boolean') return line.paid;
+  if (line.addedFrom === 'phone' || text(line.receiptId).trim()) return true;
+  const payment = toNumber(line.payment);
+  return payment > 0 && payment >= ledgerExpense(line);
+}
 
 const ledgerExpense = (line: LedgerLine) => toNumber(line.expense) || toNumber(line.quantity) * toNumber(line.executionUnitPrice);
 
@@ -238,13 +252,16 @@ export function workLedgerFilterOptions(lines: readonly { process?: unknown }[],
   return [...ordered, ...(counts.has('') ? [''] : [])].map((process) => ({ process, count: counts.get(process) || 0 }));
 }
 
-const PAID_WORDS = new Set(['결제', '완료', '지급', '결제완료', '지급완료', 'o', 'y', 'yes', 'v', '✓', '○']);
+const UNPAID_WORDS = new Set(['-', 'x', '×', 'n', 'no', '없음']);
 
-// An old ledger's 결제 cell (과거 엑셀 불러오기): an amount above 0 or a word such as 결제·완료·지급 is 결제; blank, 0 or
-// anything starting with 미 (미결제, 미지급) is 미결제.
+// An old ledger's 결제 cell (과거 엑셀 불러오기): anything written there (an amount above 0, a date, 카드, 완료, O…) is
+// 결제; blank, 0, '-', X/N, 없음 or anything starting with 미 (미결제, 미지급) is 미결제.
 export function parsePaidCell(value: unknown): boolean {
   if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
   const word = String(value ?? '').replace(/\s+/g, '').toLowerCase();
-  if (!word || word.startsWith('미')) return false;
-  return PAID_WORDS.has(word) || toNumber(word) > 0;
+  if (!word || word.startsWith('미') || UNPAID_WORDS.has(word)) return false;
+  if (/^\d{4}[-./]\d{1,2}[-./]\d{1,2}\.?$/.test(word)) return true;
+  if (/^[0-9.,\-원₩]+$/.test(word)) return toNumber(word) > 0;
+  return true;
 }
