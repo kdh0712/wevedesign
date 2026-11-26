@@ -20,9 +20,11 @@ import {
 import { isUnnamedPricedLine, linkedWorkLineCount, unlinkWorkLinesFromLine, unnamedPricedAmount, unnamedPricedLineCount } from '../../lib/estimate-save-safety';
 import { canMergeDetailLine, mergedDetailLineIds, toggleDetailOneLine } from '../../lib/estimate-detail-one-line';
 import { detailDocumentLines, hasDetailDisplay, type DetailDisplay } from '../../lib/estimate-detail-display';
+import { applyPriceEdit, isPriceEditCommon, priceEditMaterialSave } from '../../lib/estimate-price-edit';
 import {
   appendTemplateLines,
   clusterTemplateLinesByName,
+  findTemplateMaterial,
   insertIntoTemplateGroup,
   isBlankEstimateLine,
   isMaterialListCurrent,
@@ -36,6 +38,7 @@ import {
 import { ManualDownloadButton } from '../manual-download-button';
 import { CommonBulkAddDialog } from './common-bulk-add-dialog';
 import { DetailDisplayDialog } from './detail-display-dialog';
+import { PriceEditDialog } from './price-edit-dialog';
 import { SaveAsTemplateDialog } from './save-as-template-dialog';
 import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
@@ -665,6 +668,8 @@ export default function EstimateWorkspacePage() {
   const [editingWorkLineId, setEditingWorkLineId] = useState('');
   // The line whose 세부내역서 표시 바꾸기 dialog is open.
   const [detailDisplayLineId, setDetailDisplayLineId] = useState('');
+  // The 견적서 line whose 견적단가/실행단가 cell was clicked, and which of the two (단가 수정 popup).
+  const [priceEdit, setPriceEdit] = useState<{ lineId: string; focus: 'customerUnitPrice' | 'executionUnitPrice' } | null>(null);
   // The 실행 항목 입력 공종 typed instead of picked from the list.
   const [isCustomWorkProcess, setIsCustomWorkProcess] = useState(false);
   // The 공종 the 실행 내역서 table shows: null for every line, '' for lines without a 공종.
@@ -805,6 +810,9 @@ export default function EstimateWorkspacePage() {
   const unnamedPricedTotal = useMemo(() => unnamedPricedAmount(lines), [lines]);
   const detailOneLineIds = useMemo(() => mergedDetailLineIds(lines), [lines]);
   const detailDisplayLine = detailDisplayLineId ? lines.find((line) => line.id === detailDisplayLineId) || null : null;
+  const priceEditLine = priceEdit ? lines.find((line) => line.id === priceEdit.lineId) || null : null;
+  const priceEditMaterial = priceEditLine ? findTemplateMaterial(priceEditLine, materials) : null;
+  const priceEditCommon = priceEditLine ? isPriceEditCommon(priceEditLine, priceEditMaterial) : false;
   const lineSpaceOptions = useMemo(() => uniqueLineValues(lines, (line) => line.space), [lines]);
   const sortedWorkLines = useMemo(() => sortWorkLines(workLines, workGroupBy), [workLines, workGroupBy]);
   const documentPurchaseOrder = documentView.startsWith('purchase:')
@@ -1609,7 +1617,13 @@ export default function EstimateWorkspacePage() {
       }
       if (data.materialSettings) setMaterialSettings(data.materialSettings);
       clearMaterialCache();
-      await refreshMaterials();
+      // The item is saved by now: a failed reload of the list is reported, not counted as a failed save.
+      try {
+        await refreshMaterials();
+      } catch {
+        setError('자재 단가는 저장했지만 목록을 다시 불러오지 못했습니다. 페이지를 새로고침해 주세요.');
+        return true;
+      }
       setStatus('자재 단가를 저장했습니다.');
       return true;
     } catch (caught) {
@@ -3224,6 +3238,7 @@ export default function EstimateWorkspacePage() {
                     ...(line.name.trim() && !detailOneLineIds.has(line.id) ? [{ label: '세부내역서 표시 바꾸기…', run: () => setDetailDisplayLineId(line.id) }] : []),
                   ]}
                   emptyLineWhenAllRemoved
+                  onPriceCellClick={(line, column) => setPriceEdit({ lineId: line.id, focus: column })}
                 />
               </div>
             </section>
@@ -4737,6 +4752,32 @@ export default function EstimateWorkspacePage() {
           onChooseCommonOptions={choosePickerCommonOptions}
           onSaveMaterial={saveMaterial}
           onClose={() => setMaterialPicker(null)}
+        />
+      )}
+
+      {priceEdit && priceEditLine && (
+        <PriceEditDialog
+          key={priceEditLine.id}
+          line={priceEditLine}
+          material={priceEditMaterial}
+          focus={priceEdit.focus}
+          common={priceEditCommon}
+          isSaving={isSaving}
+          onClose={() => setPriceEdit(null)}
+          onApplySite={(draft) => {
+            // The found DB item stays linked even when this site's 품명·규격·단위 differ from it.
+            setLines((current) => current.map((line) => (line.id === priceEditLine.id ? applyPriceEdit(line, draft, priceEditMaterial?._id) : line)));
+            setPriceEdit(null);
+          }}
+          onSaveDb={async (draft) => {
+            if (!priceEditMaterial) return false;
+            const lineId = priceEditLine.id;
+            const saved = await saveMaterial(priceEditMaterialSave(priceEditMaterial, draft, { commonName: priceEditCommon }));
+            if (!saved) return false;
+            setLines((current) => current.map((line) => (line.id === lineId ? applyPriceEdit(line, draft, priceEditMaterial._id) : line)));
+            setPriceEdit((current) => (current?.lineId === lineId ? null : current));
+            return true;
+          }}
         />
       )}
 

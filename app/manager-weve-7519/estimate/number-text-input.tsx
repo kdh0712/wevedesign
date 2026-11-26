@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { formatTypedNumber, parseTypedNumber, reformatWithCaret } from '../../lib/number-input';
 
 // The estimate's number field (unit prices, quantities, 실행내역서 amounts …), used by the page and its dialogs. It shows
@@ -14,6 +14,9 @@ export function NumberTextInput({
   onKeyDown,
   dataLine,
   dataCol,
+  onMouseDown,
+  title,
+  autoFocus = false,
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -23,6 +26,11 @@ export function NumberTextInput({
   onKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   dataLine?: string;
   dataCol?: string;
+  // The 견적서 table's price cells open the 단가 수정 popup on a mouse press instead of taking the focus.
+  onMouseDown?: (event: MouseEvent<HTMLInputElement>) => void;
+  title?: string;
+  // Focus the field and select its number when it first shows (the 단가 수정 popup's clicked price).
+  autoFocus?: boolean;
 }) {
   const [displayValue, setDisplayValue] = useState(formatNumberValue(value));
   const [isEditing, setIsEditing] = useState(false);
@@ -32,6 +40,14 @@ export function NumberTextInput({
   useEffect(() => {
     if (!isEditing) setDisplayValue(formatNumberValue(value));
   }, [isEditing, value]);
+
+  // Only on the first show.
+  const autoFocusRef = useRef(autoFocus);
+  useEffect(() => {
+    if (!autoFocusRef.current) return;
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
 
   // After the commas move, put the caret back after the digit it followed.
   useLayoutEffect(() => {
@@ -47,7 +63,9 @@ export function NumberTextInput({
       aria-label={ariaLabel}
       data-line={dataLine}
       data-gcol={dataCol}
+      title={title}
       onKeyDown={onKeyDown}
+      onMouseDown={onMouseDown}
       value={displayValue}
       onFocus={() => setIsEditing(true)}
       onBlur={() => {
