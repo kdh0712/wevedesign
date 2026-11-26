@@ -6,7 +6,11 @@ import {
   normalizeWorkLines,
   parsePhoneWorkLine,
   pickWorkLineTarget,
+  parsePaidCell,
   unseenPhoneLines,
+  workLedgerFilterOptions,
+  workLedgerSums,
+  workLinePaid,
   workLineProcesses,
   workLineTotals,
 } from '../app/lib/estimate-work-lines.ts';
@@ -109,6 +113,7 @@ test('newPhoneWorkLine: a normal 실행 line marked as from the phone', () => {
     income: 0,
     expense: 32000,
     payment: 0,
+    paid: true,
     executionAmount: 32000,
     vendor: '',
     status: '완료',
@@ -149,4 +154,65 @@ test('normalizeWorkLines reads empty text cells as before: 0 or false in a text 
   const [line] = normalizeWorkLines([{ id: 'w', name: '목공', space: 0, vendor: false, note: null, status: '' }]);
   assert.deepEqual([line.space, line.vendor, line.note, line.status], ['', '', '', '예정']);
   assert.equal(normalizeWorkLines([{ id: 'w', space: 0, vendor: false }]).length, 0);
+});
+
+// 실행 내역서 결제/미결제와 공종 고르기 (spec docs/superpowers/specs/2026-11-26-work-ledger-paid-filter-design.md).
+
+test('workLinePaid: a saved choice wins; a line from before reads 결제 when its old 결제 amount is above 0', () => {
+  assert.equal(workLinePaid({ paid: true }), true);
+  assert.equal(workLinePaid({ paid: false, payment: 50000 }), false);
+  assert.equal(workLinePaid({ payment: 50000 }), true);
+  assert.equal(workLinePaid({ payment: '30,000' }), true);
+  assert.equal(workLinePaid({ payment: 0 }), false);
+  assert.equal(workLinePaid({}), false);
+});
+
+test('normalizeWorkLines keeps 결제/미결제 and reads it for lines saved before', () => {
+  const lines = normalizeWorkLines([
+    { id: 'a', process: '목공', expense: 100, paid: true },
+    { id: 'b', process: '목공', expense: 100, paid: false, payment: 100 },
+    { id: 'c', process: '전기', expense: 100, payment: 100 },
+    { id: 'd', process: '전기', expense: 100 },
+  ]);
+  assert.deepEqual(lines.map((line) => line.paid), [true, false, true, false]);
+});
+
+test('newPhoneWorkLine records something already bought: 결제', () => {
+  const line = newPhoneWorkLine({ siteId: 'site-1', date: '2026-11-24', process: '타일', expense: 32000, note: '' }, author, '2026-11-24T01:00:00.000Z', 'ab12');
+  assert.equal(line.paid, true);
+});
+
+test('workLineProcesses also takes the lines themselves (the PC 견적 page)', () => {
+  const lines = [{ process: '철거' }, { process: '', category: '설비' }, { process: '철거' }];
+  assert.deepEqual(workLineProcesses(lines, [{ process: '청소' }, { process: '' }]), ['철거', '설비', '청소']);
+});
+
+test('workLedgerSums adds 건수, 수입, 지출 and 미결제 지출, for one 공종 or all', () => {
+  const lines = [
+    { process: '목공', expense: 1_850_000, paid: true },
+    { process: ' 목공 ', expense: 920_000, paid: false },
+    { process: '전기', quantity: 2, executionUnitPrice: 240_000, paid: false },
+    { process: '', income: 10_000_000, paid: true },
+  ];
+  assert.deepEqual(workLedgerSums(lines, '목공'), { count: 2, income: 0, expense: 2_770_000, unpaid: 920_000 });
+  assert.deepEqual(workLedgerSums(lines, '전기'), { count: 1, income: 0, expense: 480_000, unpaid: 480_000 });
+  assert.deepEqual(workLedgerSums(lines, ''), { count: 1, income: 10_000_000, expense: 0, unpaid: 0 });
+  assert.deepEqual(workLedgerSums(lines), { count: 4, income: 10_000_000, expense: 3_250_000, unpaid: 1_400_000 });
+  assert.deepEqual(workLedgerSums([{ process: '목공', expense: 100, payment: 100 }], '목공').unpaid, 0);
+});
+
+test('workLedgerFilterOptions: the 공종 the ledger uses, in the given order, then the rest, a blank 공종 last', () => {
+  const lines = [{ process: '청소' }, { process: '목공' }, { process: '' }, { process: '목공 ' }, { process: '철거' }, { process: '도배' }];
+  assert.deepEqual(workLedgerFilterOptions(lines, ['철거', '전기', '목공']), [
+    { process: '철거', count: 1 },
+    { process: '목공', count: 2 },
+    { process: '청소', count: 1 },
+    { process: '도배', count: 1 },
+    { process: '', count: 1 },
+  ]);
+});
+
+test('parsePaidCell reads an old ledger 결제 cell: an amount or a paid word is 결제, 미… or blank is 미결제', () => {
+  for (const value of [30000, '30,000', '결제', '완료', '지급', '결제완료', 'O', 'y']) assert.equal(parsePaidCell(value), true, String(value));
+  for (const value of ['', 0, '0', '미결제', '미지급', 'X', 'n', null, undefined]) assert.equal(parsePaidCell(value), false, String(value));
 });

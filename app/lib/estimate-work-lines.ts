@@ -21,6 +21,8 @@ export type WorkLineInput = {
   expense?: number | string;
   executionAmount?: number | string;
   payment?: number | string;
+  // 결제 (true) or 미결제 (false); a line saved before has none (workLinePaid).
+  paid?: boolean;
   vendor?: string;
   status?: string;
   note?: string;
@@ -68,6 +70,7 @@ export function normalizeWorkLines(lines: readonly WorkLineInput[]) {
         income: toNumber(line.income),
         expense,
         payment: toNumber(line.payment),
+        paid: workLinePaid(line),
         executionAmount: expense,
         vendor: text(line.vendor).trim(),
         status: (text(line.status) || '예정').trim(),
@@ -122,7 +125,9 @@ export function pickWorkLineTarget<T extends { versionType?: unknown; updatedAt?
   return pool.reduce<T | null>((best, item) => (!best || timeOf(item.updatedAt || item.createdAt) > timeOf(best.updatedAt || best.createdAt) ? item : best), null);
 }
 
+// Lines from a saved JSON list, or the lines themselves (the PC page passes them as they are).
 const parseList = (json: unknown): Array<Record<string, unknown>> => {
+  if (Array.isArray(json)) return json.filter((item) => typeof item === 'object' && item !== null);
   if (typeof json !== 'string' || !json.trim()) return [];
   try {
     const parsed = JSON.parse(json);
@@ -180,6 +185,7 @@ export function newPhoneWorkLine(input: PhoneWorkLineInput, author: { name: stri
       expense: input.expense,
       note: input.note,
       status: '완료',
+      paid: true,
       addedFrom: 'phone',
       addedBy: (author.name || author.loginId).slice(0, 80),
       addedAt: nowIso,
@@ -193,4 +199,52 @@ export function newPhoneWorkLine(input: PhoneWorkLineInput, author: { name: stri
 export function unseenPhoneLines(storedWorkLinesJson: unknown, incomingIds: ReadonlySet<string>, seenIds: ReadonlySet<string> | null): NormalizedWorkLine[] {
   const stored = normalizeWorkLines(parseList(storedWorkLinesJson) as WorkLineInput[]);
   return stored.filter((line) => line.addedFrom === 'phone' && !incomingIds.has(line.id) && !(seenIds && seenIds.has(line.id)));
+}
+
+// 실행 내역서 결제/미결제와 공종 고르기 (spec docs/superpowers/specs/2026-11-26-work-ledger-paid-filter-design.md).
+
+// 결제 (true) or 미결제: the saved choice, else, for a line saved before the choice existed, whether its old 결제 amount
+// is above 0.
+export function workLinePaid(line: { paid?: unknown; payment?: unknown }): boolean {
+  return typeof line.paid === 'boolean' ? line.paid : toNumber(line.payment) > 0;
+}
+
+type LedgerLine = { process?: unknown; income?: unknown; expense?: unknown; quantity?: unknown; executionUnitPrice?: unknown; paid?: unknown; payment?: unknown };
+
+const ledgerExpense = (line: LedgerLine) => toNumber(line.expense) || toNumber(line.quantity) * toNumber(line.executionUnitPrice);
+
+// 건수, 수입, 지출 and 미결제 지출 of one 공종's lines (trimmed), or of every line when process is left out.
+export function workLedgerSums(lines: readonly LedgerLine[], process?: string) {
+  const picked = process === undefined ? lines : lines.filter((line) => text(line.process).trim() === process.trim());
+  const sum = (amount: (line: LedgerLine) => number) => Math.round(picked.reduce((total, line) => total + amount(line), 0)) || 0;
+  return {
+    count: picked.length,
+    income: sum((line) => toNumber(line.income)),
+    expense: sum(ledgerExpense),
+    unpaid: sum((line) => (workLinePaid(line) ? 0 : ledgerExpense(line))),
+  };
+}
+
+// The 공종 buttons above the ledger: each 공종 its lines use, with how many, in the order given (the estimate's 공종 list),
+// then the others as first seen, a blank 공종 last.
+export function workLedgerFilterOptions(lines: readonly { process?: unknown }[], order: readonly string[]): Array<{ process: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const process = text(line.process).trim();
+    counts.set(process, (counts.get(process) || 0) + 1);
+  }
+  const named = [...counts.keys()].filter(Boolean);
+  const ordered = [...new Set([...order.map((name) => name.trim()).filter((name) => counts.has(name)), ...named])];
+  return [...ordered, ...(counts.has('') ? [''] : [])].map((process) => ({ process, count: counts.get(process) || 0 }));
+}
+
+const PAID_WORDS = new Set(['결제', '완료', '지급', '결제완료', '지급완료', 'o', 'y', 'yes', 'v', '✓', '○']);
+
+// An old ledger's 결제 cell (과거 엑셀 불러오기): an amount above 0 or a word such as 결제·완료·지급 is 결제; blank, 0 or
+// anything starting with 미 (미결제, 미지급) is 미결제.
+export function parsePaidCell(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0;
+  const word = String(value ?? '').replace(/\s+/g, '').toLowerCase();
+  if (!word || word.startsWith('미')) return false;
+  return PAID_WORDS.has(word) || toNumber(word) > 0;
 }

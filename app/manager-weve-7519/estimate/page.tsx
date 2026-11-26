@@ -55,7 +55,7 @@ import { DEFAULT_OVERHEAD_RATE, initialOverheadRate, normalizeOverheadRate, over
 import { EstimateSitePicker } from './site-picker';
 import { ToolbarMenu } from './toolbar-menu';
 import { normalizeReceiptId } from '../../lib/site-receipts';
-import { appendMissingLines } from '../../lib/estimate-work-lines';
+import { appendMissingLines, parsePaidCell, workLedgerFilterOptions, workLedgerSums, workLinePaid, workLineProcesses } from '../../lib/estimate-work-lines';
 import { createReceiptApi } from '../receipt-api';
 import { fetchWithHeaders } from '../site-notes-api';
 import { ReceiptPanel, type ReceiptLineDraft } from './receipt-panel';
@@ -129,6 +129,8 @@ type WorkLine = {
   income: number;
   expense: number;
   payment: number;
+  // 결제 (true) or 미결제; a line saved before reads its old 결제 amount (workLinePaid).
+  paid: boolean;
   vendor: string;
   status: string;
   note: string;
@@ -451,6 +453,7 @@ const emptyWorkLine = (): WorkLine => ({
   income: 0,
   expense: 0,
   payment: 0,
+  paid: false,
   vendor: '',
   status: '예정',
   note: '',
@@ -651,6 +654,10 @@ export default function EstimateWorkspacePage() {
   const [workLines, setWorkLines] = useState<WorkLine[]>([emptyWorkLine()]);
   const [workLineDraft, setWorkLineDraft] = useState<WorkLine>(() => emptyWorkLine());
   const [editingWorkLineId, setEditingWorkLineId] = useState('');
+  // The 실행 항목 입력 공종 typed instead of picked from the list.
+  const [isCustomWorkProcess, setIsCustomWorkProcess] = useState(false);
+  // The 공종 the 실행 내역서 table shows: null for every line, '' for lines without a 공종.
+  const [workProcessFilter, setWorkProcessFilter] = useState<string | null>(null);
   const [schedule, setSchedule] = useState<ScheduleTask[]>([emptyTask()]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([emptyPurchaseOrder()]);
   const [selectedPurchaseOrderId, setSelectedPurchaseOrderId] = useState('');
@@ -888,15 +895,25 @@ export default function EstimateWorkspacePage() {
       })
       .slice(0, 120);
   }, [dbLibrary, estimateItems, estimateMaterials, lineDbCategory, lineDbSearch, orderedMaterials]);
-  const lineProcessOptions = useMemo(
-    () => uniqueLineValues(lines, (line) => line.process || line.category || line.name),
-    [lines],
+  // The 공종 the 실행 항목 입력 row offers, as the phone does: the estimate's 공종 in estimate order, then those already in
+  // the 실행 내역서 (workLineProcesses).
+  const workProcessChoices = useMemo(() => workLineProcesses(lines, workLines), [lines, workLines]);
+  const meaningfulWorkLines = useMemo(() => workLines.filter(isMeaningfulWorkLine), [workLines]);
+  // The 공종 buttons above the 실행 내역서 table; a chosen 공종 the lines no longer use falls back to 전체.
+  const workFilterOptions = useMemo(() => workLedgerFilterOptions(meaningfulWorkLines, workProcessChoices), [meaningfulWorkLines, workProcessChoices]);
+  const activeWorkProcess = workProcessFilter !== null && workFilterOptions.some((option) => option.process === workProcessFilter) ? workProcessFilter : null;
+  const activeWorkSums = useMemo(
+    () => (activeWorkProcess === null ? null : workLedgerSums(meaningfulWorkLines, activeWorkProcess)),
+    [activeWorkProcess, meaningfulWorkLines],
   );
+  const draftProcess = workLineDraft.process.trim();
+  const draftProcessOptions = draftProcess && !workProcessChoices.includes(draftProcess) ? [...workProcessChoices, draftProcess] : workProcessChoices;
   const workLedgerTotals = useMemo(
     () => ({
       income: Math.round(workLines.reduce((sum, line) => sum + Number(line.income || 0), 0)),
       expense: Math.round(workLines.reduce((sum, line) => sum + Number(workLineExpense(line) || 0), 0)),
-      payment: Math.round(workLines.reduce((sum, line) => sum + Number(line.payment || 0), 0)),
+      // 지출 not yet paid (미결제).
+      unpaid: Math.round(workLines.reduce((sum, line) => sum + (line.paid ? 0 : Number(workLineExpense(line) || 0)), 0)),
     }),
     [workLines],
   );
@@ -1980,6 +1997,7 @@ export default function EstimateWorkspacePage() {
   const resetWorkLineDraft = () => {
     setWorkLineDraft(emptyWorkLine());
     setEditingWorkLineId('');
+    setIsCustomWorkProcess(false);
   };
 
   const editWorkLine = (line: WorkLine) => {
@@ -2009,7 +2027,7 @@ export default function EstimateWorkspacePage() {
   // [실행 항목으로] on a receipt: its date, amount (지출) and memo (비고) go into the 실행 항목 입력 row with its receiptId;
   // staff pick the 공종 and press 항목 추가.
   const fillWorkLineFromReceipt = (draft: ReceiptLineDraft) => {
-    setWorkLineDraft({ ...emptyWorkLine(), date: draft.date || todayKey(), process: draft.process, expense: draft.expense, note: draft.note, receiptId: draft.receiptId });
+    setWorkLineDraft({ ...emptyWorkLine(), date: draft.date || todayKey(), process: draft.process, expense: draft.expense, note: draft.note, receiptId: draft.receiptId, paid: true });
     setEditingWorkLineId('');
     setStatus(
       draft.process
@@ -2021,6 +2039,15 @@ export default function EstimateWorkspacePage() {
   const deleteWorkLine = (id: string) => {
     setWorkLines((current) => current.filter((line) => line.id !== id));
     if (editingWorkLineId === id) resetWorkLineDraft();
+  };
+
+  // The table's 결제 button: 결제 <-> 미결제, also in the 입력 row when that line is being edited.
+  const toggleWorkLinePaid = (id: string) => {
+    const target = workLines.find((line) => line.id === id);
+    if (!target) return;
+    const paid = !target.paid;
+    setWorkLines((current) => current.map((line) => (line.id === id ? { ...line, paid } : line)));
+    if (editingWorkLineId === id) setWorkLineDraft((current) => ({ ...current, paid }));
   };
 
   const importLegacyWorkExcel = async (file: File | null) => {
@@ -3196,7 +3223,7 @@ export default function EstimateWorkspacePage() {
             <div className="mb-4 grid gap-3 md:grid-cols-4">
               <CompactMetric title="수입 합계" value={formatMoney(workLedgerTotals.income)} />
               <CompactMetric title="지출 합계" value={formatMoney(workLedgerTotals.expense)} />
-              <CompactMetric title="결제 합계" value={formatMoney(workLedgerTotals.payment)} />
+              <CompactMetric title="미결제 지출" value={formatMoney(workLedgerTotals.unpaid)} />
               <CompactMetric title="실제 마진" value={totals.hasWorkLines ? formatMoney(totals.actualMarginAmount) : '미작성'} tone={totals.actualMarginAmount >= 0 ? 'positive' : 'negative'} sub={totals.hasWorkLines ? `${totals.actualMarginRate.toFixed(1)}%` : '실행 내역서 기준'} />
             </div>
 
@@ -3230,17 +3257,44 @@ export default function EstimateWorkspacePage() {
                   </button>
                 </div>
               </div>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[150px_1fr_150px_150px_150px_1.4fr]">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[150px_1fr_150px_150px_110px_1.4fr]">
                 <FieldShell label="날짜">
                   <input type="date" value={workLineDraft.date || todayKey()} onChange={(event) => setWorkLineDraft((current) => ({ ...current, date: event.target.value }))} className="w-full rounded-md border border-[#d5dde2] px-3 py-2 outline-none focus:border-[#38a9bd]" />
                 </FieldShell>
                 <FieldShell label="공종">
-                  <CellInput value={workLineDraft.process} listId="work-process-options" onChange={(value) => setWorkLineDraft((current) => ({ ...current, process: value }))} />
-                  <datalist id="work-process-options">
-                    {lineProcessOptions.map((process) => (
-                      <option key={process} value={process} />
-                    ))}
-                  </datalist>
+                  {isCustomWorkProcess || workProcessChoices.length === 0 ? (
+                    <>
+                      <CellInput value={workLineDraft.process} onChange={(value) => setWorkLineDraft((current) => ({ ...current, process: value }))} />
+                      {workProcessChoices.length > 0 && (
+                        <button type="button" onClick={() => setIsCustomWorkProcess(false)} className="text-left text-xs font-semibold text-[#8f6f43]">
+                          목록에서 고르기
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <select
+                      value={draftProcess}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value === CUSTOM_WORK_PROCESS) {
+                          setIsCustomWorkProcess(true);
+                          setWorkLineDraft((current) => ({ ...current, process: '' }));
+                        } else {
+                          setWorkLineDraft((current) => ({ ...current, process: value }));
+                        }
+                      }}
+                      aria-label="공종"
+                      className="w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 outline-none focus:border-[#38a9bd]"
+                    >
+                      <option value="">공종 고르기</option>
+                      {draftProcessOptions.map((process) => (
+                        <option key={process} value={process}>
+                          {process}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_WORK_PROCESS}>직접 입력…</option>
+                    </select>
+                  )}
                 </FieldShell>
                 <FieldShell label="수입">
                   <CellNumber value={workLineDraft.income} onChange={(value) => setWorkLineDraft((current) => ({ ...current, income: value }))} />
@@ -3249,7 +3303,15 @@ export default function EstimateWorkspacePage() {
                   <CellNumber value={workLineDraft.expense} onChange={(value) => setWorkLineDraft((current) => ({ ...current, expense: value }))} />
                 </FieldShell>
                 <FieldShell label="결제">
-                  <CellNumber value={workLineDraft.payment} onChange={(value) => setWorkLineDraft((current) => ({ ...current, payment: value }))} />
+                  <select
+                    value={workLineDraft.paid ? 'paid' : 'unpaid'}
+                    onChange={(event) => setWorkLineDraft((current) => ({ ...current, paid: event.target.value === 'paid' }))}
+                    aria-label="결제"
+                    className="w-full min-w-0 rounded-md border border-[#d5dde2] bg-white px-2 py-2 outline-none focus:border-[#38a9bd]"
+                  >
+                    <option value="unpaid">미결제</option>
+                    <option value="paid">결제</option>
+                  </select>
                 </FieldShell>
                 <FieldShell label="비고">
                   <CellInput value={workLineDraft.note} onChange={(value) => setWorkLineDraft((current) => ({ ...current, note: value }))} />
@@ -3257,32 +3319,69 @@ export default function EstimateWorkspacePage() {
               </div>
             </div>
 
+            {workFilterOptions.length > 0 && (
+              <div role="group" aria-label="공종으로 보기" className="mb-3 flex flex-wrap items-center gap-1.5">
+                {[{ process: null as string | null, label: '전체', count: meaningfulWorkLines.length }, ...workFilterOptions.map((option) => ({ ...option, label: option.process || '공종 없음' }))].map((option) => {
+                  const isActive = activeWorkProcess === option.process;
+                  return (
+                    <button
+                      key={option.process ?? '__all'}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setWorkProcessFilter(option.process)}
+                      className={`rounded-full border px-3 py-1 text-sm font-semibold ${isActive ? 'border-[#171512] bg-[#171512] text-white' : 'border-[#d5dde2] bg-white text-[#3b4a54] hover:border-[#38a9bd]'}`}
+                    >
+                      {option.label} <span className={isActive ? 'text-white/70' : 'text-[#8a979f]'}>{option.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {activeWorkProcess !== null && activeWorkSums && (
+              <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded-lg border border-[#9fd0da] bg-[#e8f3f6] px-4 py-2.5 text-sm text-[#24515a]">
+                <b className="text-base text-[#171512]">{activeWorkProcess || '공종 없음'}</b>
+                <span>{activeWorkSums.count}건</span>
+                <span>
+                  수입 <b className="text-[#171512]">{formatMoney(activeWorkSums.income)}</b>
+                </span>
+                <span>
+                  지출 <b className="text-[#171512]">{formatMoney(activeWorkSums.expense)}</b>
+                </span>
+                <span>
+                  미결제 <b className="text-[#b45309]">{formatMoney(activeWorkSums.unpaid)}</b>
+                </span>
+                <button type="button" onClick={() => setWorkProcessFilter(null)} className="ml-auto rounded-md border border-[#9fd0da] bg-white px-2.5 py-1 text-xs font-semibold text-[#1d6d7b]">
+                  전체 보기
+                </button>
+              </div>
+            )}
+
             <div className="overflow-hidden rounded-lg border border-[#d5dde2]">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
-                  <col className="w-[13%]" />
+                  <col className="w-[12%]" />
                   <col className="w-[22%]" />
                   <col className="w-[14%]" />
                   <col className="w-[14%]" />
-                  <col className="w-[14%]" />
-                  <col className="w-[17%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[23%]" />
                   <col className="w-[6%]" />
                 </colgroup>
                 <thead className="bg-[#f3f1ec]">
                   <tr>
                     {['날짜', '공종', '수입', '지출', '결제', '비고', ''].map((header) => (
-                      <th key={header || 'actions'} className="border-b border-[#d5dde2] px-3 py-2 text-left font-semibold">{header}</th>
+                      <th key={header || 'actions'} className={`border-b border-[#d5dde2] px-3 py-2 font-semibold ${header === '수입' || header === '지출' ? 'text-right' : 'text-left'}`}>{header}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {workLines.filter(isMeaningfulWorkLine).length === 0 ? (
+                  {meaningfulWorkLines.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-10 text-center text-sm text-[#60717d]">등록된 실행 내역이 없습니다.</td>
                     </tr>
                   ) : (
-                    [...workLines]
-                      .filter(isMeaningfulWorkLine)
+                    meaningfulWorkLines
+                      .filter((line) => activeWorkProcess === null || (line.process || '').trim() === activeWorkProcess)
                       .sort((a, b) => (a.date || '').localeCompare(b.date || '') || (a.process || '').localeCompare(b.process || '', 'ko-KR'))
                       .map((line) => (
                         <tr key={line.id} onDoubleClick={() => editWorkLine(line)} className="cursor-pointer border-t border-[#edf2f5] hover:bg-[#fff8e8]">
@@ -3302,7 +3401,21 @@ export default function EstimateWorkspacePage() {
                           </td>
                           <td className="px-3 py-2 text-right">{formatMoney(line.income || 0)}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(line))}</td>
-                          <td className="px-3 py-2 text-right">{formatMoney(line.payment || 0)}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              aria-pressed={line.paid}
+                              title="눌러서 결제/미결제 바꾸기"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleWorkLinePaid(line.id);
+                              }}
+                              onDoubleClick={(event) => event.stopPropagation()}
+                              className={`rounded-full border px-2.5 py-0.5 text-xs font-bold ${line.paid ? 'border-[#bfe3cc] bg-[#e7f5ec] text-[#1f7a4d]' : 'border-[#f5d0a9] bg-[#fff1e6] text-[#b45309]'}`}
+                            >
+                              {line.paid ? '결제' : '미결제'}
+                            </button>
+                          </td>
                           <td className="truncate px-3 py-2 text-[#60717d]">{line.note || '-'}</td>
                           <td className="px-3 py-2 text-right">
                             <button type="button" onClick={(event) => { event.stopPropagation(); deleteWorkLine(line.id); }} className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-600" aria-label="실행 항목 삭제">
@@ -4781,13 +4894,13 @@ export default function EstimateWorkspacePage() {
                           <col className="w-[22%]" />
                           <col className="w-[14%]" />
                           <col className="w-[14%]" />
-                          <col className="w-[14%]" />
-                          <col className="w-[22%]" />
+                          <col className="w-[9%]" />
+                          <col className="w-[27%]" />
                         </colgroup>
                         <thead className="bg-[#f3f1ec]">
                           <tr>
                             {['날짜', '공종', '수입', '지출', '결제', '비고'].map((header) => (
-                              <th key={header} className="border-b border-[#d5dde2] px-3 py-2 text-left font-semibold">{header}</th>
+                              <th key={header} className={`border-b border-[#d5dde2] px-3 py-2 font-semibold ${header === '수입' || header === '지출' ? 'text-right' : 'text-left'}`}>{header}</th>
                             ))}
                           </tr>
                         </thead>
@@ -4798,7 +4911,7 @@ export default function EstimateWorkspacePage() {
                               <td className="truncate px-3 py-2 font-semibold">{row.process || '-'}</td>
                               <td className="px-3 py-2 text-right">{formatMoney(row.income || 0)}</td>
                               <td className="px-3 py-2 text-right">{formatMoney(workLineExpense(row))}</td>
-                              <td className="px-3 py-2 text-right">{formatMoney(row.payment || 0)}</td>
+                              <td className="px-3 py-2">{row.paid ? '결제' : '미결제'}</td>
                               <td className="truncate px-3 py-2 text-[#60717d]">{row.note || '-'}</td>
                             </tr>
                           ))}
@@ -7846,6 +7959,7 @@ function estimateLineToWorkLine(line: EstimateLine): WorkLine {
     income: 0,
     expense,
     payment: 0,
+    paid: false,
     vendor: '',
     status: '예정',
     note: line.note,
@@ -7889,6 +8003,9 @@ function sortWorkLines(lines: WorkLine[], groupBy: 'space' | 'category') {
   });
 }
 
+// The 공종 select's '직접 입력…' choice in the 실행 항목 입력 row.
+const CUSTOM_WORK_PROCESS = '__custom__';
+
 function workLineExpense(line: Partial<WorkLine>) {
   const explicitExpense = Number(line.expense || 0);
   if (explicitExpense) return explicitExpense;
@@ -7926,6 +8043,7 @@ function hydrateWorkLines(lines: Partial<WorkLine>[]) {
     income: Number(line.income || 0),
     expense: workLineExpense(line),
     payment: Number(line.payment || 0),
+    paid: workLinePaid(line),
     vendor: String(line.vendor || ''),
     status: String(line.status || '예정'),
     note: String(line.note || ''),
@@ -7961,7 +8079,7 @@ function workLineToExcelRow(line: WorkLine) {
     공종: line.process || '',
     수입: Number(line.income || 0),
     지출: Number(workLineExpense(line) || 0),
-    결제: Number(line.payment || 0),
+    결제: line.paid ? '결제' : '미결제',
     비고: line.note || '',
   };
 }
@@ -7991,6 +8109,7 @@ function parseLegacyWorkSheet(rows: Array<Array<string | number | Date>>) {
       income: Number(parseMoneyCell(row[incomeIndex]) || 0),
       expense: Number(parseMoneyCell(row[expenseIndex]) || 0),
       payment: Number(parseMoneyCell(row[paymentIndex]) || 0),
+      paid: parsePaidCell(row[paymentIndex]),
       note: String(row[noteIndex] || '').trim(),
     }))
     .filter(isMeaningfulWorkLine);
