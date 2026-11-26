@@ -149,14 +149,3 @@ export function layoutCalendarWeek<T extends { startDate: string; endDate: strin
   return { bars, laneCount: lanes.length };
 }
 
-// The printed 공정표 writes each day's work as text: the tasks whose span holds the day, by start date (the longer first
-// when they start together), and none on a holiday, when no work is done.
-export function tasksOnDay<T extends { startDate: string; endDate: string }>(tasks: readonly T[], date: string, holidays: ReadonlySet<string>): T[] {
-  if (!isDateKey(date) || holidays.has(date)) return [];
-  return tasks
-    .filter((task) => isDateKey(task.startDate) && task.startDate <= date && date <= (task.endDate || task.startDate))
-    .map((task, index) => ({ task, index }))
-    .sort((a, b) => a.task.startDate.localeCompare(b.task.startDate) || (b.task.endDate || '').localeCompare(a.task.endDate || '') || a.index - b.index)
-    .map(({ task }) => task);
-}
-

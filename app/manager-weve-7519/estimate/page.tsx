@@ -46,7 +46,7 @@ import { TemplateLoadDialog } from './template-load-dialog';
 import { TemplateManager, type TemplateApiData } from './template-manager';
 import { TemplateDocumentPreview } from './template-document-preview';
 import { GroupedLinesEditor } from './grouped-lines-editor';
-import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, tasksOnDay, weekPages } from '../../lib/schedule-calendar';
+import { CALENDAR_WEEKDAYS, isWeekendColumn, layoutCalendarWeek, monthKeysBetween, monthWeekStarts, scheduleSpan, scheduleTaskEnd, weekPages } from '../../lib/schedule-calendar';
 import {
   DETAIL_PAGE_HEIGHT_MM,
   DETAIL_PAGE_WIDTH_MM,
@@ -5860,8 +5860,8 @@ function BatchEstimatePage({ site, lines, totals, versionLabel, view }: { site?:
 }
 
 // The printed 공정표, one A4 landscape page per sheet: a one-row head (SchedulePrintHeader), then a Sunday-first calendar
-// whose days list, as plain black text, the tasks done that day (tasksOnDay; none on a holiday) with their worker. Four
-// fit a day; more show three and '외 N건'. No task colours, so it prints alike in black and white.
+// with the same bars as the 공정 달력: one bar per task in its colour across its days (longest on top, layoutCalendarWeek),
+// with the name and worker in the middle.
 function SchedulePrintPages({
   sheets,
   tasks,
@@ -5892,41 +5892,52 @@ function SchedulePrintPages({
                   </div>
                 ))}
               </div>
-              {sheet.weeks.map((weekStart, weekIndex) => (
-                <div key={weekStart} className={`grid min-h-0 flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}>
-                  {Array.from({ length: 7 }, (_, index) => {
-                    const date = addDays(weekStart, index);
-                    const muted = sheet.monthKey ? !date.startsWith(sheet.monthKey) : Boolean(sheet.fromDate && date < sheet.fromDate);
-                    const day = Number(date.slice(8));
-                    const label = !sheet.monthKey && (index === 0 || day === 1) ? `${Number(date.slice(5, 7))}/${day}` : String(day);
-                    const dayTasks = tasksOnDay(tasks, date, holidays);
-                    const shown = dayTasks.length > SCHEDULE_PRINT_DAY_TASKS ? dayTasks.slice(0, SCHEDULE_PRINT_DAY_TASKS - 1) : dayTasks;
-                    return (
-                      <div
-                        key={date}
-                        className={`min-w-0 overflow-hidden px-1.5 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f4f4f4] text-[#9aa6ad]' : 'bg-white'}`}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span className={`text-[13.5px] font-extrabold ${isWeekendColumn(index) ? (muted ? 'text-[#f0a49c]' : 'text-[#d92d20]') : ''}`}>{label}</span>
-                          {date === startDate && <span className="rounded-full border border-[#171512] px-1.5 text-[11px] font-bold text-[#171512]">공사 시작</span>}
-                          {holidays.has(date) && <span className="rounded-full border border-[#d92d20] px-1.5 text-[11px] font-bold text-[#d92d20]">휴일</span>}
+              {sheet.weeks.map((weekStart, weekIndex) => {
+                const { bars, laneCount } = layoutCalendarWeek(tasks, weekStart);
+                return (
+                  <div
+                    key={weekStart}
+                    className={`grid min-h-0 flex-1 grid-cols-7 ${weekIndex > 0 ? 'border-t border-[#171512]' : ''}`}
+                    style={{ gridTemplateRows: `24px repeat(${laneCount}, auto) minmax(4px, 1fr)` }}
+                  >
+                    {Array.from({ length: 7 }, (_, index) => {
+                      const date = addDays(weekStart, index);
+                      const muted = sheet.monthKey ? !date.startsWith(sheet.monthKey) : Boolean(sheet.fromDate && date < sheet.fromDate);
+                      const day = Number(date.slice(8));
+                      const label = !sheet.monthKey && (index === 0 || day === 1) ? `${Number(date.slice(5, 7))}/${day}` : String(day);
+                      return (
+                        <div
+                          key={date}
+                          style={{ gridColumn: index + 1, gridRow: '1 / -1' }}
+                          className={`min-w-0 px-1.5 pt-0.5 ${index < 6 ? 'border-r border-[#171512]' : ''} ${muted ? 'bg-[#f4f4f4] text-[#9aa6ad]' : 'bg-white'}`}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span className={`text-[13.5px] font-extrabold ${isWeekendColumn(index) ? (muted ? 'text-[#f0a49c]' : 'text-[#d92d20]') : ''}`}>{label}</span>
+                            {date === startDate && <span className="rounded-full border border-[#171512] px-1.5 text-[11px] font-bold text-[#171512]">공사 시작</span>}
+                            {holidays.has(date) && <span className="rounded-full border border-[#d92d20] px-1.5 text-[11px] font-bold text-[#d92d20]">휴일</span>}
+                          </div>
                         </div>
-                        {shown.length > 0 && (
-                          <ul className="mt-0.5">
-                            {shown.map(({ task }) => (
-                              <li key={task.id} className="truncate text-[13px] font-semibold leading-[1.4]">
-                                · {task.name || '공정명 없음'}
-                                {task.vendorName ? ` · ${task.vendorName}` : ''}
-                              </li>
-                            ))}
-                            {dayTasks.length > shown.length && <li className="text-[12px] font-semibold leading-[1.4]">외 {dayTasks.length - shown.length}건</li>}
-                          </ul>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+                      );
+                    })}
+                    {bars.map((bar) => {
+                      const { task } = bar.task;
+                      const color = normalizeColor(task.color);
+                      return (
+                        <div
+                          key={task.id}
+                          style={{ gridColumn: `${bar.startCol + 1} / ${bar.endCol + 2}`, gridRow: bar.lane + 2, backgroundColor: color, color: readableTextColor(color) }}
+                          className={`relative z-[1] my-[2px] flex h-[22px] min-w-0 items-center justify-center px-2 text-[12.5px] font-bold ${bar.startsHere ? 'ml-1 rounded-l-full' : ''} ${bar.endsHere ? 'mr-1 rounded-r-full' : ''}`}
+                        >
+                          <span className="truncate">
+                            {task.name || '공정명 없음'}
+                            {task.vendorName ? ` · ${task.vendorName}` : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </section>
@@ -5934,9 +5945,6 @@ function SchedulePrintPages({
     </>
   );
 }
-
-// How many tasks a printed 공정표 day lists before it writes '외 N건' instead of the last.
-const SCHEDULE_PRINT_DAY_TASKS = 4;
 
 // The printed 공정표's one-row head: the site address on the left, the title in the middle and the company on the right. The title's double underline reaches a little past both ends: letter spacing also follows the
 // last letter, so the same space before the first keeps the word in the middle of its line.
@@ -8723,6 +8731,13 @@ function colorForName(name: string) {
 function normalizeColor(value?: string) {
   const color = String(value || '').trim();
   return /^#[0-9a-fA-F]{6}$/.test(color) ? color : '#f1c76a';
+}
+
+// Black or white, whichever reads better on the colour (the printed 공정표's bars).
+function readableTextColor(color: string) {
+  const hex = normalizeColor(color).replace('#', '');
+  const [r, g, b] = [0, 2, 4].map((index) => parseInt(hex.slice(index, index + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#171512' : '#ffffff';
 }
 
 function softenColor(color: string) {
