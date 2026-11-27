@@ -19,7 +19,7 @@ import {
 import { Panel } from './office-ui';
 import { afterUploadSelection, type UploadResult } from '../lib/project-upload-rules';
 import type { CategoryOption, ManagedProject } from './project-types';
-import { compressImage } from './project-upload-files';
+import { shrinkPhotoForUpload } from './project-upload-files';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
 const label = 'grid content-start gap-1 text-xs font-semibold text-[#4d5d66]';
@@ -138,7 +138,13 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
   const setGroups = (update: (groups: EditableGroup[]) => EditableGroup[]) => setForm((current) => (current ? { ...current, galleryGroups: update(current.galleryGroups) } : current));
 
   const uploadPhoto = async (file: File): Promise<{ assetId: string; url: string } | null> => {
-    const shrunk = await compressImage(file);
+    let shrunk: File;
+    try {
+      shrunk = await shrinkPhotoForUpload(file);
+    } catch (caught) {
+      setError(`${caught instanceof Error ? caught.message : '사진을 열 수 없습니다'}. 다른 사진(JPG·PNG)을 골라 주세요.`);
+      return null;
+    }
     const body = new FormData();
     body.append('file', shrunk);
     const response = await fetch('/api/manager/project-asset', { method: 'POST', headers: authHeaders(), body });

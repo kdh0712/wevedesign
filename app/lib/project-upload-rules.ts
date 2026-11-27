@@ -193,3 +193,34 @@ export function galleryGroupsFromPhotos(projectTitle: string, groups: readonly R
 export function isImageAssetId(value: unknown): value is string {
   return typeof value === 'string' && /^image-[A-Za-z0-9]+-\d+x\d+-[a-z0-9]+$/.test(value);
 }
+
+// The bulk-upload request: every photo must carry a path and a Sanity image asset id, or nothing is written (a photo that
+// went missing on the way would otherwise leave a project short of it). targets may come as the JSON string the page sends
+// or as an object.
+export function readBulkUploadBody(
+  body: unknown,
+): { photos: UploadedPhoto[]; targets: string; categoryId: string; category: string } | { error: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '요청 형식이 올바르지 않습니다.' };
+  const raw = body as Record<string, unknown>;
+  if (!Array.isArray(raw.photos) || raw.photos.length === 0) return { error: '올린 사진이 없습니다.' };
+  const photos: UploadedPhoto[] = [];
+  for (const item of raw.photos) {
+    const photo = item as Partial<UploadedPhoto> | null;
+    if (!photo || typeof photo.path !== 'string' || !photo.path.trim() || !isImageAssetId(photo.assetId)) {
+      return { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' };
+    }
+    photos.push({ path: photo.path, assetId: photo.assetId });
+  }
+  const targets =
+    typeof raw.targets === 'string' ? raw.targets : raw.targets && typeof raw.targets === 'object' ? JSON.stringify(raw.targets) : '';
+  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
+  return { photos, targets, categoryId: text(raw.categoryId), category: text(raw.category) };
+}
+
+// A folder's target, also when the page sent its name with spaces around it (the server reads folder names trimmed).
+export function findUploadTarget(targets: ReadonlyMap<string, UploadTarget>, projectTitle: string): UploadTarget | undefined {
+  const exact = targets.get(projectTitle);
+  if (exact) return exact;
+  for (const [folder, target] of targets) if (folder.trim() === projectTitle.trim()) return target;
+  return undefined;
+}

@@ -1,16 +1,16 @@
 import { randomBytes } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import {
+  findUploadTarget,
   galleryGroupsFromPhotos,
-  isImageAssetId,
   newProjectFields,
   newProjectId,
   parseUploadPath,
   parseUploadTargets,
   planProjectPhotos,
+  readBulkUploadBody,
   replacePhotoPatch,
   type UploadResult,
-  type UploadedPhoto,
 } from '../../../lib/project-upload-rules';
 import { getOrCreateCategory, isSanityIdWritable, managerClient } from '../_utils';
 import { requireManager } from '../_session';
@@ -37,20 +37,15 @@ export async function POST(request: Request) {
 // keeps everything else of that project. A folder without a target is skipped; a folder that fails is reported and the
 // others still go through.
 async function handleBulkUpload(request: Request) {
-  let body: { photos?: unknown; targets?: unknown; categoryId?: unknown; category?: unknown };
+  let raw: unknown;
   try {
-    body = await request.json();
+    raw = await request.json();
   } catch {
     return NextResponse.json({ error: '요청 형식이 올바르지 않습니다.' }, { status: 400 });
   }
-
-  const photos = (Array.isArray(body.photos) ? body.photos : []).filter(
-    (item): item is UploadedPhoto =>
-      Boolean(item) && typeof (item as UploadedPhoto).path === 'string' && isImageAssetId((item as UploadedPhoto).assetId),
-  );
-  if (photos.length === 0) {
-    return NextResponse.json({ error: '올린 사진이 없습니다.' }, { status: 400 });
-  }
+  const body = readBulkUploadBody(raw);
+  if ('error' in body) return NextResponse.json({ error: body.error }, { status: 400 });
+  const { photos } = body;
 
   // Every photo must be an image this site stored; nothing is written while one is missing.
   const assetIds = [...new Set(photos.map((photo) => photo.assetId))];
@@ -59,15 +54,14 @@ async function handleBulkUpload(request: Request) {
     return NextResponse.json({ error: '올린 사진 일부를 찾지 못했습니다. 다시 올려 주세요.' }, { status: 400 });
   }
 
-  const targets = parseUploadTargets(typeof body.targets === 'string' ? body.targets : null);
-  const categoryId = typeof body.categoryId === 'string' ? body.categoryId.trim() : '';
-  const categoryTitle = typeof body.category === 'string' ? body.category.trim() : '';
-  let categoryRef = categoryId;
+  const targets = parseUploadTargets(body.targets);
+  const categoryTitle = body.category;
+  let categoryRef = body.categoryId;
   const results: UploadResult[] = [];
 
   for (const [projectTitle, project] of planProjectPhotos(photos)) {
     const imageCount = photos.filter((photo) => (parseUploadPath(photo.path).projectTitle.trim() || '기타') === projectTitle).length;
-    const target = targets.get(projectTitle);
+    const target = findUploadTarget(targets, projectTitle);
     if (!target) {
       results.push({ projectTitle, status: 'skipped', reason: '올릴 방법이 정해지지 않았습니다.' });
       continue;

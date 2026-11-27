@@ -1,11 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  findUploadTarget,
   galleryGroupsFromPhotos,
   isImageAssetId,
   parseUploadPath,
   parseUploadTargets,
   planProjectPhotos,
+  readBulkUploadBody,
   newProjectId,
   newProjectFields,
   replacePhotoPatch,
@@ -161,4 +163,26 @@ test('isImageAssetId accepts only Sanity image asset ids', () => {
   assert.equal(isImageAssetId('image-x'), false);
   assert.equal(isImageAssetId('file-3f2a-pdf'), false);
   assert.equal(isImageAssetId(5), false);
+});
+
+test('readBulkUploadBody takes photos, targets and the category, and refuses a body with any bad photo (review finding)', () => {
+  const asset = 'image-3f2a9c0e1b7d4a6f8e5c2b1a0d9e8f7c6b5a4d3e-2048x1536-jpg';
+  assert.deepEqual(readBulkUploadBody({ photos: [{ path: 'A/거실1.jpg', assetId: asset }], targets: '{"A":"new"}', categoryId: 'c1', category: '아파트' }), {
+    photos: [{ path: 'A/거실1.jpg', assetId: asset }],
+    targets: '{"A":"new"}',
+    categoryId: 'c1',
+    category: '아파트',
+  });
+  // targets may come as an object too
+  assert.equal(readBulkUploadBody({ photos: [{ path: 'A/1.jpg', assetId: asset }], targets: { A: 'new' } }).targets, '{"A":"new"}');
+  assert.deepEqual(readBulkUploadBody(null), { error: '요청 형식이 올바르지 않습니다.' });
+  assert.deepEqual(readBulkUploadBody({ photos: [] }), { error: '올린 사진이 없습니다.' });
+  assert.deepEqual(readBulkUploadBody({ photos: [{ path: 'A/1.jpg', assetId: asset }, { path: 'A/2.jpg', assetId: 'nope' }] }), { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' });
+});
+
+test('findUploadTarget also finds a folder whose name has spaces around it (bug from before: such a folder was skipped)', () => {
+  const targets = parseUploadTargets('{" 평촌 34평 ":"new","B":"replace:project-b"}');
+  assert.deepEqual(findUploadTarget(targets, '평촌 34평'), { mode: 'new' });
+  assert.deepEqual(findUploadTarget(targets, 'B'), { mode: 'replace', projectId: 'project-b' });
+  assert.equal(findUploadTarget(targets, 'C'), undefined);
 });

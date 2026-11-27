@@ -13,13 +13,22 @@ Vercel's request limit, the whole set must fit 3.8MB after shrinking:
 ## What
 
 - Each photo is shrunk on its own and uploaded on its own to the existing `/api/manager/project-asset`. There is no
-  limit on the number of photos, and photos keep more detail: up to 2048px wide at quality 0.85, and if one is still over
-  3.9MB, 1600px at 0.8. *(my call)*
+  limit on the number of photos, and photos keep more detail: 2048px on the long side at quality 0.85, and if one is still
+  over 3,800,000 bytes (under the server's 4,000,000), 1600px at 0.8. *(my call)*
 - The button shows progress ("사진 올리는 중 12/32장"). Three photos go at a time; a failed photo is tried twice more.
   *(my call)*
-- If any photo still fails, no project is made or changed. The error says how many failed, and [올리기] can be pressed
-  again. Photos already uploaded come back as the same Sanity asset (Sanity keys assets by content), so nothing piles up
-  twice.
+- If any photo still fails, no project is made or changed. The error names up to three photos with the reason. Pressing
+  [올리기] again sends only the photos not stored yet.
+- Review findings (fixed):
+  - Retries wait 1s, then 3s.
+  - A request the server refuses (a 4xx other than 408/429) is not retried.
+  - A photo the browser cannot open, or that stays too large, is left out and the rest go on, with a note naming it:
+    - this covers HEIC outside Safari, including one with no file type on Windows;
+    - in the old flow such a photo failed the whole upload.
+  - Videos are left out with a note.
+  - The editor's single-photo uploads use the same shrinking.
+  - The route refuses a body with any bad photo item (400).
+  - A folder whose name has spaces around it is matched to its target; before, it was skipped.
 - Then one small JSON request to `/api/manager/bulk-upload` carries each photo's folder path and asset id. The server
   makes or replaces the projects as before:
   - the same file-name rules: 대표 / 시공전 / 거실1·주방2 groups in number order;

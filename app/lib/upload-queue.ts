@@ -6,14 +6,30 @@ export type UploadQueueResult<R> = {
   results: (R | null)[];
   // The indexes of the items that failed every try.
   failed: number[];
+  // Each item's last error (null when it went through), so the screen can say which photo failed and why.
+  errors: (Error | null)[];
 };
+
+// An error trying again cannot fix (a photo that cannot be opened, a request the server refuses): not retried.
+export function finalError(message: string): Error & { retry: false } {
+  return Object.assign(new Error(message), { retry: false as const });
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function runUploadQueue<T, R>(
   items: readonly T[],
   worker: (item: T, index: number) => Promise<R>,
-  options: { concurrency: number; retries: number; onProgress?: (done: number, total: number) => void },
+  options: {
+    concurrency: number;
+    retries: number;
+    // Waits before the 1st, 2nd … retry, so a short network drop does not use up every try at once.
+    retryDelays?: readonly number[];
+    onProgress?: (done: number, total: number) => void;
+  },
 ): Promise<UploadQueueResult<R>> {
   const results: (R | null)[] = items.map(() => null);
+  const errors: (Error | null)[] = items.map(() => null);
   const failed: number[] = [];
   let next = 0;
   let done = 0;
@@ -22,9 +38,12 @@ export async function runUploadQueue<T, R>(
     for (let tries = 0; tries <= options.retries; tries += 1) {
       try {
         results[index] = await worker(items[index], index);
+        errors[index] = null;
         return;
-      } catch {
-        // tried again below, up to options.retries more times
+      } catch (caught) {
+        errors[index] = caught instanceof Error ? caught : new Error(String(caught));
+        if ((caught as { retry?: boolean } | null)?.retry === false) break;
+        if (tries < options.retries) await wait(options.retryDelays?.[tries] ?? 0);
       }
     }
     failed.push(index);
@@ -42,5 +61,5 @@ export async function runUploadQueue<T, R>(
 
   await Promise.all(Array.from({ length: Math.max(1, Math.min(options.concurrency, items.length)) }, lane));
   failed.sort((a, b) => a - b);
-  return { results, failed };
+  return { results, failed, errors };
 }
