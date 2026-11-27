@@ -306,6 +306,11 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
       });
       const data = await readJson<{ error?: string }>(response);
       if (!response.ok) {
+        // Refused because another screen already changed it: the list catches up (and an editor on it closes).
+        if (response.status >= 400 && response.status < 500) {
+          if (selectedIdRef.current === project._id) open(undefined);
+          await reload();
+        }
         setError(data.error || (action === 'trash' ? '휴지통으로 옮기지 못했습니다.' : action === 'restore' ? '되돌리지 못했습니다.' : '완전히 삭제하지 못했습니다.'));
         return;
       }
@@ -313,9 +318,9 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
       await reload();
       setStatus(
         action === 'trash'
-          ? `${name}를 휴지통으로 옮겼습니다. 홈페이지에서는 1분 안에 사라집니다.`
+          ? `${name}를 휴지통으로 옮겼습니다. 홈페이지에는 몇 분 안에 반영됩니다.`
           : action === 'restore'
-            ? `${name}를 되돌렸습니다. ${isVisible(project) ? '홈페이지에 다시 보입니다(1분 안에).' : '숨김 상태로 돌아왔습니다.'}`
+            ? `${name}를 되돌렸습니다. ${isVisible(project) ? '홈페이지에는 몇 분 안에 다시 보입니다.' : '숨김 상태로 돌아왔습니다.'}`
             : `${name}를 완전히 삭제했습니다.`,
       );
     });
@@ -539,7 +544,7 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
           {visibility === 'trash' ? (
             <div className="grid gap-2">
               <p className="text-xs text-[#60717d]">
-                휴지통의 시공 사례는 홈페이지에 보이지 않습니다. [되돌리기]를 누르면 지우기 전 상태(공개·숨김, 순서)로 돌아갑니다.
+                휴지통의 시공 사례는 홈페이지에 보이지 않습니다. [되돌리기]를 누르면 지우기 전 상태(공개·숨김)로 돌아갑니다.
                 {!canDeleteForever && ' 완전히 삭제는 총괄 관리자만 할 수 있습니다.'}
               </p>
               {listedTrash.length === 0 ? (

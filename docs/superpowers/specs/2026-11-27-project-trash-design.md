@@ -17,8 +17,8 @@ mistake should be recoverable.
 - The editor of a project gets [삭제] at the bottom left, away from [저장].
   - It asks first: "'평촌 34평' 시공 사례를 휴지통으로 옮길까요? 홈페이지에서 사라지고, 휴지통에서 되돌릴 수 있습니다."
     When the form has unsaved changes, the question says they will be lost.
-  - Then the project leaves the list and the editor closes. The homepage drops it within a minute, the same time a hidden
-    project takes (60-second cache).
+  - Then the project leaves the list and the editor closes. The homepage drops it within a few minutes, the same time
+    hiding a project takes (60-second cache, served stale until the next visit refreshes it).
 - The list's 공개 상태 chips get a fourth one: [휴지통 N].
   - It lists trashed projects, newest deletion first, with who deleted them and when.
   - Each row has [되돌리기] and [완전히 삭제]. A trashed project does not open in the editor.
@@ -49,3 +49,19 @@ mistake should be recoverable.
   - The checks live in `app/lib/project-trash.ts` and are tested.
 - The manager list query returns `deletedAt` and `deletedBy`. The page splits active and trashed projects.
 - `updatedAt` is not changed by trash or restore. A move to the 휴지통 is not a content change.
+
+## Review findings
+
+Fixed:
+- [숨기기] / [홈페이지에 공개] on a project another screen moved to the 휴지통 is refused (409). Before, it changed the
+  state [되돌리기] would bring back.
+- A refused [삭제] / [되돌리기] / [완전히 삭제] (another screen got there first) reloads the list and closes an editor on
+  that project, so the screen catches up.
+- The messages say "몇 분 안에", not "1분 안에": the homepage cache serves the old copy until a visit refreshes it.
+- The 휴지통 note no longer promises the order comes back. A restored project keeps its old 보이는 순서, which may tie with
+  another after a [순서 저장].
+
+Left as they are:
+- The manager list reads the newest 200 projects, trashed ones included. That only matters past 200.
+- Duplicating a trashed project in Studio copies its 휴지통 fields.
+

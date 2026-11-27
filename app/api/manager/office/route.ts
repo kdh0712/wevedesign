@@ -12,7 +12,7 @@ import { deleteReceiptsOfSite } from '../_site-receipts';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
 import { buildProjectPatch, isSanityRevisionConflict, publishBlockReason } from '../../../lib/project-form';
 import { readProjectOrder } from '../../../lib/project-order';
-import { projectTrashBlock, readProjectTrashAction } from '../../../lib/project-trash';
+import { isTrashedProject, projectTrashBlock, readProjectTrashAction } from '../../../lib/project-trash';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -409,11 +409,15 @@ export async function POST(request: Request) {
       // 홈페이지에 공개 / 숨기기: publishing checks the stored project, whatever the screen thought.
       if (body?.action === 'setVisibility') {
         const isVisible = body?.isVisible === true;
+        const stored = await managerClient.fetch<{ title?: string; categoryId?: string; mainImageAssetId?: string; deletedAt?: string } | null>(
+          '*[_id == $id][0]{title, "categoryId": category._ref, "mainImageAssetId": mainImage.asset._ref, deletedAt}',
+          { id: projectId },
+        );
+        // A project moved to the 휴지통 from another screen keeps the state it had, for [되돌리기].
+        if (stored && isTrashedProject(stored)) {
+          return NextResponse.json({ error: '휴지통에 있는 시공 사례입니다. 되돌린 뒤에 바꿔 주세요.' }, { status: 409 });
+        }
         if (isVisible) {
-          const stored = await managerClient.fetch<{ title?: string; categoryId?: string; mainImageAssetId?: string } | null>(
-            '*[_id == $id][0]{title, "categoryId": category._ref, "mainImageAssetId": mainImage.asset._ref}',
-            { id: projectId },
-          );
           const blocked = publishBlockReason(stored || {});
           if (blocked) return NextResponse.json({ error: blocked }, { status: 400 });
         }
