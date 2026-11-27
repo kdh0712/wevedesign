@@ -12,7 +12,7 @@ import { deleteReceiptsOfSite } from '../_site-receipts';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
 import { buildProjectPatch, isSanityRevisionConflict, publishBlockReason } from '../../../lib/project-form';
 import { readProjectOrder } from '../../../lib/project-order';
-import { isTrashedProject, projectTrashBlock, readProjectTrashAction } from '../../../lib/project-trash';
+import { isTrashedProject, planProjectTrashBatch, projectTrashBlock, readProjectTrashAction, readProjectTrashIds } from '../../../lib/project-trash';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -365,6 +365,41 @@ export async function POST(request: Request) {
         }
         await transaction.commit();
         return NextResponse.json({ ok: true, changed: changed.length });
+      }
+
+      // [선택] (spec docs/superpowers/specs/2026-11-27-project-trash-bulk-design.md): [휴지통으로 옮기기], [되돌리기] or
+      // [완전히 삭제] on several projects (ids) at once, before the create below could take a request without an id. As
+      // with one project, each project and its draft change together, and updatedAt stays. One another screen already
+      // changed is skipped and counted.
+      const batchAction = body?.ids !== undefined ? readProjectTrashAction(body?.action) : null;
+      if (batchAction) {
+        const ids = readProjectTrashIds(body?.ids);
+        if (!Array.isArray(ids)) return NextResponse.json({ error: ids.error }, { status: 400 });
+        const stored = await managerClient.fetch<Array<{ _id: string; deletedAt?: string }>>(
+          '*[_type == "project" && _id in $ids]{_id, deletedAt}',
+          { ids },
+        );
+        const plan = planProjectTrashBatch(batchAction, ids, stored, access.session.role === 'admin');
+        if ('refused' in plan) return NextResponse.json({ error: plan.refused.error }, { status: plan.refused.status });
+        // Drafts are only visible in the raw perspective (the client's default since API v2025-02-19 is published).
+        const draftIds = await managerClient.fetch<string[]>(
+          '*[_id in $draftIds]._id',
+          { draftIds: plan.allowed.map((id) => `drafts.${id}`) },
+          { perspective: 'raw' },
+        );
+        const targets = [...plan.allowed, ...draftIds];
+        const transaction = managerClient.transaction();
+        if (batchAction === 'deleteForever') {
+          for (const id of targets) transaction.delete(id);
+        } else if (batchAction === 'trash') {
+          // Who deleted it comes from the signed session, not from anything the browser sends.
+          const trash = { deletedAt: now, deletedBy: (access.session.name || access.session.loginId).slice(0, 80) };
+          for (const id of targets) transaction.patch(id, (patch) => patch.set(trash));
+        } else {
+          for (const id of targets) transaction.patch(id, (patch) => patch.unset(['deletedAt', 'deletedBy']));
+        }
+        await transaction.commit();
+        return NextResponse.json({ ok: true, done: plan.allowed.length, skipped: plan.skipped });
       }
 
       if (!body?.id) {

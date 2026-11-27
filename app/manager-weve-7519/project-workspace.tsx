@@ -3,7 +3,7 @@
 // 홈페이지 > 시공 사례: the project list on the left and one form for new and existing projects on the right.
 // Spec: docs/superpowers/specs/2026-11-21-portfolio-project-editor-design.md §3
 import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Check, X } from 'lucide-react';
 import {
   buildProjectPatch,
   formFromStoredProject,
@@ -19,7 +19,7 @@ import {
 import { Panel } from './office-ui';
 import { afterUploadSelection, type UploadResult } from '../lib/project-upload-rules';
 import { moveInOrder, sortProjectsByOrder } from '../lib/project-order';
-import { splitTrashedProjects, type ProjectTrashAction } from '../lib/project-trash';
+import { pickedProjectNames, splitTrashedProjects, type ProjectTrashAction } from '../lib/project-trash';
 import type { CategoryOption, ManagedProject } from './project-types';
 import { shrinkPhotoForUpload } from './project-upload-files';
 
@@ -84,6 +84,9 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
   const [orderDraft, setOrderDraft] = useState<ManagedProject[] | null>(null);
   const [draggingId, setDraggingId] = useState('');
   const [dropTargetId, setDropTargetId] = useState('');
+  // [선택] (spec 2026-11-27-project-trash-bulk-design.md): several projects of the list or the 휴지통, for one action.
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
   const busyRef = useRef(false);
 
   const selected = projects.find((project) => project._id === selectedId);
@@ -110,6 +113,11 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
       return [project.title, project.location].some((value) => (value || '').toLowerCase().replace(/\s+/g, '').includes(q));
     });
   }, [trashed, query, categoryFilter]);
+  // Only the picked projects still shown (after a search or a filter) are acted on.
+  const shownForPicking = visibility === 'trash' ? listedTrash : listed;
+  const pickedSet = useMemo(() => new Set(picked), [picked]);
+  const pickedShown = shownForPicking.filter((project) => pickedSet.has(project._id));
+  const allShownPicked = shownForPicking.length > 0 && pickedShown.length === shownForPicking.length;
 
   const open = (project: ManagedProject | undefined) => {
     if (!project) {
@@ -185,6 +193,69 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
       await reload();
       setOrderDraft(null);
       setStatus('시공 사례 순서를 저장했습니다. 홈페이지에는 몇 분 안에 반영됩니다.');
+    });
+
+  // [선택] closes the editor, as [순서 변경]: a row is a tick box while picking.
+  const startPicking = () => {
+    if (dirty && !window.confirm(LEAVE_CONFIRM)) return;
+    open(undefined);
+    setPicked([]);
+    setPicking(true);
+  };
+  const endPicking = () => {
+    setPicking(false);
+    setPicked([]);
+  };
+  const togglePick = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((each) => each !== id) : [...current, id]));
+  // Ticks or clears the rows shown; a tick hidden by a search stays as it is.
+  const toggleAllShown = () => {
+    const shownIds = new Set(shownForPicking.map((project) => project._id));
+    setPicked((current) => (allShownPicked ? current.filter((id) => !shownIds.has(id)) : [...new Set([...current, ...shownIds])]));
+  };
+
+  // [휴지통으로 옮기기] in the list, [되돌리기] / [완전히 삭제] in the 휴지통, on the picked projects at once.
+  const changeTrashMany = (action: ProjectTrashAction) =>
+    run(async () => {
+      const targets = pickedShown;
+      if (targets.length === 0) return;
+      setError('');
+      const count = `시공 사례 ${targets.length}개`;
+      const names = pickedProjectNames(targets.map((project) => project.title || ''));
+      const wasVisible = targets.filter(isVisible).length;
+      const question =
+        action === 'trash'
+          ? `${count}를 휴지통으로 옮길까요?\n${names}\n홈페이지에서 사라지고, 목록의 [휴지통]에서 되돌릴 수 있습니다.`
+          : action === 'restore'
+            ? `${count}를 되돌릴까요?\n${names}\n${wasVisible > 0 ? `지우기 전에 공개였던 ${wasVisible}개는 홈페이지에 다시 보입니다.` : '모두 숨김 상태로 돌아옵니다.'}`
+            : `${count}를 완전히 삭제할까요?\n${names}\n되돌릴 수 없습니다.`;
+      if (!window.confirm(question)) return;
+      const response = await fetch('/api/manager/office', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'project', action, ids: targets.map((project) => project._id) }),
+      });
+      const data = await readJson<{ error?: string; done?: number; skipped?: number }>(response);
+      if (!response.ok) {
+        // Refused because other screens already changed them all: the list catches up.
+        if (response.status >= 400 && response.status < 500) {
+          setPicked([]);
+          await reload();
+        }
+        setError(data.error || (action === 'trash' ? '휴지통으로 옮기지 못했습니다.' : action === 'restore' ? '되돌리지 못했습니다.' : '완전히 삭제하지 못했습니다.'));
+        return;
+      }
+      if (action !== 'restore' && targets.some((project) => project._id === selectedIdRef.current)) open(undefined);
+      setPicked([]);
+      await reload();
+      const done = `시공 사례 ${data.done ?? targets.length}개`;
+      const skipped = data.skipped ? ` ${data.skipped}개는 다른 화면에서 이미 바뀌어 건너뛰었습니다.` : '';
+      setStatus(
+        action === 'trash'
+          ? `${done}를 휴지통으로 옮겼습니다. 홈페이지에는 몇 분 안에 반영됩니다.${skipped}`
+          : action === 'restore'
+            ? `${done}를 되돌렸습니다.${wasVisible > 0 ? ' 공개였던 사례는 홈페이지에 몇 분 안에 다시 보입니다.' : ''}${skipped}`
+            : `${done}를 완전히 삭제했습니다.${skipped}`,
+      );
     });
 
   const set = (patch: Partial<ProjectFormInput>) => setForm((current) => (current ? { ...current, ...patch } : current));
@@ -398,7 +469,7 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
               }
               setUpload({ mode: 'new' });
             }}
-            disabled={busy || !renderUpload || Boolean(orderDraft)}
+            disabled={busy || !renderUpload || Boolean(orderDraft) || picking}
             className={`${primaryButton} justify-self-start`}
           >
             + 새 시공 사례 올리기
@@ -506,9 +577,19 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
           <>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-[#60717d]">홈페이지에 보이는 순서대로 나옵니다.</span>
-            <button type="button" onClick={startReorder} disabled={busy || projects.length < 2 || Boolean(upload)} className={secondaryButton}>
-              순서 변경
-            </button>
+            <span className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={picking ? endPicking : startPicking}
+                disabled={busy || Boolean(upload) || (!picking && allProjects.length === 0)}
+                className={secondaryButton}
+              >
+                {picking ? '선택 끝내기' : '선택'}
+              </button>
+              <button type="button" onClick={startReorder} disabled={busy || projects.length < 2 || Boolean(upload) || picking} className={secondaryButton}>
+                순서 변경
+              </button>
+            </span>
           </div>
           <div className="flex flex-wrap gap-2">
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름·지역" aria-label="시공 사례 검색" className={`${input} min-w-40 flex-1`} />
@@ -533,7 +614,11 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
               <button
                 key={key}
                 type="button"
-                onClick={() => setVisibility(key)}
+                onClick={() => {
+                  setVisibility(key);
+                  // The list and the 휴지통 have different actions: a pick does not carry over.
+                  setPicked([]);
+                }}
                 aria-pressed={visibility === key}
                 className={`rounded-full border px-3 py-1 text-xs font-semibold ${visibility === key ? 'border-[#273541] bg-[#273541] text-white' : 'border-[#d5dde2] bg-white text-[#4d5d66]'}`}
               >
@@ -541,6 +626,12 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
               </button>
             ))}
           </div>
+          {picking && (
+            <label className="flex cursor-pointer items-center gap-2 px-1 text-xs font-semibold text-[#4d5d66]">
+              <input type="checkbox" checked={allShownPicked} onChange={toggleAllShown} disabled={busy || shownForPicking.length === 0} />
+              보이는 {shownForPicking.length}개 모두 선택
+            </label>
+          )}
           {visibility === 'trash' ? (
             <div className="grid gap-2">
               <p className="text-xs text-[#60717d]">
@@ -553,20 +644,40 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
                 </p>
               ) : (
                 <ul className="grid gap-2" aria-label="휴지통">
-                  {listedTrash.map((project) => (
-                    <li key={project._id} className="flex items-center gap-3 rounded-md border border-[#e3e8eb] bg-[#fafbfc] px-3 py-2">
-                      {project.mainImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={project.mainImage} alt="" className="h-12 w-16 shrink-0 rounded object-cover opacity-60" />
-                      ) : (
-                        <span className="h-12 w-16 shrink-0 rounded bg-[#edf2f5]" />
-                      )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-semibold text-[#4d5d66]">{project.title || '이름 없음'}</span>
-                        <span className="block truncate text-xs text-[#60717d]">
-                          {[formatDeletedAt(project.deletedAt), project.deletedBy].filter(Boolean).join(' · ')} 삭제 · 지우기 전 {isVisible(project) ? '공개' : '숨김'}
+                  {listedTrash.map((project) => {
+                    const row = (
+                      <>
+                        {project.mainImage ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={project.mainImage} alt="" className="h-12 w-16 shrink-0 rounded object-cover opacity-60" />
+                        ) : (
+                          <span className="h-12 w-16 shrink-0 rounded bg-[#edf2f5]" />
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold text-[#4d5d66]">{project.title || '이름 없음'}</span>
+                          <span className="block truncate text-xs text-[#60717d]">
+                            {[formatDeletedAt(project.deletedAt), project.deletedBy].filter(Boolean).join(' · ')} 삭제 · 지우기 전 {isVisible(project) ? '공개' : '숨김'}
+                          </span>
                         </span>
-                      </span>
+                      </>
+                    );
+                    return picking ? (
+                      <li key={project._id}>
+                        <button
+                          type="button"
+                          role="checkbox"
+                          aria-checked={pickedSet.has(project._id)}
+                          onClick={() => togglePick(project._id)}
+                          disabled={busy}
+                          className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left ${pickedSet.has(project._id) ? 'border-[#273541] bg-[#f3f6f8]' : 'border-[#e3e8eb] bg-[#fafbfc] hover:bg-[#f7fafb]'}`}
+                        >
+                          <PickBox checked={pickedSet.has(project._id)} />
+                          {row}
+                        </button>
+                      </li>
+                    ) : (
+                    <li key={project._id} className="flex items-center gap-3 rounded-md border border-[#e3e8eb] bg-[#fafbfc] px-3 py-2">
+                      {row}
                       <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
                         <button type="button" onClick={() => void changeTrash(project, 'restore')} disabled={busy} className={secondaryButton}>
                           되돌리기
@@ -578,7 +689,8 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
                         )}
                       </span>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </div>
@@ -592,10 +704,14 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
                 <li key={project._id}>
                   <button
                     type="button"
-                    onClick={() => requestOpen(project)}
+                    // In [선택] the row is a tick box; otherwise it opens the project.
+                    onClick={() => (picking ? togglePick(project._id) : requestOpen(project))}
                     disabled={busy}
-                    className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left ${project._id === selectedId ? 'border-[#273541] bg-[#f3f6f8]' : 'border-[#e3e8eb] bg-white hover:bg-[#f7fafb]'}`}
+                    role={picking ? 'checkbox' : undefined}
+                    aria-checked={picking ? pickedSet.has(project._id) : undefined}
+                    className={`flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left ${(picking ? pickedSet.has(project._id) : project._id === selectedId) ? 'border-[#273541] bg-[#f3f6f8]' : 'border-[#e3e8eb] bg-white hover:bg-[#f7fafb]'}`}
                   >
+                    {picking && <PickBox checked={pickedSet.has(project._id)} />}
                     {project.mainImage ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={project.mainImage} alt="" className="h-12 w-16 shrink-0 rounded object-cover" />
@@ -615,6 +731,33 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
               ))}
             </ul>
           )}
+          {picking && (
+            <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 rounded-md border border-[#d5dde2] bg-white px-3 py-2 shadow-sm">
+              <span className="text-sm font-semibold text-[#171512]">{pickedShown.length}개 선택</span>
+              <span className="flex flex-wrap gap-1.5">
+                {visibility === 'trash' ? (
+                  <>
+                    <button type="button" onClick={() => void changeTrashMany('restore')} disabled={busy || pickedShown.length === 0} className={secondaryButton}>
+                      되돌리기
+                    </button>
+                    {canDeleteForever && (
+                      <button type="button" onClick={() => void changeTrashMany('deleteForever')} disabled={busy || pickedShown.length === 0} className={dangerButton}>
+                        완전히 삭제
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button type="button" onClick={() => void changeTrashMany('trash')} disabled={busy || pickedShown.length === 0} className={dangerButton}>
+                    휴지통으로 옮기기
+                  </button>
+                )}
+                {/* Clears every tick, also one a search hides. */}
+                <button type="button" onClick={() => setPicked([])} disabled={busy || picked.length === 0} className={secondaryButton}>
+                  선택 해제
+                </button>
+              </span>
+            </div>
+          )}
           </>
           )}
         </div>
@@ -624,7 +767,11 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
         {upload && renderUpload ? (
           renderUpload(upload, closeUpload)
         ) : !selected || !form ? (
-          <p className="text-sm text-[#60717d]">왼쪽에서 시공 사례를 고르거나 [+ 새 시공 사례 올리기]로 폴더를 올리세요.</p>
+          <p className="text-sm text-[#60717d]">
+            {picking
+              ? '왼쪽 목록에서 사례를 누르면 체크됩니다. 고른 사례는 목록 아래 버튼으로 한 번에 처리합니다.'
+              : '왼쪽에서 시공 사례를 고르거나 [+ 새 시공 사례 올리기]로 폴더를 올리세요.'}
+          </p>
         ) : (
           <div className="grid gap-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -888,5 +1035,17 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
         )}
       </Panel>
     </div>
+  );
+}
+
+// The tick of a row in [선택]; the row itself is the checkbox (role="checkbox").
+function PickBox({ checked }: { checked: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-[#273541] bg-[#273541] text-white' : 'border-[#9aa8b1] bg-white'}`}
+    >
+      {checked && <Check size={12} strokeWidth={3} />}
+    </span>
   );
 }
