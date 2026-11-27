@@ -670,6 +670,24 @@ const project = defineType({
       readOnly: true,
       hidden: true,
     }),
+    // 관리자 화면의 [삭제]가 채웁니다. 있으면 휴지통에 있는 시공 사례로, 홈페이지에 보이지 않습니다.
+    defineField({
+      name: 'deletedAt',
+      title: '휴지통으로 옮긴 때',
+      type: 'datetime',
+      group: 'publish',
+      readOnly: true,
+      hidden: ({ document }) => !document?.deletedAt,
+      description: '관리자 화면 > 시공 사례 > 휴지통에서 되돌리거나 완전히 삭제할 수 있습니다.',
+    }),
+    defineField({
+      name: 'deletedBy',
+      title: '옮긴 사람',
+      type: 'string',
+      group: 'publish',
+      readOnly: true,
+      hidden: ({ document }) => !document?.deletedAt,
+    }),
     defineField({
       name: 'title',
       title: 'Project 이름',

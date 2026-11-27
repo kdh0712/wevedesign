@@ -47,6 +47,9 @@ export type ManagedProject = {
   beforeImageAssetId?: string;
   featured?: boolean;
   isVisible?: boolean;
+  // Set when the project is in the 휴지통 (spec docs/superpowers/specs/2026-11-27-project-trash-design.md).
+  deletedAt?: string;
+  deletedBy?: string;
   categoryId?: string;
   categoryTitle?: string;
   galleryGroups?: ManagedProjectGalleryGroup[];

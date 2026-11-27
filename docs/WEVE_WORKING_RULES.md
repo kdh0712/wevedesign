@@ -186,6 +186,7 @@ This file records durable product and implementation decisions. Review it before
   - A blank number is removed (`unset`), never saved as 0; a stored 0 order is shown and kept. A blog link is saved only as an http(s) address (https:// added when missing). 'Publish' needs a name, a category and a representative photo, and the server checks the stored project.
   - One photo (a new representative or 시공 전 사진) is uploaded through `/api/manager/project-asset`, which only stores the Sanity asset; it is attached to the project when staff press [저장].
   - A project address that no longer matches (renamed or re-categorised) is sent on to the canonical address with a 308 when exactly one project's id ends with the address suffix.
+  - 시공 사례 휴지통 (spec `docs/superpowers/specs/2026-11-27-project-trash-design.md`, rules in `app/lib/project-trash.ts`): [삭제] at the bottom of the editor (with a confirm) sets `deletedAt` / `deletedBy` on the project and its draft (`/api/manager/office` `type: 'project'`, `action: 'trash'`); the list's [휴지통 N] chip lists them with [되돌리기] (`restore`, unsets both, so 공개·순서·메인 come back as they were) and, for 총괄 관리자 only, [완전히 삭제] (`deleteForever`, deletes the project and its draft; photo assets stay). `updatedAt` does not change. Trashed projects are left out of the homepage (`projectQuery` has `!defined(deletedAt)`), [순서 변경], the upload's same-name choice, the duplicate-name note and the CLI; a folder upload refuses to replace one. The admin 휴지통 tab does not list them.
 
 ## SEO
 

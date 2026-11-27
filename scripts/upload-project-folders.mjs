@@ -183,7 +183,7 @@ async function importProjectFolder(folder, categoryRef) {
   // (the manager screen asks which one; this script cannot).
   const sameTitle = sameTitleProjects(
     projectTitle,
-    (await sanityQuery('*[_type == "project" && !(_id in path("drafts.**")) && title == $title]{_id, title}', { title: projectTitle })) || [],
+    (await sanityQuery('*[_type == "project" && !(_id in path("drafts.**")) && title == $title && !defined(deletedAt)]{_id, title}', { title: projectTitle })) || [],
   );
   if (sameTitle.length > 1) {
     console.warn(`같은 이름의 시공 사례가 여러 개라 건너뜁니다: ${projectTitle}`);

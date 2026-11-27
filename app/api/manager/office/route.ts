@@ -12,6 +12,7 @@ import { deleteReceiptsOfSite } from '../_site-receipts';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
 import { buildProjectPatch, isSanityRevisionConflict, publishBlockReason } from '../../../lib/project-form';
 import { readProjectOrder } from '../../../lib/project-order';
+import { projectTrashBlock, readProjectTrashAction } from '../../../lib/project-trash';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -47,7 +48,7 @@ const typeMap: Record<OfficeType, string> = {
 // The 시공 사례 list for the manager (홈페이지 > 시공 사례): with each photo's _key and order and the 시공 전 사진, so the editor
 // can rename and reorder groups, remove photos and save them back (app/lib/project-form.ts).
 const PROJECTS_QUERY = `*[_type == "project" && !(_id in path("drafts.**"))] | order(_createdAt desc)[0...200] {
-    _id, _rev, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, mainImagePosition, mainImagePositionX, mainImagePositionY,
+    _id, _rev, title, description, location, siteType, area, year, materials, blogUrl, displayOrder, featured, isVisible, deletedAt, deletedBy, mainImagePosition, mainImagePositionX, mainImagePositionY,
     "mainImage": mainImage.asset->url,
     "mainImageAssetId": mainImage.asset->_id,
     "mainImageAlt": mainImage.alt,
@@ -381,6 +382,29 @@ export async function POST(request: Request) {
       const draftId = `drafts.${projectId}`;
       // Drafts are only visible in the raw perspective (the client's default since API v2025-02-19 is published).
       const draft = await managerClient.fetch('*[_id == $draftId][0]{_id}', { draftId }, { perspective: 'raw' });
+
+      // 휴지통 (spec docs/superpowers/specs/2026-11-27-project-trash-design.md): [삭제], [되돌리기] and [완전히 삭제]. The
+      // project and its draft change together, so publishing the draft in Studio cannot bring a trashed project back.
+      // updatedAt stays: a move to the 휴지통 is not a content change.
+      const trashAction = readProjectTrashAction(body?.action);
+      if (trashAction) {
+        const stored = await managerClient.fetch<{ deletedAt?: string } | null>('*[_type == "project" && _id == $id][0]{deletedAt}', { id: projectId });
+        const blocked = projectTrashBlock(trashAction, stored, access.session.role === 'admin');
+        if (blocked) return NextResponse.json({ error: blocked.error }, { status: blocked.status });
+        const ids = draft?._id ? [projectId, draftId] : [projectId];
+        const transaction = managerClient.transaction();
+        if (trashAction === 'deleteForever') {
+          for (const id of ids) transaction.delete(id);
+        } else if (trashAction === 'trash') {
+          // Who deleted it comes from the signed session, not from anything the browser sends.
+          const trash = { deletedAt: now, deletedBy: (access.session.name || access.session.loginId).slice(0, 80) };
+          for (const id of ids) transaction.patch(id, (patch) => patch.set(trash));
+        } else {
+          for (const id of ids) transaction.patch(id, (patch) => patch.unset(['deletedAt', 'deletedBy']));
+        }
+        await transaction.commit();
+        return NextResponse.json({ ok: true });
+      }
 
       // 홈페이지에 공개 / 숨기기: publishing checks the stored project, whatever the screen thought.
       if (body?.action === 'setVisibility') {
