@@ -36,3 +36,45 @@ export function projectTrashBlock(
   if (!isAdmin) return { status: 403, error: '완전히 삭제는 총괄 관리자만 할 수 있습니다.' };
   return trashed ? null : { status: 409, error: '휴지통에 있는 시공 사례만 완전히 삭제할 수 있습니다.' };
 }
+
+// [선택] (spec docs/superpowers/specs/2026-11-27-project-trash-bulk-design.md): the same three actions on several
+// projects at once. The manager list reads at most 200 projects, so one request takes at most 200.
+export const MAX_TRASH_BATCH = 200;
+
+export function readProjectTrashIds(value: unknown): string[] | { error: string } {
+  if (Array.isArray(value) && value.length === 0) return { error: '고른 시공 사례가 없습니다.' };
+  const invalid = { error: '고른 시공 사례 목록이 올바르지 않습니다.' };
+  if (!Array.isArray(value)) return invalid;
+  const ids = new Set<string>();
+  for (const id of value) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id) || id.startsWith('drafts.') || ids.has(id)) return invalid;
+    ids.add(id);
+  }
+  if (ids.size > MAX_TRASH_BATCH) return { error: `한 번에 ${MAX_TRASH_BATCH}개까지 고를 수 있습니다.` };
+  return [...ids];
+}
+
+// Which picked projects the action goes ahead on, as they are stored now. One another screen already changed is
+// skipped and counted; when none is left, the whole request is refused.
+export function planProjectTrashBatch(
+  action: ProjectTrashAction,
+  ids: readonly string[],
+  stored: ReadonlyArray<{ _id: string; deletedAt?: unknown }>,
+  isAdmin: boolean,
+): { allowed: string[]; skipped: number } | { refused: { status: number; error: string } } {
+  if (action === 'deleteForever' && !isAdmin) return { refused: { status: 403, error: '완전히 삭제는 총괄 관리자만 할 수 있습니다.' } };
+  const byId = new Map(stored.map((project) => [project._id, project]));
+  const allowed = ids.filter((id) => !projectTrashBlock(action, byId.get(id) ?? null, isAdmin));
+  if (allowed.length === 0) {
+    const error = action === 'trash' ? '고른 시공 사례는 이미 휴지통에 있거나 완전히 삭제되었습니다.' : '고른 시공 사례는 이미 되돌렸거나 완전히 삭제되었습니다.';
+    return { refused: { status: 409, error } };
+  }
+  return { allowed, skipped: ids.length - allowed.length };
+}
+
+// The names a confirm box lists: the first five, then how many more.
+export function pickedProjectNames(titles: readonly string[], shown = 5): string {
+  const lines = titles.slice(0, shown).map((title) => `· ${title || '이름 없음'}`);
+  if (titles.length > shown) lines.push(`외 ${titles.length - shown}개`);
+  return lines.join('\n');
+}
