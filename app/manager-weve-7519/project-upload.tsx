@@ -5,10 +5,11 @@
 // name on its own). Each folder is arranged in the 정보·사진 정리 popup: its basic information (new projects) and where
 // each photo goes. Specs: docs/superpowers/specs/2026-11-21-portfolio-project-editor-design.md §3.2,
 // 2026-11-27-project-upload-per-photo-design.md, 2026-11-27-project-upload-popup-design.md
-import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { UploadCloud } from 'lucide-react';
 import {
   arrangedPhotos,
+  placedPhotoKeys,
   arrangementProblem,
   initialArrangement,
   movePhotos,
@@ -92,8 +93,14 @@ export function ProjectUploadPanel({
   const uploads = useRef(new Map<File, Promise<string>>());
   const limiter = useRef(createLimiter(3));
   const [prefetch, setPrefetch] = useState<Record<string, FolderPrefetch>>({});
-  // Each folder's latest run, so an earlier run's progress does not overwrite a newer one's.
+  // Each folder's latest run. An earlier run stops sending photos and reporting progress once a newer run starts, the
+  // folder is taken out, or the panel closes.
   const prefetchRun = useRef(new Map<string, number>());
+  const prefetchSeq = useRef(0);
+  useEffect(() => {
+    const runs = prefetchRun.current;
+    return () => runs.clear();
+  }, []);
   const nextKey = useRef(0);
   const busyRef = useRef(false);
 
@@ -163,6 +170,8 @@ export function ProjectUploadPanel({
     setArrangements(without);
     setInfos(without);
     setChoices(without);
+    prefetchRun.current.delete(folder);
+    setPrefetch(without);
     if (openFolder === folder) setOpenFolder('');
   };
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -218,23 +227,26 @@ export function ProjectUploadPanel({
     });
     return upload;
   };
-  // The photos a folder will send: its cover, 시공 전 photo and room photos.
-  const placedKeys = (folder: string) => {
-    const arranged = arrangedPhotos(arrangements[folder]);
-    return [arranged.coverKey, arranged.beforeKey, ...arranged.rooms.flatMap((room) => room.keys)].filter((key): key is string => Boolean(key));
-  };
   // [완료] in a folder's popup: its photos are shrunk and sent now, so [올리기] has little left to do.
   const prefetchFolder = (folder: string, arrangement: PhotoArrangement) => {
-    const arranged = arrangedPhotos(arrangement);
-    const keys = [arranged.coverKey, arranged.beforeKey, ...arranged.rooms.flatMap((room) => room.keys)].filter((key): key is string => Boolean(key));
-    if (keys.length === 0) return;
-    const run = (prefetchRun.current.get(folder) || 0) + 1;
+    const keys = placedPhotoKeys(arrangement);
+    const run = (prefetchSeq.current += 1);
     prefetchRun.current.set(folder, run);
-    const report = (state: FolderPrefetch) => {
-      if (prefetchRun.current.get(folder) === run) setPrefetch((current) => ({ ...current, [folder]: state }));
+    const current = () => prefetchRun.current.get(folder) === run;
+    const report = (state: FolderPrefetch | null) => {
+      if (current()) setPrefetch((all) => (state ? { ...all, [folder]: state } : Object.fromEntries(Object.entries(all).filter(([key]) => key !== folder))));
     };
+    if (keys.length === 0) {
+      report(null);
+      return;
+    }
     report({ done: 0, total: keys.length, failed: 0, running: true });
-    void runUploadQueue(keys, (key) => uploadOnePhoto((photoByKey.get(key) as PickedPhoto).file), {
+    const send = async (key: string) => {
+      // A stopped run sends no more photos (those already on their way finish).
+      if (!current()) throw finalError('미리 올리기를 멈췄습니다.');
+      return uploadOnePhoto((photoByKey.get(key) as PickedPhoto).file);
+    };
+    void runUploadQueue(keys, send, {
       concurrency: 3,
       retries: 2,
       retryDelays: [1000, 3000],
@@ -251,7 +263,7 @@ export function ProjectUploadPanel({
       // Only the photos placed in the popup go: each shrunk and uploaded on its own, three at a time, a failed one tried
       // twice more after 1 and 3 seconds. If one still fails, nothing is made and the error names it; [올리기] again
       // sends only the photos not stored yet. A photo that cannot be opened is left out with a note.
-      const keys = [...new Set(folders.flatMap(placedKeys))];
+      const keys = [...new Set(folders.flatMap((folder) => placedPhotoKeys(arrangements[folder])))];
       const nameOf = (key: string) => photoByKey.get(key)?.file.name || key;
       setProgress(`사진 올리는 중 0/${keys.length}장`);
       const uploaded = await runUploadQueue(keys, (key) => uploadOnePhoto((photoByKey.get(key) as PickedPhoto).file), {
@@ -385,7 +397,7 @@ export function ProjectUploadPanel({
                     {prefetch[folder].running
                       ? `사진 미리 올리는 중 ${prefetch[folder].done}/${prefetch[folder].total}장`
                       : prefetch[folder].failed > 0
-                        ? `사진 ${prefetch[folder].failed}장을 미리 올리지 못했습니다. [올리기] 때 다시 올립니다.`
+                        ? `사진 ${prefetch[folder].failed}장을 미리 올리지 못했습니다. [올리기] 때 다시 시도합니다.`
                         : `사진 ${prefetch[folder].total}장 미리 올림 ✓`}
                   </span>
                 )}

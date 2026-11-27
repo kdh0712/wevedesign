@@ -199,7 +199,11 @@ export function ProjectUploadDialog({
       onDrop={(event) => dropOnPhoto(event, key, roomName)}
       onClick={(event) => click(event, key)}
       // Two clicks toggle the selection twice (no change) and open the photo large.
-      onDoubleClick={() => setViewerKey(key)}
+      onDoubleClick={() => {
+        // The clicks of the double click picked the tile; the viewer starts with nothing picked.
+        setSelected([]);
+        setViewerKey(key);
+      }}
       onKeyDown={(event) => {
         if (event.key === ' ' || event.key === 'Enter') {
           event.preventDefault();

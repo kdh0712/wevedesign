@@ -5,8 +5,10 @@ import {
   arrangedPhotos,
   arrangementProblem,
   initialArrangement,
+  isPhotoAt,
   movePhotos,
   placePhotoBefore,
+  placedPhotoKeys,
   removePhotos,
 } from '../app/lib/project-photo-sort.ts';
 
@@ -102,3 +104,21 @@ test('initialArrangement puts Windows bulk-rename names into one room, and numbe
   assert.deepEqual(a.rooms, [{ name: '거실', keys: ['b', 'a'] }]);
   assert.deepEqual(a.unsorted, ['d', 'c']);
 });
+
+test('isPhotoAt says whether a photo is already in a place (사진 크게 보기: the same room again keeps its order)', () => {
+  const arrangement = { cover: 'c', before: null, rooms: [{ name: '거실', keys: ['a', 'b'] }], unsorted: ['u'] };
+  assert.equal(isPhotoAt(arrangement, 'a', { kind: 'room', name: '거실' }), true);
+  assert.equal(isPhotoAt(arrangement, 'a', { kind: 'room', name: '주방' }), false);
+  assert.equal(isPhotoAt(arrangement, 'c', { kind: 'cover' }), true);
+  assert.equal(isPhotoAt(arrangement, 'a', { kind: 'cover' }), false);
+  assert.equal(isPhotoAt(arrangement, 'u', { kind: 'unsorted' }), true);
+  assert.equal(isPhotoAt(arrangement, 'u', { kind: 'before' }), false);
+});
+
+test('placedPhotoKeys lists each photo to send once, even when the first room photo stands in for the cover', () => {
+  const noCover = { cover: null, before: 'p', rooms: [{ name: '거실', keys: ['a', 'b'] }, { name: '빈 방', keys: [] }], unsorted: ['u'] };
+  assert.deepEqual(placedPhotoKeys(noCover), ['a', 'p', 'b']);
+  const withCover = { cover: 'c', before: null, rooms: [{ name: '거실', keys: ['a'] }], unsorted: [] };
+  assert.deepEqual(placedPhotoKeys(withCover), ['c', 'a']);
+});
+

@@ -72,7 +72,7 @@ test('runUploadQueue waits between tries (review finding: a short drop used up e
   assert.ok(times[2] - times[1] >= 75, `second wait ${times[2] - times[1]}ms`);
 });
 
-test('createLimiter runs at most n tasks at once across every caller (사진 미리 올리기)', async () => {
+test('createLimiter runs at most n tasks at once across every caller (사진 미리 올리기)', { timeout: 3000 }, async () => {
   const limit = createLimiter(2);
   let running = 0;
   let max = 0;
@@ -86,7 +86,8 @@ test('createLimiter runs at most n tasks at once across every caller (사진 미
   const results = await Promise.all([task(20, 'a'), task(10, 'b'), task(5, 'c'), task(5, 'd')]);
   assert.deepEqual(results, ['a', 'b', 'c', 'd']);
   assert.equal(max, 2);
-  // a failure frees its slot
-  await assert.rejects(limit(async () => { throw new Error('x'); }));
-  assert.equal(await limit(async () => 'after'), 'after');
+  // a failure frees its slot: with one slot, a leaked one would leave the next task waiting for ever
+  const single = createLimiter(1);
+  await assert.rejects(single(async () => { throw new Error('x'); }));
+  assert.equal(await single(async () => 'after'), 'after');
 });

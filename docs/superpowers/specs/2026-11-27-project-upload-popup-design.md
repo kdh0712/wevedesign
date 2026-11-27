@@ -92,4 +92,14 @@ Asked: "사진 정리하는 과정에서 사진을 더블 클릭하면 사진의
     tried again. At most three photos go at a time across both (`createLimiter` in `app/lib/upload-queue.ts`).
   - The project is still made only at [올리기]. A photo sent ahead and then taken out ([빼기]) stays as an unused Sanity
     asset, as a photo stored by a failed [올리기] did before *(my call)*.
+- Review findings (fixed):
+  - picking the place a photo is already in leaves it where it is (`isPhotoAt`); before, it went to the end of its room
+    and pressing 1 on each 거실 photo could reorder 거실;
+  - an early upload stops when its folder is taken out, the panel is closed ([취소]) or [완료] is pressed again: photos
+    already on their way finish, no more are sent;
+  - the count no longer counts the first room photo twice when there is no 대표 사진 (`placedPhotoKeys`);
+  - the large view takes the focus (keys never reach the tile under it), gives it back after [+ 공간 만들고 넣기] so
+    number keys work again, and starts with no photo picked in the grid.
+- Left as it is: adding or moving photos after [완료] and closing the popup with X leaves the old "미리 올림 ✓"; [올리기]
+  still sends whatever was not sent.
 

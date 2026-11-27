@@ -3,9 +3,9 @@
 // 사진 크게 보기 (정보·사진 정리 팝업, spec docs/superpowers/specs/2026-11-27-project-upload-popup-design.md): a photo opened by
 // a double click, shown large from the original file, with the place buttons below it. Placing it moves on to the next
 // photo, so a folder can be sorted one photo after another. ← → move through the photos, 1–9 pick a room, Esc closes.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { addRoom, movePhotos, removePhotos, type PhotoArrangement, type PhotoPlace } from '../lib/project-photo-sort';
+import { addRoom, isPhotoAt, movePhotos, removePhotos, type PhotoArrangement, type PhotoPlace } from '../lib/project-photo-sort';
 
 const button = 'rounded-full border px-3 py-1.5 text-xs font-bold';
 
@@ -40,6 +40,10 @@ export function ProjectPhotoViewer({
   const [key, setKey] = useState(startKey);
   const [newRoom, setNewRoom] = useState('');
   const [roomError, setRoomError] = useState('');
+  // Focus sits on the viewer itself, so keys never reach the photo tile under it, and a new space's name field gives it
+  // back once the photo is placed (number keys pick spaces again).
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => box.current?.focus(), []);
 
   // Photos still in the upload (one taken out with [빼기] leaves the walk).
   const keys = photos.map((photo) => photo.key).filter((item) => placeOf(arrangement, item) !== '');
@@ -50,10 +54,10 @@ export function ProjectPhotoViewer({
     return from[at + 1] ?? from[at - 1] ?? '';
   };
 
-  // Placing a photo moves on to the next one (or stays on the last).
+  // Placing a photo moves on to the next one (or stays on the last). A photo already there keeps its order.
   const place = (target: PhotoPlace) => {
     if (!key) return;
-    onArrangement(movePhotos(arrangement, [key], target));
+    if (!isPhotoAt(arrangement, key, target)) onArrangement(movePhotos(arrangement, [key], target));
     const following = keys[index + 1];
     if (following) setKey(following);
   };
@@ -74,6 +78,7 @@ export function ProjectPhotoViewer({
     onArrangement(movePhotos(made, [key], { kind: 'room', name }));
     setNewRoom('');
     setRoomError('');
+    box.current?.focus();
     const following = keys[index + 1];
     if (following) setKey(following);
   };
@@ -102,7 +107,7 @@ export function ProjectPhotoViewer({
   const where = key ? placeOf(arrangement, key) : '';
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="사진 크게 보기" className="fixed inset-0 z-[75] grid grid-rows-[auto_1fr_auto] bg-[#0f0e0c]/95 text-white">
+    <div ref={box} tabIndex={-1} role="dialog" aria-modal="true" aria-label="사진 크게 보기" className="fixed inset-0 z-[75] grid grid-rows-[auto_1fr_auto] bg-[#0f0e0c]/95 text-white outline-none">
       <div className="flex items-center justify-between gap-3 px-5 py-3">
         <p className="min-w-0 truncate text-sm">
           <span className="font-bold">
