@@ -18,6 +18,7 @@ import {
 } from '../lib/project-form';
 import { Panel } from './office-ui';
 import { afterUploadSelection, type UploadResult } from '../lib/project-upload-rules';
+import { moveInOrder, sortProjectsByOrder } from '../lib/project-order';
 import type { CategoryOption, ManagedProject } from './project-types';
 import { shrinkPhotoForUpload } from './project-upload-files';
 
@@ -33,20 +34,8 @@ type VisibilityFilter = 'all' | 'visible' | 'hidden';
 
 const isVisible = (project: ManagedProject) => project.isVisible !== false;
 
-// Featured first, then by 보이는 순서 (projects without one after those with one), then newest (the list arrives newest first).
-function sortForList(projects: ManagedProject[]) {
-  return projects
-    .map((project, index) => ({ project, index }))
-    .sort((a, b) => {
-      const featured = Number(Boolean(b.project.featured)) - Number(Boolean(a.project.featured));
-      if (featured !== 0) return featured;
-      const orderA = typeof a.project.displayOrder === 'number' ? a.project.displayOrder : Number.POSITIVE_INFINITY;
-      const orderB = typeof b.project.displayOrder === 'number' ? b.project.displayOrder : Number.POSITIVE_INFINITY;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.index - b.index;
-    })
-    .map(({ project }) => project);
-}
+// The homepage's order: by 보이는 순서 (none last), then newest (the list arrives newest first). app/lib/project-order.ts
+const sortForList = (projects: ManagedProject[]) => sortProjectsByOrder(projects);
 
 async function readJson<T>(response: Response): Promise<T> {
   const text = await response.text();
@@ -79,6 +68,10 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
   const [previewUrls, setPreviewUrls] = useState<{ main: string; before: string }>({ main: '', before: '' });
   const [busy, setBusy] = useState(false);
   const [upload, setUpload] = useState<{ mode: 'new' } | { mode: 'replace'; project: ManagedProject } | null>(null);
+  // [순서 변경]: the projects in the order being set (null while not reordering) and the row being dragged.
+  const [orderDraft, setOrderDraft] = useState<ManagedProject[] | null>(null);
+  const [draggingId, setDraggingId] = useState('');
+  const [dropTargetId, setDropTargetId] = useState('');
   const busyRef = useRef(false);
 
   const selected = projects.find((project) => project._id === selectedId);
@@ -134,6 +127,46 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
     }
   };
 
+  // [순서 변경] (spec 2026-11-27-project-order-drag-design.md) closes the editor first: an open form holds the old 보이는
+  // 순서 and would put it back on [저장].
+  const startReorder = () => {
+    if (dirty && !window.confirm(LEAVE_CONFIRM)) return;
+    open(undefined);
+    setUpload(null);
+    setOrderDraft(sortForList(projects));
+  };
+  const moveTo = (fromId: string, toId: string) =>
+    setOrderDraft((current) => {
+      if (!current) return current;
+      return moveInOrder(
+        current,
+        current.findIndex((project) => project._id === fromId),
+        current.findIndex((project) => project._id === toId),
+      );
+    });
+  const endDrag = () => {
+    setDraggingId('');
+    setDropTargetId('');
+  };
+  const saveOrder = () =>
+    run(async () => {
+      if (!orderDraft) return;
+      setError('');
+      const response = await fetch('/api/manager/office', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'project', action: 'setOrder', ids: orderDraft.map((project) => project._id) }),
+      });
+      const data = await readJson<{ error?: string }>(response);
+      if (!response.ok) {
+        setError(data.error || '순서를 저장하지 못했습니다.');
+        return;
+      }
+      await reload();
+      setOrderDraft(null);
+      setStatus('시공 사례 순서를 저장했습니다. 홈페이지에는 몇 분 안에 반영됩니다.');
+    });
+
   const set = (patch: Partial<ProjectFormInput>) => setForm((current) => (current ? { ...current, ...patch } : current));
   const setGroups = (update: (groups: EditableGroup[]) => EditableGroup[]) => setForm((current) => (current ? { ...current, galleryGroups: update(current.galleryGroups) } : current));
 
@@ -183,7 +216,13 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       const response = await fetch('/api/manager/office', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'project', id: selected._id, rev: selected._rev, data: next }),
+        // 보이는 순서 goes only when staff changed it here, so a form opened before [순서 저장] keeps the new order.
+        body: JSON.stringify({
+          type: 'project',
+          id: selected._id,
+          rev: selected._rev,
+          data: initial && next.displayOrder === initial.displayOrder ? { ...next, displayOrder: undefined } : next,
+        }),
       });
       const data = await readJson<{ error?: string }>(response);
       if (!response.ok) {
@@ -301,11 +340,118 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
               }
               setUpload({ mode: 'new' });
             }}
-            disabled={busy || !renderUpload}
+            disabled={busy || !renderUpload || Boolean(orderDraft)}
             className={`${primaryButton} justify-self-start`}
           >
             + 새 시공 사례 올리기
           </button>
+          {orderDraft ? (
+            <div className="grid gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-[#edf8fb] px-3 py-2">
+                <p className="text-xs text-[#1d6d7b]">사례를 잡고 위아래로 끌어 놓으세요. [순서 저장]을 누르면 홈페이지 시공 사례 목록이 이 순서로 바뀝니다.</p>
+                <span className="flex gap-2">
+                  <button type="button" onClick={() => setOrderDraft(null)} disabled={busy} className={secondaryButton}>
+                    취소
+                  </button>
+                  <button type="button" onClick={saveOrder} disabled={busy} className={primaryButton}>
+                    {busy ? '저장하는 중…' : '순서 저장'}
+                  </button>
+                </span>
+              </div>
+              <ol
+                className="grid gap-1.5"
+                aria-label="시공 사례 순서"
+                // A drop in the gap between rows lands where the line shows.
+                onDragOver={(event) => {
+                  if (draggingId) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggingId && dropTargetId) moveTo(draggingId, dropTargetId);
+                  endDrag();
+                }}
+              >
+                {orderDraft.map((project, index) => {
+                  const fromIndex = orderDraft.findIndex((item) => item._id === draggingId);
+                  const isTarget = Boolean(draggingId) && dropTargetId === project._id && draggingId !== project._id;
+                  // The line shows where the dragged row lands: above a row it moves up to, below one it moves down to.
+                  const line = isTarget ? (fromIndex > index ? 'shadow-[inset_0_3px_0_#38a9bd]' : 'shadow-[inset_0_-3px_0_#38a9bd]') : '';
+                  return (
+                    <li
+                      key={project._id}
+                      draggable={!busy}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', project._id);
+                        setDraggingId(project._id);
+                      }}
+                      onDragOver={(event) => {
+                        if (!draggingId) return;
+                        event.preventDefault();
+                        setDropTargetId(project._id);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        // Handled here; the list's own drop (for the gaps) must not move it again.
+                        event.stopPropagation();
+                        if (draggingId) moveTo(draggingId, project._id);
+                        endDrag();
+                      }}
+                      onDragEnd={endDrag}
+                      className={`flex cursor-grab items-center gap-2.5 rounded-md border border-[#e3e8eb] bg-white px-2.5 py-1.5 active:cursor-grabbing ${draggingId === project._id ? 'opacity-40' : ''} ${line}`}
+                    >
+                      <span aria-hidden="true" className="select-none text-base leading-none tracking-[-2px] text-[#87949c]">
+                        ⋮⋮
+                      </span>
+                      <span className="w-6 shrink-0 text-center text-xs font-bold text-[#60717d]">{index + 1}</span>
+                      {project.mainImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={project.mainImage} alt="" draggable={false} className="h-10 w-14 shrink-0 rounded object-cover" />
+                      ) : (
+                        <span className="h-10 w-14 shrink-0 rounded bg-[#edf2f5]" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-[#171512]">{project.title || '이름 없음'}</span>
+                        <span className="block truncate text-xs text-[#60717d]">{[project.categoryTitle, project.location].filter(Boolean).join(' · ') || '분류 없음'}</span>
+                      </span>
+                      <span className="flex shrink-0 flex-col items-end gap-0.5 text-xs font-semibold">
+                        <span className={isVisible(project) ? 'text-[#277a46]' : 'text-[#8a6215]'}>{isVisible(project) ? '공개' : '숨김'}</span>
+                        {project.featured && <span className="text-[#273541]">메인</span>}
+                      </span>
+                      {/* For the keyboard and for a long move without dragging. */}
+                      <span className="flex shrink-0 flex-col gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => index > 0 && moveTo(project._id, orderDraft[index - 1]._id)}
+                          disabled={busy || index === 0}
+                          aria-label={`${project.title || '이름 없음'} 위로`}
+                          className="rounded border border-[#d5dde2] p-0.5 text-[#4d5d66] disabled:opacity-30"
+                        >
+                          <ArrowUp size={12} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => index < orderDraft.length - 1 && moveTo(project._id, orderDraft[index + 1]._id)}
+                          disabled={busy || index === orderDraft.length - 1}
+                          aria-label={`${project.title || '이름 없음'} 아래로`}
+                          className="rounded border border-[#d5dde2] p-0.5 text-[#4d5d66] disabled:opacity-30"
+                        >
+                          <ArrowDown size={12} />
+                        </button>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          ) : (
+          <>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-[#60717d]">홈페이지에 보이는 순서대로 나옵니다.</span>
+            <button type="button" onClick={startReorder} disabled={busy || projects.length < 2 || Boolean(upload)} className={secondaryButton}>
+              순서 변경
+            </button>
+          </div>
           <div className="flex flex-wrap gap-2">
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="이름·지역" aria-label="시공 사례 검색" className={`${input} min-w-40 flex-1`} />
             <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} aria-label="공간 분류" className={`${input} w-auto`}>
@@ -368,6 +514,8 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                 </li>
               ))}
             </ul>
+          )}
+          </>
           )}
         </div>
       </Panel>

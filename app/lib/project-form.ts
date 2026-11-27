@@ -57,7 +57,11 @@ const imageField = (assetId: string, alt: string) => ({ _type: 'image', asset: {
 
 const focus = (value: number) => (Number.isFinite(value) ? Math.round(Math.min(100, Math.max(0, value))) : 50);
 
-export function buildProjectPatch(input: ProjectFormInput): { ok: true; patch: ProjectPatch } | { ok: false; error: string } {
+// displayOrder may be left out: the editor sends it only when staff changed it, so a form opened before [순서 저장] never puts
+// an old 보이는 순서 back (spec 2026-11-27-project-order-drag-design.md).
+export function buildProjectPatch(
+  input: Omit<ProjectFormInput, 'displayOrder'> & { displayOrder?: string },
+): { ok: true; patch: ProjectPatch } | { ok: false; error: string } {
   const fail = (error: string) => ({ ok: false as const, error });
   const set: Record<string, unknown> = {};
   const unset: string[] = [];
@@ -83,11 +87,13 @@ export function buildProjectPatch(input: ProjectFormInput): { ok: true; patch: P
     set.area = value;
   } else unset.push('area');
 
-  const order = text(input.displayOrder);
-  if (order) {
-    if (!/^\d+$/.test(order)) return fail('보이는 순서는 0 이상의 정수로 입력해 주세요.');
-    set.displayOrder = Number(order);
-  } else unset.push('displayOrder');
+  if (input.displayOrder !== undefined) {
+    const order = text(input.displayOrder);
+    if (order) {
+      if (!/^\d+$/.test(order)) return fail('보이는 순서는 0 이상의 정수로 입력해 주세요.');
+      set.displayOrder = Number(order);
+    } else unset.push('displayOrder');
+  }
 
   const year = text(input.year);
   if (year && !/^\d{4}$/.test(year)) return fail('시공 연도는 4자리로 입력해 주세요.');

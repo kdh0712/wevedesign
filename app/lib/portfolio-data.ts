@@ -99,7 +99,7 @@ const client = createClient({
 
 export const revalidateSeconds = 60;
 
-export const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coalesce(isVisible, true) != false] | order(featured desc, displayOrder asc, _createdAt desc) {
+export const projectQuery = `*[_type == "project" && !(_id in path("drafts.**")) && coalesce(isVisible, true) != false] | order(coalesce(displayOrder, 1000000) asc, _createdAt desc) {
   "id": _id,
   title,
   "category": category->slug.current,
