@@ -1,6 +1,9 @@
 // Folder uploads of 시공 사례 (manager bulk upload and scripts/upload-project-folders.mjs). Staff choose per folder whether it
-// makes a new project or replaces one project's photos; nothing is matched by name on its own. Pure, no imports.
+// makes a new project or replaces one project's photos; nothing is matched by name on its own. Pure; its only import is a
+// relative .ts module (project-form), so Node tests and the CLI load it directly.
 // Spec: docs/superpowers/specs/2026-11-21-portfolio-project-editor-design.md §3.2, §5.1
+
+import { buildProjectPatch, type ProjectFormInput } from './project-form.ts';
 
 export type UploadTarget = { mode: 'new' } | { mode: 'replace'; projectId: string };
 
@@ -12,27 +15,6 @@ export type UploadResult = {
   imageCount?: number;
   groupCount?: number;
 };
-
-// The upload's targets field: a JSON object of folder name → 'new' | 'replace:<project id>'. Anything else is dropped, so
-// such a folder is skipped rather than guessed.
-export function parseUploadTargets(raw: unknown): Map<string, UploadTarget> {
-  const targets = new Map<string, UploadTarget>();
-  if (typeof raw !== 'string') return targets;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return targets;
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return targets;
-  for (const [folder, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (value === 'new') targets.set(folder, { mode: 'new' });
-    else if (typeof value === 'string' && value.startsWith('replace:') && value.length > 'replace:'.length) {
-      targets.set(folder, { mode: 'replace', projectId: value.slice('replace:'.length) });
-    }
-  }
-  return targets;
-}
 
 // A new project gets a random id: an id made from the title would collide with a renamed project of that original title.
 export function newProjectId(randomHex: string): string {
@@ -112,17 +94,8 @@ export function afterUploadSelection(input: {
 // Each photo is uploaded on its own first (/api/manager/project-asset); the upload request then carries only each photo's
 // folder path and asset id, and these rules turn them into projects, as the file-name rules always did.
 
-export type UploadedPhoto = { path: string; assetId: string };
 export type PhotoKind = 'cover' | 'before' | 'detail';
 export type ParsedUploadPath = { projectTitle: string; kind: PhotoKind; roomType: string; order: number };
-export type RoomPhotos = { roomType: string; photos: (UploadedPhoto & ParsedUploadPath)[] };
-export type ProjectPhotoPlan = {
-  // 대표 (or the first detail photo when there is none); null only when the folder has no usable photo.
-  cover: (UploadedPhoto & ParsedUploadPath) | null;
-  before: (UploadedPhoto & ParsedUploadPath) | null;
-  groups: RoomPhotos[];
-};
-
 const COVER_NAME = /^(대표|메인|썸네일|커버|cover|main|thumbnail|thumb)$/i;
 const BEFORE_NAME = /^(시공전|공사전|before|비포)$/i;
 const koreanOrder = new Intl.Collator('ko-KR', { numeric: true, sensitivity: 'base' });
@@ -141,37 +114,135 @@ export function parseUploadPath(path: string): ParsedUploadPath {
   return { projectTitle, kind: 'detail', roomType: (match ? match[1] : baseName).trim() || '상세', order: match ? Number(match[2]) : 1 };
 }
 
-// Folders and rooms in Korean order with numbers read as numbers; photos of a room by their number, then their path.
-export function planProjectPhotos(photos: readonly UploadedPhoto[]): Map<string, ProjectPhotoPlan> {
-  const byProject = new Map<string, (UploadedPhoto & ParsedUploadPath)[]>();
-  for (const photo of photos) {
-    const parsed = { ...photo, ...parseUploadPath(photo.path) };
-    const key = parsed.projectTitle.trim() || '기타';
-    byProject.set(key, [...(byProject.get(key) || []), parsed]);
-  }
-  const plan = new Map<string, ProjectPhotoPlan>();
-  for (const projectTitle of [...byProject.keys()].sort((a, b) => koreanOrder.compare(a, b))) {
-    const items = byProject.get(projectTitle) || [];
-    const details = items.filter((item) => item.kind === 'detail');
-    const rooms = new Map<string, (UploadedPhoto & ParsedUploadPath)[]>();
-    for (const item of details) rooms.set(item.roomType, [...(rooms.get(item.roomType) || []), item]);
-    const groups = [...rooms.keys()]
-      .sort((a, b) => koreanOrder.compare(a, b))
-      .map((roomType) => ({
-        roomType,
-        photos: [...(rooms.get(roomType) || [])].sort((a, b) => a.order - b.order || koreanOrder.compare(a.path, b.path)),
-      }));
-    plan.set(projectTitle, {
-      cover: items.find((item) => item.kind === 'cover') || details[0] || null,
-      before: items.find((item) => item.kind === 'before') || null,
-      groups,
-    });
-  }
-  return plan;
+// A Sanity image asset id: image-<hash>-<width>x<height>-<format>.
+export function isImageAssetId(value: unknown): value is string {
+  return typeof value === 'string' && /^image-[A-Za-z0-9]+-\d+x\d+-[a-z0-9]+$/.test(value);
 }
 
-// The project's galleryGroups: one group per room, one image per photo, captioned with its file name.
-export function galleryGroupsFromPhotos(projectTitle: string, groups: readonly RoomPhotos[]) {
+// --- 정보·사진 정리 팝업 (spec docs/superpowers/specs/2026-11-27-project-upload-popup-design.md) ---------------------------
+// Each folder arrives arranged by staff: its cover, 시공 전 photo and rooms in order, with the basic information of a new
+// project. The photos are already stored (/api/manager/project-asset); the request names them by asset id.
+
+export type FolderInfo = {
+  title: string;
+  categoryId: string;
+  // A 공간 분류 typed in the popup instead of picked; the server finds or makes it.
+  newCategory: string;
+  location: string;
+  area: string;
+  year: string;
+  materials: string;
+  blogUrl: string;
+  description: string;
+  featured: boolean;
+};
+export type FolderGroup = { roomType: string; photos: { assetId: string; caption: string }[] };
+export type FolderUpload = {
+  title: string;
+  target: UploadTarget;
+  // Only for a new project.
+  info: FolderInfo | null;
+  coverAssetId: string;
+  beforeAssetId: string | null;
+  groups: FolderGroup[];
+};
+
+const MAX_FOLDER_ROOM = 20;
+
+export function readFolderUploadBody(body: unknown): { folders: FolderUpload[]; assetIds: string[] } | { error: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '요청 형식이 올바르지 않습니다.' };
+  const rawFolders = (body as { folders?: unknown }).folders;
+  if (!Array.isArray(rawFolders) || rawFolders.length === 0) return { error: '올릴 시공 사례가 없습니다.' };
+  const str = (value: unknown) => (typeof value === 'string' ? value : '');
+  const photoError = { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' };
+  const folders: FolderUpload[] = [];
+  const assetIds = new Set<string>();
+  for (const item of rawFolders) {
+    if (!item || typeof item !== 'object') return { error: '요청 형식이 올바르지 않습니다.' };
+    const raw = item as Record<string, unknown>;
+    const title = str(raw.title).trim();
+    if (!title) return { error: '요청 형식이 올바르지 않습니다.' };
+    const targetText = str(raw.target);
+    const target: UploadTarget | null =
+      targetText === 'new'
+        ? { mode: 'new' }
+        : /^replace:[A-Za-z0-9][A-Za-z0-9._-]*$/.test(targetText)
+          ? { mode: 'replace', projectId: targetText.slice('replace:'.length) }
+          : null;
+    if (!target) return { error: '올릴 방법이 정해지지 않은 폴더가 있습니다.' };
+    let info: FolderInfo | null = null;
+    if (target.mode === 'new') {
+      if (!raw.info || typeof raw.info !== 'object') return { error: '새 시공 사례의 기본 정보가 없습니다.' };
+      const rawInfo = raw.info as Record<string, unknown>;
+      info = {
+        title: str(rawInfo.title),
+        categoryId: str(rawInfo.categoryId),
+        newCategory: str(rawInfo.newCategory),
+        location: str(rawInfo.location),
+        area: str(rawInfo.area),
+        year: str(rawInfo.year),
+        materials: str(rawInfo.materials),
+        blogUrl: str(rawInfo.blogUrl),
+        description: str(rawInfo.description),
+        featured: rawInfo.featured === true,
+      };
+    }
+    if (!isImageAssetId(raw.coverAssetId)) return photoError;
+    if (raw.beforeAssetId !== null && raw.beforeAssetId !== undefined && !isImageAssetId(raw.beforeAssetId)) return photoError;
+    if (!Array.isArray(raw.groups)) return photoError;
+    const groups: FolderGroup[] = [];
+    for (const rawGroup of raw.groups) {
+      const group = (rawGroup || {}) as Record<string, unknown>;
+      const roomType = str(group.roomType).trim();
+      if (!roomType || roomType.length > MAX_FOLDER_ROOM) return { error: `공간 이름은 1~${MAX_FOLDER_ROOM}자로 입력해 주세요.` };
+      if (!Array.isArray(group.photos)) return photoError;
+      const photos: FolderGroup['photos'] = [];
+      for (const rawPhoto of group.photos) {
+        const photo = (rawPhoto || {}) as Record<string, unknown>;
+        if (!isImageAssetId(photo.assetId) || (photo.caption !== undefined && typeof photo.caption !== 'string')) return photoError;
+        photos.push({ assetId: photo.assetId, caption: str(photo.caption).trim().slice(0, 200) });
+        assetIds.add(photo.assetId);
+      }
+      groups.push({ roomType, photos });
+    }
+    const coverAssetId = raw.coverAssetId as string;
+    const beforeAssetId = isImageAssetId(raw.beforeAssetId) ? raw.beforeAssetId : null;
+    assetIds.add(coverAssetId);
+    if (beforeAssetId) assetIds.add(beforeAssetId);
+    folders.push({ title, target, info, coverAssetId, beforeAssetId, groups });
+  }
+  return { folders, assetIds: [...assetIds] };
+}
+
+// A new folder as the editor's form, so the same rules (buildProjectPatch) check and save it.
+export function folderProjectInput(folder: FolderUpload, categoryId: string): ProjectFormInput {
+  const info = folder.info;
+  return {
+    title: info?.title ?? folder.title,
+    categoryId,
+    location: info?.location ?? '',
+    area: info?.area ?? '',
+    year: info?.year ?? '',
+    materials: info?.materials ?? '',
+    blogUrl: info?.blogUrl ?? '',
+    description: info?.description ?? '',
+    displayOrder: '',
+    featured: info?.featured === true,
+    mainImageAssetId: folder.coverAssetId,
+    mainImagePositionX: 50,
+    mainImagePositionY: 50,
+    beforeImageAssetId: folder.beforeAssetId ?? '',
+    galleryGroups: folder.groups.map((group, groupIndex) => ({
+      key: `group-${groupIndex + 1}`,
+      title: group.roomType,
+      roomType: group.roomType,
+      images: group.photos.map((photo, imageIndex) => ({ key: `image-${groupIndex + 1}-${imageIndex + 1}`, assetId: photo.assetId, caption: photo.caption })),
+    })),
+  };
+}
+
+// The galleryGroups a photo replacement writes, in the shape the file-name upload always wrote.
+export function galleryGroupsFromFolder(projectTitle: string, groups: readonly FolderGroup[]) {
   return groups.map((group, groupIndex) => ({
     _type: 'object',
     _key: `group-${groupIndex + 1}`,
@@ -182,45 +253,19 @@ export function galleryGroupsFromPhotos(projectTitle: string, groups: readonly R
       _type: 'image',
       _key: `image-${groupIndex + 1}-${imageIndex + 1}`,
       asset: { _type: 'reference', _ref: photo.assetId },
-      caption: stripExtension(photo.path.split(/[\\/]+/).filter(Boolean).pop() || photo.path),
-      displayOrder: photo.order || imageIndex + 1,
+      ...(photo.caption ? { caption: photo.caption } : {}),
+      displayOrder: imageIndex + 1,
       alt: `${projectTitle} ${group.roomType}`,
     })),
   }));
 }
 
-// A Sanity image asset id: image-<hash>-<width>x<height>-<format>.
-export function isImageAssetId(value: unknown): value is string {
-  return typeof value === 'string' && /^image-[A-Za-z0-9]+-\d+x\d+-[a-z0-9]+$/.test(value);
-}
-
-// The bulk-upload request: every photo must carry a path and a Sanity image asset id, or nothing is written (a photo that
-// went missing on the way would otherwise leave a project short of it). targets may come as the JSON string the page sends
-// or as an object.
-export function readBulkUploadBody(
-  body: unknown,
-): { photos: UploadedPhoto[]; targets: string; categoryId: string; category: string } | { error: string } {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: '요청 형식이 올바르지 않습니다.' };
-  const raw = body as Record<string, unknown>;
-  if (!Array.isArray(raw.photos) || raw.photos.length === 0) return { error: '올린 사진이 없습니다.' };
-  const photos: UploadedPhoto[] = [];
-  for (const item of raw.photos) {
-    const photo = item as Partial<UploadedPhoto> | null;
-    if (!photo || typeof photo.path !== 'string' || !photo.path.trim() || !isImageAssetId(photo.assetId)) {
-      return { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' };
-    }
-    photos.push({ path: photo.path, assetId: photo.assetId });
-  }
-  const targets =
-    typeof raw.targets === 'string' ? raw.targets : raw.targets && typeof raw.targets === 'object' ? JSON.stringify(raw.targets) : '';
-  const text = (value: unknown) => (typeof value === 'string' ? value.trim() : '');
-  return { photos, targets, categoryId: text(raw.categoryId), category: text(raw.category) };
-}
-
-// A folder's target, also when the page sent its name with spaces around it (the server reads folder names trimmed).
-export function findUploadTarget(targets: ReadonlyMap<string, UploadTarget>, projectTitle: string): UploadTarget | undefined {
-  const exact = targets.get(projectTitle);
-  if (exact) return exact;
-  for (const [folder, target] of targets) if (folder.trim() === projectTitle.trim()) return target;
-  return undefined;
+// What stops a new folder's information: 이름 and 공간 분류 (picked or typed), then the editor's own checks (평수, 시공 연도,
+// 블로그 주소 …), run on stand-in photos.
+export function folderInfoProblem(info: FolderInfo): string | null {
+  if (!info.title.trim()) return '이름을 입력해 주세요.';
+  if (!info.categoryId.trim() && !info.newCategory.trim()) return '공간 분류를 골라 주세요.';
+  const folder: FolderUpload = { title: info.title, target: { mode: 'new' }, info, coverAssetId: 'image-check-1x1-jpg', beforeAssetId: null, groups: [] };
+  const built = buildProjectPatch(folderProjectInput(folder, info.categoryId.trim() || 'new-category'));
+  return built.ok ? null : built.error;
 }

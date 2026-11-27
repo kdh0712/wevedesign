@@ -1,14 +1,6 @@
-// Browser helpers for 시공 사례 uploads: reading picked or dropped folders, previewing them per folder, and shrinking each
+// Browser helpers for 시공 사례 uploads: reading picked or dropped folders and shrinking each
 // photo before it is uploaded on its own (spec docs/superpowers/specs/2026-11-27-project-upload-per-photo-design.md).
 // Moved from page.tsx.
-
-export type PreviewProject = {
-  title: string;
-  count: number;
-  rooms: string[];
-  coverCount: number;
-  beforeCount: number;
-};
 
 // Each photo goes in a request of its own (Vercel caps one near 4.5MB; /api/manager/project-asset takes up to 4,000,000
 // bytes), so it keeps 2048px on its long side at quality 0.85; one still over 3,800,000 bytes goes down to 1600px at 0.8,
@@ -24,41 +16,11 @@ export function isPhotoFile(file: File) {
   return file.type.startsWith('image/') || /\.(heic|heif)$/i.test(file.name);
 }
 
-const COVER_NAME = /^(대표|메인|썸네일|커버|cover|main|thumbnail|thumb)$/i;
-const BEFORE_NAME = /^(시공전|공사전|before|비포)$/i;
-
 // The folder a file belongs to: the folder that holds it (a project), or the file name for a loose file.
 export function projectTitleOfPath(path: string, fallbackName: string) {
   const parts = path.split(/[\\/]+/).filter(Boolean);
   const fileName = parts[parts.length - 1] || fallbackName;
   return parts.length > 1 ? parts[parts.length - 2] : fileName.replace(/\.[^.]+$/, '');
-}
-
-export function buildPreview(files: File[]): PreviewProject[] {
-  const map = new Map<string, { count: number; rooms: Set<string>; coverCount: number; beforeCount: number }>();
-
-  files.forEach((file) => {
-    const path = file.webkitRelativePath || file.name;
-    const parts = path.split(/[\\/]+/).filter(Boolean);
-    const fileName = parts[parts.length - 1] || file.name;
-    const projectTitle = projectTitleOfPath(path, file.name);
-    const normalized = fileName.replace(/\.[^.]+$/, '').trim().toLowerCase().replace(/\s+/g, '');
-    const room = roomNameFromFile(fileName);
-    const current = map.get(projectTitle) || { count: 0, rooms: new Set<string>(), coverCount: 0, beforeCount: 0 };
-    current.count += 1;
-    if (COVER_NAME.test(normalized)) current.coverCount += 1;
-    else if (BEFORE_NAME.test(normalized)) current.beforeCount += 1;
-    else if (room) current.rooms.add(room);
-    map.set(projectTitle, current);
-  });
-
-  return Array.from(map.entries()).map(([title, value]) => ({
-    title,
-    count: value.count,
-    rooms: Array.from(value.rooms),
-    coverCount: value.coverCount,
-    beforeCount: value.beforeCount,
-  }));
 }
 
 type DropFileEntry = {
@@ -120,17 +82,6 @@ function fileWithRelativePath(file: File, relativePath: string) {
   }
 
   return file;
-}
-
-function roomNameFromFile(fileName: string) {
-  const baseName = fileName.replace(/\.[^.]+$/, '').trim();
-  const normalized = baseName.toLowerCase().replace(/\s+/g, '');
-
-  if (COVER_NAME.test(normalized)) return '';
-  if (BEFORE_NAME.test(normalized)) return '시공 전';
-
-  const match = baseName.match(/^(.*?)[\s_-]*(\d+)$/);
-  return (match ? match[1] : baseName).trim();
 }
 
 // One photo, ready for its own upload request. Throws with a reason the screen shows when the photo cannot be opened or
