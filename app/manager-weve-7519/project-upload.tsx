@@ -7,7 +7,8 @@ import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'rea
 import { UploadCloud } from 'lucide-react';
 import { sameTitleProjects, uploadSummary, type UploadResult } from '../lib/project-upload-rules';
 import type { CategoryOption, ManagedProject } from './project-types';
-import { MAX_UPLOAD_BYTES, buildPreview, filesFromDrop, prepareUploadFiles } from './project-upload-files';
+import { buildPreview, filesFromDrop, isPhotoFile, shrinkPhotoForUpload } from './project-upload-files';
+import { finalError, runUploadQueue } from '../lib/upload-queue';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
 const label = 'grid gap-1 text-xs font-semibold text-[#4d5d66]';
@@ -54,6 +55,10 @@ export function ProjectUploadPanel({
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
+  // Videos in the picked folders, left out.
+  const [leftOut, setLeftOut] = useState(0);
+  // Photos already stored by an earlier try of this upload: pressing [올리기] again sends only the rest.
+  const storedAssets = useRef(new Map<File, string>());
   const busyRef = useRef(false);
 
   const folders = useMemo(() => buildPreview(files), [files]);
@@ -74,7 +79,10 @@ export function ProjectUploadPanel({
   const canUpload = files.length > 0 && unchosen.length === 0 && !tooManyFolders && !categoryMissing && !busy;
 
   const takeFiles = (picked: File[]) => {
-    setFiles(picked.filter((file) => file.type.startsWith('image/')));
+    const photos = picked.filter(isPhotoFile);
+    setFiles(photos);
+    setLeftOut(picked.filter((file) => file.type.startsWith('video/')).length);
+    storedAssets.current = new Map();
     setChoices({});
   };
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -90,34 +98,79 @@ export function ProjectUploadPanel({
     }
   };
 
+  // One photo: shrunk, then stored as a Sanity image (/api/manager/project-asset); its asset id comes back. A photo that
+  // cannot be opened or stays too large is marked skip (left out, the rest goes on); a request the server refuses is not
+  // tried again; a network or server failure is.
+  const uploadOnePhoto = async (file: File) => {
+    const stored = storedAssets.current.get(file);
+    if (stored) return stored;
+    let small: File;
+    try {
+      small = await shrinkPhotoForUpload(file);
+    } catch (caught) {
+      throw Object.assign(finalError(caught instanceof Error ? caught.message : '사진을 열 수 없습니다'), { skip: true });
+    }
+    const body = new FormData();
+    body.append('file', small);
+    const response = await fetch('/api/manager/project-asset', { method: 'POST', headers: authHeaders(), body });
+    const data = await readJson<{ assetId?: string; error?: string }>(response);
+    if (!response.ok || !data.assetId) {
+      const message = data.error || '사진을 올리지 못했습니다.';
+      const refused = response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
+      throw refused ? finalError(message) : new Error(message);
+    }
+    storedAssets.current.set(file, data.assetId);
+    return data.assetId;
+  };
+  // 'a.jpg(사유), b.jpg(사유) 외 N장'
+  const describeFiles = (indexes: number[], errors: (Error | null)[]) =>
+    indexes
+      .slice(0, 3)
+      .map((index) => `${files[index].name}(${errors[index]?.message || '알 수 없는 오류'})`)
+      .join(', ') + (indexes.length > 3 ? ` 외 ${indexes.length - 3}장` : '');
+
   const submit = async () => {
     if (busyRef.current || !canUpload) return;
     busyRef.current = true;
     setBusy(true);
     setError('');
     try {
-      setProgress('사진을 웹용으로 줄이는 중');
-      const prepared = await prepareUploadFiles(files);
-      const totalBytes = prepared.reduce((total, item) => total + item.file.size, 0);
-      if (totalBytes > MAX_UPLOAD_BYTES) {
-        setError('사진 용량이 아직 큽니다. 한 번에 올릴 사진 수를 줄이거나 원본 사진을 조금 더 작게 저장한 뒤 다시 시도해 주세요.');
+      // Each photo is shrunk and uploaded on its own, three at a time (spec 2026-11-27-project-upload-per-photo-design.md),
+      // so there is no limit on how many a folder holds. A failed photo is tried twice more, after 1 and 3 seconds. If one
+      // still fails, no project is made or changed and the error names it; pressing [올리기] again sends only the photos
+      // not stored yet. A photo that cannot be opened (HEIC outside Safari, a broken file) is left out with a note.
+      setProgress(`사진 올리는 중 0/${files.length}장`);
+      const uploaded = await runUploadQueue(files, (file) => uploadOnePhoto(file), {
+        concurrency: 3,
+        retries: 2,
+        retryDelays: [1000, 3000],
+        onProgress: (done, total) => setProgress(`사진 올리는 중 ${done}/${total}장`),
+      });
+      const skipped = uploaded.failed.filter((index) => (uploaded.errors[index] as { skip?: boolean } | null)?.skip);
+      const blocked = uploaded.failed.filter((index) => !skipped.includes(index));
+      if (blocked.length > 0) {
+        setError(`사진 ${blocked.length}장을 올리지 못했습니다: ${describeFiles(blocked, uploaded.errors)}. 인터넷 연결을 확인한 뒤 [올리기]를 다시 누르면 못 올린 사진만 다시 올립니다.`);
         return;
       }
-
-      const body = new FormData();
-      prepared.forEach((item) => body.append('files', item.file));
-      body.append('paths', JSON.stringify(prepared.map((item) => item.path)));
-      body.append('targets', JSON.stringify(targets));
-      if (needsCategory) {
-        if (newCategory.trim()) body.append('category', newCategory.trim());
-        else {
-          body.append('categoryId', categoryId);
-          body.append('category', categories.find((category) => category._id === categoryId)?.title || '');
-        }
+      const usable = files.map((_, index) => index).filter((index) => !skipped.includes(index));
+      if (usable.length === 0) {
+        setError(`올릴 수 있는 사진이 없습니다: ${describeFiles(skipped, uploaded.errors)}`);
+        return;
       }
+      const photos = usable.map((index) => ({ path: files[index].webkitRelativePath || files[index].name, assetId: uploaded.results[index] || '' }));
+      const skippedNote = skipped.length > 0 ? `열 수 없거나 너무 큰 사진 ${skipped.length}장은 빼고 올렸습니다: ${describeFiles(skipped, uploaded.errors)}` : '';
 
-      setProgress('올리는 중');
-      const response = await fetch('/api/manager/bulk-upload', { method: 'POST', headers: authHeaders(), body });
+      setProgress('시공 사례 만드는 중');
+      const category = !needsCategory
+        ? {}
+        : newCategory.trim()
+          ? { category: newCategory.trim() }
+          : { categoryId, category: categories.find((item) => item._id === categoryId)?.title || '' };
+      const response = await fetch('/api/manager/bulk-upload', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photos, targets: JSON.stringify(targets), ...category }),
+      });
       const data = await readJson<{ results?: UploadResult[]; error?: string }>(response);
       if (!response.ok) {
         setError(data.error || '올리지 못했습니다.');
@@ -127,7 +180,8 @@ export function ProjectUploadPanel({
       const results = data.results || [];
       const problems = results.filter((result) => result.status === 'skipped' || result.status === 'failed');
       setStatus(uploadSummary(results));
-      if (problems.length > 0) setError(problems.map((result) => `${result.projectTitle}: ${result.reason || '처리하지 못했습니다.'}`).join(' / '));
+      const problemNote = problems.map((result) => `${result.projectTitle}: ${result.reason || '처리하지 못했습니다.'}`).join(' / ');
+      if (problemNote || skippedNote) setError([problemNote, skippedNote].filter(Boolean).join(' / '));
       await reload();
 
       // The form starts clean next time (it closes); the editor reopens the project to work on (afterUploadSelection).
@@ -177,6 +231,9 @@ export function ProjectUploadPanel({
         <span className="mt-1 text-xs text-[#60717d]">대표·cover → 대표 사진, 시공전·before → 시공 전 사진, 거실1·주방2 → 공간별 묶음과 순서</span>
         <input type="file" multiple accept="image/*" className="hidden" onChange={onPick} disabled={busy} {...{ webkitdirectory: '', directory: '' }} />
       </label>
+      {leftOut > 0 && (
+        <p className="text-xs text-[#8a6215]">동영상 {leftOut}개는 뺐습니다. 사진만 올라갑니다.</p>
+      )}
 
       {folders.length > 0 && (
         <ul className="grid gap-2">

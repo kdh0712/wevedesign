@@ -14,8 +14,11 @@ first). Calls marked *(my call)* were not discussed and may be corrected.
 - Starting the mode closes the editor (asking first when it has unsaved changes). An open form still holds the old 보이는
   순서 and would put it back on [저장]. *(my call)*
 - The homepage lists (시공 사례 page and the main page's 메인 시공 사례) order by 보이는 순서 only (missing last), then
-  newest. 메인 표시 now only decides whether a project is also on the main page. The manager list uses the same order.
-  The homepage cache refreshes within 60 seconds.
+  newest. 메인 표시 now only decides whether a project is also on the main page. The manager list uses the same order,
+  and so do the 안양·의왕 landing pages' first six. The homepage caches for about a minute and may show the old order a
+  few minutes longer while it refreshes, so the message says "몇 분 안에".
+- Projects without a number, such as a new upload, come after every numbered one until staff place them. The list holds
+  up to 200 projects (41 today).
 
 ## How (my calls)
 
@@ -30,3 +33,14 @@ first). Calls marked *(my call)* were not discussed and may be corrected.
     exists.
 - `projectQuery` (`app/lib/portfolio-data.ts`) orders `coalesce(displayOrder, 1000000) asc, _createdAt desc`.
 - The 보이는 순서 field stays in the editor.
+
+## Review findings (fixed)
+
+- Draft lookups use the raw perspective. The client's API version defaults to published, so drafts were never found or
+  patched. This covers the order save, the form save, 공개/숨기기 and the folder upload.
+- [순서 저장] writes only the projects whose number changes, without touching `updatedAt`. A reorder is not a content
+  change: it should not move the sitemap's lastModified or break other tabs' save guard on projects that did not move.
+- The editor sends 보이는 순서 only when staff changed it there (`buildProjectPatch` leaves it out otherwise). An editor
+  opened before a reorder, also in another tab, no longer puts the old number back.
+- [순서 변경] is off while the upload panel is open.
+- A drop in the gap between rows lands where the line shows.
