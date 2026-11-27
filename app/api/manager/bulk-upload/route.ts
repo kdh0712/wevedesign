@@ -99,7 +99,8 @@ async function handleBulkUpload(request: Request) {
         const updates = { ...patch.set, updatedAt: new Date().toISOString() };
         await managerClient.patch(projectId).set(updates).unset(patch.unset).commit();
         const draftId = `drafts.${projectId}`;
-        const draft = await managerClient.fetch<{ _id?: string } | null>('*[_id == $draftId][0]{_id}', { draftId });
+        // Drafts are only visible in the raw perspective (the client's default since API v2025-02-19 is published).
+        const draft = await managerClient.fetch<{ _id?: string } | null>('*[_id == $draftId][0]{_id}', { draftId }, { perspective: 'raw' });
         if (draft?._id) await managerClient.patch(draftId).set(updates).unset(patch.unset).commit();
         results.push({ projectTitle, status: 'replaced', projectId, imageCount, groupCount: galleryGroups.length });
       } else {
