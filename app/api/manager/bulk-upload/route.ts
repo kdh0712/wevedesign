@@ -64,11 +64,15 @@ async function handleBulkUpload(request: Request) {
 async function createProject(folder: FolderUpload, imageCount: number): Promise<UploadResult> {
   const info = folder.info;
   let categoryId = info?.categoryId.trim() || '';
+  const newCategory = categoryId ? '' : info?.newCategory.trim() || '';
+  // Checked before a new 공간 분류 is made, so a folder that is refused leaves none behind.
+  const checked = buildProjectPatch(folderProjectInput(folder, categoryId || (newCategory ? 'new-category' : '')));
+  if (!checked.ok) return { projectTitle: folder.title, status: 'skipped', reason: checked.error };
   if (categoryId) {
     const category = await managerClient.fetch<string | null>('*[_type == "category" && _id == $id][0]._id', { id: categoryId });
     if (!category) return { projectTitle: folder.title, status: 'failed', reason: '공간 분류를 찾을 수 없습니다.' };
-  } else if (info?.newCategory.trim()) {
-    categoryId = (await getOrCreateCategory(info.newCategory.trim()))._id;
+  } else {
+    categoryId = (await getOrCreateCategory(newCategory))._id;
   }
   const built = buildProjectPatch(folderProjectInput(folder, categoryId));
   if (!built.ok) return { projectTitle: folder.title, status: 'skipped', reason: built.error };

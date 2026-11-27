@@ -110,7 +110,8 @@ export function parseUploadPath(path: string): ParsedUploadPath {
   const normalized = baseName.toLowerCase().replace(/\s+/g, '');
   if (COVER_NAME.test(normalized)) return { projectTitle, kind: 'cover', roomType: '대표', order: 1 };
   if (BEFORE_NAME.test(normalized)) return { projectTitle, kind: 'before', roomType: '시공 전', order: 1 };
-  const match = baseName.match(/^(.*?)[\s_-]*(\d+)$/);
+  // 거실1, 거실 2, 거실_3, and Windows bulk renames: 거실 (4).
+  const match = baseName.match(/^(.*?)[\s_-]*\(?(\d+)\)?$/);
   return { projectTitle, kind: 'detail', roomType: (match ? match[1] : baseName).trim() || '상세', order: match ? Number(match[2]) : 1 };
 }
 
@@ -195,7 +196,7 @@ export function readFolderUploadBody(body: unknown): { folders: FolderUpload[]; 
       const group = (rawGroup || {}) as Record<string, unknown>;
       const roomType = str(group.roomType).trim();
       if (!roomType || roomType.length > MAX_FOLDER_ROOM) return { error: `공간 이름은 1~${MAX_FOLDER_ROOM}자로 입력해 주세요.` };
-      if (!Array.isArray(group.photos)) return photoError;
+      if (!Array.isArray(group.photos) || group.photos.length === 0) return photoError;
       const photos: FolderGroup['photos'] = [];
       for (const rawPhoto of group.photos) {
         const photo = (rawPhoto || {}) as Record<string, unknown>;

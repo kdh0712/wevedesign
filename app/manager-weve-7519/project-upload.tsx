@@ -111,6 +111,7 @@ export function ProjectUploadPanel({
       if (problem) return `기본 정보: ${problem}`;
     }
     const problem = arrangementProblem(arrangements[folder]);
+    if (problem === '올릴 사진이 없습니다.') return '사진이 없습니다. 이 폴더를 빼 주세요.';
     return problem ? `사진: ${problem}` : null;
   };
   const tooManyFolders = Boolean(replaceTarget) && folders.length > 1;
@@ -121,25 +122,41 @@ export function ProjectUploadPanel({
       nextKey.current += 1;
       return { key: `photo-${nextKey.current}`, file, folder };
     });
+  // Folders picked or dropped are added to the ones already here (review finding: picking again wiped what was typed). A
+  // folder of the same name gets the new photos in 미분류.
   const takeFiles = (picked: File[]) => {
     const usable = picked.filter(isPhotoFile);
-    const next = usable.flatMap((file) => makeKeys([file], projectTitleOfPath(pathOf(file), file.name).trim() || '사진'));
-    const names = [...new Set(next.map((photo) => photo.folder))];
-    setPhotos(next);
-    setArrangements(
-      Object.fromEntries(
-        names.map((folder) => [
-          folder,
-          initialArrangement(next.filter((photo) => photo.folder === folder).map((photo) => ({ key: photo.key, path: pathOf(photo.file), name: photo.file.name }))),
-        ]),
-      ),
-    );
-    setInfos(Object.fromEntries(names.map((folder) => [folder, emptyInfo(folder)])));
-    setLeftOut(picked.filter((file) => file.type.startsWith('video/')).length);
-    storedAssets.current = new Map();
-    setChoices({});
-    // One folder: its popup opens at once.
-    setOpenFolder(names.length === 1 ? names[0] : '');
+    if (usable.length === 0) {
+      setError('고른 폴더에 올릴 수 있는 사진이 없습니다.');
+      return;
+    }
+    const added = usable.flatMap((file) => makeKeys([file], projectTitleOfPath(pathOf(file), file.name).trim() || '사진'));
+    const names = [...new Set(added.map((photo) => photo.folder))];
+    const fresh = names.filter((folder) => !arrangements[folder]);
+    setPhotos((current) => [...current, ...added]);
+    setArrangements((current) => {
+      const next = { ...current };
+      for (const folder of names) {
+        const keys = added.filter((photo) => photo.folder === folder);
+        next[folder] = current[folder]
+          ? movePhotos(current[folder], keys.map((photo) => photo.key), { kind: 'unsorted' })
+          : initialArrangement(keys.map((photo) => ({ key: photo.key, path: pathOf(photo.file), name: photo.file.name })));
+      }
+      return next;
+    });
+    setInfos((current) => ({ ...Object.fromEntries(fresh.map((folder) => [folder, emptyInfo(folder)])), ...current }));
+    setLeftOut((current) => current + picked.filter((file) => file.type.startsWith('video/')).length);
+    // The first folder picked opens at once, unless it first needs the replace / new choice.
+    if (folders.length === 0 && names.length === 1 && targetOf(names[0])) setOpenFolder(names[0]);
+  };
+  // [폴더 빼기]: the folder leaves this upload.
+  const dropFolder = (folder: string) => {
+    setPhotos((current) => current.filter((photo) => photo.folder !== folder));
+    const without = <T,>(record: Record<string, T>) => Object.fromEntries(Object.entries(record).filter(([key]) => key !== folder));
+    setArrangements(without);
+    setInfos(without);
+    setChoices(without);
+    if (openFolder === folder) setOpenFolder('');
   };
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
     takeFiles(Array.from(event.target.files || []));
@@ -153,12 +170,15 @@ export function ProjectUploadPanel({
       setError(caught instanceof Error ? caught.message : '끌어온 폴더를 읽지 못했습니다.');
     }
   };
-  // [+ 사진 추가] in a room of the popup.
+  // [+ 사진 추가] in a room of the popup, or photos dropped on it from the computer ('' = 미분류).
   const addPhotos = (folder: string, files: File[], roomName: string) => {
     const added = makeKeys(files.filter(isPhotoFile), folder);
     if (added.length === 0) return;
     setPhotos((current) => [...current, ...added]);
-    setArrangements((current) => ({ ...current, [folder]: movePhotos(current[folder], added.map((photo) => photo.key), { kind: 'room', name: roomName }) }));
+    setArrangements((current) => ({
+      ...current,
+      [folder]: movePhotos(current[folder], added.map((photo) => photo.key), roomName ? { kind: 'room', name: roomName } : { kind: 'unsorted' }),
+    }));
   };
 
   // One photo: shrunk, then stored as a Sanity image (/api/manager/project-asset); its asset id comes back. A photo that
@@ -321,9 +341,14 @@ export function ProjectUploadPanel({
                     <span className="font-semibold text-[#171512]">{targets[folder] === 'new' ? infos[folder]?.title.trim() || folder : folder}</span>
                     <span className="text-[#60717d]"> · 사진 {countOf(arrangements[folder])}장</span>
                   </span>
-                  <button type="button" onClick={() => setOpenFolder(folder)} disabled={busy} className={secondaryButton}>
-                    정보·사진 정리
-                  </button>
+                  <span className="flex gap-1.5">
+                    <button type="button" onClick={() => setOpenFolder(folder)} disabled={busy || !targets[folder]} className={secondaryButton}>
+                      정보·사진 정리
+                    </button>
+                    <button type="button" onClick={() => dropFolder(folder)} disabled={busy} className={secondaryButton} aria-label={`${folder} 폴더 빼기`}>
+                      빼기
+                    </button>
+                  </span>
                 </div>
                 <span className={`text-xs font-semibold ${problem ? 'text-[#b45309]' : 'text-[#277a46]'}`}>{problem || '준비됨 ✓'}</span>
                 {matches.length > 0 && (
@@ -385,6 +410,9 @@ export function ProjectUploadPanel({
           photos={dialogPhotos}
           arrangement={arrangements[openFolder]}
           info={targets[openFolder] === 'new' ? infos[openFolder] || emptyInfo(openFolder) : null}
+          duplicateTitle={
+            targets[openFolder] === 'new' && sameTitleProjects((infos[openFolder] || emptyInfo(openFolder)).title, projects).length > 0
+          }
           categories={categories}
           onArrangement={(next) => setArrangements((current) => ({ ...current, [openFolder]: next }))}
           onInfo={(next) => setInfos((current) => ({ ...current, [openFolder]: next }))}

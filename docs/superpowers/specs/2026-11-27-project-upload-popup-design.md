@@ -40,7 +40,32 @@ Builds on PR #71 (photos uploaded one by one). Calls marked *(my call)* were not
   photos and spaces, and checks before upload. Tested.
 - The upload sends each folder's arrangement instead of file paths:
   `{ folders: [{ title, target, info?, coverAssetId, beforeAssetId, groups: [{ roomType, photos: [{ assetId, caption }] }] }] }`.
-  - The server builds the project from it with the same Sanity shapes (`galleryGroupsFromPhotos`).
+  - A replacement's groups are written by `galleryGroupsFromFolder`, in the shape the file-name upload always wrote.
   - New projects also get the information through `buildProjectPatch`.
   - The path-based body of PR #71 is replaced; the page is its only caller.
 - Thumbnails are object URLs of the picked files (revoked when the panel closes), lazy-loaded.
+
+## Review findings (fixed)
+
+- File names:
+  - Windows bulk renames (`거실 (1).jpg`) count as room + number;
+  - a name that is only a number starts in 미분류 rather than a room called 상세.
+- Photos dragged from the computer onto the popup go into that room, or into 미분류; before, the browser could open the
+  image and lose the work.
+- Picking or dropping more folders adds them. A folder of the same name gets the new photos in 미분류. Before, picking
+  again wiped everything typed.
+- A folder can be taken out of the upload ([빼기] on its row). An emptied folder says so instead of silently blocking.
+- The first folder's popup opens at once only when no replace / new choice is waiting.
+- The 이름 shows a note when another project has it; this does not block, as in the editor.
+- Smaller fixes:
+  - [+ 공간 추가] ignores the Korean IME's composing Enter;
+  - thumbnails are made once per photo, so an added photo does not reload the rest;
+  - a photo tile drag carries a custom type, so it never types into a text field;
+  - focus moves into the popup and back.
+- A replacement with no 시공 전 photo keeps the stored one (as before), and the popup now says so.
+- The server checks a new folder before it makes a typed 공간 분류, so a refused folder leaves none behind. It refuses a
+  room with no photos.
+
+Left as they are:
+- photos cannot be reordered with the keyboard (drag or the space buttons only);
+- Escape closes the popup even while a dropdown in it is open. Nothing is lost: every change is already kept by the panel.

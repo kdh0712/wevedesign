@@ -180,3 +180,12 @@ test('folderInfoProblem checks a new folder’s information with the editor’s 
   assert.equal(folderInfoProblem({ ...info, area: '삼십' }), '평수는 0보다 큰 숫자로 입력해 주세요.');
   assert.equal(folderInfoProblem({ ...info, year: '26' }), '시공 연도는 4자리로 입력해 주세요.');
 });
+
+test('parseUploadPath reads a Windows bulk-rename number in brackets (review finding)', () => {
+  assert.deepEqual(parseUploadPath('평촌/거실 (2).jpg'), { projectTitle: '평촌', kind: 'detail', roomType: '거실', order: 2 });
+  assert.deepEqual(parseUploadPath('평촌/주방(10).jpg'), { projectTitle: '평촌', kind: 'detail', roomType: '주방', order: 10 });
+});
+
+test('readFolderUploadBody refuses a room with no photos (review finding)', () => {
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ groups: [{ roomType: '거실', photos: [] }] })] }), { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' });
+});

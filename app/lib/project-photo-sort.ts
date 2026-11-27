@@ -14,10 +14,13 @@ export type PhotoPlace = { kind: 'cover' } | { kind: 'before' } | { kind: 'unsor
 
 export const MAX_ROOM_NAME = 20;
 const HANGUL = /[가-힣]/;
+// The room parseUploadPath gives a file named by a number alone.
+const NUMBER_ONLY_ROOM = '상세';
 const koreanOrder = new Intl.Collator('ko-KR', { numeric: true, sensitivity: 'base' });
 
-// The file-name rules start the sort: 대표 / 시공전, and 거실1·주방2 into rooms in number order. A name with no Korean
-// letter (IMG_2041, DSC0001) or too long for a room, and a second 대표 or 시공전, wait in 미분류.
+// The file-name rules start the sort: 대표 / 시공전, and 거실1·주방2 (or 거실 (3)) into rooms in number order. A name with
+// no Korean letter (IMG_2041, DSC0001), a number alone (parseUploadPath's stand-in room 상세), one too long for a room, and
+// a second 대표 or 시공전, wait in 미분류.
 export function initialArrangement(photos: readonly SortPhoto[]): PhotoArrangement {
   let cover: string | null = null;
   let before: string | null = null;
@@ -27,7 +30,7 @@ export function initialArrangement(photos: readonly SortPhoto[]): PhotoArrangeme
     const parsed = parseUploadPath(photo.path);
     if (parsed.kind === 'cover' && cover === null) cover = photo.key;
     else if (parsed.kind === 'before' && before === null) before = photo.key;
-    else if (parsed.kind === 'detail' && HANGUL.test(parsed.roomType) && parsed.roomType.length <= MAX_ROOM_NAME) {
+    else if (parsed.kind === 'detail' && HANGUL.test(parsed.roomType) && parsed.roomType !== NUMBER_ONLY_ROOM && parsed.roomType.length <= MAX_ROOM_NAME) {
       rooms.set(parsed.roomType, [...(rooms.get(parsed.roomType) || []), { key: photo.key, path: photo.path, order: parsed.order }]);
     } else unsorted.push({ key: photo.key, path: photo.path });
   }

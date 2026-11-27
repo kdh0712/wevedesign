@@ -96,3 +96,9 @@ test('arrangedPhotos gives the cover (else the first room photo), the 시공 전
     ],
   });
 });
+
+test('initialArrangement puts Windows bulk-rename names into one room, and number-only names in 미분류 (review finding)', () => {
+  const a = initialArrangement([photo('a', '거실 (2).jpg'), photo('b', '거실 (1).jpg'), photo('c', '12.jpg'), photo('d', '002.jpg')]);
+  assert.deepEqual(a.rooms, [{ name: '거실', keys: ['b', 'a'] }]);
+  assert.deepEqual(a.unsorted, ['d', 'c']);
+});

@@ -4,6 +4,9 @@
 // The 기본 정보 tab (new projects only) takes the editor's fields; the 사진 정리 tab places each photo — 대표, 시공 전, a room
 // in order, or 미분류 — and adds photos to a room from the computer. Every change goes straight to the upload panel.
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from 'react';
+
+// A tile drag carries its key under this type only, so dropping it on a text field types nothing.
+const PHOTO_DRAG_TYPE = 'application/x-weve-photo';
 import { Plus, X } from 'lucide-react';
 import {
   addRoom,
@@ -30,6 +33,7 @@ export function ProjectUploadDialog({
   photos,
   arrangement,
   info,
+  duplicateTitle = false,
   categories,
   onArrangement,
   onInfo,
@@ -42,10 +46,12 @@ export function ProjectUploadDialog({
   arrangement: PhotoArrangement;
   // null for [사진 다시 올리기]: the project's information is not changed.
   info: FolderInfo | null;
+  // The 이름 is another project's too (allowed, only pointed out, as in the editor).
+  duplicateTitle?: boolean;
   categories: CategoryOption[];
   onArrangement: (next: PhotoArrangement) => void;
   onInfo: (next: FolderInfo) => void;
-  // Files picked with a room's [+ 사진 추가], to go into that room.
+  // Files picked with a room's [+ 사진 추가] or dropped from the computer, to go into that room ('' = 미분류).
   onAddPhotos: (files: File[], roomName: string) => void;
   onClose: () => void;
 }) {
@@ -58,14 +64,37 @@ export function ProjectUploadDialog({
   const [addTarget, setAddTarget] = useState('');
   const addInput = useRef<HTMLInputElement>(null);
 
-  // Thumbnails from the picked files themselves, made and released by the same effect (so React's double run in
-  // development never leaves released addresses on screen), released when the popup closes or the photos change.
+  // Thumbnails from the picked files themselves: made once per photo (an added photo does not reload the others) and
+  // released when its photo goes or the popup closes. The unmount effect clears the map, so React's double run in
+  // development makes them again instead of showing released addresses.
+  const urlMap = useRef(new Map<string, string>());
   const [urls, setUrls] = useState<Map<string, string>>(() => new Map());
   useEffect(() => {
-    const made = new Map(photos.map((photo) => [photo.key, URL.createObjectURL(photo.file)]));
-    setUrls(made);
-    return () => made.forEach((url) => URL.revokeObjectURL(url));
+    const keys = new Set(photos.map((photo) => photo.key));
+    for (const [key, url] of urlMap.current) {
+      if (!keys.has(key)) {
+        URL.revokeObjectURL(url);
+        urlMap.current.delete(key);
+      }
+    }
+    for (const photo of photos) if (!urlMap.current.has(photo.key)) urlMap.current.set(photo.key, URL.createObjectURL(photo.file));
+    setUrls(new Map(urlMap.current));
   }, [photos]);
+  useEffect(() => {
+    const map = urlMap.current;
+    return () => {
+      map.forEach((url) => URL.revokeObjectURL(url));
+      map.clear();
+    };
+  }, []);
+
+  // Focus goes into the popup and back to where it was when it closes.
+  const dialogRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => before?.focus();
+  }, []);
   const nameOf = useMemo(() => new Map(photos.map((photo) => [photo.key, photo.file.name])), [photos]);
 
   useEffect(() => {
@@ -105,19 +134,26 @@ export function ProjectUploadDialog({
     setSelected([]);
     setLastClicked('');
   };
-  const dropOnPhoto = (event: DragEvent, targetKey: string) => {
+  // Photos dragged in from the computer (review finding: the browser would open the image and the work would be lost).
+  const droppedFiles = (event: DragEvent) => (event.dataTransfer.types.includes('Files') ? Array.from(event.dataTransfer.files) : []);
+  const dropOnPhoto = (event: DragEvent, targetKey: string, roomName: string) => {
     event.preventDefault();
     event.stopPropagation();
-    if (dragging) onArrangement(placePhotoBefore(arrangement, dragging, targetKey));
+    const files = droppedFiles(event);
+    if (files.length > 0) onAddPhotos(files, roomName);
+    else if (dragging) onArrangement(placePhotoBefore(arrangement, dragging, targetKey));
     setDragging('');
   };
   const dropOnPlace = (event: DragEvent, place: PhotoPlace) => {
     event.preventDefault();
-    if (dragging) onArrangement(movePhotos(arrangement, [dragging], place));
+    event.stopPropagation();
+    const files = droppedFiles(event);
+    if (files.length > 0) onAddPhotos(files, place.kind === 'room' ? place.name : '');
+    else if (dragging) onArrangement(movePhotos(arrangement, [dragging], place));
     setDragging('');
   };
   const allowDrop = (event: DragEvent) => {
-    if (dragging) event.preventDefault();
+    if (dragging || event.dataTransfer.types.includes('Files')) event.preventDefault();
   };
   const makeRoom = () => {
     const next = addRoom(arrangement, newRoom);
@@ -140,7 +176,7 @@ export function ProjectUploadDialog({
   };
   const setInfo = (patch: Partial<FolderInfo>) => info && onInfo({ ...info, ...patch });
 
-  const tile = (key: string, number?: number) => (
+  const tile = (key: string, roomName: string, number?: number) => (
     <div
       key={key}
       role="button"
@@ -148,12 +184,12 @@ export function ProjectUploadDialog({
       draggable
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', key);
+        event.dataTransfer.setData(PHOTO_DRAG_TYPE, key);
         setDragging(key);
       }}
       onDragEnd={() => setDragging('')}
       onDragOver={allowDrop}
-      onDrop={(event) => dropOnPhoto(event, key)}
+      onDrop={(event) => dropOnPhoto(event, key, roomName)}
       onClick={(event) => click(event, key)}
       onKeyDown={(event) => {
         if (event.key === ' ' || event.key === 'Enter') {
@@ -174,7 +210,7 @@ export function ProjectUploadDialog({
       <span className="absolute inset-x-0 bottom-0 truncate bg-white/85 px-1 text-[10px] text-[#273541]">{nameOf.get(key)}</span>
     </div>
   );
-  const section = (title: string, keys: string[], place: PhotoPlace, extra?: { numbered?: boolean; onAdd?: () => void; tone?: string }) => (
+  const section = (title: string, keys: string[], place: PhotoPlace, extra?: { numbered?: boolean; onAdd?: () => void; tone?: string; note?: string }) => (
     <section className="grid gap-1.5" onDragOver={allowDrop} onDrop={(event) => dropOnPlace(event, place)}>
       <div className="flex items-center gap-2">
         <h4 className={`text-sm font-bold ${extra?.tone || 'text-[#171512]'}`}>
@@ -187,8 +223,8 @@ export function ProjectUploadDialog({
         )}
       </div>
       <div className={`grid min-h-12 grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2 rounded-md border border-dashed p-1 ${dragging ? 'border-[#9db6c1]' : 'border-transparent'}`}>
-        {keys.map((key, index) => tile(key, extra?.numbered ? index + 1 : undefined))}
-        {keys.length === 0 && <p className="col-span-full self-center px-1 text-xs text-[#9aa6ad]">사진을 끌어 놓거나 골라서 옮기세요.</p>}
+        {keys.map((key, index) => tile(key, place.kind === 'room' ? place.name : '', extra?.numbered ? index + 1 : undefined))}
+        {keys.length === 0 && <p className="col-span-full self-center px-1 text-xs text-[#9aa6ad]">{extra?.note || '사진을 끌어 놓거나 골라서 옮기세요.'}</p>}
       </div>
     </section>
   );
@@ -196,8 +232,21 @@ export function ProjectUploadDialog({
   const dot = (ok: boolean) => <span className={`ml-1 inline-block h-1.5 w-1.5 rounded-full align-middle ${ok ? 'bg-[#277a46]' : 'bg-[#d92d20]'}`} />;
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="정보·사진 정리" className="fixed inset-0 z-[70] flex items-center justify-center bg-[#171512]/50 p-4">
-      <section className="grid h-[min(760px,calc(100vh-32px))] w-full max-w-[1000px] grid-rows-[auto_auto_1fr_auto] overflow-hidden rounded-xl bg-white shadow-2xl">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="정보·사진 정리"
+      // A file dropped anywhere else on the popup goes to 미분류 instead of making the browser open it; a photo tile
+      // dropped outside a place stays where it was.
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (event.dataTransfer.types.includes('Files')) dropOnPlace(event, { kind: 'unsorted' });
+      }}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[#171512]/50 p-4"
+    >
+      <section ref={dialogRef} tabIndex={-1} className="grid h-[min(760px,calc(100vh-32px))] w-full max-w-[1000px] grid-rows-[auto_auto_1fr_auto] overflow-hidden rounded-xl bg-white shadow-2xl outline-none">
         <div className="flex items-start justify-between gap-3 px-5 pb-2 pt-4">
           <h2 className="text-base font-semibold">정보·사진 정리 · {folderTitle}</h2>
           <button type="button" onClick={onClose} aria-label="닫기" className="rounded-full border border-[#d5dde2] p-1.5 text-[#60717d]">
@@ -215,12 +264,13 @@ export function ProjectUploadDialog({
           </button>
         </div>
 
-        <div className="overflow-y-auto px-5 py-4">
+        <div className="overflow-y-auto px-5 py-4" role="tabpanel" aria-label={tab === 'info' ? '기본 정보' : '사진 정리'}>
           {tab === 'info' && info ? (
             <div className="grid max-w-3xl gap-3 sm:grid-cols-2">
               <label className={label}>
                 이름 *
                 <input className={input} value={info.title} onChange={(event) => setInfo({ title: event.target.value })} />
+                {duplicateTitle && <span className="font-normal text-[#8a6215]">같은 이름의 시공 사례가 이미 있습니다. 그래도 새로 만들 수 있습니다.</span>}
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <label className={label}>
@@ -308,7 +358,8 @@ export function ProjectUploadDialog({
                       setRoomError('');
                     }}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter') makeRoom();
+                      // Not while the Korean IME is still composing (its Enter can arrive twice).
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.keyCode !== 229) makeRoom();
                     }}
                     placeholder="새 공간 이름"
                     aria-label="새 공간 이름"
@@ -323,7 +374,7 @@ export function ProjectUploadDialog({
               {arrangement.unsorted.length > 0 && section('미분류', arrangement.unsorted, { kind: 'unsorted' }, { tone: 'text-[#b45309]' })}
               <div className="grid gap-4 sm:grid-cols-2">
                 {section('대표 사진', arrangement.cover ? [arrangement.cover] : [], { kind: 'cover' })}
-                {section('시공 전', arrangement.before ? [arrangement.before] : [], { kind: 'before' })}
+                {section('시공 전', arrangement.before ? [arrangement.before] : [], { kind: 'before' }, info ? undefined : { note: '비워 두면 지금 있는 시공 전 사진을 그대로 둡니다.' })}
               </div>
               {arrangement.rooms.map((room) =>
                 section(room.name, room.keys, { kind: 'room', name: room.name }, { numbered: true, onAdd: () => pickForRoom(room.name) }),
