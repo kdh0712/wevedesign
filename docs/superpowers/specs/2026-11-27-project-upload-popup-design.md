@@ -28,6 +28,8 @@ Builds on PR #71 (photos uploaded one by one). Calls marked *(my call)* were not
       without a folder;
     - [빼기] drops a photo from the upload.
 - [사진 다시 올리기] (replace) opens the same popup with the 사진 정리 tab only; the project's information is not changed.
+- 사진 크게 보기 (added later, below): a double click on a photo opens it large, from the picked file, to place it.
+- [완료] closes the popup and starts sending that folder's photos, shrunk, in the background (added later, below).
 - [올리기] is allowed when:
   - every new folder has 이름 and 공간 분류;
   - every folder has a 대표 사진 (or at least one photo, whose first becomes the cover as before);
@@ -69,3 +71,35 @@ Builds on PR #71 (photos uploaded one by one). Calls marked *(my call)* were not
 Left as they are:
 - photos cannot be reordered with the keyboard (drag or the space buttons only);
 - Escape closes the popup even while a dropdown in it is open. Nothing is lost: every change is already kept by the panel.
+
+## Large view and upload at [완료] (added 2026-11-27)
+
+Asked: "사진 정리하는 과정에서 사진을 더블 클릭하면 사진의 원본 사진을 크게 보고 공간을 분류하는 형식으로 변경해줘 그리고
+완료버튼을 누르면 그때 사진의 용량을 줄여서 업로드 해줘".
+
+- 사진 크게 보기 (`app/manager-weve-7519/project-photo-viewer.tsx`):
+  - a double click on a photo in the 사진 정리 tab opens it over the whole screen, from the picked file (not shrunk);
+  - the top bar says which photo of how many, its file name and where it is now (미분류 in orange);
+  - below: [대표 사진으로], [시공 전 사진으로], each space (numbered 1–9), [미분류로], [빼기], and a new space name with
+    [+ 공간 만들고 넣기];
+  - placing the photo moves on to the next photo in the order picked *(my call: so a folder can be sorted one photo after
+    another)*; on the last photo it stays;
+  - ← → move through the photos, number keys 1–9 pick a space, Esc closes the large view only (also while typing a name).
+- [완료] in the popup closes it and starts shrinking and sending that folder's placed photos (cover, 시공 전, spaces), three
+  at a time with the same retries as [올리기]. The folder row shows "사진 미리 올리는 중 n/N장", then "사진 N장 미리 올림 ✓"
+  or "사진 N장을 미리 올리지 못했습니다. [올리기] 때 다시 올립니다."
+  - Each photo is sent once: [올리기], and [완료] pressed again, reuse a photo already sent or being sent; a failed one is
+    tried again. At most three photos go at a time across both (`createLimiter` in `app/lib/upload-queue.ts`).
+  - The project is still made only at [올리기]. A photo sent ahead and then taken out ([빼기]) stays as an unused Sanity
+    asset, as a photo stored by a failed [올리기] did before *(my call)*.
+- Review findings (fixed):
+  - picking the place a photo is already in leaves it where it is (`isPhotoAt`); before, it went to the end of its room
+    and pressing 1 on each 거실 photo could reorder 거실;
+  - an early upload stops when its folder is taken out, the panel is closed ([취소]) or [완료] is pressed again: photos
+    already on their way finish, no more are sent;
+  - the count no longer counts the first room photo twice when there is no 대표 사진 (`placedPhotoKeys`);
+  - the large view takes the focus (keys never reach the tile under it), gives it back after [+ 공간 만들고 넣기] so
+    number keys work again, and starts with no photo picked in the grid.
+- Left as it is: adding or moving photos after [완료] and closing the popup with X leaves the old "미리 올림 ✓"; [올리기]
+  still sends whatever was not sent.
+

@@ -5,10 +5,11 @@
 // name on its own). Each folder is arranged in the 정보·사진 정리 popup: its basic information (new projects) and where
 // each photo goes. Specs: docs/superpowers/specs/2026-11-21-portfolio-project-editor-design.md §3.2,
 // 2026-11-27-project-upload-per-photo-design.md, 2026-11-27-project-upload-popup-design.md
-import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { UploadCloud } from 'lucide-react';
 import {
   arrangedPhotos,
+  placedPhotoKeys,
   arrangementProblem,
   initialArrangement,
   movePhotos,
@@ -18,7 +19,7 @@ import {
 import { folderInfoProblem, sameTitleProjects, uploadSummary, type FolderInfo, type UploadResult } from '../lib/project-upload-rules';
 import type { CategoryOption, ManagedProject } from './project-types';
 import { filesFromDrop, isPhotoFile, projectTitleOfPath, shrinkPhotoForUpload } from './project-upload-files';
-import { finalError, runUploadQueue } from '../lib/upload-queue';
+import { createLimiter, finalError, runUploadQueue } from '../lib/upload-queue';
 import { ProjectUploadDialog } from './project-upload-dialog';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
@@ -31,6 +32,8 @@ export type UploadRequest = { mode: 'new' } | { mode: 'replace'; project: Manage
 type Choice = string;
 // One photo of the upload: picked with its folder, or added in the popup to a room.
 type PickedPhoto = { key: string; file: File; folder: string };
+// A folder's photos sent ahead after [완료] in its popup: how many are stored, and how many could not be.
+type FolderPrefetch = { done: number; total: number; failed: number; running: boolean };
 
 const emptyInfo = (folder: string): FolderInfo => ({
   title: folder,
@@ -85,8 +88,19 @@ export function ProjectUploadPanel({
   const [progress, setProgress] = useState('');
   // Videos in the picked folders, left out.
   const [leftOut, setLeftOut] = useState(0);
-  // Photos already stored by an earlier try of this upload: pressing [올리기] again sends only the rest.
-  const storedAssets = useRef(new Map<File, string>());
+  // Each photo's upload, started at [완료] in its folder's popup or at [올리기], and shared by both: a photo is shrunk and
+  // sent once (a failed one is forgotten, so it is tried again). At most three go at a time, whoever started them.
+  const uploads = useRef(new Map<File, Promise<string>>());
+  const limiter = useRef(createLimiter(3));
+  const [prefetch, setPrefetch] = useState<Record<string, FolderPrefetch>>({});
+  // Each folder's latest run. An earlier run stops sending photos and reporting progress once a newer run starts, the
+  // folder is taken out, or the panel closes.
+  const prefetchRun = useRef(new Map<string, number>());
+  const prefetchSeq = useRef(0);
+  useEffect(() => {
+    const runs = prefetchRun.current;
+    return () => runs.clear();
+  }, []);
   const nextKey = useRef(0);
   const busyRef = useRef(false);
 
@@ -156,6 +170,8 @@ export function ProjectUploadPanel({
     setArrangements(without);
     setInfos(without);
     setChoices(without);
+    prefetchRun.current.delete(folder);
+    setPrefetch(without);
     if (openFolder === folder) setOpenFolder('');
   };
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -184,26 +200,58 @@ export function ProjectUploadPanel({
   // One photo: shrunk, then stored as a Sanity image (/api/manager/project-asset); its asset id comes back. A photo that
   // cannot be opened or stays too large is marked skip (left out, the rest goes on); a request the server refuses is not
   // tried again; a network or server failure is.
-  const uploadOnePhoto = async (file: File) => {
-    const stored = storedAssets.current.get(file);
-    if (stored) return stored;
-    let small: File;
-    try {
-      small = await shrinkPhotoForUpload(file);
-    } catch (caught) {
-      throw Object.assign(finalError(caught instanceof Error ? caught.message : '사진을 열 수 없습니다'), { skip: true });
+  const uploadOnePhoto = (file: File): Promise<string> => {
+    const existing = uploads.current.get(file);
+    if (existing) return existing;
+    const upload = limiter.current(async () => {
+      let small: File;
+      try {
+        small = await shrinkPhotoForUpload(file);
+      } catch (caught) {
+        throw Object.assign(finalError(caught instanceof Error ? caught.message : '사진을 열 수 없습니다'), { skip: true });
+      }
+      const body = new FormData();
+      body.append('file', small);
+      const response = await fetch('/api/manager/project-asset', { method: 'POST', headers: authHeaders(), body });
+      const data = await readJson<{ assetId?: string; error?: string }>(response);
+      if (!response.ok || !data.assetId) {
+        const message = data.error || '사진을 올리지 못했습니다.';
+        const refused = response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
+        throw refused ? finalError(message) : new Error(message);
+      }
+      return data.assetId;
+    });
+    uploads.current.set(file, upload);
+    upload.catch(() => {
+      if (uploads.current.get(file) === upload) uploads.current.delete(file);
+    });
+    return upload;
+  };
+  // [완료] in a folder's popup: its photos are shrunk and sent now, so [올리기] has little left to do.
+  const prefetchFolder = (folder: string, arrangement: PhotoArrangement) => {
+    const keys = placedPhotoKeys(arrangement);
+    const run = (prefetchSeq.current += 1);
+    prefetchRun.current.set(folder, run);
+    const current = () => prefetchRun.current.get(folder) === run;
+    const report = (state: FolderPrefetch | null) => {
+      if (current()) setPrefetch((all) => (state ? { ...all, [folder]: state } : Object.fromEntries(Object.entries(all).filter(([key]) => key !== folder))));
+    };
+    if (keys.length === 0) {
+      report(null);
+      return;
     }
-    const body = new FormData();
-    body.append('file', small);
-    const response = await fetch('/api/manager/project-asset', { method: 'POST', headers: authHeaders(), body });
-    const data = await readJson<{ assetId?: string; error?: string }>(response);
-    if (!response.ok || !data.assetId) {
-      const message = data.error || '사진을 올리지 못했습니다.';
-      const refused = response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429;
-      throw refused ? finalError(message) : new Error(message);
-    }
-    storedAssets.current.set(file, data.assetId);
-    return data.assetId;
+    report({ done: 0, total: keys.length, failed: 0, running: true });
+    const send = async (key: string) => {
+      // A stopped run sends no more photos (those already on their way finish).
+      if (!current()) throw finalError('미리 올리기를 멈췄습니다.');
+      return uploadOnePhoto((photoByKey.get(key) as PickedPhoto).file);
+    };
+    void runUploadQueue(keys, send, {
+      concurrency: 3,
+      retries: 2,
+      retryDelays: [1000, 3000],
+      onProgress: (done, total) => report({ done, total, failed: 0, running: true }),
+    }).then((result) => report({ done: keys.length, total: keys.length, failed: result.failed.length, running: false }));
   };
 
   const submit = async () => {
@@ -215,14 +263,7 @@ export function ProjectUploadPanel({
       // Only the photos placed in the popup go: each shrunk and uploaded on its own, three at a time, a failed one tried
       // twice more after 1 and 3 seconds. If one still fails, nothing is made and the error names it; [올리기] again
       // sends only the photos not stored yet. A photo that cannot be opened is left out with a note.
-      const keys = [
-        ...new Set(
-          folders.flatMap((folder) => {
-            const arranged = arrangedPhotos(arrangements[folder]);
-            return [arranged.coverKey, arranged.beforeKey, ...arranged.rooms.flatMap((room) => room.keys)].filter((key): key is string => Boolean(key));
-          }),
-        ),
-      ];
+      const keys = [...new Set(folders.flatMap((folder) => placedPhotoKeys(arrangements[folder])))];
       const nameOf = (key: string) => photoByKey.get(key)?.file.name || key;
       setProgress(`사진 올리는 중 0/${keys.length}장`);
       const uploaded = await runUploadQueue(keys, (key) => uploadOnePhoto((photoByKey.get(key) as PickedPhoto).file), {
@@ -351,6 +392,15 @@ export function ProjectUploadPanel({
                   </span>
                 </div>
                 <span className={`text-xs font-semibold ${problem ? 'text-[#b45309]' : 'text-[#277a46]'}`}>{problem || '준비됨 ✓'}</span>
+                {prefetch[folder] && (
+                  <span className={`text-xs ${prefetch[folder].failed > 0 ? 'text-[#b45309]' : 'text-[#60717d]'}`}>
+                    {prefetch[folder].running
+                      ? `사진 미리 올리는 중 ${prefetch[folder].done}/${prefetch[folder].total}장`
+                      : prefetch[folder].failed > 0
+                        ? `사진 ${prefetch[folder].failed}장을 미리 올리지 못했습니다. [올리기] 때 다시 시도합니다.`
+                        : `사진 ${prefetch[folder].total}장 미리 올림 ✓`}
+                  </span>
+                )}
                 {matches.length > 0 && (
                   <div className="grid gap-1.5 rounded-md border border-[#e2c06d] bg-[#fff8e6] p-2.5 text-[#5c4614]">
                     <span className="text-xs font-semibold">같은 이름의 시공 사례가 있습니다</span>
@@ -418,6 +468,10 @@ export function ProjectUploadPanel({
           onInfo={(next) => setInfos((current) => ({ ...current, [openFolder]: next }))}
           onAddPhotos={(files, roomName) => addPhotos(openFolder, files, roomName)}
           onClose={() => setOpenFolder('')}
+          onComplete={() => {
+            prefetchFolder(openFolder, arrangements[openFolder]);
+            setOpenFolder('');
+          }}
         />
       )}
     </div>

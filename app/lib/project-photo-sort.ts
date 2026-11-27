@@ -77,6 +77,14 @@ export function movePhotos(arrangement: PhotoArrangement, keys: readonly string[
   };
 }
 
+// Whether a photo is already in a place: picking that place again leaves it where it is (사진 크게 보기).
+export function isPhotoAt(arrangement: PhotoArrangement, key: string, place: PhotoPlace): boolean {
+  if (place.kind === 'cover') return arrangement.cover === key;
+  if (place.kind === 'before') return arrangement.before === key;
+  if (place.kind === 'unsorted') return arrangement.unsorted.includes(key);
+  return arrangement.rooms.some((room) => room.name === place.name && room.keys.includes(key));
+}
+
 // A drag: the photo goes just before the target photo, in the target's room (or 미분류; onto 대표 / 시공 전 it takes that
 // place).
 export function placePhotoBefore(arrangement: PhotoArrangement, key: string, targetKey: string): PhotoArrangement {
@@ -112,4 +120,11 @@ export function arrangementProblem(arrangement: PhotoArrangement): string | null
 export function arrangedPhotos(arrangement: PhotoArrangement): { coverKey: string | null; beforeKey: string | null; rooms: { name: string; keys: string[] }[] } {
   const rooms = arrangement.rooms.filter((room) => room.keys.length > 0).map((room) => ({ name: room.name, keys: [...room.keys] }));
   return { coverKey: arrangement.cover ?? rooms[0]?.keys[0] ?? null, beforeKey: arrangement.before, rooms };
+}
+
+// The photos a folder sends, each once: the cover (which may be the first room photo), the 시공 전 photo, the rooms' photos.
+export function placedPhotoKeys(arrangement: PhotoArrangement): string[] {
+  const arranged = arrangedPhotos(arrangement);
+  const keys = [arranged.coverKey, arranged.beforeKey, ...arranged.rooms.flatMap((room) => room.keys)];
+  return [...new Set(keys.filter((key): key is string => Boolean(key)))];
 }

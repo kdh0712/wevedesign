@@ -63,3 +63,31 @@ export async function runUploadQueue<T, R>(
   failed.sort((a, b) => a - b);
   return { results, failed, errors };
 }
+
+// At most `slots` tasks at a time, whoever starts them: the photos uploaded in the background after [완료] in the 정보·사진
+// 정리 popup and those of [올리기] share it, so the browser never sends more than a few at once.
+export function createLimiter(slots: number) {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  // A freed slot goes straight to the next waiting task, so a task starting meanwhile cannot take it too.
+  const acquire = () => {
+    if (running < slots) {
+      running += 1;
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => waiting.push(resolve));
+  };
+  const release = () => {
+    const next = waiting.shift();
+    if (next) next();
+    else running -= 1;
+  };
+  return async <R>(task: () => Promise<R>): Promise<R> => {
+    await acquire();
+    try {
+      return await task();
+    } finally {
+      release();
+    }
+  };
+}

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { finalError, runUploadQueue } from '../app/lib/upload-queue.ts';
+import { createLimiter, finalError, runUploadQueue } from '../app/lib/upload-queue.ts';
 
 // 시공 사례 나눠 올리기 (spec docs/superpowers/specs/2026-11-27-project-upload-per-photo-design.md): photos go a few at a time,
 // a failed one is tried again, and the screen shows how many are done.
@@ -70,4 +70,24 @@ test('runUploadQueue waits between tries (review finding: a short drop used up e
   assert.equal(times.length, 3);
   assert.ok(times[1] - times[0] >= 35, `first wait ${times[1] - times[0]}ms`);
   assert.ok(times[2] - times[1] >= 75, `second wait ${times[2] - times[1]}ms`);
+});
+
+test('createLimiter runs at most n tasks at once across every caller (사진 미리 올리기)', { timeout: 3000 }, async () => {
+  const limit = createLimiter(2);
+  let running = 0;
+  let max = 0;
+  const task = (ms, value) => limit(async () => {
+    running += 1;
+    max = Math.max(max, running);
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    running -= 1;
+    return value;
+  });
+  const results = await Promise.all([task(20, 'a'), task(10, 'b'), task(5, 'c'), task(5, 'd')]);
+  assert.deepEqual(results, ['a', 'b', 'c', 'd']);
+  assert.equal(max, 2);
+  // a failure frees its slot: with one slot, a leaked one would leave the next task waiting for ever
+  const single = createLimiter(1);
+  await assert.rejects(single(async () => { throw new Error('x'); }));
+  assert.equal(await single(async () => 'after'), 'after');
 });

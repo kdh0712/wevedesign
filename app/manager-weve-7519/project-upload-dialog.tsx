@@ -19,6 +19,7 @@ import {
 } from '../lib/project-photo-sort';
 import { folderInfoProblem, type FolderInfo } from '../lib/project-upload-rules';
 import type { CategoryOption } from './project-types';
+import { ProjectPhotoViewer } from './project-photo-viewer';
 
 export type DialogPhoto = { key: string; file: File };
 
@@ -39,6 +40,7 @@ export function ProjectUploadDialog({
   onInfo,
   onAddPhotos,
   onClose,
+  onComplete,
 }: {
   folderTitle: string;
   // The folder's photos (picked and added), by key.
@@ -54,6 +56,8 @@ export function ProjectUploadDialog({
   // Files picked with a room's [+ 사진 추가] or dropped from the computer, to go into that room ('' = 미분류).
   onAddPhotos: (files: File[], roomName: string) => void;
   onClose: () => void;
+  // [완료]: closes the popup and starts sending this folder's photos (shrunk) ahead of [올리기].
+  onComplete: () => void;
 }) {
   const [tab, setTab] = useState<Tab>(info ? 'info' : 'photos');
   const [selected, setSelected] = useState<string[]>([]);
@@ -62,6 +66,8 @@ export function ProjectUploadDialog({
   const [newRoom, setNewRoom] = useState('');
   const [roomError, setRoomError] = useState('');
   const [addTarget, setAddTarget] = useState('');
+  // The photo shown large (double click), '' while none is.
+  const [viewerKey, setViewerKey] = useState('');
   const addInput = useRef<HTMLInputElement>(null);
 
   // Thumbnails from the picked files themselves: made once per photo (an added photo does not reload the others) and
@@ -97,13 +103,14 @@ export function ProjectUploadDialog({
   }, []);
   const nameOf = useMemo(() => new Map(photos.map((photo) => [photo.key, photo.file.name])), [photos]);
 
+  // Esc closes the large view first, then the popup.
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !viewerKey) onClose();
     };
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
-  }, [onClose]);
+  }, [onClose, viewerKey]);
 
   // Every photo in the order it is shown, for Shift-click ranges.
   const shownOrder = [
@@ -191,6 +198,12 @@ export function ProjectUploadDialog({
       onDragOver={allowDrop}
       onDrop={(event) => dropOnPhoto(event, key, roomName)}
       onClick={(event) => click(event, key)}
+      // Two clicks toggle the selection twice (no change) and open the photo large.
+      onDoubleClick={() => {
+        // The clicks of the double click picked the tile; the viewer starts with nothing picked.
+        setSelected([]);
+        setViewerKey(key);
+      }}
       onKeyDown={(event) => {
         if (event.key === ' ' || event.key === 'Enter') {
           event.preventDefault();
@@ -324,6 +337,7 @@ export function ProjectUploadDialog({
           ) : (
             <div className="grid gap-4">
               <div className="sticky top-0 z-[1] -mx-1 flex flex-wrap items-center gap-1.5 bg-white px-1 pb-2">
+                <span className="w-full text-xs text-[#60717d]">사진을 두 번 누르면 크게 보면서 하나씩 공간을 정할 수 있습니다.</span>
                 <span className="mr-1 text-xs font-semibold text-[#60717d]">고른 {selected.length}장을</span>
                 <button type="button" disabled={selected.length !== 1} onClick={() => moveSelected({ kind: 'cover' })} className={`${chip} border-[#e7c37a] bg-[#fff8e8] text-[#8b6420]`}>
                   대표 사진으로
@@ -385,11 +399,22 @@ export function ProjectUploadDialog({
           )}
         </div>
 
+        {viewerKey && (
+          <ProjectPhotoViewer
+            photos={photos}
+            urls={urls}
+            arrangement={arrangement}
+            startKey={viewerKey}
+            onArrangement={onArrangement}
+            onClose={() => setViewerKey('')}
+          />
+        )}
+
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#edf2f5] px-5 py-3">
           <p className="text-xs text-[#60717d]">
             {[info ? (infoProblem ? `기본 정보: ${infoProblem}` : '기본 정보 됨') : '', photoProblem ? `사진: ${photoProblem}` : '사진 정리 됨'].filter(Boolean).join(' · ')}
           </p>
-          <button type="button" onClick={onClose} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
+          <button type="button" onClick={onComplete} className="rounded-md bg-[#171512] px-4 py-2 text-sm font-semibold text-white">
             완료
           </button>
         </div>
