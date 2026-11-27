@@ -339,19 +339,31 @@ export async function POST(request: Request) {
       if (body?.action === 'setOrder') {
         const ids = readProjectOrder(body?.ids);
         if (!Array.isArray(ids)) return NextResponse.json({ error: ids.error }, { status: 400 });
-        const found = await managerClient.fetch<string[]>('*[_type == "project" && _id in $ids]._id', { ids });
+        const found = await managerClient.fetch<Array<{ _id: string; displayOrder?: number }>>(
+          '*[_type == "project" && _id in $ids]{_id, displayOrder}',
+          { ids },
+        );
         if (found.length !== ids.length) {
           return NextResponse.json({ error: '시공 사례 목록이 바뀌었습니다. 새로고침한 뒤 다시 정해 주세요.' }, { status: 409 });
         }
-        const draftIds = await managerClient.fetch<string[]>('*[_id in $draftIds]._id', { draftIds: ids.map((id) => `drafts.${id}`) });
+        // Only projects whose number changes are written, and their updatedAt stays: a reorder is not a content change
+        // (sitemap lastModified, other tabs' save guard).
+        const current = new Map(found.map((project) => [project._id, project.displayOrder]));
+        const changed = ids.map((id, index) => ({ id, order: index + 1 })).filter(({ id, order }) => current.get(id) !== order);
+        if (changed.length === 0) return NextResponse.json({ ok: true, changed: 0 });
+        // Drafts are only visible in the raw perspective (the client's default since API v2025-02-19 is published).
+        const draftIds = await managerClient.fetch<string[]>(
+          '*[_id in $draftIds]._id',
+          { draftIds: changed.map(({ id }) => `drafts.${id}`) },
+          { perspective: 'raw' },
+        );
         const transaction = managerClient.transaction();
-        ids.forEach((id, index) => {
-          const order = { displayOrder: index + 1, updatedAt: now };
-          transaction.patch(id, (patch) => patch.set(order));
-          if (draftIds.includes(`drafts.${id}`)) transaction.patch(`drafts.${id}`, (patch) => patch.set(order));
-        });
+        for (const { id, order } of changed) {
+          transaction.patch(id, (patch) => patch.set({ displayOrder: order }));
+          if (draftIds.includes(`drafts.${id}`)) transaction.patch(`drafts.${id}`, (patch) => patch.set({ displayOrder: order }));
+        }
         await transaction.commit();
-        return NextResponse.json({ ok: true });
+        return NextResponse.json({ ok: true, changed: changed.length });
       }
 
       if (!body?.id) {
@@ -367,7 +379,8 @@ export async function POST(request: Request) {
 
       const projectId = String(body.id).replace(/^drafts\./, '');
       const draftId = `drafts.${projectId}`;
-      const draft = await managerClient.fetch('*[_id == $draftId][0]{_id}', { draftId });
+      // Drafts are only visible in the raw perspective (the client's default since API v2025-02-19 is published).
+      const draft = await managerClient.fetch('*[_id == $draftId][0]{_id}', { draftId }, { perspective: 'raw' });
 
       // 홈페이지에 공개 / 숨기기: publishing checks the stored project, whatever the screen thought.
       if (body?.action === 'setVisibility') {

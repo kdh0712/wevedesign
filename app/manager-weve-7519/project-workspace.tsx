@@ -164,7 +164,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       }
       await reload();
       setOrderDraft(null);
-      setStatus('시공 사례 순서를 저장했습니다. 홈페이지에는 1분 안에 반영됩니다.');
+      setStatus('시공 사례 순서를 저장했습니다. 홈페이지에는 몇 분 안에 반영됩니다.');
     });
 
   const set = (patch: Partial<ProjectFormInput>) => setForm((current) => (current ? { ...current, ...patch } : current));
@@ -210,7 +210,13 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       const response = await fetch('/api/manager/office', {
         method: 'POST',
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'project', id: selected._id, rev: selected._rev, data: next }),
+        // 보이는 순서 goes only when staff changed it here, so a form opened before [순서 저장] keeps the new order.
+        body: JSON.stringify({
+          type: 'project',
+          id: selected._id,
+          rev: selected._rev,
+          data: initial && next.displayOrder === initial.displayOrder ? { ...next, displayOrder: undefined } : next,
+        }),
       });
       const data = await readJson<{ error?: string }>(response);
       if (!response.ok) {
@@ -346,7 +352,19 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                   </button>
                 </span>
               </div>
-              <ol className="grid gap-1.5" aria-label="시공 사례 순서">
+              <ol
+                className="grid gap-1.5"
+                aria-label="시공 사례 순서"
+                // A drop in the gap between rows lands where the line shows.
+                onDragOver={(event) => {
+                  if (draggingId) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggingId && dropTargetId) moveTo(draggingId, dropTargetId);
+                  endDrag();
+                }}
+              >
                 {orderDraft.map((project, index) => {
                   const fromIndex = orderDraft.findIndex((item) => item._id === draggingId);
                   const isTarget = Boolean(draggingId) && dropTargetId === project._id && draggingId !== project._id;
@@ -368,6 +386,8 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                       }}
                       onDrop={(event) => {
                         event.preventDefault();
+                        // Handled here; the list's own drop (for the gaps) must not move it again.
+                        event.stopPropagation();
                         if (draggingId) moveTo(draggingId, project._id);
                         endDrag();
                       }}
@@ -422,7 +442,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
           <>
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs text-[#60717d]">홈페이지에 보이는 순서대로 나옵니다.</span>
-            <button type="button" onClick={startReorder} disabled={busy || projects.length < 2} className={secondaryButton}>
+            <button type="button" onClick={startReorder} disabled={busy || projects.length < 2 || Boolean(upload)} className={secondaryButton}>
               순서 변경
             </button>
           </div>

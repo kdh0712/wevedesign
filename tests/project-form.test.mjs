@@ -238,3 +238,12 @@ test('isSanityRevisionConflict recognises a save that lost to a newer version', 
   assert.equal(isSanityRevisionConflict(new Error('network down')), false);
   assert.equal(isSanityRevisionConflict(null), false);
 });
+
+test('buildProjectPatch leaves 보이는 순서 alone when the form does not send it (review finding: an old form put back an old order)', () => {
+  const { displayOrder, ...rest } = base();
+  const result = buildProjectPatch(rest);
+  assert.equal(result.ok, true);
+  assert.equal('displayOrder' in result.patch.set, false);
+  assert.equal(result.patch.unset.includes('displayOrder'), false);
+  assert.equal(displayOrder, '');
+});
