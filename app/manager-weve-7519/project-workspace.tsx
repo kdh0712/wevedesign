@@ -19,6 +19,7 @@ import {
 import { Panel } from './office-ui';
 import { afterUploadSelection, type UploadResult } from '../lib/project-upload-rules';
 import { moveInOrder, sortProjectsByOrder } from '../lib/project-order';
+import { splitTrashedProjects, type ProjectTrashAction } from '../lib/project-trash';
 import type { CategoryOption, ManagedProject } from './project-types';
 import { shrinkPhotoForUpload } from './project-upload-files';
 
@@ -28,9 +29,16 @@ const label = 'grid content-start gap-1 text-xs font-semibold text-[#4d5d66]';
 const narrowInput = 'rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
 const primaryButton = 'rounded-md bg-[#273541] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1d2833] disabled:opacity-50';
 const secondaryButton = 'rounded-md border border-[#d5dde2] bg-white px-3 py-1.5 text-xs font-semibold text-[#273541] hover:bg-[#f7fafb] disabled:opacity-50';
+const dangerButton = 'rounded-md border border-[#f0b9b4] bg-white px-3 py-1.5 text-xs font-semibold text-[#b42318] hover:bg-[#fff5f4] disabled:opacity-50';
 const LEAVE_CONFIRM = '저장하지 않은 변경이 있습니다. 버리고 넘어갈까요?';
 
-type VisibilityFilter = 'all' | 'visible' | 'hidden';
+// 'trash': the 휴지통 (spec docs/superpowers/specs/2026-11-27-project-trash-design.md).
+type VisibilityFilter = 'all' | 'visible' | 'hidden' | 'trash';
+
+const formatDeletedAt = (value?: string) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? new Intl.DateTimeFormat('ko-KR', { dateStyle: 'short', timeStyle: 'short' }).format(date) : '';
+};
 
 const isVisible = (project: ManagedProject) => project.isVisible !== false;
 
@@ -53,11 +61,15 @@ export type ProjectWorkspaceProps = {
   reload: () => Promise<void>;
   setStatus: (text: string) => void;
   setError: (text: string) => void;
+  // [완전히 삭제] in the 휴지통: 총괄 관리자 only, as the 휴지통 tab.
+  canDeleteForever?: boolean;
   // The upload panel (Task 7) for a new project or for one project's photos.
   renderUpload?: (request: { mode: 'new' } | { mode: 'replace'; project: ManagedProject }, close: (results?: UploadResult[]) => void) => ReactNode;
 };
 
-export function ProjectWorkspace({ projects, categories, authHeaders, reload, setStatus, setError, renderUpload }: ProjectWorkspaceProps) {
+export function ProjectWorkspace({ projects: allProjects, categories, authHeaders, reload, setStatus, setError, canDeleteForever = false, renderUpload }: ProjectWorkspaceProps) {
+  // Everything below works on the projects outside the 휴지통; the 휴지통 filter lists the others.
+  const { active: projects, trashed } = useMemo(() => splitTrashedProjects(allProjects), [allProjects]);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [visibility, setVisibility] = useState<VisibilityFilter>('all');
@@ -90,6 +102,14 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       return [project.title, project.location].some((value) => (value || '').toLowerCase().replace(/\s+/g, '').includes(q));
     });
   }, [projects, query, categoryFilter, visibility]);
+  const listedTrash = useMemo(() => {
+    const q = query.trim().toLowerCase().replace(/\s+/g, '');
+    return trashed.filter((project) => {
+      if (categoryFilter && project.categoryId !== categoryFilter) return false;
+      if (!q) return true;
+      return [project.title, project.location].some((value) => (value || '').toLowerCase().replace(/\s+/g, '').includes(q));
+    });
+  }, [trashed, query, categoryFilter]);
 
   const open = (project: ManagedProject | undefined) => {
     if (!project) {
@@ -265,6 +285,44 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
       }
       await reload();
       setStatus(next ? '홈페이지에 공개했습니다.' : '홈페이지에서 숨겼습니다.');
+    });
+
+  // [삭제] in the editor, and [되돌리기] / [완전히 삭제] in the 휴지통.
+  const changeTrash = (project: ManagedProject, action: ProjectTrashAction) =>
+    run(async () => {
+      setError('');
+      const name = `'${project.title || '이름 없음'}' 시공 사례`;
+      const question =
+        action === 'trash'
+          ? `${name}를 휴지통으로 옮길까요?\n홈페이지에서 사라지고, 목록의 [휴지통]에서 되돌릴 수 있습니다.${dirty ? '\n저장하지 않은 변경은 사라집니다.' : ''}`
+          : action === 'deleteForever'
+            ? `${name}를 완전히 삭제할까요?\n되돌릴 수 없습니다.`
+            : '';
+      if (question && !window.confirm(question)) return;
+      const response = await fetch('/api/manager/office', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'project', id: project._id, action }),
+      });
+      const data = await readJson<{ error?: string }>(response);
+      if (!response.ok) {
+        // Refused because another screen already changed it: the list catches up (and an editor on it closes).
+        if (response.status >= 400 && response.status < 500) {
+          if (selectedIdRef.current === project._id) open(undefined);
+          await reload();
+        }
+        setError(data.error || (action === 'trash' ? '휴지통으로 옮기지 못했습니다.' : action === 'restore' ? '되돌리지 못했습니다.' : '완전히 삭제하지 못했습니다.'));
+        return;
+      }
+      if (action === 'trash' && selectedIdRef.current === project._id) open(undefined);
+      await reload();
+      setStatus(
+        action === 'trash'
+          ? `${name}를 휴지통으로 옮겼습니다. 홈페이지에는 몇 분 안에 반영됩니다.`
+          : action === 'restore'
+            ? `${name}를 되돌렸습니다. ${isVisible(project) ? '홈페이지에는 몇 분 안에 다시 보입니다.' : '숨김 상태로 돌아왔습니다.'}`
+            : `${name}를 완전히 삭제했습니다.`,
+      );
     });
 
   const replacePhoto = (kind: 'main' | 'before', file: File | undefined) =>
@@ -469,6 +527,7 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
                 ['all', '전체'],
                 ['visible', '공개'],
                 ['hidden', '숨김'],
+                ['trash', `휴지통 ${trashed.length}`],
               ] as const
             ).map(([key, text]) => (
               <button
@@ -482,7 +541,48 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
               </button>
             ))}
           </div>
-          {listed.length === 0 ? (
+          {visibility === 'trash' ? (
+            <div className="grid gap-2">
+              <p className="text-xs text-[#60717d]">
+                휴지통의 시공 사례는 홈페이지에 보이지 않습니다. [되돌리기]를 누르면 지우기 전 상태(공개·숨김)로 돌아갑니다.
+                {!canDeleteForever && ' 완전히 삭제는 총괄 관리자만 할 수 있습니다.'}
+              </p>
+              {listedTrash.length === 0 ? (
+                <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">
+                  {trashed.length === 0 ? '휴지통이 비어 있습니다.' : '조건에 맞는 시공 사례가 없습니다.'}
+                </p>
+              ) : (
+                <ul className="grid gap-2" aria-label="휴지통">
+                  {listedTrash.map((project) => (
+                    <li key={project._id} className="flex items-center gap-3 rounded-md border border-[#e3e8eb] bg-[#fafbfc] px-3 py-2">
+                      {project.mainImage ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={project.mainImage} alt="" className="h-12 w-16 shrink-0 rounded object-cover opacity-60" />
+                      ) : (
+                        <span className="h-12 w-16 shrink-0 rounded bg-[#edf2f5]" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-[#4d5d66]">{project.title || '이름 없음'}</span>
+                        <span className="block truncate text-xs text-[#60717d]">
+                          {[formatDeletedAt(project.deletedAt), project.deletedBy].filter(Boolean).join(' · ')} 삭제 · 지우기 전 {isVisible(project) ? '공개' : '숨김'}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                        <button type="button" onClick={() => void changeTrash(project, 'restore')} disabled={busy} className={secondaryButton}>
+                          되돌리기
+                        </button>
+                        {canDeleteForever && (
+                          <button type="button" onClick={() => void changeTrash(project, 'deleteForever')} disabled={busy} className={dangerButton}>
+                            완전히 삭제
+                          </button>
+                        )}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : listed.length === 0 ? (
             <p className="rounded-md border border-dashed border-[#d5dde2] px-3 py-6 text-center text-sm text-[#60717d]">
               {projects.length === 0 ? '등록된 시공 사례가 없습니다.' : '조건에 맞는 시공 사례가 없습니다.'}
             </p>
@@ -776,7 +876,10 @@ export function ProjectWorkspace({ projects, categories, authHeaders, reload, se
               )}
             </section>
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              <button type="button" onClick={() => void changeTrash(selected, 'trash')} disabled={busy} className={dangerButton}>
+                삭제
+              </button>
               <button type="button" onClick={() => void save()} disabled={busy} className={primaryButton}>
                 저장
               </button>

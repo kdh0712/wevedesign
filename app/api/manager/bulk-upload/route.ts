@@ -96,7 +96,9 @@ async function replacePhotos(folder: FolderUpload, imageCount: number): Promise<
   if (!(await isSanityIdWritable(projectId, 'project'))) {
     return { projectTitle: folder.title, status: 'failed', reason: '바꿀 시공 사례를 찾을 수 없습니다.' };
   }
-  const storedProject = await managerClient.fetch<{ title?: string } | null>('*[_id == $id][0]{title}', { id: projectId });
+  const storedProject = await managerClient.fetch<{ title?: string; deletedAt?: string } | null>('*[_id == $id][0]{title, deletedAt}', { id: projectId });
+  // A project in the 휴지통 is not replaced (spec docs/superpowers/specs/2026-11-27-project-trash-design.md).
+  if (storedProject?.deletedAt) return { projectTitle: folder.title, status: 'failed', reason: '휴지통에 있는 시공 사례입니다. 되돌린 뒤 사진을 다시 올려 주세요.' };
   const title = storedProject?.title || folder.title;
   const patch = replacePhotoPatch({
     title,

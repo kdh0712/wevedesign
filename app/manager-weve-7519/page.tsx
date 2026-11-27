@@ -55,6 +55,7 @@ import { CustomerSiteTab, type ConsultationDraft } from './customer-site-tab';
 import type { CategoryOption, ManagedProject, ManagedProjectImage } from './project-types';
 import { ProjectUploadPanel } from './project-upload';
 import { ProjectWorkspace } from './project-workspace';
+import { isTrashedProject } from '../lib/project-trash';
 
 type ManagerApiResponse = {
   error?: string;
@@ -2835,6 +2836,7 @@ export default function ManagerPage() {
             {homepageTab === 'projects' && (
               <ProjectWorkspace
                 projects={officeData.projects}
+                canDeleteForever={currentUser?.role === 'admin'}
                 categories={officeData.categories}
                 authHeaders={() => authHeaders()}
                 reload={reloadProjects}
@@ -2843,7 +2845,7 @@ export default function ManagerPage() {
                 renderUpload={(request, close) => (
                   <ProjectUploadPanel
                     request={request}
-                    projects={officeData.projects}
+                    projects={officeData.projects.filter((project) => !isTrashedProject(project))}
                     categories={officeData.categories}
                     authHeaders={() => authHeaders()}
                     reload={reloadProjects}
