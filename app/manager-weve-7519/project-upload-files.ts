@@ -1,5 +1,6 @@
-// Browser helpers for 시공 사례 uploads: reading picked or dropped folders, previewing them per folder, and shrinking photos
-// so one upload request stays under Vercel's size limit. Moved from page.tsx.
+// Browser helpers for 시공 사례 uploads: reading picked or dropped folders, previewing them per folder, and shrinking each
+// photo before it is uploaded on its own (spec docs/superpowers/specs/2026-11-27-project-upload-per-photo-design.md).
+// Moved from page.tsx.
 
 export type PreviewProject = {
   title: string;
@@ -9,13 +10,13 @@ export type PreviewProject = {
   beforeCount: number;
 };
 
-export const UPLOAD_PRESETS = [
-  { maxWidth: 1920, quality: 0.82 },
-  { maxWidth: 1680, quality: 0.78 },
-  { maxWidth: 1440, quality: 0.74 },
-  { maxWidth: 1280, quality: 0.7 },
-];
-export const MAX_UPLOAD_BYTES = 3.8 * 1024 * 1024;
+// Each photo goes in a request of its own (Vercel caps one near 4.5MB; /api/manager/project-asset takes up to 4MB), so it
+// keeps 2048px at quality 0.85; one still over 3.9MB goes down to 1600px at 0.8.
+export const PHOTO_PRESET = { maxWidth: 2048, quality: 0.85 };
+const PHOTO_FALLBACK_PRESET = { maxWidth: 1600, quality: 0.8 };
+const MAX_PHOTO_BYTES = 3.9 * 1024 * 1024;
+// The image types /api/manager/project-asset stores. Others (HEIC from an iPhone, videos …) are left out of an upload.
+export const UPLOADABLE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 
 const COVER_NAME = /^(대표|메인|썸네일|커버|cover|main|thumbnail|thumb)$/i;
 const BEFORE_NAME = /^(시공전|공사전|before|비포)$/i;
@@ -126,28 +127,13 @@ function roomNameFromFile(fileName: string) {
   return (match ? match[1] : baseName).trim();
 }
 
-export async function prepareUploadFiles(files: File[]) {
-  let prepared = await compressFiles(files, UPLOAD_PRESETS[0]);
-
-  for (const preset of UPLOAD_PRESETS.slice(1)) {
-    const totalBytes = prepared.reduce((total, item) => total + item.file.size, 0);
-    if (totalBytes <= MAX_UPLOAD_BYTES) break;
-    prepared = await compressFiles(files, preset);
-  }
-
-  return prepared;
+// One photo, ready for its own upload request.
+export async function shrinkPhotoForUpload(file: File) {
+  const shrunk = await compressImage(file, PHOTO_PRESET);
+  return shrunk.size > MAX_PHOTO_BYTES ? compressImage(file, PHOTO_FALLBACK_PRESET) : shrunk;
 }
 
-async function compressFiles(files: File[], preset: { maxWidth: number; quality: number }) {
-  return Promise.all(
-    files.map(async (file) => ({
-      file: await compressImage(file, preset),
-      path: file.webkitRelativePath || file.name,
-    })),
-  );
-}
-
-export async function compressImage(file: File, preset: { maxWidth: number; quality: number } = UPLOAD_PRESETS[0]) {
+export async function compressImage(file: File, preset: { maxWidth: number; quality: number } = PHOTO_PRESET) {
   if (!file.type.startsWith('image/')) return file;
 
   const bitmap = await createImageBitmap(file);

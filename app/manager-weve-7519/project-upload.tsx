@@ -7,7 +7,8 @@ import { useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'rea
 import { UploadCloud } from 'lucide-react';
 import { sameTitleProjects, uploadSummary, type UploadResult } from '../lib/project-upload-rules';
 import type { CategoryOption, ManagedProject } from './project-types';
-import { MAX_UPLOAD_BYTES, buildPreview, filesFromDrop, prepareUploadFiles } from './project-upload-files';
+import { UPLOADABLE_IMAGE_TYPES, buildPreview, filesFromDrop, shrinkPhotoForUpload } from './project-upload-files';
+import { runUploadQueue } from '../lib/upload-queue';
 
 const input = 'w-full rounded-md border border-[#d5dde2] bg-white px-3 py-2 text-sm outline-none focus:border-[#273541]';
 const label = 'grid gap-1 text-xs font-semibold text-[#4d5d66]';
@@ -54,6 +55,8 @@ export function ProjectUploadPanel({
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
+  // Files of the picked folders that cannot be uploaded (HEIC, videos …), left out.
+  const [leftOut, setLeftOut] = useState(0);
   const busyRef = useRef(false);
 
   const folders = useMemo(() => buildPreview(files), [files]);
@@ -74,7 +77,9 @@ export function ProjectUploadPanel({
   const canUpload = files.length > 0 && unchosen.length === 0 && !tooManyFolders && !categoryMissing && !busy;
 
   const takeFiles = (picked: File[]) => {
-    setFiles(picked.filter((file) => file.type.startsWith('image/')));
+    const photos = picked.filter((file) => UPLOADABLE_IMAGE_TYPES.has(file.type));
+    setFiles(photos);
+    setLeftOut(picked.filter((file) => file.type.startsWith('image/') || file.type.startsWith('video/')).length - photos.length);
     setChoices({});
   };
   const onPick = (event: ChangeEvent<HTMLInputElement>) => {
@@ -90,34 +95,48 @@ export function ProjectUploadPanel({
     }
   };
 
+  // One photo: shrunk, then stored as a Sanity image (/api/manager/project-asset); its asset id comes back.
+  const uploadOnePhoto = async (file: File) => {
+    const body = new FormData();
+    body.append('file', await shrinkPhotoForUpload(file));
+    const response = await fetch('/api/manager/project-asset', { method: 'POST', headers: authHeaders(), body });
+    const data = await readJson<{ assetId?: string; error?: string }>(response);
+    if (!response.ok || !data.assetId) throw new Error(data.error || '사진을 올리지 못했습니다.');
+    return data.assetId;
+  };
+
   const submit = async () => {
     if (busyRef.current || !canUpload) return;
     busyRef.current = true;
     setBusy(true);
     setError('');
     try {
-      setProgress('사진을 웹용으로 줄이는 중');
-      const prepared = await prepareUploadFiles(files);
-      const totalBytes = prepared.reduce((total, item) => total + item.file.size, 0);
-      if (totalBytes > MAX_UPLOAD_BYTES) {
-        setError('사진 용량이 아직 큽니다. 한 번에 올릴 사진 수를 줄이거나 원본 사진을 조금 더 작게 저장한 뒤 다시 시도해 주세요.');
+      // Each photo is shrunk and uploaded on its own, three at a time (spec 2026-11-27-project-upload-per-photo-design.md),
+      // so there is no limit on how many a folder holds. A photo that fails is tried twice more; if one still fails, no
+      // project is made or changed, and pressing [올리기] again uploads them again (Sanity keeps one asset per photo).
+      setProgress(`사진 올리는 중 0/${files.length}장`);
+      const uploaded = await runUploadQueue(files, (file) => uploadOnePhoto(file), {
+        concurrency: 3,
+        retries: 2,
+        onProgress: (done, total) => setProgress(`사진 올리는 중 ${done}/${total}장`),
+      });
+      if (uploaded.failed.length > 0) {
+        setError(`사진 ${uploaded.failed.length}장을 올리지 못했습니다. 인터넷 연결을 확인한 뒤 [올리기]를 다시 눌러 주세요.`);
         return;
       }
+      const photos = files.map((file, index) => ({ path: file.webkitRelativePath || file.name, assetId: uploaded.results[index] || '' }));
 
-      const body = new FormData();
-      prepared.forEach((item) => body.append('files', item.file));
-      body.append('paths', JSON.stringify(prepared.map((item) => item.path)));
-      body.append('targets', JSON.stringify(targets));
-      if (needsCategory) {
-        if (newCategory.trim()) body.append('category', newCategory.trim());
-        else {
-          body.append('categoryId', categoryId);
-          body.append('category', categories.find((category) => category._id === categoryId)?.title || '');
-        }
-      }
-
-      setProgress('올리는 중');
-      const response = await fetch('/api/manager/bulk-upload', { method: 'POST', headers: authHeaders(), body });
+      setProgress('시공 사례 만드는 중');
+      const category = !needsCategory
+        ? {}
+        : newCategory.trim()
+          ? { category: newCategory.trim() }
+          : { categoryId, category: categories.find((item) => item._id === categoryId)?.title || '' };
+      const response = await fetch('/api/manager/bulk-upload', {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photos, targets: JSON.stringify(targets), ...category }),
+      });
       const data = await readJson<{ results?: UploadResult[]; error?: string }>(response);
       if (!response.ok) {
         setError(data.error || '올리지 못했습니다.');
@@ -177,6 +196,9 @@ export function ProjectUploadPanel({
         <span className="mt-1 text-xs text-[#60717d]">대표·cover → 대표 사진, 시공전·before → 시공 전 사진, 거실1·주방2 → 공간별 묶음과 순서</span>
         <input type="file" multiple accept="image/*" className="hidden" onChange={onPick} disabled={busy} {...{ webkitdirectory: '', directory: '' }} />
       </label>
+      {leftOut > 0 && (
+        <p className="text-xs text-[#8a6215]">올릴 수 없는 파일 {leftOut}개(HEIC 사진·동영상 등)는 뺐습니다. HEIC 사진은 JPG로 바꿔 올려 주세요.</p>
+      )}
 
       {folders.length > 0 && (
         <ul className="grid gap-2">

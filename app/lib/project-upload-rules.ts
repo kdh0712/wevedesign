@@ -107,3 +107,89 @@ export function afterUploadSelection(input: {
   if (created.length === 1) return { openProjectId: created[0].projectId || '', showHidden };
   return { openProjectId: input.currentSelectedId, showHidden };
 }
+
+// --- 나눠 올리기 (spec docs/superpowers/specs/2026-11-27-project-upload-per-photo-design.md) -------------------------------
+// Each photo is uploaded on its own first (/api/manager/project-asset); the upload request then carries only each photo's
+// folder path and asset id, and these rules turn them into projects, as the file-name rules always did.
+
+export type UploadedPhoto = { path: string; assetId: string };
+export type PhotoKind = 'cover' | 'before' | 'detail';
+export type ParsedUploadPath = { projectTitle: string; kind: PhotoKind; roomType: string; order: number };
+export type RoomPhotos = { roomType: string; photos: (UploadedPhoto & ParsedUploadPath)[] };
+export type ProjectPhotoPlan = {
+  // 대표 (or the first detail photo when there is none); null only when the folder has no usable photo.
+  cover: (UploadedPhoto & ParsedUploadPath) | null;
+  before: (UploadedPhoto & ParsedUploadPath) | null;
+  groups: RoomPhotos[];
+};
+
+const COVER_NAME = /^(대표|메인|썸네일|커버|cover|main|thumbnail|thumb)$/i;
+const BEFORE_NAME = /^(시공전|공사전|before|비포)$/i;
+const koreanOrder = new Intl.Collator('ko-KR', { numeric: true, sensitivity: 'base' });
+const stripExtension = (fileName: string) => fileName.replace(/\.[^.]+$/, '');
+
+// The folder that holds the photo is its project; 대표 / 시공전 by name; else the room and its number (거실12 → 거실, 12).
+export function parseUploadPath(path: string): ParsedUploadPath {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  const fileName = parts[parts.length - 1] || path;
+  const projectTitle = parts.length > 1 ? parts[parts.length - 2] : stripExtension(fileName);
+  const baseName = stripExtension(fileName).trim();
+  const normalized = baseName.toLowerCase().replace(/\s+/g, '');
+  if (COVER_NAME.test(normalized)) return { projectTitle, kind: 'cover', roomType: '대표', order: 1 };
+  if (BEFORE_NAME.test(normalized)) return { projectTitle, kind: 'before', roomType: '시공 전', order: 1 };
+  const match = baseName.match(/^(.*?)[\s_-]*(\d+)$/);
+  return { projectTitle, kind: 'detail', roomType: (match ? match[1] : baseName).trim() || '상세', order: match ? Number(match[2]) : 1 };
+}
+
+// Folders and rooms in Korean order with numbers read as numbers; photos of a room by their number, then their path.
+export function planProjectPhotos(photos: readonly UploadedPhoto[]): Map<string, ProjectPhotoPlan> {
+  const byProject = new Map<string, (UploadedPhoto & ParsedUploadPath)[]>();
+  for (const photo of photos) {
+    const parsed = { ...photo, ...parseUploadPath(photo.path) };
+    const key = parsed.projectTitle.trim() || '기타';
+    byProject.set(key, [...(byProject.get(key) || []), parsed]);
+  }
+  const plan = new Map<string, ProjectPhotoPlan>();
+  for (const projectTitle of [...byProject.keys()].sort((a, b) => koreanOrder.compare(a, b))) {
+    const items = byProject.get(projectTitle) || [];
+    const details = items.filter((item) => item.kind === 'detail');
+    const rooms = new Map<string, (UploadedPhoto & ParsedUploadPath)[]>();
+    for (const item of details) rooms.set(item.roomType, [...(rooms.get(item.roomType) || []), item]);
+    const groups = [...rooms.keys()]
+      .sort((a, b) => koreanOrder.compare(a, b))
+      .map((roomType) => ({
+        roomType,
+        photos: [...(rooms.get(roomType) || [])].sort((a, b) => a.order - b.order || koreanOrder.compare(a.path, b.path)),
+      }));
+    plan.set(projectTitle, {
+      cover: items.find((item) => item.kind === 'cover') || details[0] || null,
+      before: items.find((item) => item.kind === 'before') || null,
+      groups,
+    });
+  }
+  return plan;
+}
+
+// The project's galleryGroups: one group per room, one image per photo, captioned with its file name.
+export function galleryGroupsFromPhotos(projectTitle: string, groups: readonly RoomPhotos[]) {
+  return groups.map((group, groupIndex) => ({
+    _type: 'object',
+    _key: `group-${groupIndex + 1}`,
+    roomType: group.roomType,
+    title: group.roomType,
+    displayOrder: groupIndex + 1,
+    images: group.photos.map((photo, imageIndex) => ({
+      _type: 'image',
+      _key: `image-${groupIndex + 1}-${imageIndex + 1}`,
+      asset: { _type: 'reference', _ref: photo.assetId },
+      caption: stripExtension(photo.path.split(/[\\/]+/).filter(Boolean).pop() || photo.path),
+      displayOrder: photo.order || imageIndex + 1,
+      alt: `${projectTitle} ${group.roomType}`,
+    })),
+  }));
+}
+
+// A Sanity image asset id: image-<hash>-<width>x<height>-<format>.
+export function isImageAssetId(value: unknown): value is string {
+  return typeof value === 'string' && /^image-[A-Za-z0-9]+-\d+x\d+-[a-z0-9]+$/.test(value);
+}
