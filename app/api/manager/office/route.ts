@@ -11,6 +11,7 @@ import { deleteSiteNotesOfSite } from '../_site-notes';
 import { deleteReceiptsOfSite } from '../_site-receipts';
 import { customerDeleteBlockedMessage, pickSitesToSync } from '../../../lib/customer-match';
 import { buildProjectPatch, isSanityRevisionConflict, publishBlockReason } from '../../../lib/project-form';
+import { readProjectOrder } from '../../../lib/project-order';
 import {
   canUseFirestoreForRequest,
   deleteOfficeRecordFromFirestore,
@@ -332,6 +333,26 @@ export async function POST(request: Request) {
 
       const sanityError = assertSanityWriteConfigured();
       if (sanityError) return sanityError;
+
+      // [순서 저장] (spec docs/superpowers/specs/2026-11-27-project-order-drag-design.md): 보이는 순서 1, 2, 3 … from the
+      // top, on every project and its draft, in one transaction.
+      if (body?.action === 'setOrder') {
+        const ids = readProjectOrder(body?.ids);
+        if (!Array.isArray(ids)) return NextResponse.json({ error: ids.error }, { status: 400 });
+        const found = await managerClient.fetch<string[]>('*[_type == "project" && _id in $ids]._id', { ids });
+        if (found.length !== ids.length) {
+          return NextResponse.json({ error: '시공 사례 목록이 바뀌었습니다. 새로고침한 뒤 다시 정해 주세요.' }, { status: 409 });
+        }
+        const draftIds = await managerClient.fetch<string[]>('*[_id in $draftIds]._id', { draftIds: ids.map((id) => `drafts.${id}`) });
+        const transaction = managerClient.transaction();
+        ids.forEach((id, index) => {
+          const order = { displayOrder: index + 1, updatedAt: now };
+          transaction.patch(id, (patch) => patch.set(order));
+          if (draftIds.includes(`drafts.${id}`)) transaction.patch(`drafts.${id}`, (patch) => patch.set(order));
+        });
+        await transaction.commit();
+        return NextResponse.json({ ok: true });
+      }
 
       if (!body?.id) {
         const record = await managerClient.create({
