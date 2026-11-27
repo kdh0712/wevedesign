@@ -207,7 +207,11 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
     setPicked([]);
   };
   const togglePick = (id: string) => setPicked((current) => (current.includes(id) ? current.filter((each) => each !== id) : [...current, id]));
-  const toggleAllShown = () => setPicked(allShownPicked ? [] : shownForPicking.map((project) => project._id));
+  // Ticks or clears the rows shown; a tick hidden by a search stays as it is.
+  const toggleAllShown = () => {
+    const shownIds = new Set(shownForPicking.map((project) => project._id));
+    setPicked((current) => (allShownPicked ? current.filter((id) => !shownIds.has(id)) : [...new Set([...current, ...shownIds])]));
+  };
 
   // [휴지통으로 옮기기] in the list, [되돌리기] / [완전히 삭제] in the 휴지통, on the picked projects at once.
   const changeTrashMany = (action: ProjectTrashAction) =>
@@ -578,7 +582,6 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
                 type="button"
                 onClick={picking ? endPicking : startPicking}
                 disabled={busy || Boolean(upload) || (!picking && allProjects.length === 0)}
-                aria-pressed={picking}
                 className={secondaryButton}
               >
                 {picking ? '선택 끝내기' : '선택'}
@@ -748,7 +751,8 @@ export function ProjectWorkspace({ projects: allProjects, categories, authHeader
                     휴지통으로 옮기기
                   </button>
                 )}
-                <button type="button" onClick={() => setPicked([])} disabled={busy || pickedShown.length === 0} className={secondaryButton}>
+                {/* Clears every tick, also one a search hides. */}
+                <button type="button" onClick={() => setPicked([])} disabled={busy || picked.length === 0} className={secondaryButton}>
                   선택 해제
                 </button>
               </span>

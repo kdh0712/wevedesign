@@ -47,3 +47,16 @@ Chosen: "[선택] 버튼". Calls marked *(my call)* were not discussed and may b
 - One at a time ([삭제] in the editor, the row buttons of the 휴지통) is unchanged.
 - The rules are in `app/lib/project-trash.ts`, tested in `tests/project-trash.test.mjs`, including that the batch branch
   comes before the create branch.
+
+## Review findings
+
+Nothing Critical or Important. Fixed:
+- "보이는 N개 모두 선택" ticks or clears only the rows shown; a tick a search hides stays.
+- [선택 해제] clears every tick, also one a search hides (before, it was greyed out when no shown row was ticked).
+- [선택] no longer has `aria-pressed`: its label already changes to [선택 끝내기].
+- The id test also tries a single id.
+
+Left as they are:
+- If someone publishes or discards a draft in Sanity Studio between the read and the write, the whole batch fails with
+  Sanity's error and nothing changes; a retry works. One project at a time has the same race.
+- The route's transaction (drafts, who deleted it) has no test of its own; it is the single-project code applied to a list.

@@ -76,6 +76,7 @@ test('the homepage, the manager list and the CLI leave trashed 시공 사례 out
 // [선택] (spec docs/superpowers/specs/2026-11-27-project-trash-bulk-design.md): several at once.
 
 test('readProjectTrashIds takes 1 to 200 different project ids and nothing else', () => {
+  assert.deepEqual(readProjectTrashIds(['a']), ['a']);
   assert.deepEqual(readProjectTrashIds(['a', 'b-1.x']), ['a', 'b-1.x']);
   assert.deepEqual(readProjectTrashIds([]), { error: '고른 시공 사례가 없습니다.' });
   for (const bad of ['a', ['a', 'a'], ['drafts.a'], [1], ['a b'], [''], null]) {
