@@ -1,13 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  findUploadTarget,
-  galleryGroupsFromPhotos,
+  folderInfoProblem,
+  folderProjectInput,
+  galleryGroupsFromFolder,
+  readFolderUploadBody,
   isImageAssetId,
   parseUploadPath,
-  parseUploadTargets,
-  planProjectPhotos,
-  readBulkUploadBody,
   newProjectId,
   newProjectFields,
   replacePhotoPatch,
@@ -18,18 +17,6 @@ import {
 // Folder uploads of 시공 사례: staff choose per folder whether it makes a new project or replaces one project's photos.
 
 const groups = [{ _type: 'object', _key: 'g', title: '거실', images: [] }];
-
-test('parseUploadTargets keeps only new and replace:<id> per folder', () => {
-  const targets = parseUploadTargets('{"A":"new","B":"replace:project-abc","C":"replace:","D":"x","E":5}');
-  assert.deepEqual(targets.get('A'), { mode: 'new' });
-  assert.deepEqual(targets.get('B'), { mode: 'replace', projectId: 'project-abc' });
-  assert.equal(targets.has('C'), false);
-  assert.equal(targets.has('D'), false);
-  assert.equal(targets.has('E'), false);
-  assert.equal(parseUploadTargets('not json').size, 0);
-  assert.equal(parseUploadTargets(null).size, 0);
-  assert.equal(parseUploadTargets('["new"]').size, 0);
-});
 
 test('newProjectId is project- plus 24 random hex characters', () => {
   assert.equal(newProjectId('0123456789abcdef01234567'), 'project-0123456789abcdef01234567');
@@ -121,43 +108,6 @@ test('parseUploadPath reads the folder, 대표 / 시공전 and the room with its
   assert.deepEqual(parseUploadPath('사진\\평촌\\욕실2.jpg'), { projectTitle: '평촌', kind: 'detail', roomType: '욕실', order: 2 });
 });
 
-test('planProjectPhotos sorts each folder into its cover, its 시공 전 photo and room groups in number order', () => {
-  const plan = planProjectPhotos([
-    photo('A/거실10.jpg', 'image-a10'),
-    photo('A/주방1.jpg', 'image-k1'),
-    photo('A/거실2.jpg', 'image-a2'),
-    photo('A/대표.jpg', 'image-c'),
-    photo('A/시공전.jpg', 'image-b'),
-    photo('B/욕실1.jpg', 'image-y1'),
-  ]);
-  assert.deepEqual([...plan.keys()], ['A', 'B']);
-  const a = plan.get('A');
-  assert.equal(a.cover.assetId, 'image-c');
-  assert.equal(a.before.assetId, 'image-b');
-  assert.deepEqual(a.groups.map((group) => [group.roomType, group.photos.map((item) => item.assetId)]), [['거실', ['image-a2', 'image-a10']], ['주방', ['image-k1']]]);
-  // A folder without a 대표 photo takes its first detail photo as the cover.
-  assert.equal(plan.get('B').cover.assetId, 'image-y1');
-  assert.equal(plan.get('B').before, null);
-});
-
-test('galleryGroupsFromPhotos makes the Sanity groups with one image per photo', () => {
-  const plan = planProjectPhotos([photo('A/거실2.jpg', 'image-a2'), photo('A/거실1.jpg', 'image-a1'), photo('A/주방1.jpg', 'image-k1')]);
-  const groups = galleryGroupsFromPhotos('평촌 34평', plan.get('A').groups);
-  assert.equal(groups.length, 2);
-  assert.deepEqual(groups[0], {
-    _type: 'object',
-    _key: 'group-1',
-    roomType: '거실',
-    title: '거실',
-    displayOrder: 1,
-    images: [
-      { _type: 'image', _key: 'image-1-1', asset: { _type: 'reference', _ref: 'image-a1' }, caption: '거실1', displayOrder: 1, alt: '평촌 34평 거실' },
-      { _type: 'image', _key: 'image-1-2', asset: { _type: 'reference', _ref: 'image-a2' }, caption: '거실2', displayOrder: 2, alt: '평촌 34평 거실' },
-    ],
-  });
-  assert.equal(groups[1]._key, 'group-2');
-});
-
 test('isImageAssetId accepts only Sanity image asset ids', () => {
   assert.equal(isImageAssetId('image-3f2a9c0e1b7d4a6f8e5c2b1a0d9e8f7c6b5a4d3e-2048x1536-jpg'), true);
   assert.equal(isImageAssetId('image-x'), false);
@@ -165,24 +115,77 @@ test('isImageAssetId accepts only Sanity image asset ids', () => {
   assert.equal(isImageAssetId(5), false);
 });
 
-test('readBulkUploadBody takes photos, targets and the category, and refuses a body with any bad photo (review finding)', () => {
-  const asset = 'image-3f2a9c0e1b7d4a6f8e5c2b1a0d9e8f7c6b5a4d3e-2048x1536-jpg';
-  assert.deepEqual(readBulkUploadBody({ photos: [{ path: 'A/거실1.jpg', assetId: asset }], targets: '{"A":"new"}', categoryId: 'c1', category: '아파트' }), {
-    photos: [{ path: 'A/거실1.jpg', assetId: asset }],
-    targets: '{"A":"new"}',
-    categoryId: 'c1',
-    category: '아파트',
-  });
-  // targets may come as an object too
-  assert.equal(readBulkUploadBody({ photos: [{ path: 'A/1.jpg', assetId: asset }], targets: { A: 'new' } }).targets, '{"A":"new"}');
-  assert.deepEqual(readBulkUploadBody(null), { error: '요청 형식이 올바르지 않습니다.' });
-  assert.deepEqual(readBulkUploadBody({ photos: [] }), { error: '올린 사진이 없습니다.' });
-  assert.deepEqual(readBulkUploadBody({ photos: [{ path: 'A/1.jpg', assetId: asset }, { path: 'A/2.jpg', assetId: 'nope' }] }), { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' });
+// 정보·사진 정리 팝업 (spec docs/superpowers/specs/2026-11-27-project-upload-popup-design.md): each folder arrives arranged.
+const A = (n) => `image-${'a'.repeat(39)}${n}-2048x1536-jpg`;
+const folder = (extra = {}) => ({
+  title: '평촌 34평',
+  target: 'new',
+  info: { title: ' 평촌 어바인퍼스트 34평 ', categoryId: 'cat-1', location: '안양', area: '34', year: '2026', materials: '', blogUrl: '', description: '', featured: true },
+  coverAssetId: A(1),
+  beforeAssetId: null,
+  groups: [{ roomType: '거실', photos: [{ assetId: A(2), caption: '거실1' }, { assetId: A(3), caption: 'IMG_2041' }] }],
+  ...extra,
 });
 
-test('findUploadTarget also finds a folder whose name has spaces around it (bug from before: such a folder was skipped)', () => {
-  const targets = parseUploadTargets('{" 평촌 34평 ":"new","B":"replace:project-b"}');
-  assert.deepEqual(findUploadTarget(targets, '평촌 34평'), { mode: 'new' });
-  assert.deepEqual(findUploadTarget(targets, 'B'), { mode: 'replace', projectId: 'project-b' });
-  assert.equal(findUploadTarget(targets, 'C'), undefined);
+test('readFolderUploadBody takes arranged folders and every asset id they use', () => {
+  const read = readFolderUploadBody({ folders: [folder()] });
+  assert.equal(read.folders.length, 1);
+  assert.deepEqual(read.assetIds.sort(), [A(1), A(2), A(3)].sort());
+  assert.deepEqual(readFolderUploadBody({ folders: [] }), { error: '올릴 시공 사례가 없습니다.' });
+  assert.deepEqual(readFolderUploadBody(null), { error: '요청 형식이 올바르지 않습니다.' });
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ coverAssetId: 'x' })] }), { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' });
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ target: 'maybe' })] }), { error: '올릴 방법이 정해지지 않은 폴더가 있습니다.' });
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ groups: [{ roomType: '', photos: [] }] })] }), { error: '공간 이름은 1~20자로 입력해 주세요.' });
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ info: undefined })] }), { error: '새 시공 사례의 기본 정보가 없습니다.' });
+  // a replace needs no information
+  assert.equal(readFolderUploadBody({ folders: [folder({ target: 'replace:project-a', info: undefined })] }).folders[0].target.mode, 'replace');
+});
+
+test('folderProjectInput turns a new folder into the editor form, so the same rules save it', () => {
+  const read = readFolderUploadBody({ folders: [folder()] });
+  const input = folderProjectInput(read.folders[0], 'cat-1');
+  assert.equal(input.title, ' 평촌 어바인퍼스트 34평 ');
+  assert.equal(input.categoryId, 'cat-1');
+  assert.equal(input.featured, true);
+  assert.equal(input.mainImageAssetId, A(1));
+  assert.equal(input.beforeImageAssetId, '');
+  assert.deepEqual(input.galleryGroups, [
+    { key: 'group-1', title: '거실', roomType: '거실', images: [{ key: 'image-1-1', assetId: A(2), caption: '거실1' }, { key: 'image-1-2', assetId: A(3), caption: 'IMG_2041' }] },
+  ]);
+});
+
+test('galleryGroupsFromFolder writes a replacement’s groups in the order staff arranged', () => {
+  const read = readFolderUploadBody({ folders: [folder({ target: 'replace:project-a', info: undefined })] });
+  assert.deepEqual(galleryGroupsFromFolder('평촌 34평', read.folders[0].groups), [
+    {
+      _type: 'object',
+      _key: 'group-1',
+      roomType: '거실',
+      title: '거실',
+      displayOrder: 1,
+      images: [
+        { _type: 'image', _key: 'image-1-1', asset: { _type: 'reference', _ref: A(2) }, caption: '거실1', displayOrder: 1, alt: '평촌 34평 거실' },
+        { _type: 'image', _key: 'image-1-2', asset: { _type: 'reference', _ref: A(3) }, caption: 'IMG_2041', displayOrder: 2, alt: '평촌 34평 거실' },
+      ],
+    },
+  ]);
+});
+
+test('folderInfoProblem checks a new folder’s information with the editor’s rules', () => {
+  const info = { title: '평촌 34평', categoryId: 'cat-1', newCategory: '', location: '', area: '', year: '', materials: '', blogUrl: '', description: '', featured: false };
+  assert.equal(folderInfoProblem(info), null);
+  assert.equal(folderInfoProblem({ ...info, categoryId: '', newCategory: '복층' }), null);
+  assert.equal(folderInfoProblem({ ...info, title: ' ' }), '이름을 입력해 주세요.');
+  assert.equal(folderInfoProblem({ ...info, categoryId: '' }), '공간 분류를 골라 주세요.');
+  assert.equal(folderInfoProblem({ ...info, area: '삼십' }), '평수는 0보다 큰 숫자로 입력해 주세요.');
+  assert.equal(folderInfoProblem({ ...info, year: '26' }), '시공 연도는 4자리로 입력해 주세요.');
+});
+
+test('parseUploadPath reads a Windows bulk-rename number in brackets (review finding)', () => {
+  assert.deepEqual(parseUploadPath('평촌/거실 (2).jpg'), { projectTitle: '평촌', kind: 'detail', roomType: '거실', order: 2 });
+  assert.deepEqual(parseUploadPath('평촌/주방(10).jpg'), { projectTitle: '평촌', kind: 'detail', roomType: '주방', order: 10 });
+});
+
+test('readFolderUploadBody refuses a room with no photos (review finding)', () => {
+  assert.deepEqual(readFolderUploadBody({ folders: [folder({ groups: [{ roomType: '거실', photos: [] }] })] }), { error: '사진 정보가 올바르지 않습니다. 다시 올려 주세요.' });
 });
